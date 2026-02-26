@@ -54,6 +54,7 @@
 #include <tvm/tir/stmt.h>
 #include <tvm/tir/stmt_functor.h>
 #include <tvm/tir/transform.h>
+#include <tvm/ffi/reflection/registry.h>
 
 #include <unordered_set>
 #include <utility>
@@ -155,7 +156,7 @@ class ReductionInitHoister : public StmtMutator {
       // Remove the init from the body - only keep the compute
       Stmt body_without_init = RemoveInitFromBody(new_body);
       Stmt new_for = For(op->loop_var, op->min, op->extent, op->kind, body_without_init,
-                         op->thread_binding, op->annotations, op->span);
+                         op->thread_binding, op->annotations, std::nullopt, op->span);
 
       if (info.condition_vars.empty()) {
         // All condition variables have been processed - hoist the init completely
@@ -173,9 +174,9 @@ class ReductionInitHoister : public StmtMutator {
     // No pattern found, return with updated body
     if (!new_body.same_as(op->body)) {
       return For(op->loop_var, op->min, op->extent, op->kind, new_body, op->thread_binding,
-                 op->annotations, op->span);
+                 op->annotations, std::nullopt, op->span);
     }
-    return GetRef<Stmt>(op);
+    return ffi::GetRef<Stmt>(op);
   }
 
  private:
@@ -240,7 +241,7 @@ class ReductionInitHoister : public StmtMutator {
           if (seq->seq.size() == 2) {
             return seq->seq[1];
           } else {
-            Array<Stmt> new_seq;
+            ffi::Array<Stmt> new_seq;
             for (size_t i = 1; i < seq->seq.size(); ++i) {
               new_seq.push_back(seq->seq[i]);
             }
@@ -259,7 +260,7 @@ class ReductionInitHoister : public StmtMutator {
    */
   Stmt InsertInitInBody(const Stmt& stmt, const Stmt& init) {
     if (const auto* seq = stmt.as<SeqStmtNode>()) {
-      Array<Stmt> new_seq;
+      ffi::Array<Stmt> new_seq;
       new_seq.push_back(init);
       for (const auto& s : seq->seq) {
         new_seq.push_back(s);
@@ -275,10 +276,10 @@ class ReductionInitHoister : public StmtMutator {
   PrimExpr RebuildCondition(const std::unordered_set<const VarNode*>& vars) {
     ICHECK(!vars.empty());
     std::vector<const VarNode*> sorted_vars(vars.begin(), vars.end());
-    Var first_var = GetRef<Var>(sorted_vars[0]);
+    Var first_var = ffi::GetRef<Var>(sorted_vars[0]);
     PrimExpr cond = equal(first_var, make_const(first_var->dtype, 0));
     for (size_t i = 1; i < sorted_vars.size(); ++i) {
-      Var v = GetRef<Var>(sorted_vars[i]);
+      Var v = ffi::GetRef<Var>(sorted_vars[i]);
       cond = And(cond, equal(v, make_const(v->dtype, 0)));
     }
     return cond;
@@ -300,7 +301,10 @@ Pass HoistReductionInit() {
   return CreatePrimFuncPass(pass_func, 0, "tir.HoistReductionInit", {});
 }
 
-TVM_FFI_REGISTER_GLOBAL("tir.transform.HoistReductionInit").set_body_typed(HoistReductionInit);
+TVM_FFI_STATIC_INIT_BLOCK() {
+  namespace refl = tvm::ffi::reflection;
+  refl::GlobalDef().def("tir.transform.HoistReductionInit", HoistReductionInit);
+}
 
 }  // namespace transform
 

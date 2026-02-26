@@ -74,6 +74,21 @@ TVM_REGISTER_OP("relax.clip")
     .add_argument("min", "PrimValue", "The lower-bound of the range to be clipped to")
     .add_argument("max", "PrimValue", "The upper-bound of the range to be clipped to")
     .set_attr<FInferStructInfo>("FInferStructInfo", ReturnStructInfoFromArg<0>)
+    .set_attr<FRelaxInferLayout>("FRelaxInferLayout",
+        [](const Call& call,
+           const ffi::Map<ffi::String, ffi::Array<ffi::String>>& desired_layouts,
+           const VarLayoutMap& var_layout_map) -> InferLayoutOutput {
+          ICHECK(NoDesiredLayout(call, desired_layouts));
+          LayoutDecision layout = GetLayoutDecision(var_layout_map, call->args[0]);
+          const auto* sinfo = GetStructInfoAs<TensorStructInfoNode>(call->args[0]);
+          // Guard: fall back to initial layout if ndim doesn't match
+          // (e.g., 4D layout propagated to a 3D YOLO detection tensor).
+          if (sinfo && !sinfo->IsUnknownNdim() &&
+              static_cast<int>(layout->layout.ndim()) != sinfo->ndim) {
+            layout = InitialLayoutDecision(sinfo->ndim);
+          }
+          return InferLayoutOutput({layout}, {layout}, Attrs(call->attrs));
+        })
     .set_attr<Bool>("FPurity", Bool(true));
 
 Expr clip(Expr x, Expr min, Expr max) {

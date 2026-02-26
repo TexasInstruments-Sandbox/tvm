@@ -264,6 +264,67 @@ TargetJSON TestTargetParser(TargetJSON target) {
   return target;
 }
 
+/*!
+ * \brief Update the attributes in the C Static target.
+ * \param target The Target to update
+ * \return The updated attributes
+ *
+ * This parser validates mcpu and device options for the c_static backend.
+ * Supported mcpu values include: c66x, c7x, arm-cortex-a, generic
+ * The device option allows specifying a specific device instance.
+ */
+TargetJSON UpdateCStaticAttrs(TargetJSON target) {
+  // Validate mcpu if specified
+  if (target.count("mcpu")) {
+    ffi::String mcpu = Downcast<ffi::String>(target.at("mcpu"));
+    std::string mcpu_str = mcpu;
+
+    // List of known/supported CPU prefixes for c_static
+    bool valid_mcpu = false;
+    if (support::StartsWith(mcpu_str, "c66") ||      // TI C66x DSP family
+        support::StartsWith(mcpu_str, "c7") ||       // TI C7x DSP family
+        support::StartsWith(mcpu_str, "arm") ||      // ARM processors
+        support::StartsWith(mcpu_str, "generic")) {  // Generic CPU
+      valid_mcpu = true;
+    }
+
+    if (!valid_mcpu) {
+      LOG(WARNING) << "c_static target: unrecognized mcpu value '" << mcpu_str
+                   << "'. Known prefixes: c66, c7, arm, generic. "
+                   << "Proceeding anyway, but code generation may not be optimized.";
+    }
+
+    // Set 64-byte alignment for TI DSP targets (cache line aligned)
+    if (support::StartsWith(mcpu_str, "c66") || support::StartsWith(mcpu_str, "c7")) {
+      if (!target.count("constants-byte-alignment")) {
+        target.Set("constants-byte-alignment", int64_t(64));
+      }
+    }
+  }
+
+  // Set device-specific cache sizes
+  if (target.count("device")) {
+    ffi::String device = Downcast<ffi::String>(target.at("device"));
+    std::string device_str = device;
+    LOG(INFO) << "c_static target configured for device: " << device_str;
+
+    // AWR L6844: TI radar processor with C66x DSP
+    if (device_str == "awrl6844") {
+      if (!target.count("l1d-cache-size")) {
+        target.Set("l1d-cache-size", int64_t(32768));   // 32KB L1D
+      }
+      if (!target.count("l2-sram-size")) {
+        target.Set("l2-sram-size", int64_t(262144));   // 256KB max L2 SRAM
+      }
+      if (!target.count("vector-width")) {
+        target.Set("vector-width", int64_t(128));       // 128-bit SIMD
+      }
+    }
+  }
+
+  return target;
+}
+
 /**********  Register Target kinds and attributes  **********/
 
 TVM_REGISTER_TARGET_KIND("llvm", kDLCPU)
@@ -444,6 +505,25 @@ TVM_REGISTER_TARGET_KIND("composite", kDLCPU)  // line break
 
 TVM_REGISTER_TARGET_KIND("test", kDLCPU)  // line break
     .set_target_parser(TestTargetParser);
+
+TVM_REGISTER_TARGET_KIND("c_static", kDLCPU)
+    .add_attr_option<ffi::Array<ffi::String>>("mattr")
+    .add_attr_option<ffi::String>("mcpu")
+    .add_attr_option<int64_t>("constants-byte-alignment", 16)
+    // C66x/C7x cache hierarchy attributes for cache-aware tiling
+    .add_attr_option<int64_t>("l1d-cache-size", 32768)    // 32KB L1D
+    .add_attr_option<int64_t>("l2-sram-size", 1310720)   // 1.25MB L2 SRAM (J722S C7x)
+    .add_attr_option<int64_t>("vector-width", 128)        // 128-bit SIMD
+    // Layer profiling for performance analysis (C66x/C7x)
+    .add_attr_option<bool>("profile-layers", false)
+    // Diagnostic allocation tracing
+    .add_attr_option<bool>("debug-alloc", false)
+    // Skip runtime shape/type checks for static shapes
+    .add_attr_option<bool>("skip-runtime-checks", true)
+    // Enable C++ API for VM operations
+    .add_attr_option<bool>("use-cpp-api", true)
+    .set_default_keys({"c_static", "cpu"})
+    .set_target_parser(UpdateCStaticAttrs);
 
 /**********  Registry  **********/
 

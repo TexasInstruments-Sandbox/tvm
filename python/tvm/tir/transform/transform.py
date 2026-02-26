@@ -783,6 +783,87 @@ def LowerInitBlock():
     return _ffi_api.LowerInitBlock()  # type: ignore
 
 
+def HoistReductionInit():
+    """Hoist reduction initialization outside of reduction loops.
+
+    This pass transforms patterns where reduction initialization is inside
+    reduction loops with conditional guards (e.g., `if (rc == 0 && ry == 0)`)
+    into code where initialization happens before the reduction loops.
+
+    This transformation enables software pipelining on DSPs like TI C66x,
+    where conditional statements inside loops prevent optimal scheduling.
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.HoistReductionInit()  # type: ignore
+
+
+def SimplifyPowerTwo():
+    """Replace pow(x, 2) with x * x for better performance.
+
+    This pass replaces calls to the power function with exponent 2
+    with a simple multiplication, avoiding the overhead of the general
+    powf() function.
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.SimplifyPowerTwo()  # type: ignore
+
+
+def PromoteReductionAccumulator():
+    """Promote reduction accumulators from memory to registers.
+
+    This pass transforms patterns like:
+
+        for (reduce_var) {
+            buf[inv_idx] = buf[inv_idx] + expr;
+        }
+
+    Into:
+
+        acc = buf[inv_idx];
+        for (reduce_var) {
+            acc = acc + expr;
+        }
+        buf[inv_idx] = acc;
+
+    Where inv_idx is loop-invariant with respect to reduce_var.
+
+    This transformation eliminates the memory read-modify-write dependency
+    in the inner loop, enabling better software pipelining on DSPs like
+    TI C66x where the loop-carried dependency through memory limits the
+    initiation interval (ii).
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.PromoteReductionAccumulator()  # type: ignore
+
+
+def AddNoAlias():
+    """Add tir.noalias attribute to all PrimFuncs.
+
+    This pass adds the "tir.noalias" attribute to all PrimFuncs, enabling
+    the code generator to emit `restrict` qualifiers on pointer parameters.
+    The restrict keyword informs the compiler that pointers do not alias,
+    enabling more aggressive optimizations like software pipelining.
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.AddNoAlias()  # type: ignore
+
+
 def PlanAndUpdateBufferAllocationLocation():
     """Locate the buffer allocation to the exact position (usually is
     the lca of buffer access). This pass will inject opaque block

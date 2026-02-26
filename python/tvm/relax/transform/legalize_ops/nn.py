@@ -172,6 +172,46 @@ def _nn_conv1d_transpose(bb: BlockBuilder, call: Call) -> Expr:
         )
         return call
 
+    # Use direct implementation for non-grouped conv1d_transpose
+    # This avoids intermediate pad buffer with conditional branches that
+    # block software pipelining on DSP targets
+    if call.attrs.groups == 1:
+        # Check if we can use the optimized version (in_width=1, stride=1)
+        # This eliminates the inner dw loop entirely for 16x speedup
+        data_shape = call.args[0].struct_info.shape
+        strides = call.attrs.strides
+        in_width = data_shape[2] if len(data_shape) > 2 else None
+        stride_val = strides[0] if strides else 1
+
+        # Use optimized version for in_width=1, stride=1 (common in LISTA algorithms)
+        if in_width is not None and stride_val == 1:
+            try:
+                in_width_val = int(in_width)
+                if in_width_val == 1:
+                    return bb.call_te(
+                        topi.nn.conv1d_transpose_ncw_optimized,
+                        call.args[0],
+                        call.args[1],
+                        stride=call.attrs.strides,
+                        padding=call.attrs.padding,
+                        out_dtype=call.struct_info.dtype,
+                        output_padding=call.attrs.output_padding,
+                        primfunc_name_hint="conv1d_transpose",
+                    )
+            except (TypeError, ValueError):
+                pass  # Dynamic shape, use general implementation
+
+        return bb.call_te(
+            topi.nn.conv1d_transpose_ncw_direct,
+            call.args[0],
+            call.args[1],
+            stride=call.attrs.strides,
+            padding=call.attrs.padding,
+            out_dtype=call.struct_info.dtype,
+            output_padding=call.attrs.output_padding,
+            primfunc_name_hint="conv1d_transpose",
+        )
+
     return bb.call_te(
         topi.nn.group_conv1d_transpose_ncw,
         call.args[0],

@@ -192,6 +192,8 @@ class VirtualMachineImpl : public VirtualMachine {
   void LoadExecutable(ObjectPtr<VMExecutable> exec) final;
   void Init(const std::vector<Device>& devices,
             const std::vector<AllocatorType>& alloc_types) final;
+  void InitAllocators(const std::vector<Device>& devices,
+                      const std::vector<AllocatorType>& alloc_types) final;
   VMClosure GetClosure(const ffi::String& func_name) final {
     return this->GetClosureInternal(func_name, false).value();
   }
@@ -482,6 +484,19 @@ void VirtualMachineImpl::Init(const std::vector<Device>& devices,
   }
   // Setup function sections.
   this->InitFuncPool();
+}
+
+void VirtualMachineImpl::InitAllocators(const std::vector<Device>& devices,
+                              const std::vector<AllocatorType>& alloc_types) {
+  ICHECK_EQ(devices.size(), alloc_types.size());
+
+  this->devices.reserve(devices.size());
+  this->allocators.reserve(alloc_types.size());
+  for (size_t i = 0; i < devices.size(); i++) {
+    auto alloc = MemoryManager::GetOrCreateAllocator(devices[i], alloc_types[i]);
+    this->devices.push_back(devices[i]);
+    this->allocators.push_back(alloc);
+  }
 }
 
 VMFuncInfo VirtualMachineImpl::LookupVMFuncInfo(const std::string& func_name) {

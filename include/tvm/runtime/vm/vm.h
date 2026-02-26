@@ -137,6 +137,16 @@ class VirtualMachine : public ffi::ModuleObj {
   virtual void Init(const std::vector<Device>& devices,
                     const std::vector<AllocatorType>& alloc_types) = 0;
   /*!
+   * \brief Initialize allocators only (without loading functions).
+   *
+   * Used by the c_static backend to set up memory allocators for
+   * statically-compiled code that doesn't need the full VM Init sequence.
+   * \param devices The set of TVM devices.
+   * \param alloc_types The allocator types for each device.
+   */
+  virtual void InitAllocators(const std::vector<Device>& devices,
+                              const std::vector<AllocatorType>& alloc_types) = 0;
+  /*!
    * \brief Load the executable for the virtual machine.
    * \param exec The executable.
    */

@@ -320,6 +320,7 @@ tvm_file_glob(GLOB_RECURSE COMPILER_SRCS
 tvm_file_glob(GLOB CODEGEN_SRCS
   src/target/*.cc
   src/target/source/*.cc
+  src/target/c_static/*.cc
   src/target/parsers/*.cc
     )
 

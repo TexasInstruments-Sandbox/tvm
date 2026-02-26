@@ -1163,6 +1163,29 @@ class ExportedProgramImporter(BaseFXGraphImporter):
     def _symbolic_comparison(self, _: fx.Node) -> relax.Expr:
         return self.block_builder.emit(relax.const(True, dtype="bool"))
 
+    ########## Quantization ##########
+
+    def _quantize_per_tensor(self, node: fx.Node) -> relax.Var:
+        args = self.retrieve_args(node)
+        data = args[0]
+        scale = relax.const(args[1], "float32")
+        out_dtype = BaseFXGraphImporter._convert_data_type(args[5])
+        zero_point = relax.const(args[2], out_dtype)
+        return self.block_builder.emit(
+            relax.op.quantize(data, scale, zero_point, axis=-1, out_dtype=out_dtype)
+        )
+
+    def _dequantize_per_tensor(self, node: fx.Node) -> relax.Var:
+        args = self.retrieve_args(node)
+        data = args[0]
+        scale = relax.const(args[1], "float32")
+        # zero_point dtype must match the quantized input dtype
+        in_dtype = data.struct_info.dtype
+        zero_point = relax.const(args[2], in_dtype)
+        return self.block_builder.emit(
+            relax.op.dequantize(data, scale, zero_point, axis=-1, out_dtype="float32")
+        )
+
     ########## Others ##########
 
     def create_convert_map(
@@ -1482,6 +1505,9 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             "zeros.default": self._zeros,
             "zeros_like.default": self._zeros_like,
             "grid_sampler_2d.default": self._grid_sampler_2d,
+            # quantization
+            "quantize_per_tensor.default": self._quantize_per_tensor,
+            "dequantize_per_tensor.default": self._dequantize_per_tensor,
             # datatype
             "to.dtype": self._to,
             "to.dtype_layout": self._to,

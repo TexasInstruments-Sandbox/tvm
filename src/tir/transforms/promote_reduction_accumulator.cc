@@ -51,6 +51,7 @@
 #include <tvm/tir/stmt.h>
 #include <tvm/tir/stmt_functor.h>
 #include <tvm/tir/transform.h>
+#include <tvm/ffi/reflection/registry.h>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -84,7 +85,7 @@ struct ReductionAccumInfo {
   /*! \brief The buffer being accumulated to */
   Buffer buffer;
   /*! \brief The indices (must be loop-invariant) */
-  Array<PrimExpr> indices;
+  ffi::Array<PrimExpr> indices;
   /*! \brief The expression being added (without the self-reference) */
   PrimExpr add_expr;
   /*! \brief Whether pattern is buf[idx] = buf[idx] + expr (true) or expr + buf[idx] (false) */
@@ -102,7 +103,7 @@ struct ReductionAccumInfo {
  */
 class ReductionPatternDetector : public ExprVisitor {
  public:
-  ReductionPatternDetector(const Buffer& store_buffer, const Array<PrimExpr>& store_indices)
+  ReductionPatternDetector(const Buffer& store_buffer, const ffi::Array<PrimExpr>& store_indices)
       : store_buffer_(store_buffer), store_indices_(store_indices) {}
 
   /*!
@@ -168,7 +169,7 @@ class ReductionPatternDetector : public ExprVisitor {
   }
 
   const Buffer& store_buffer_;
-  const Array<PrimExpr>& store_indices_;
+  const ffi::Array<PrimExpr>& store_indices_;
 };
 
 /*!
@@ -179,7 +180,7 @@ class LoopInvariantChecker {
   /*!
    * \brief Check if all indices are invariant with respect to the given loop variable.
    */
-  static bool AreIndicesInvariant(const Array<PrimExpr>& indices, const Var& loop_var) {
+  static bool AreIndicesInvariant(const ffi::Array<PrimExpr>& indices, const Var& loop_var) {
     std::unordered_set<const VarNode*> index_vars;
     for (const auto& idx : indices) {
       auto vars = VarCollector::Collect(idx);
@@ -207,9 +208,9 @@ class ReductionAccumulatorPromoter : public StmtMutator {
     Stmt new_body = VisitStmt(op->body);
     if (!new_body.same_as(op->body)) {
       return For(op->loop_var, op->min, op->extent, op->kind, new_body, op->thread_binding,
-                 op->annotations, op->span);
+                 op->annotations, std::nullopt, op->span);
     }
-    return GetRef<Stmt>(op);
+    return ffi::GetRef<Stmt>(op);
   }
 
  private:
@@ -283,7 +284,7 @@ class ReductionAccumulatorPromoter : public StmtMutator {
 
     // Create the new loop
     Stmt new_loop = For(op->loop_var, op->min, op->extent, op->kind, new_body, op->thread_binding,
-                        op->annotations, op->span);
+                        op->annotations, std::nullopt, op->span);
 
     // Create store after loop: buf[idx] = acc
     Stmt final_store = BufferStore(info.buffer, accum_var, info.indices);
@@ -310,7 +311,7 @@ class ReductionAccumulatorPromoter : public StmtMutator {
 
     if (const auto* seq = body.as<SeqStmtNode>()) {
       // SeqStmt - transform each element
-      Array<Stmt> new_seq;
+      ffi::Array<Stmt> new_seq;
       for (const auto& stmt : seq->seq) {
         new_seq.push_back(TransformStmtInBody(stmt, info, accum_var));
       }
@@ -351,7 +352,7 @@ class ReductionAccumulatorPromoter : public StmtMutator {
     }
 
     if (const auto* seq = stmt.as<SeqStmtNode>()) {
-      Array<Stmt> new_seq;
+      ffi::Array<Stmt> new_seq;
       for (const auto& s : seq->seq) {
         new_seq.push_back(TransformStmtInBody(s, info, accum_var));
       }
@@ -445,7 +446,7 @@ class ReductionAccumulatorPromoter : public StmtMutator {
                              const Var& accum_var) {
     class Replacer : public ExprMutator {
      public:
-      Replacer(const Buffer& buffer, const Array<PrimExpr>& indices, const Var& var)
+      Replacer(const Buffer& buffer, const ffi::Array<PrimExpr>& indices, const Var& var)
           : buffer_(buffer), indices_(indices), var_(var) {}
 
       PrimExpr VisitExpr_(const BufferLoadNode* op) final {
@@ -456,7 +457,7 @@ class ReductionAccumulatorPromoter : public StmtMutator {
       }
 
      private:
-      static bool IndicesMatchStatic(const Array<PrimExpr>& a, const Array<PrimExpr>& b) {
+      static bool IndicesMatchStatic(const ffi::Array<PrimExpr>& a, const ffi::Array<PrimExpr>& b) {
         if (a.size() != b.size()) return false;
         for (size_t i = 0; i < a.size(); ++i) {
           if (!StructuralEqual()(a[i], b[i])) return false;
@@ -465,7 +466,7 @@ class ReductionAccumulatorPromoter : public StmtMutator {
       }
 
       const Buffer& buffer_;
-      const Array<PrimExpr>& indices_;
+      const ffi::Array<PrimExpr>& indices_;
       const Var& var_;
     };
 
@@ -475,7 +476,7 @@ class ReductionAccumulatorPromoter : public StmtMutator {
   /*!
    * \brief Check if two index arrays match.
    */
-  bool IndicesMatch(const Array<PrimExpr>& a, const Array<PrimExpr>& b) {
+  bool IndicesMatch(const ffi::Array<PrimExpr>& a, const ffi::Array<PrimExpr>& b) {
     if (a.size() != b.size()) return false;
     for (size_t i = 0; i < a.size(); ++i) {
       if (!StructuralEqual()(a[i], b[i])) return false;
@@ -506,9 +507,9 @@ class ReductionAccumulatorPromoterV2 : public StmtMutator {
 
     if (!new_body.same_as(op->body)) {
       return For(op->loop_var, op->min, op->extent, op->kind, new_body, op->thread_binding,
-                 op->annotations, op->span);
+                 op->annotations, std::nullopt, op->span);
     }
-    return GetRef<Stmt>(op);
+    return ffi::GetRef<Stmt>(op);
   }
 
  private:
@@ -569,7 +570,7 @@ class ReductionAccumulatorPromoterV2 : public StmtMutator {
 
     // Create the loop with transformed body
     Stmt new_loop = For(op->loop_var, op->min, op->extent, op->kind, new_body,
-                        op->thread_binding, op->annotations, op->span);
+                        op->thread_binding, op->annotations, std::nullopt, op->span);
 
     // Load initial value and store final value
     PrimExpr init_val = BufferLoad(info.buffer, info.indices);
@@ -581,7 +582,7 @@ class ReductionAccumulatorPromoterV2 : public StmtMutator {
     // converting this to TVMBackendAllocWorkspace, keeping it as a stack variable
     // that the C compiler can optimize into a register.
     Stmt seq = SeqStmt({init_store, new_loop, final_load_store});
-    Map<String, ffi::Any> annotations;
+    ffi::Map<ffi::String, ffi::Any> annotations;
     annotations.Set(transform::kDisableLowerTVMBuiltin, Bool(true));
     return Allocate(buf_var, info.buffer->dtype, {1}, const_true(), seq, annotations);
   }
@@ -590,7 +591,7 @@ class ReductionAccumulatorPromoterV2 : public StmtMutator {
                           const Buffer& accum_buf) {
     class Replacer : public StmtExprMutator {
      public:
-      Replacer(const Buffer& target_buf, const Array<PrimExpr>& target_indices,
+      Replacer(const Buffer& target_buf, const ffi::Array<PrimExpr>& target_indices,
                const Buffer& accum_buf)
           : target_buf_(target_buf), target_indices_(target_indices), accum_buf_(accum_buf) {}
 
@@ -610,7 +611,7 @@ class ReductionAccumulatorPromoterV2 : public StmtMutator {
       }
 
      private:
-      bool IndicesMatch(const Array<PrimExpr>& a, const Array<PrimExpr>& b) {
+      bool IndicesMatch(const ffi::Array<PrimExpr>& a, const ffi::Array<PrimExpr>& b) {
         if (a.size() != b.size()) return false;
         for (size_t i = 0; i < a.size(); ++i) {
           if (!StructuralEqual()(a[i], b[i])) return false;
@@ -619,7 +620,7 @@ class ReductionAccumulatorPromoterV2 : public StmtMutator {
       }
 
       const Buffer& target_buf_;
-      const Array<PrimExpr>& target_indices_;
+      const ffi::Array<PrimExpr>& target_indices_;
       const Buffer& accum_buf_;
     };
 
@@ -642,8 +643,10 @@ Pass PromoteReductionAccumulator() {
   return CreatePrimFuncPass(pass_func, 0, "tir.PromoteReductionAccumulator", {});
 }
 
-TVM_FFI_REGISTER_GLOBAL("tir.transform.PromoteReductionAccumulator")
-    .set_body_typed(PromoteReductionAccumulator);
+TVM_FFI_STATIC_INIT_BLOCK() {
+  namespace refl = tvm::ffi::reflection;
+  refl::GlobalDef().def("tir.transform.PromoteReductionAccumulator", PromoteReductionAccumulator);
+}
 
 }  // namespace transform
 

@@ -48,6 +48,16 @@ TVM_DLL int TVMBackendGetFuncFromEnv(void* mod_node, const char* func_name,
                                      TVMFFIObjectHandle* out);
 
 /*!
+ * \brief Backend function to get function from global registry
+ *  The user do should not call TVMFuncFree on func.
+ *
+ * \param func_name The name of the function.
+ * \param out The result function.
+ * \return 0 when no error is thrown, -1 when failure happens
+ */
+TVM_DLL int TVMBackendGetFuncFromGlobalRegistry(const char* func_name, TVMFFIObjectHandle* out);
+
+/*!
  * \brief Backend function to allocate temporal workspace.
  *
  * \note The result allocated space is ensured to be aligned to kTempAllocaAlignment.

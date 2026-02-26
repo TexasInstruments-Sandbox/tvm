@@ -59,13 +59,13 @@ void WrapperGenerator::EmitStandardWrappers(
     // Primary interface with explicit parameters
     os << "// Primary interface (explicit parameters)\n";
     if (func_info.returns_tuple) {
-      os << "Array<NDArray> " << wrapper_name << "(";
+      os << "Array<Tensor> " << wrapper_name << "(";
     } else {
-      os << "NDArray " << wrapper_name << "(";
+      os << "Tensor " << wrapper_name << "(";
     }
     for (int i = 0; i < func_info.num_args; ++i) {
       if (i > 0) os << ", ";
-      os << "NDArray& arg" << i;
+      os << "Tensor& arg" << i;
     }
     os << ") {\n";
 
@@ -135,11 +135,11 @@ void WrapperGenerator::EmitStandardWrappers(
     os << "  // The output is stored in the register file after the inputs\n";
     os << "  // Use .as<T>().value() to cast from tvm::ffi::Any to target type\n";
     if (func_info.returns_tuple) {
-      os << "  Array<NDArray> out = reg_file[" << func_info.num_args
-         << "].as<Array<NDArray>>().value();\n";
+      os << "  Array<Tensor> out = reg_file[" << func_info.num_args
+         << "].as<Array<Tensor>>().value();\n";
     } else {
-      os << "  NDArray out = reg_file[" << func_info.num_args
-         << "].as<NDArray>().value();\n";
+      os << "  Tensor out = reg_file[" << func_info.num_args
+         << "].as<Tensor>().value();\n";
     }
 
     os << "  return std::move(out);  // Transfer ownership, avoid reference count increment\n";
@@ -148,9 +148,9 @@ void WrapperGenerator::EmitStandardWrappers(
     // Convenience overload for dynamic calling with Array
     os << "// Convenience overload for dynamic calling\n";
     if (func_info.returns_tuple) {
-      os << "Array<NDArray> " << wrapper_name << "(const Array<NDArray>& args) {\n";
+      os << "Array<Tensor> " << wrapper_name << "(const Array<Tensor>& args) {\n";
     } else {
-      os << "NDArray " << wrapper_name << "(const Array<NDArray>& args) {\n";
+      os << "Tensor " << wrapper_name << "(const Array<Tensor>& args) {\n";
     }
 
     os << "  if (args.size() != " << func_info.num_args << ") {\n";
@@ -160,7 +160,7 @@ void WrapperGenerator::EmitStandardWrappers(
 
     // Create local copies (cheap due to reference counting)
     for (int i = 0; i < func_info.num_args; ++i) {
-      os << "  NDArray arg" << i << " = args[" << i << "];\n";
+      os << "  Tensor arg" << i << " = args[" << i << "];\n";
     }
 
     os << "  return " << wrapper_name << "(";

@@ -41,6 +41,9 @@ Pass AttachGlobalSymbol() {
     for (const auto& [gvar, func] : mod->functions) {
       ffi::Optional<ffi::String> old_name = func->GetAttr<ffi::String>(tvm::attr::kGlobalSymbol);
 
+      // Check if the function is private (no global symbol means it's private)
+      bool is_private = !old_name.has_value();
+
       // TODO(tvm-team): re-enable once fix relax integration part
       // if (old_name) continue;
 
@@ -49,11 +52,22 @@ Pass AttachGlobalSymbol() {
 
       if (auto* prim_func = func.as<tir::PrimFuncNode>()) {
         new_name = c_prefix + gvar->name_hint;
-        new_func =
-            WithAttr(ffi::GetRef<tir::PrimFunc>(prim_func), tvm::attr::kGlobalSymbol, new_name);
+        // First add the was_private attribute if the function was private
+        tir::PrimFunc updated_func = ffi::GetRef<tir::PrimFunc>(prim_func);
+        if (is_private) {
+          updated_func = WithAttr(updated_func, "was_private", Bool(true));
+        }
+        // Then add the global symbol
+        new_func = WithAttr(updated_func, tvm::attr::kGlobalSymbol, new_name);
       } else if (auto* relax_func = func.as<FunctionNode>()) {
         new_name = gvar->name_hint;
-        new_func = WithAttr(ffi::GetRef<Function>(relax_func), tvm::attr::kGlobalSymbol, new_name);
+        // First add the was_private attribute if the function was private
+        Function updated_func = ffi::GetRef<Function>(relax_func);
+        if (is_private) {
+          updated_func = WithAttr(updated_func, "was_private", Bool(true));
+        }
+        // Then add the global symbol
+        new_func = WithAttr(updated_func, tvm::attr::kGlobalSymbol, new_name);
       }
 
       if (new_name.has_value() && (!old_name.has_value() || old_name.value() != new_name.value())) {

@@ -34,3 +34,5 @@ from .multi_level_tiling import (
 from .parallel_vectorize_unroll import ParallelizeVectorizeUnroll
 from .random_compute_location import RandomComputeLocation
 from .schedule_rule import PyScheduleRule, ScheduleRule
+
+from .c66x import get_c66x_multi_level_tiling, get_c66x_schedule_rules

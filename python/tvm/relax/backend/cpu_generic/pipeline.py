@@ -15,8 +15,56 @@
 # specific language governing permissions and limitations
 # under the License.
 """The Relax CPU backend compilation pipeline and other passes."""
+
 import tvm
 from tvm import relax
+from tvm.ir.module import IRModule
+from tvm.ir.transform import PassContext
+
+
+@tvm.transform.module_pass(opt_level=0, name="ConvertLayoutNHWC")
+class _ConvertLayoutNHWC:
+    """Convert conv2d NCHW -> NHWC for C7x.
+
+    Only applies when the module actually contains ``relax.nn.conv2d``
+    ops.  This avoids triggering a ConvertLayout bug on models that
+    only use conv1d with dimension-changing reshapes.
+    """
+
+    def transform_module(self, mod: IRModule, _ctx: PassContext) -> IRModule:
+        conv2d_op = tvm.ir.Op.get("relax.nn.conv2d")
+        found = False
+
+        def _check(expr):
+            nonlocal found
+            if isinstance(expr, relax.Call) and expr.op == conv2d_op:
+                found = True
+
+        for gv in mod.functions:
+            func = mod[gv]
+            if isinstance(func, relax.Function):
+                relax.analysis.post_order_visit(func, _check)
+                if found:
+                    break
+
+        if not found:
+            return mod
+
+        try:
+            mod = tvm.relax.transform.ConvertLayout(
+                {"relax.nn.conv2d": ["NHWC", "HWIO"]}
+            )(mod)
+            mod = tvm.relax.transform.OptimizeLayoutTransform()(mod)
+        except Exception:
+            # ConvertLayout can fail on models with mixed-dimension
+            # tensors (e.g., YOLO detection heads reshape conv2d
+            # outputs into 3D).  Fall back to the original NCHW layout.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "ConvertLayout NCHW->NHWC failed, falling back to NCHW"
+            )
+        return mod
 
 
 def library_dispatch_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
@@ -26,13 +74,25 @@ def library_dispatch_passes(target: tvm.target.Target):  # pylint: disable=unuse
 
 def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
     """The default legalization passes for CPU backend."""
-    return [
+    passes = [
+        tvm.relax.transform.FuseQDQToInt8Conv2D(),
+    ]
+    # C7x NHWC layout: convert conv2d from NCHW to NHWC before legalization.
+    # Uses _ConvertLayoutNHWC which guards against models without conv2d.
+    if target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x":
+        passes.append(_ConvertLayoutNHWC())
+    passes += [
         tvm.relax.transform.LegalizeOps(),
         tvm.relax.transform.AnnotateTIROpPattern(),
         tvm.relax.transform.FoldConstant(),
         tvm.relax.transform.FuseOps(),
         tvm.relax.transform.FuseTIR(),
     ]
+    # C7x DMA tiling: schedule conv2d PrimFuncs for L2 SRAM after fusion
+    if target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x":
+        l2_budget = int(target.attrs.get("l2-sram-size", 393216))
+        passes.append(tvm.relax.transform.ScheduleC7xDMATiling(l2_budget))
+    return passes
 
 
 def dataflow_lower_passes(target: tvm.target.Target):  # pylint: disable=unused-argument

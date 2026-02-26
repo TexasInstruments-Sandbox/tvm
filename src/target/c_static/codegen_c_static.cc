@@ -45,6 +45,8 @@
  * 3. Generated code is compiled into a shared library or executable
  * 4. User calls wrapper functions (e.g., cg_main, cg_forward) with inputs
  */
+#include <tvm/ffi/extra/module.h>
+#include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/module.h>
 #include <tvm/target/codegen.h>
 #include <tvm/tir/stmt_functor.h>
@@ -53,6 +55,7 @@
 #include <tvm/runtime/logging.h>
 #include <tvm/arith/analyzer.h>
 
+#include <cmath>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -160,8 +163,8 @@ void CodeGenCStatic::AddFunction(const GlobalVar& gvar, const PrimFunc& func) {
 
 void CodeGenCStatic::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
                              bool emit_fwd_func_decl) {
-  auto global_symbol = func->GetAttr<String>(tvm::attr::kGlobalSymbol);
-  ICHECK(global_symbol.defined())
+  auto global_symbol = func->GetAttr<ffi::String>(tvm::attr::kGlobalSymbol);
+  ICHECK(global_symbol.has_value())
       << "CodeGenCStatic: Expect PrimFunc to have the global_symbol attribute";
   function_names_.push_back(global_symbol.value());
 
@@ -171,17 +174,17 @@ void CodeGenCStatic::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
   auto [it, inserted] = function_info_map_.try_emplace(current_function_name_);
   if (inserted) {
     // Use tir.num_input attribute if available, otherwise set to -1
-    Optional<IntImm> num_input_attr = func->GetAttr<IntImm>("tir.num_input");
-    it->second.num_args = num_input_attr.defined() ? num_input_attr.value()->value : -1;
+    ffi::Optional<IntImm> num_input_attr = func->GetAttr<IntImm>("tir.num_input");
+    it->second.num_args = num_input_attr.has_value() ? num_input_attr.value()->value : -1;
     // Use tir.returns_tuple attribute if available, otherwise default to false
-    Optional<Bool> returns_tuple_attr = func->GetAttr<Bool>("tir.returns_tuple");
+    ffi::Optional<Bool> returns_tuple_attr = func->GetAttr<Bool>("tir.returns_tuple");
     it->second.returns_tuple =
-        returns_tuple_attr.defined() ? returns_tuple_attr.value()->value : false;
+        returns_tuple_attr.has_value() ? returns_tuple_attr.value()->value : false;
 
     // Read number of outputs for multi-output functions
     if (it->second.returns_tuple) {
-      Optional<IntImm> num_outputs_attr = func->GetAttr<IntImm>("tir.num_outputs");
-      if (num_outputs_attr.defined()) {
+      ffi::Optional<IntImm> num_outputs_attr = func->GetAttr<IntImm>("tir.num_outputs");
+      if (num_outputs_attr.has_value()) {
         it->second.num_outputs = num_outputs_attr.value()->value;
         // Check DSP output limit (max 8 outputs supported by DSP runtime)
         constexpr int64_t kDSPMaxOutputs = 8;
@@ -195,22 +198,22 @@ void CodeGenCStatic::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
     }
 
     it->second.total_params = func->params.size();
-    it->second.was_private = func->GetAttr<Bool>("was_private").defined();
+    it->second.was_private = func->GetAttr<Bool>("was_private").has_value();
   }
 
   emit_fwd_func_decl_ = emit_fwd_func_decl;
   CodeGenC::AddFunction(gvar, func);
 
   if (func->HasNonzeroAttr(tir::attr::kIsEntryFunc)) {
-    ICHECK(global_symbol.defined())
+    ICHECK(global_symbol.has_value())
         << "CodeGenCHost: The entry func must have the global_symbol attribute, "
         << "but function " << gvar << " only has attributes " << func->attrs;
 
-    function_names_.push_back(runtime::symbol::tvm_module_main);
+    function_names_.push_back(ffi::symbol::tvm_ffi_main);
     stream << "// CodegenC: NOTE: Auto-generated entry function\n";
     PrintFuncPrefix(stream);
     PrintType(func->ret_type, stream);
-    stream << " " << tvm::runtime::symbol::tvm_module_main
+    stream << " " << tvm::ffi::symbol::tvm_ffi_main
            << "(void* self_handle, void* args, int num_args, void* result) {\n";
     stream << "  return " << global_symbol.value()
            << "(self_handle, args, num_args, result);\n";
@@ -275,7 +278,7 @@ void CodeGenCStatic::InitFuncState(const PrimFunc& f) {
 
 // Override to add DSP-specific cycle counter initialization for profiling
 void CodeGenCStatic::PreFunctionBody(const PrimFunc& f) {
-  auto global_symbol = f->GetAttr<String>(tvm::attr::kGlobalSymbol);
+  auto global_symbol = f->GetAttr<ffi::String>(tvm::attr::kGlobalSymbol);
   std::string func_name = static_cast<std::string>(global_symbol.value());
 
   // Emit cycle counter initialization for main function when profiling is enabled
@@ -413,7 +416,55 @@ void CodeGenCStatic::VisitExpr_(const DivNode* op, std::ostream& os) {  // NOLIN
   CodeGenC::VisitExpr_(op, os);
 }
 
-// C7x intrinsic: float max → __max
+// Handle special floating-point constants (INFINITY, NAN) for C code generation
+void CodeGenCStatic::VisitExpr_(const FloatImmNode* op, std::ostream& os) {  // NOLINT(*)
+  switch (op->dtype.bits()) {
+    case 64:
+    case 32: {
+      if (std::isinf(op->value)) {
+        if (op->value > 0) {
+          os << "INFINITY";
+        } else {
+          os << "(-INFINITY)";
+        }
+      } else if (std::isnan(op->value)) {
+        os << "NAN";
+      } else {
+        std::ostringstream temp;
+        temp << std::scientific << op->value;
+        if (op->dtype.bits() == 32) temp << 'f';
+        MarkConst(temp.str());
+        os << temp.str();
+      }
+      break;
+    }
+    case 16: {
+      if (std::isinf(op->value)) {
+        os << '(';
+        PrintType(op->dtype, os);
+        os << ')';
+        if (op->value > 0) {
+          os << "INFINITY";
+        } else {
+          os << "(-INFINITY)";
+        }
+      } else if (std::isnan(op->value)) {
+        os << '(';
+        PrintType(op->dtype, os);
+        os << ')' << "NAN";
+      } else {
+        os << '(';
+        PrintType(op->dtype, os);
+        os << ')' << std::scientific << op->value << 'f';
+      }
+      break;
+    }
+    default:
+      LOG(FATAL) << "Bad bit-width for float: " << op->dtype << "\n";
+  }
+}
+
+// C7x intrinsic: float max -> __max
 void CodeGenCStatic::VisitExpr_(const MaxNode* op, std::ostream& os) {  // NOLINT(*)
   if (IsC7xTarget() && op->dtype.is_float() && op->dtype.lanes() == 1) {
     os << "__max((";
@@ -423,10 +474,19 @@ void CodeGenCStatic::VisitExpr_(const MaxNode* op, std::ostream& os) {  // NOLIN
     os << "))";
     return;
   }
-  CodeGenC::VisitExpr_(op, os);
+  // Use fmax for float types (C99 standard), fall back to base for integer
+  if (op->dtype.is_float() && op->dtype.lanes() == 1) {
+    os << "fmax(";
+    PrintExpr(op->a, os);
+    os << ", ";
+    PrintExpr(op->b, os);
+    os << ")";
+  } else {
+    CodeGenC::VisitExpr_(op, os);
+  }
 }
 
-// C7x intrinsic: float min → __min
+// C7x intrinsic: float min -> __min
 void CodeGenCStatic::VisitExpr_(const MinNode* op, std::ostream& os) {  // NOLINT(*)
   if (IsC7xTarget() && op->dtype.is_float() && op->dtype.lanes() == 1) {
     os << "__min((";
@@ -436,7 +496,16 @@ void CodeGenCStatic::VisitExpr_(const MinNode* op, std::ostream& os) {  // NOLIN
     os << "))";
     return;
   }
-  CodeGenC::VisitExpr_(op, os);
+  // Use fmin for float types (C99 standard), fall back to base for integer
+  if (op->dtype.is_float() && op->dtype.lanes() == 1) {
+    os << "fmin(";
+    PrintExpr(op->a, os);
+    os << ", ";
+    PrintExpr(op->b, os);
+    os << ")";
+  } else {
+    CodeGenC::VisitExpr_(op, os);
+  }
 }
 
 /*!
@@ -670,8 +739,8 @@ void CodeGenCStatic::PrintCallPacked(const CallNode* op) {
 
 
 // Override to track register file usage for AnyList operations
-void CodeGenCStatic::PrintCallExtern(Type ret_type, String global_symbol,
-                                 const Array<PrimExpr>& args,
+void CodeGenCStatic::PrintCallExtern(Type ret_type, ffi::String global_symbol,
+                                 const ffi::Array<PrimExpr>& args,
                                  bool skip_first_arg, std::ostream& os) {  // NOLINT(*)
   if (global_symbol == "TVMBackendAnyListSetPackedArg" ||
       global_symbol == "TVMBackendAnyListResetItem" ||
@@ -829,11 +898,11 @@ void CodeGenCStatic::VisitStmt_(const LetStmtNode* op) {
   }
 
   // Check if this is an ObjectRef unwrapping pattern
-  // Pattern: void* var = (var_type_index == kTVMFFINDArray) ? (cast)(ptr + offset) : ptr
+  // Pattern: void* var = (var_type_index == kTVMFFITensor) ? (cast)(ptr + offset) : ptr
   if (auto* select = op->value.as<tir::SelectNode>()) {
     if (auto* eq = select->condition.as<tir::EQNode>()) {
       if (auto* int_imm = eq->b.as<IntImmNode>()) {
-        if (int_imm->value == kTVMFFINDArray && op->var.dtype().is_handle()) {
+        if (int_imm->value == kTVMFFITensor && op->var.dtype().is_handle()) {
           // Look at false_value to find base expression
           PrimExpr base_expr = select->false_value;
           // Strip any casts
@@ -1053,7 +1122,7 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
         this->PrintIndent();
         this->stream << "}\n";
         this->PrintIndent();
-        this->stream << "_dst->type_index = kTVMFFINDArray;\n";
+        this->stream << "_dst->type_index = kTVMFFITensor;\n";
         this->PrintIndent();
         this->stream << "_dst->small_len = 0;\n";
         this->PrintIndent();
@@ -1106,7 +1175,7 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
         this->PrintIndent();
         this->stream << "}\n";
         this->PrintIndent();
-        this->stream << "_dst->type_index = kTVMFFINDArray;\n";
+        this->stream << "_dst->type_index = kTVMFFITensor;\n";
         this->PrintIndent();
         this->stream << "_dst->small_len = 0;\n";
         this->PrintIndent();
@@ -1155,7 +1224,7 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
         this->PrintIndent();
         this->stream << "}\n";
         this->PrintIndent();
-        this->stream << "_dst->type_index = kTVMFFINDArray;\n";
+        this->stream << "_dst->type_index = kTVMFFITensor;\n";
         this->PrintIndent();
         this->stream << "_dst->small_len = 0;\n";
         this->PrintIndent();
@@ -1204,7 +1273,7 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
         this->PrintIndent();
         this->stream << "}\n";
         this->PrintIndent();
-        this->stream << "_dst->type_index = kTVMFFINDArray;\n";
+        this->stream << "_dst->type_index = kTVMFFITensor;\n";
         this->PrintIndent();
         this->stream << "_dst->small_len = 0;\n";
         this->PrintIndent();
@@ -1220,7 +1289,7 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
   return false;  // Unsupported builtin
 }
 
-bool CodeGenCStatic::TryEmitMergedStructSet(const Array<Stmt>& seq, size_t index,
+bool CodeGenCStatic::TryEmitMergedStructSet(const ffi::Array<Stmt>& seq, size_t index,
                                             size_t* next_index) {
   ICHECK(next_index != nullptr) << "TryEmitMergedStructSet: next_index output parameter is null";
 
@@ -1693,7 +1762,7 @@ void CodeGenCStatic::VisitStmt_(const EvaluateNode* op) {
           case kTVMFFIBool: enum_name = "kTVMFFIBool"; break;
           case kTVMFFIFloat: enum_name = "kTVMFFIFloat"; break;
           case kTVMFFIOpaquePtr: enum_name = "kTVMFFIOpaquePtr"; break;
-          case kTVMFFINDArray: enum_name = "kTVMFFINDArray"; break;
+          case kTVMFFITensor: enum_name = "kTVMFFITensor"; break;
           case kTVMFFIModule: enum_name = "kTVMFFIModule"; break;
           default:
             // For unknown type indices, fall through to base class handler
@@ -1884,7 +1953,7 @@ void CodeGenCStatic::DumpCGFunctionInfo() const {
  *
  * \note Only tracks accesses to the 'r' register file (not other identifiers)
  */
-void CodeGenCStatic::UpdateMaxRegisterIndex(const Array<PrimExpr>& args) {
+void CodeGenCStatic::UpdateMaxRegisterIndex(const ffi::Array<PrimExpr>& args) {
   // Validate minimum argument count
   if (args.size() < kMinArgsForRegisterTracking) {
     DLOG(WARNING) << "UpdateMaxRegisterIndex: insufficient arguments (got "
@@ -1986,15 +2055,15 @@ void CodeGenCStatic::EmitWrapperFunctions() {
 }
 
 // Modeled after BuildCHost() in codegen_c_host.cc
-runtime::Module BuildCStatic(IRModule mod, Target target) {
+ffi::Module BuildCStatic(IRModule mod, Target target) {
   bool output_ssa = false;
   bool emit_asserts = false;
   bool emit_fwd_func_decl = true;
 
   std::unordered_set<std::string> devices;
-  if (mod->GetAttr<Map<GlobalVar, String>>("device_contexts") != nullptr) {
-    Map<GlobalVar, String> device_contexts =
-        mod->GetAttr<Map<GlobalVar, String>>("device_contexts").value();
+  if (mod->GetAttr<ffi::Map<GlobalVar, ffi::String>>("device_contexts") != nullptr) {
+    ffi::Map<GlobalVar, ffi::String> device_contexts =
+        mod->GetAttr<ffi::Map<GlobalVar, ffi::String>>("device_contexts").value();
     for (auto const& context : device_contexts) {
       devices.insert(context.second.data());
     }
@@ -2057,6 +2126,9 @@ runtime::Module BuildCStatic(IRModule mod, Target target) {
   return CSourceModuleCreate(code, "c", cg.GetFunctionNames());
 }
 
-TVM_FFI_REGISTER_GLOBAL("target.build.c_static").set_body_typed(BuildCStatic);
+TVM_FFI_STATIC_INIT_BLOCK() {
+  namespace refl = tvm::ffi::reflection;
+  refl::GlobalDef().def("target.build.c_static", BuildCStatic);
+}
 }  // namespace codegen
 }  // namespace tvm

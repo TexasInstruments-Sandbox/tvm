@@ -113,6 +113,42 @@ StructInfo InferStructInfoQuantize(const Call& call, const BlockBuilder& ctx) {
   return TensorStructInfo(output_sinfo);
 }
 
+InferLayoutOutput InferLayoutQuantizeDequantize(
+    const Call& call,
+    const ffi::Map<ffi::String, ffi::Array<ffi::String>>& desired_layouts,
+    const VarLayoutMap& var_layout_map) {
+  ICHECK(NoDesiredLayout(call, desired_layouts));
+  const auto* attrs = call->attrs.as<QuantizeAttrs>();
+  ICHECK(attrs) << "Invalid Call";
+
+  const auto* data_sinfo = GetStructInfoAs<TensorStructInfoNode>(call->args[0]);
+  ICHECK(data_sinfo) << "Invalid Call";
+  int ndim = data_sinfo->ndim;
+
+  // Propagate layout from data input (arg 0).
+  LayoutDecision data_layout = GetLayoutDecision(var_layout_map, call->args[0]);
+
+  // Guard: if the propagated layout's ndim doesn't match the data
+  // tensor's ndim, fall back to the initial layout.
+  if (static_cast<int>(data_layout->layout.ndim()) != ndim) {
+    data_layout = InitialLayoutDecision(ndim);
+  }
+
+  // Scale and zero_point are scalar or 1-D per-channel tensors --
+  // keep their initial layout (no transpose needed).
+  LayoutDecision scale_layout = InitialLayoutDecision(
+      GetStructInfoAs<TensorStructInfoNode>(call->args[1])->ndim);
+  LayoutDecision zp_layout = InitialLayoutDecision(
+      GetStructInfoAs<TensorStructInfoNode>(call->args[2])->ndim);
+
+  // Remap the quantization axis to match the new data layout.
+  ObjectPtr<QuantizeAttrs> new_attrs = ffi::make_object<QuantizeAttrs>(*attrs);
+  new_attrs->axis = FindAxis(data_layout->layout, (attrs->axis + ndim) % ndim);
+
+  return InferLayoutOutput({data_layout, scale_layout, zp_layout}, {data_layout},
+                           Attrs(new_attrs));
+}
+
 TVM_REGISTER_OP("relax.quantize")
     .set_attrs_type<QuantizeAttrs>()
     .set_num_inputs(3)
@@ -120,6 +156,7 @@ TVM_REGISTER_OP("relax.quantize")
     .add_argument("scale", "Tensor", "The quantization scale of the output tensor.")
     .add_argument("zero_point", "Tensor", "The quantization zero_point of the output tensor.")
     .set_attr<FInferStructInfo>("FInferStructInfo", InferStructInfoQuantize)
+    .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutQuantizeDequantize)
     .set_attr<Bool>("FPurity", Bool(true));
 
 /* relax.dequantize */
@@ -208,6 +245,7 @@ TVM_REGISTER_OP("relax.dequantize")
     .add_argument("scale", "Tensor", "The quantization scale of the input tensor.")
     .add_argument("zero_point", "Tensor", "The quantization zero_point of the input tensor.")
     .set_attr<FInferStructInfo>("FInferStructInfo", InferStructInfoDequantize)
+    .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutQuantizeDequantize)
     .set_attr<Bool>("FPurity", Bool(true));
 
 }  // namespace relax

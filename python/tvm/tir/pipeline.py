@@ -33,6 +33,7 @@ def default_tir_pipeline():
         pass_ctx = tvm.transform.PassContext.current()
         config = pass_ctx.config
         passes = [
+            tir.transform.AddNoAlias(),  # Add restrict qualifiers for pointer aliasing
             tir.transform.CanonicalizeLoop(),
             tir.transform.LowerCrossThreadReduction(),
             tir.transform.LowerInitBlock(),
@@ -45,11 +46,14 @@ def default_tir_pipeline():
             tir.transform.UnifyThreadBinding(),
             tir.transform.LowerMatchBuffer(),
             tir.transform.Simplify(),
+            tir.transform.SimplifyPowerTwo(),  # Replace pow(x, 2) with x * x
             tir.transform.InjectPermutedLayout(),
             tir.transform.AnnotateIrregularLoop(),
             tir.transform.InjectSoftwarePipeline(),
             tir.transform.TransformMmaBufferLayout(),
             tir.transform.LowerOpaqueBlock(),
+            tir.transform.HoistReductionInit(),  # After LowerOpaqueBlock when conditional is exposed
+            tir.transform.PromoteReductionAccumulator(),  # Convert memory accum to register accum
             tir.transform.FlattenBuffer(),
             tir.transform.BF16ComputeLegalize(),
             tir.transform.NarrowDataType(32),
@@ -62,6 +66,8 @@ def default_tir_pipeline():
             passes.append(tir.transform.StorageRewrite())
         if config.get("tir.use_async_copy", False):
             passes.append(tir.transform.LowerAsyncDMA())
+        if config.get("tir.lower_dma_to_extern", False):
+            passes.append(tir.transform.LowerDMAToExtern())
         passes.extend(
             [
                 tir.transform.HoistIfThenElse(),
@@ -169,15 +175,109 @@ def get_tir_pipeline(name: str = "default", **kwargs) -> tvm.transform.Pass:
     """
     if name not in PIPELINE_MAP:
         raise ValueError(
-            f"Unknown pre-built pipeline {name}," f"candidates are {list(PIPELINE_MAP.keys())}"
+            f"Unknown pre-built pipeline {name},candidates are {list(PIPELINE_MAP.keys())}"
         )
     return PIPELINE_MAP[name](**kwargs)
+
+
+def _c7x_dma_tir_pipeline():
+    """TIR pipeline for c_static -mcpu=c7x with async DMA lowering.
+
+    Stripped-down fork of ``default_tir_pipeline`` tailored for a
+    single-core CPU DSP target (no GPU, no threads, no shared memory,
+    no FP8/BF16).
+
+    Key difference from the default pipeline: ``LowerAsyncDMA`` and
+    ``LowerDMAToExtern`` run immediately after ``FlattenBuffer``,
+    before ``NarrowDataType(32)``.  ``NarrowDataType`` converts int64
+    loop indices to int32, which changes index arithmetic enough that
+    ``IdentifyMemCpy`` (used by ``LowerAsyncDMA``) can no longer
+    prove contiguity of the copy regions.
+    """
+
+    # Register L2 SRAM memory info so StorageRewrite can enforce
+    # capacity limits and use proper alignment for global.l2sram buffers.
+    # AM67A (J722S) C7x has 1.25 MB of L2 SRAM, 512-bit SIMD.
+    _L2_SRAM_BYTES = 1280 * 1024  # 1.25 MB
+    _C7X_SIMD_BITS = 512
+
+    @tvm.register_func("tvm.info.mem.global.l2sram", override=True)
+    def _mem_info_l2sram():
+        return tvm.ir.make_node(
+            "target.MemoryInfo",
+            unit_bits=8,
+            max_simd_bits=_C7X_SIMD_BITS,
+            max_num_bits=_L2_SRAM_BYTES * 8,
+            head_address=None,
+        )
+
+    @tvm.transform.module_pass(opt_level=0)
+    def _pipeline(mod: tvm.ir.IRModule, _ctx: tvm.transform.PassContext) -> tvm.ir.IRModule:
+        pass_ctx = tvm.transform.PassContext.current()
+        config = pass_ctx.config
+        passes = [
+            tir.transform.AddNoAlias(),
+            tir.transform.LowerInitBlock(),
+            tir.transform.PlanAndUpdateBufferAllocationLocation(),
+            tir.transform.ConvertBlocksToOpaque(),
+            tir.transform.CompactBufferAllocation(),
+            tir.transform.LowerAutoCopy(),
+            tir.transform.LowerMatchBuffer(),
+            tir.transform.Simplify(),
+            tir.transform.SimplifyPowerTwo(),
+            tir.transform.InjectSoftwarePipeline(),
+            tir.transform.LowerOpaqueBlock(),
+            tir.transform.HoistReductionInit(),
+            tir.transform.PromoteReductionAccumulator(),
+            tir.transform.FlattenBuffer(),
+            # DMA lowering must precede NarrowDataType (see docstring).
+            tir.transform.LowerAsyncDMA(),
+            tir.transform.LowerDMAToExtern(),
+            tir.transform.NarrowDataType(32),
+            tir.transform.LoopPartition(),
+            tir.transform.VectorizeLoop(not bool(config.get("tir.disable_vectorize", False))),
+            tir.transform.InjectDoubleBuffer(),
+        ]
+        if not bool(config.get("tir.disable_storage_rewrite", False)):
+            passes.append(tir.transform.StorageRewrite())
+        # Lower global.l2sram allocations to inline bump allocator calls
+        # before LowerTVMBuiltin converts them to TVMBackendAllocWorkspace.
+        passes.append(tir.transform.LowerL2SramAlloc())
+        passes.extend(
+            [
+                tir.transform.HoistIfThenElse(),
+                tir.transform.UnrollLoop(),
+                tir.transform.RenormalizeSplitPattern(),
+                tir.transform.Simplify(),
+                tir.transform.RemoveNoOp(),
+                tir.transform.RewriteUnsafeSelect(),
+            ]
+        )
+        passes.append(
+            tir.transform.CommonSubexprElimTIR(
+                not bool(config.get("tir.disable_cse_tir", False)),
+                bool(config.get("tir.enable_equiv_terms_in_cse_tir", False)),
+            )
+        )
+        passes.extend(
+            [
+                tir.transform.VerifyMemory(),
+                tir.transform.AnnotateEntryFunc(),
+                tir.transform.MakePackedAPI(),
+            ]
+        )
+        mod = tvm.ir.transform.Sequential(passes)(mod)
+        return mod
+
+    return _pipeline
 
 
 def get_default_tir_pipeline(
     target: tvm.target.Target,  # pylint: disable=unused-argument
 ) -> tvm.transform.Pass:
     """Get the default TIR pipeline for the given target."""
+    if target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x":
+        return _c7x_dma_tir_pipeline()
     if target.kind.name == "opencl" and "adreno" in target.keys:
         return backend.adreno.get_tir_pipeline(target)
     else:

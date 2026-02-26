@@ -24,6 +24,7 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/module.h>
 #include <tvm/relax/exec_builder.h>
+#include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/op_attr_types.h>
 #include <tvm/runtime/vm/executable.h>
@@ -194,6 +195,24 @@ class CodeGenVMTIR : public ExprFunctor<ffi::Optional<PrimExpr>(const Expr&)> {
     ffi::String tir_func_name = system_lib_prefix_.value_or("") + "__vmtir__" + gsymbol.value();
     tir::PrimFunc tir_func(tir_params, body, ret_type, {});
     tir_func = WithAttr(tir_func, "global_symbol", tir_func_name);
+
+    // Propagate num_input attribute from Relax function to TIR function
+    ffi::Optional<IntImm> num_input_attr = func->GetAttr<IntImm>(attr::kNumInput);
+    if (num_input_attr.has_value()) {
+      tir_func = WithAttr(tir_func, "tir.num_input", num_input_attr.value());
+    }
+
+    // Propagate returns_tuple information from Relax function to TIR function
+    auto tuple_info = func->ret_struct_info.as<TupleStructInfoNode>();
+    bool returns_tuple = tuple_info != nullptr;
+    tir_func = WithAttr(tir_func, "tir.returns_tuple", Bool(returns_tuple));
+
+    // Propagate number of outputs for multi-output functions
+    if (returns_tuple) {
+      int64_t num_outputs = static_cast<int64_t>(tuple_info->fields.size());
+      tir_func = WithAttr(tir_func, "tir.num_outputs", IntImm(DataType::Int(64), num_outputs));
+    }
+
     registers_num_ = 0;
     var_map_.clear();
     stmt_stack_.clear();

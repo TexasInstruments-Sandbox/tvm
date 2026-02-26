@@ -286,8 +286,17 @@ class Module(_Module):
                 files.append(path_obj)
             else:
                 path_cc = os.path.join(workspace_dir, f"{pack_lib_prefix}devc.c")
-                with open(path_cc, "w") as f:
-                    f.write(_ffi_api.ModulePackImportsToC(self, is_system_lib, pack_lib_prefix))
+
+                # If we are dealing with the c_static target, export weights to binary
+                target = kwargs.get('target', None) if kwargs else None
+                if target and 'c_static' in target.keys:
+                    path_bin = os.path.join(workspace_dir, f"{pack_lib_prefix}weights.bin")
+                    with open(path_cc, "w") as f:
+                        f.write(_ffi_api.ModulePackWeightsToBinary(self, path_bin, target))
+                    files.append(path_bin)
+                else:
+                    with open(path_cc, "w") as f:
+                        f.write(_ffi_api.ModulePackImportsToC(self, is_system_lib, pack_lib_prefix))
                 files.append(path_cc)
 
         # The imports could contain a c module but the object format could be tar
@@ -300,6 +309,9 @@ class Module(_Module):
                 options = opts if isinstance(opts, (list, tuple)) else [opts]
             opts = options + ["-I" + path for path in find_include_path()]
             kwargs.update({"options": opts})
+
+        if file_name.endswith(".tar"):
+            return fcompile(file_name, files)
 
         return fcompile(file_name, files, **kwargs)
 
