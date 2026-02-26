@@ -352,6 +352,7 @@ tvm_file_glob(GLOB CODEGEN_SRCS
   src/backend/vulkan/codegen/target_kind.cc
   src/backend/vulkan/codegen/vulkan_fallback_module.cc
   src/backend/webgpu/codegen/*.cc
+  src/target/c_static/*.cc
     )
 
 list(APPEND COMPILER_SRCS ${CODEGEN_SRCS})

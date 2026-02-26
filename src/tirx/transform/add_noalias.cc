@@ -32,6 +32,7 @@
  */
 #include <tvm/tir/function.h>
 #include <tvm/tir/transform.h>
+#include <tvm/ffi/reflection/registry.h>
 
 namespace tvm {
 namespace tir {
@@ -55,7 +56,10 @@ Pass AddNoAlias() {
   return CreatePrimFuncPass(pass_func, 0, "tir.AddNoAlias", {});
 }
 
-TVM_FFI_REGISTER_GLOBAL("tir.transform.AddNoAlias").set_body_typed(AddNoAlias);
+TVM_FFI_STATIC_INIT_BLOCK() {
+  namespace refl = tvm::ffi::reflection;
+  refl::GlobalDef().def("tir.transform.AddNoAlias", AddNoAlias);
+}
 
 }  // namespace transform
 

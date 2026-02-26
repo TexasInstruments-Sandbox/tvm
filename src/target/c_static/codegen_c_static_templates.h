@@ -145,7 +145,7 @@ constexpr const char* kDSPHelperFunctions = R"(
 inline void* UnwrapObjectRefArg(const TVMFFIAny& arg) {
   // Use actual sizeof(TVMFFIObject) to handle platform differences correctly
   constexpr size_t kObjectRefHeaderSize = sizeof(TVMFFIObject);
-  if (arg.type_index == kTVMFFINDArray) {
+  if (arg.type_index == kTVMFFITensor) {
     return reinterpret_cast<void*>(
         reinterpret_cast<char*>(arg.v_ptr) + kObjectRefHeaderSize);
   }
@@ -350,7 +350,7 @@ constexpr const char* kStandardTVMHeaders = R"(
 typedef unsigned long ulong;
 #include <tvm/runtime/vm/executable.h>
 #include <tvm/runtime/vm/vm.h>
-#include <tvm/runtime/ndarray.h>
+#include <tvm/runtime/tensor.h>
 #include <tvm/runtime/c_backend_api.h>
 #include <tvm/runtime/memory/memory_manager.h>
 #include <vector>
@@ -358,10 +358,10 @@ typedef unsigned long ulong;
 #include <cmath>
 
 using tvm::runtime::ObjectRef;
-using tvm::runtime::NDArray;
+using tvm::runtime::Tensor;
 using tvm::runtime::memory::AllocatorType;
-using tvm::String;
-using tvm::Array;
+using tvm::ffi::String;
+using tvm::ffi::Array;
 using std::max;
 using std::min;
 using std::fmax;
@@ -372,10 +372,10 @@ extern std::vector<tvm::ffi::Any> TVMGetConstants();
 
 // Helper function for unwrapping ObjectRef arguments to raw pointers
 // ObjectRef wraps pointer with 16-byte header (ref count + type info)
-// Use kTVMFFINDArray from tvm/ffi/c_api.h (available via c_backend_api.h)
+// Use kTVMFFITensor from tvm/ffi/c_api.h (available via c_backend_api.h)
 inline void* UnwrapObjectRefArg(const TVMFFIAny& arg) {
   constexpr size_t kObjectRefHeaderSize = 16;  // Architecture-specific, 64-bit systems
-  if (arg.type_index == kTVMFFINDArray) {
+  if (arg.type_index == kTVMFFITensor) {
     return reinterpret_cast<void*>(
         reinterpret_cast<char*>(arg.v_ptr) + kObjectRefHeaderSize);
   }

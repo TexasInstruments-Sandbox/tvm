@@ -241,6 +241,14 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 using namespace tvm::runtime;
 
+int TVMBackendGetFuncFromGlobalRegistry(const char* func_name, TVMFFIObjectHandle* func) {
+  TVM_FFI_SAFE_CALL_BEGIN();
+  auto maybe_func = tvm::ffi::Function::GetGlobal(func_name);
+  *func = maybe_func.has_value() ? const_cast<tvm::ffi::FunctionObj*>(maybe_func.value().get())
+                                 : nullptr;
+  TVM_FFI_SAFE_CALL_END();
+}
+
 void* TVMBackendAllocWorkspace(int device_type, int device_id, uint64_t size, int dtype_code_hint,
                                int dtype_bits_hint) {
   DLDevice dev;

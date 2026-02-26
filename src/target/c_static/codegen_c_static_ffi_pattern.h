@@ -142,7 +142,7 @@ class FFIPatternAnalyzer {
    * \param call_idx Index of potential call_packed_lowered statement
    * \return FFI call pattern info (valid=false if not a pattern)
    */
-  static FFICallPattern DetectFFICallPattern(const Array<tir::Stmt>& seq, size_t call_idx);
+  static FFICallPattern DetectFFICallPattern(const ffi::Array<tir::Stmt>& seq, size_t call_idx);
 
   /*!
    * \brief Scan statement sequence for VM builtin call patterns
@@ -154,7 +154,7 @@ class FFIPatternAnalyzer {
    * Identifies VM builtin calls that can be emitted using direct calls
    * and marks their argument setup statements for skipping.
    */
-  static void ScanVMBuiltinPatterns(const Array<tir::Stmt>& seq,
+  static void ScanVMBuiltinPatterns(const ffi::Array<tir::Stmt>& seq,
                                     std::map<size_t, FFICallPattern>* patterns,
                                     std::set<size_t>* skip_indices);
 
@@ -168,7 +168,7 @@ class FFIPatternAnalyzer {
    * Analyzes SetPackedArg and SetFFIAny* statements before the call to determine
    * where each argument comes from (register array, constant array, or literal).
    */
-  static void ExtractArgSourcesForPattern(const Array<tir::Stmt>& seq, size_t call_idx,
+  static void ExtractArgSourcesForPattern(const ffi::Array<tir::Stmt>& seq, size_t call_idx,
                                           FFICallPattern* pattern);
 
   /*!
@@ -180,7 +180,7 @@ class FFIPatternAnalyzer {
    * This enables cleaner code generation by identifying which SetPackedArg/SetFFIAny*
    * statements are part of VM builtin calls that will be replaced with direct calls.
    */
-  static std::set<size_t> PreScanFFIPatterns(const Array<tir::Stmt>& seq);
+  static std::set<size_t> PreScanFFIPatterns(const ffi::Array<tir::Stmt>& seq);
 
   /*!
    * \brief Extract StructSetInfo from an Evaluate statement

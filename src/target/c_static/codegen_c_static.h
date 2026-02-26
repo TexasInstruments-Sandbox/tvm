@@ -57,9 +57,14 @@ inline bool IsVMBuiltin(const std::string& func_name) {
   return func_name.find(kVMBuiltinPrefix) == 0;
 }
 
+// Forward declare ScopeGuard (defined after CodeGenCStatic)
+class ScopeGuard;
+
 // Static C Backend - enables generation of static binaries for Relax VM execution
 class CodeGenCStatic final : public CodeGenC {
  public:
+  // ScopeGuard needs access to protected BeginScope/EndScope
+  friend class ScopeGuard;
   CodeGenCStatic();
   void Init(bool output_ssa, bool emit_asserts, bool emit_fwd_func_decl,
             const std::string& target_str, const std::unordered_set<std::string>& devices,
@@ -89,6 +94,7 @@ class CodeGenCStatic final : public CodeGenC {
   void VisitExpr_(const BufferLoadNode* op, std::ostream& os) override;       // NOLINT(*)
   void VisitExpr_(const BroadcastNode* op, std::ostream& os) override;  // NOLINT(*)
   void VisitExpr_(const DivNode* op, std::ostream& os) override;       // NOLINT(*)
+  void VisitExpr_(const FloatImmNode* op, std::ostream& os) override;  // NOLINT(*)
   void VisitExpr_(const MaxNode* op, std::ostream& os) override;       // NOLINT(*)
   void VisitExpr_(const MinNode* op, std::ostream& os) override;       // NOLINT(*)
 
@@ -102,7 +108,7 @@ class CodeGenCStatic final : public CodeGenC {
   void VisitStmt_(const EvaluateNode* op) override;
   void VisitStmt_(const ForNode* op) override;
 
-  Array<String> GetFunctionNames() const { return function_names_; }
+  ffi::Array<ffi::String> GetFunctionNames() const { return function_names_; }
 
   void DumpCGFunctionInfo() const;
   void EmitWrapperFunctions();
@@ -115,7 +121,7 @@ class CodeGenCStatic final : public CodeGenC {
    * \param skip_first_arg Whether to skip the first arguments.
    * \param os The output stream.
    */
-  void PrintCallExtern(Type ret_type, String global_symbol, const Array<PrimExpr>& args,
+  void PrintCallExtern(Type ret_type, ffi::String global_symbol, const ffi::Array<PrimExpr>& args,
                                bool skip_first_arg, std::ostream& os) override; // NOLINT(*)
 
  private:
@@ -205,7 +211,7 @@ class CodeGenCStatic final : public CodeGenC {
   /* \brief mapping global packed func to the unique name */
   std::unordered_map<std::string, std::string> declared_globals_;
   /* \brief names of the functions declared in this module */
-  Array<String> function_names_;
+  ffi::Array<ffi::String> function_names_;
   /* \brief current function being processed */
   std::string current_function_name_;
   /* \brief mapping function names to codegen information */
@@ -276,7 +282,7 @@ class CodeGenCStatic final : public CodeGenC {
    * And merges them into:
    *   SetFFIAnyInt(&buf[idx], value)
    */
-  bool TryEmitMergedStructSet(const Array<Stmt>& seq, size_t index, size_t* next_index);
+  bool TryEmitMergedStructSet(const ffi::Array<Stmt>& seq, size_t index, size_t* next_index);
 
   /*!
    * \brief Emit direct VM builtin call using AnyArray API
@@ -294,7 +300,7 @@ class CodeGenCStatic final : public CodeGenC {
   void PrintGetFuncFromBackend(const std::string& func_name, const std::string& packed_func_name);
   void EmitVMBuiltinInitFunction();
   void PrintStorageScope(const std::string& scope, std::ostream& os) override;  // NOLINT(*)
-  void UpdateMaxRegisterIndex(const Array<PrimExpr>& args);
+  void UpdateMaxRegisterIndex(const ffi::Array<PrimExpr>& args);
 
   /*!
    * \brief Print ternary conditional operator implementing binary `op`
@@ -308,6 +314,32 @@ class CodeGenCStatic final : public CodeGenC {
                                    std::ostream& output_stream);  // NOLINT(*)
   /*! \brief restrict keyword */
   std::string restrict_keyword_{"__restrict__"};
+};
+
+/*!
+ * \brief RAII guard for managing code generation scopes.
+ *
+ * Automatically calls BeginScope() on construction and EndScope() on
+ * destruction, ensuring proper scope cleanup even when exceptions occur
+ * or early returns are used.
+ */
+class ScopeGuard {
+ public:
+  explicit ScopeGuard(CodeGenCStatic* codegen)
+      : codegen_(codegen), scope_id_(codegen->BeginScope()) {}
+
+  ~ScopeGuard() { codegen_->EndScope(scope_id_); }
+
+  int scope_id() const { return scope_id_; }
+
+  ScopeGuard(const ScopeGuard&) = delete;
+  ScopeGuard& operator=(const ScopeGuard&) = delete;
+  ScopeGuard(ScopeGuard&&) = delete;
+  ScopeGuard& operator=(ScopeGuard&&) = delete;
+
+ private:
+  CodeGenCStatic* codegen_;
+  int scope_id_;
 };
 
 }  // namespace codegen

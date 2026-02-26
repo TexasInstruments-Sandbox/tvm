@@ -20,3 +20,6 @@
 
 from .function_pass import prim_func_pass, PrimFuncPass
 from .transform import *
+
+from .lower_dma_to_extern import LowerDMAToExtern
+from .lower_l2sram_alloc import LowerL2SramAlloc

@@ -56,6 +56,9 @@ struct FloatSuffixTiesToEven {
   }
 };
 
+TVM_REGISTER_OP("tirx.fabs").set_attr<FLowerIntrinsic>("default.FLowerIntrinsic",
+                                                      DispatchPureExtern<FloatSuffix>);
+
 TVM_REGISTER_OP("tirx.exp")
     .set_attr<FLowerIntrinsic>("default.FLowerIntrinsic", DispatchPureExtern<FloatSuffix>);
 

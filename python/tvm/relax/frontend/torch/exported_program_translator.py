@@ -1710,6 +1710,29 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         if_expr = relax.If(pred, true_call, false_call)
         return self.block_builder.emit(if_expr, name_hint="cond_result")
 
+    ########## Quantization ##########
+
+    def _quantize_per_tensor(self, node: fx.Node) -> relax.Var:
+        args = self.retrieve_args(node)
+        data = args[0]
+        scale = relax.const(args[1], "float32")
+        out_dtype = BaseFXGraphImporter._convert_data_type(args[5])
+        zero_point = relax.const(args[2], out_dtype)
+        return self.block_builder.emit(
+            relax.op.quantize(data, scale, zero_point, axis=-1, out_dtype=out_dtype)
+        )
+
+    def _dequantize_per_tensor(self, node: fx.Node) -> relax.Var:
+        args = self.retrieve_args(node)
+        data = args[0]
+        scale = relax.const(args[1], "float32")
+        # zero_point dtype must match the quantized input dtype
+        in_dtype = data.struct_info.dtype
+        zero_point = relax.const(args[2], in_dtype)
+        return self.block_builder.emit(
+            relax.op.dequantize(data, scale, zero_point, axis=-1, out_dtype="float32")
+        )
+
     ########## Others ##########
 
     @staticmethod
@@ -2072,6 +2095,9 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             "grid_sampler_2d.default": self._grid_sampler_2d,
             "affine_grid_generator.default": self._affine_grid_generator,
             "roi_align.default": self._torchvision_roi_align,
+            # quantization
+            "quantize_per_tensor.default": self._quantize_per_tensor,
+            "dequantize_per_tensor.default": self._dequantize_per_tensor,
             # datatype
             "to.dtype": self._to,
             "to.dtype_layout": self._to,

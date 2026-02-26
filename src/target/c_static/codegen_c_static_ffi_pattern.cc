@@ -161,7 +161,7 @@ bool FFIPatternAnalyzer::IsMoveFromPackedReturn(const Stmt& stmt, std::string* d
   return false;
 }
 
-void FFIPatternAnalyzer::ExtractArgSourcesForPattern(const Array<Stmt>& seq, size_t call_idx,
+void FFIPatternAnalyzer::ExtractArgSourcesForPattern(const ffi::Array<Stmt>& seq, size_t call_idx,
                                                       FFICallPattern* pattern) {
   // Resize args vector to hold all arguments
   pattern->args.resize(pattern->num_args);
@@ -297,7 +297,7 @@ void FFIPatternAnalyzer::ExtractArgSourcesForPattern(const Array<Stmt>& seq, siz
   }
 }
 
-FFICallPattern FFIPatternAnalyzer::DetectFFICallPattern(const Array<Stmt>& seq, size_t call_idx) {
+FFICallPattern FFIPatternAnalyzer::DetectFFICallPattern(const ffi::Array<Stmt>& seq, size_t call_idx) {
   FFICallPattern pattern;
   pattern.valid = false;
 
@@ -370,7 +370,7 @@ FFICallPattern FFIPatternAnalyzer::DetectFFICallPattern(const Array<Stmt>& seq, 
   return pattern;
 }
 
-std::set<size_t> FFIPatternAnalyzer::PreScanFFIPatterns(const Array<Stmt>& seq) {
+std::set<size_t> FFIPatternAnalyzer::PreScanFFIPatterns(const ffi::Array<Stmt>& seq) {
   std::set<size_t> skip_indices;
 
   for (size_t i = 0; i < seq.size(); ++i) {
@@ -413,7 +413,7 @@ std::set<size_t> FFIPatternAnalyzer::PreScanFFIPatterns(const Array<Stmt>& seq) 
   return skip_indices;
 }
 
-void FFIPatternAnalyzer::ScanVMBuiltinPatterns(const Array<Stmt>& seq,
+void FFIPatternAnalyzer::ScanVMBuiltinPatterns(const ffi::Array<Stmt>& seq,
                                                 std::map<size_t, FFICallPattern>* patterns,
                                                 std::set<size_t>* skip_indices) {
   ICHECK(patterns != nullptr && skip_indices != nullptr)

@@ -49,6 +49,7 @@ TVM_REGISTER_PASS_CONFIG_OPTION("tirx.instrument_lwp", bool);
 TVM_REGISTER_PASS_CONFIG_OPTION("tirx.vtcm_capacity", int64_t);
 TVM_REGISTER_PASS_CONFIG_OPTION("tirx.s_tir.ldg32", bool);
 TVM_REGISTER_PASS_CONFIG_OPTION("tirx.enable_fast_math", bool);
+TVM_REGISTER_PASS_CONFIG_OPTION("tirx.lower_dma_to_extern", bool);
 
 /*!
  * \brief Function level pass that applies transformations to all

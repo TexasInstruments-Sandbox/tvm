@@ -147,8 +147,6 @@ def _vmlink(
         target = tvm.target.Target(target)
     if params is None:
         params = {}
-    if ext_libs is None:
-        ext_libs = []
     lib = None
     relax_ext_libs = []
     tir_ext_libs = []
