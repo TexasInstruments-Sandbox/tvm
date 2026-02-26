@@ -1,0 +1,268 @@
+# C7x Compute Service - DSP Firmware
+#
+# Provides RPMessage-based compute service for host applications.
+#
+# Build: ./build.sh
+# Output: c7x_compute.out (ELF firmware)
+
+cmake_minimum_required(VERSION 3.16)
+
+#
+# Tool paths - update these if your installation differs
+#
+set(TI_SYSCONFIG_ROOT "$ENV{HOME}/ti/ccs2041/ccs/utils/sysconfig_1.26.0")
+set(TI_CGT_ROOT "$ENV{HOME}/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
+# Use clean SDK (11_00_00_06) which enables MMU without TLB_INV issues
+set(MCUPSDK_ROOT "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mcu_plus_sdk_j722s_11_00_00_12")
+
+# Device and core settings
+set(DEVICE "j722s")
+set(CORE "c75ss0-0")
+set(PROFILE "release")
+
+# Set toolchain before project()
+set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/toolchain-c7000.cmake")
+
+project(c7x_compute C CXX ASM)
+
+# Set proper library path and library flags for TI linker
+set(CMAKE_LIBRARY_PATH_FLAG "-i")
+set(CMAKE_LINK_LIBRARY_FLAG "-l")
+
+# Verify tool paths exist
+if(NOT EXISTS "${TI_SYSCONFIG_ROOT}")
+    message(FATAL_ERROR "SysConfig not found at: ${TI_SYSCONFIG_ROOT}")
+endif()
+if(NOT EXISTS "${TI_CGT_ROOT}")
+    message(FATAL_ERROR "TI CGT C7000 not found at: ${TI_CGT_ROOT}")
+endif()
+if(NOT EXISTS "${MCUPSDK_ROOT}")
+    message(FATAL_ERROR "MCU+ SDK not found at: ${MCUPSDK_ROOT}")
+endif()
+
+message(STATUS "SysConfig: ${TI_SYSCONFIG_ROOT}")
+message(STATUS "TI CGT: ${TI_CGT_ROOT}")
+message(STATUS "MCU+ SDK: ${MCUPSDK_ROOT}")
+
+# Find SysConfig CLI tool
+find_program(SYSCONFIG_TOOL
+    NAMES sysconfig_cli.sh
+    HINTS "${TI_SYSCONFIG_ROOT}"
+    NO_DEFAULT_PATH
+)
+if(NOT SYSCONFIG_TOOL)
+    message(FATAL_ERROR "SysConfig CLI not found in ${TI_SYSCONFIG_ROOT}")
+endif()
+message(STATUS "SysConfig CLI: ${SYSCONFIG_TOOL}")
+
+# SysConfig input file
+set(SYSCFG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/configs/c75ss0.syscfg")
+
+# Generated files from SysConfig
+set(SYSCFG_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/syscfg")
+set(SYSCFG_C_FILES
+    ${SYSCFG_OUTPUT_DIR}/ti_drivers_config.c
+    ${SYSCFG_OUTPUT_DIR}/ti_drivers_open_close.c
+    ${SYSCFG_OUTPUT_DIR}/ti_board_config.c
+    ${SYSCFG_OUTPUT_DIR}/ti_board_open_close.c
+    ${SYSCFG_OUTPUT_DIR}/ti_dpl_config.c
+    ${SYSCFG_OUTPUT_DIR}/ti_pinmux_config.c
+    ${SYSCFG_OUTPUT_DIR}/ti_power_clock_config.c
+)
+set(SYSCFG_H_FILES
+    ${SYSCFG_OUTPUT_DIR}/ti_drivers_config.h
+    ${SYSCFG_OUTPUT_DIR}/ti_drivers_open_close.h
+    ${SYSCFG_OUTPUT_DIR}/ti_board_config.h
+    ${SYSCFG_OUTPUT_DIR}/ti_board_open_close.h
+    ${SYSCFG_OUTPUT_DIR}/ti_dpl_config.h
+    ${SYSCFG_OUTPUT_DIR}/ti_pinmux_config.h
+    ${SYSCFG_OUTPUT_DIR}/ti_power_clock_config.h
+)
+
+# Run SysConfig to generate driver configuration
+add_custom_command(
+    OUTPUT ${SYSCFG_C_FILES} ${SYSCFG_H_FILES}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SYSCFG_OUTPUT_DIR}
+    COMMAND ${SYSCONFIG_TOOL}
+        --script ${SYSCFG_FILE}
+        --output ${SYSCFG_OUTPUT_DIR}
+        --compiler ticlang
+        --part Default
+        --package Default
+        --product ${MCUPSDK_ROOT}/.metadata/product.json
+    DEPENDS ${SYSCFG_FILE}
+    COMMENT "Running SysConfig to generate driver configuration"
+    VERBATIM
+)
+
+# Create library from generated SysConfig files
+add_library(syscfg_generated OBJECT ${SYSCFG_C_FILES})
+target_include_directories(syscfg_generated PRIVATE
+    ${SYSCFG_OUTPUT_DIR}
+    ${MCUPSDK_ROOT}/source
+    ${MCUPSDK_ROOT}/source/kernel/freertos/FreeRTOS-Kernel/include
+    ${MCUPSDK_ROOT}/source/kernel/freertos/portable/TI_CGT/DSP_C75X
+    ${MCUPSDK_ROOT}/source/kernel/freertos/config/${DEVICE}/c75x
+    ${MCUPSDK_ROOT}/source/drivers
+    ${MCUPSDK_ROOT}/source/drivers/hw_include
+    ${MCUPSDK_ROOT}/source/drivers/hw_include/${DEVICE}
+)
+target_compile_definitions(syscfg_generated PRIVATE
+    SOC_J722S
+    BUILD_C7X
+    BUILD_C7X_1
+    OS_FREERTOS
+    Hwi_bootToNonSecure__D=1
+)
+
+# Linker command file
+set(LINKER_CMD "${CMAKE_CURRENT_SOURCE_DIR}/configs/linker_c75_freertos.cmd")
+
+# TVM DSP Runtime (relative to firmware location within ti_dsp/)
+set(TVM_DSP_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+set(TVM_DSP_RUNTIME_LIB "${TVM_DSP_RUNTIME_DIR}/build-c7x/libtvm_dsp_runtime_c7x.a")
+# TVM repo root is 6 levels up: firmware/c7x/dsp -> ti_dsp -> runtime -> src -> tvm
+set(TVM_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../")
+set(TVM_DLPACK_DIR "${TVM_ROOT}/3rdparty/dlpack/include")
+
+if(NOT EXISTS "${TVM_DSP_RUNTIME_LIB}")
+    message(WARNING "TVM DSP runtime library not found at: ${TVM_DSP_RUNTIME_LIB}")
+    message(WARNING "Build it first: cd ${TVM_DSP_RUNTIME_DIR}/build-c7x && cmake --build .")
+endif()
+
+# DLOAD library sources
+set(DLOAD_SOURCES
+    src/dload/DLOAD/dload.c
+    src/dload/DLOAD/elf32.c
+    src/dload/DLOAD/dload_endian.c
+    src/dload/DLOAD/ArrayList.c
+    src/dload/DLOAD_SYM/symtab.c
+    src/dload/C70_DLOAD_DYN/c70_dynamic.c
+    src/dload/C70_DLOAD_REL/c70_reloc.c
+)
+
+# DmaUtils compiled from source with standalone UDMA path.
+# The prebuilt dmautils.lib uses the full UDMA driver which accesses
+# NAVSS registers not available in remoteproc mode.  Compiling from
+# source with DMA_UTILS_STANDALONE uses the standalone UDMA driver
+# which only accesses the DRU directly.  The two .c files under
+# src/dmautils/ are vendored copies with include paths fixed to use
+# MCU+ SDK-native paths (no PDK shim required).
+set(DMAUTILS_SRC_DIR ${MCUPSDK_ROOT}/source/drivers/dmautils)
+set(DMAUTILS_SOURCES
+    src/dmautils/dmautils_autoincrement_3d.c
+    src/dmautils/udma.c
+)
+
+# Build dmautils+standalone UDMA as a static library so the linker
+# only pulls needed symbols (avoids conflicts with drivers.lib).
+add_library(dmautils_standalone STATIC ${DMAUTILS_SOURCES})
+target_include_directories(dmautils_standalone PRIVATE
+    ${DMAUTILS_SRC_DIR}/include
+    ${DMAUTILS_SRC_DIR}/csl
+    ${DMAUTILS_SRC_DIR}/udma_standalone
+    ${DMAUTILS_SRC_DIR}/udma_standalone/include
+    ${MCUPSDK_ROOT}/source
+    ${MCUPSDK_ROOT}/source/kernel/nortos/dpl/c75
+    ${MCUPSDK_ROOT}/source/drivers/hw_include
+    ${MCUPSDK_ROOT}/source/drivers/hw_include/${DEVICE}
+    ${TI_CGT_ROOT}/include
+)
+target_compile_definitions(dmautils_standalone PRIVATE
+    DMA_UTILS_STANDALONE SOC_J722S BUILD_C7X_1 BUILD_C7X MCU_PLUS_SDK
+)
+
+# Main executable
+add_executable(${PROJECT_NAME}.out
+    src/main.c
+    src/compute_service.c
+    src/dyn_loader.c
+    src/tvm_model.c
+    src/shm_printf.c
+    ${DLOAD_SOURCES}
+)
+
+# Add linker command file
+target_sources(${PROJECT_NAME}.out PRIVATE ${LINKER_CMD})
+
+# Include directories
+target_include_directories(${PROJECT_NAME}.out PRIVATE
+    ${SYSCFG_OUTPUT_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${MCUPSDK_ROOT}/source
+    ${MCUPSDK_ROOT}/source/kernel/freertos/FreeRTOS-Kernel/include
+    ${MCUPSDK_ROOT}/source/kernel/freertos/portable/TI_CGT/DSP_C75X
+    ${MCUPSDK_ROOT}/source/kernel/freertos/config/${DEVICE}/c75x
+    ${MCUPSDK_ROOT}/source/drivers
+    ${MCUPSDK_ROOT}/source/drivers/hw_include
+    ${MCUPSDK_ROOT}/source/drivers/hw_include/${DEVICE}
+    ${MCUPSDK_ROOT}/source/kernel/nortos/dpl/c75
+    ${TI_CGT_ROOT}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/configs
+    # DLOAD includes
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dload/DLOAD
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dload/DLOAD_API
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dload/C70_DLOAD_DYN
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dload/C70_DLOAD_REL
+    # TVM DSP Runtime includes
+    ${TVM_DSP_RUNTIME_DIR}
+    ${TVM_DSP_RUNTIME_DIR}/include
+    ${TVM_DSP_RUNTIME_DIR}/ffi
+    ${TVM_DSP_RUNTIME_DIR}/container
+    ${TVM_DSP_RUNTIME_DIR}/core
+    ${TVM_DLPACK_DIR}
+    # DmaUtils for async DMA (DRU direct TR mode)
+    ${MCUPSDK_ROOT}/source/drivers/dmautils/include
+    ${MCUPSDK_ROOT}/source/drivers/dmautils/csl
+    ${MCUPSDK_ROOT}/source/drivers/dmautils/udma_standalone
+    ${MCUPSDK_ROOT}/source/drivers/dmautils/udma_standalone/include
+)
+
+# Compile definitions
+target_compile_definitions(${PROJECT_NAME}.out PRIVATE
+    SOC_J722S
+    BUILD_C7X
+    BUILD_C7X_1
+    OS_FREERTOS
+    Hwi_bootToNonSecure__D=1
+    # DLOAD configuration
+    C70_TARGET
+    ELF64=1
+    _SYS_BIOS
+    # TVM DSP runtime configuration
+    TVM_DSP_TARGET_C7X
+    TVM_DSP_DEVICE_J722S
+    TVM_DSP_NO_EXCEPTIONS=1
+    TVM_DSP_NO_THREADS=1
+    # DmaUtils headers need MCU_PLUS_SDK for correct include paths
+    MCU_PLUS_SDK
+)
+
+# Link directories
+target_link_directories(${PROJECT_NAME}.out PRIVATE
+    ${TI_CGT_ROOT}/lib
+)
+
+# Link libraries
+# dmautils_standalone (from source, standalone UDMA) must come BEFORE
+# drivers.lib so its UDMA symbols satisfy the runtime's references first,
+# preventing drivers.lib from pulling in the full UDMA driver.
+target_link_options(${PROJECT_NAME}.out PRIVATE --reread_libs)
+target_link_libraries(${PROJECT_NAME}.out
+    syscfg_generated
+    ${MCUPSDK_ROOT}/source/kernel/freertos/lib/freertos.${DEVICE}.c75x.ti-c7000.${PROFILE}.lib
+    ${TVM_DSP_RUNTIME_LIB}
+    dmautils_standalone
+    ${MCUPSDK_ROOT}/source/drivers/lib/drivers.${DEVICE}.${CORE}.ti-c7000.${PROFILE}.lib
+    ${TI_CGT_ROOT}/lib/libc.a
+    ${LINKER_CMD}
+)
+
+# Post-build message
+add_custom_command(TARGET ${PROJECT_NAME}.out POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "================================================"
+    COMMAND ${CMAKE_COMMAND} -E echo "C7x Compute Service built: ${PROJECT_NAME}.out"
+    COMMAND ${CMAKE_COMMAND} -E echo "Deploy with: ../../deploy-c7x.sh build/${PROJECT_NAME}.out"
+    COMMAND ${CMAKE_COMMAND} -E echo "================================================"
+)
