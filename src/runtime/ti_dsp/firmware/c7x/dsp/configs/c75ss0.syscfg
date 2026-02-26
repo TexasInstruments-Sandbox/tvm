@@ -1,0 +1,261 @@
+/**
+ * SysConfig for C7x Compute Service
+ *
+ * MMU configuration extends vision_apps with additional shared buffer region.
+ *
+ * @cliArgs --device "J722S_TDA4VEN_TDA4AEN_AM67" --package "AMW" --part "Default" --context "c75ss0-0" --product "MCU_PLUS_SDK@11.00.00"
+ */
+
+/**
+ * Import the modules used in this configuration.
+ */
+const ipc         = scripting.addModule("/drivers/ipc/ipc");
+const debug_log   = scripting.addModule("/kernel/dpl/debug_log");
+const mmu_armv8   = scripting.addModule("/kernel/dpl/mmu_armv8", {}, false);
+
+/* Create 16 MMU regions (max allowed by SysConfig) */
+/* Region 15 repurposed for shared compute buffer (was C7x_2 heap) */
+const mmu_armv8_r0  = mmu_armv8.addInstance();
+const mmu_armv8_r1  = mmu_armv8.addInstance();
+const mmu_armv8_r2  = mmu_armv8.addInstance();
+const mmu_armv8_r3  = mmu_armv8.addInstance();
+const mmu_armv8_r4  = mmu_armv8.addInstance();
+const mmu_armv8_r5  = mmu_armv8.addInstance();
+const mmu_armv8_r6  = mmu_armv8.addInstance();
+const mmu_armv8_r7  = mmu_armv8.addInstance();
+const mmu_armv8_r8  = mmu_armv8.addInstance();
+const mmu_armv8_r9  = mmu_armv8.addInstance();
+const mmu_armv8_r10 = mmu_armv8.addInstance();
+const mmu_armv8_r11 = mmu_armv8.addInstance();
+const mmu_armv8_r12 = mmu_armv8.addInstance();
+const mmu_armv8_r13 = mmu_armv8.addInstance();
+const mmu_armv8_r14 = mmu_armv8.addInstance();
+const mmu_armv8_r15 = mmu_armv8.addInstance();  /* Shared compute buffer */
+
+/**
+ * IPC Configuration - Enable Linux IPC for remoteproc communication
+ */
+ipc.enableLinuxIpc     = true;
+ipc.vringAllocationPDK = false;
+
+/**
+ * Debug Log Configuration - Use memory trace buffer for remoteproc
+ */
+debug_log.enableCssLog                    = false;
+debug_log.enableSharedMemLog              = false;
+debug_log.enableSharedMemLogReader        = false;
+debug_log.enableUartLog                   = false;
+debug_log.enableLogZoneInfo               = true;
+debug_log.enableLogZoneWarning            = true;
+debug_log.enableLogZoneError              = true;
+
+/*
+ * =============================================================================
+ * MMU REGIONS - Based on vision_apps + shared buffer for compute service
+ *
+ * MAIR Index Values (from SDK):
+ *   MAIR0 (0x00): Device-nGnRnE (strongly ordered, no caching)
+ *   MAIR4 (0x44): Normal non-cacheable
+ *   MAIR7 (0x7D): Write-back cacheable (read-allocate, write-allocate)
+ * =============================================================================
+ */
+
+/**
+ * Region 0: Peripherals (0x00000000 - 0x20000000) - 512MB
+ */
+mmu_armv8_r0.$name             = "REGISTER_REGION_0";
+mmu_armv8_r0.vAddr             = 0x00000000;
+mmu_armv8_r0.pAddr             = 0x00000000;
+mmu_armv8_r0.size              = 0x20000000;
+mmu_armv8_r0.attribute         = "MAIR0";
+mmu_armv8_r0.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r0.privExecute       = true;
+mmu_armv8_r0.userExecute       = false;
+
+/**
+ * Region 1: Peripherals (0x20000000 - 0x40000000) - 512MB
+ */
+mmu_armv8_r1.$name             = "REGISTER_REGION_1";
+mmu_armv8_r1.vAddr             = 0x20000000;
+mmu_armv8_r1.pAddr             = 0x20000000;
+mmu_armv8_r1.size              = 0x20000000;
+mmu_armv8_r1.attribute         = "MAIR0";
+mmu_armv8_r1.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r1.privExecute       = true;
+mmu_armv8_r1.userExecute       = false;
+
+/**
+ * Region 2: Peripherals (0x40000000 - 0x60000000) - 512MB
+ */
+mmu_armv8_r2.$name             = "REGISTER_REGION_2";
+mmu_armv8_r2.vAddr             = 0x40000000;
+mmu_armv8_r2.pAddr             = 0x40000000;
+mmu_armv8_r2.size              = 0x20000000;
+mmu_armv8_r2.attribute         = "MAIR0";
+mmu_armv8_r2.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r2.privExecute       = true;
+mmu_armv8_r2.userExecute       = false;
+
+/**
+ * Region 3: FSS DAT region (0x60000000 - 0x64000000) - 64MB
+ */
+mmu_armv8_r3.$name             = "FSS0_DAT_REGION";
+mmu_armv8_r3.vAddr             = 0x60000000;
+mmu_armv8_r3.pAddr             = 0x60000000;
+mmu_armv8_r3.size              = 0x04000000;
+mmu_armv8_r3.attribute         = "MAIR0";
+mmu_armv8_r3.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r3.privExecute       = true;
+mmu_armv8_r3.userExecute       = false;
+
+/**
+ * Region 4: CLEC (0x7C200000) - 1MB
+ */
+mmu_armv8_r4.$name             = "CLEC";
+mmu_armv8_r4.vAddr             = 0x7C200000;
+mmu_armv8_r4.pAddr             = 0x7C200000;
+mmu_armv8_r4.size              = 0x00100000;
+mmu_armv8_r4.attribute         = "MAIR0";
+mmu_armv8_r4.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r4.privExecute       = true;
+mmu_armv8_r4.userExecute       = false;
+
+/**
+ * Region 5: DRU (0x7C400000) - 1MB
+ */
+mmu_armv8_r5.$name             = "DRU";
+mmu_armv8_r5.vAddr             = 0x7C400000;
+mmu_armv8_r5.pAddr             = 0x7C400000;
+mmu_armv8_r5.size              = 0x00100000;
+mmu_armv8_r5.attribute         = "MAIR0";
+mmu_armv8_r5.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r5.privExecute       = true;
+mmu_armv8_r5.userExecute       = false;
+
+/**
+ * Region 6: L2SRAM MAIN (0x7E000000) - 4MB
+ */
+mmu_armv8_r6.$name             = "L2RAM_C7x_1_MAIN";
+mmu_armv8_r6.vAddr             = 0x7E000000;
+mmu_armv8_r6.pAddr             = 0x7E000000;
+mmu_armv8_r6.size              = 0x00400000;
+mmu_armv8_r6.attribute         = "MAIR0";
+mmu_armv8_r6.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r6.privExecute       = true;
+mmu_armv8_r6.userExecute       = false;
+
+/**
+ * Region 7: L2SRAM AUX (0x7F000000) - 512KB
+ */
+mmu_armv8_r7.$name             = "L2RAM_C7x_1_AUX";
+mmu_armv8_r7.vAddr             = 0x7F000000;
+mmu_armv8_r7.pAddr             = 0x7F000000;
+mmu_armv8_r7.size              = 0x00080000;
+mmu_armv8_r7.attribute         = "MAIR0";
+mmu_armv8_r7.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r7.privExecute       = true;
+mmu_armv8_r7.userExecute       = false;
+
+/**
+ * Region 8: DDR C7x_1 Code/Data (0xAD200000) - 62MB
+ * CACHEABLE (MAIR7)
+ */
+mmu_armv8_r8.$name             = "DDR_C7x_1";
+mmu_armv8_r8.vAddr             = 0xAD200000;
+mmu_armv8_r8.pAddr             = 0xAD200000;
+mmu_armv8_r8.size              = 0x03E00000;
+mmu_armv8_r8.attribute         = "MAIR7";
+mmu_armv8_r8.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r8.privExecute       = true;
+mmu_armv8_r8.userExecute       = false;
+
+/**
+ * Region 9: DDR Shared Memory (0xC0000000 -> 0x900000000) - 512MB
+ * CACHEABLE (MAIR7)
+ */
+mmu_armv8_r9.$name             = "DDR_SHARED_MEM";
+mmu_armv8_r9.vAddr             = 0xC0000000;
+mmu_armv8_r9.pAddr             = 0x900000000;
+mmu_armv8_r9.size              = 0x20000000;
+mmu_armv8_r9.attribute         = "MAIR7";
+mmu_armv8_r9.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r9.privExecute       = true;
+mmu_armv8_r9.userExecute       = false;
+
+/**
+ * Region 10: IPC VRing Memory (0xAF800000) - 8MB
+ * Non-cacheable (MAIR4)
+ */
+mmu_armv8_r10.$name             = "IPC_VRING_MEM";
+mmu_armv8_r10.vAddr             = 0xAF800000;
+mmu_armv8_r10.pAddr             = 0xAF800000;
+mmu_armv8_r10.size              = 0x00800000;
+mmu_armv8_r10.attribute         = "MAIR4";
+mmu_armv8_r10.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r10.privExecute       = true;
+mmu_armv8_r10.userExecute       = false;
+
+/**
+ * Region 11: DDR C7x_1 IPC/DMA (0xAD000000) - 2MB
+ * Non-cacheable (MAIR4)
+ */
+mmu_armv8_r11.$name             = "DDR_C7x_1_IPC";
+mmu_armv8_r11.vAddr             = 0xAD000000;
+mmu_armv8_r11.pAddr             = 0xAD000000;
+mmu_armv8_r11.size              = 0x00200000;
+mmu_armv8_r11.attribute         = "MAIR4";
+mmu_armv8_r11.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r11.privExecute       = true;
+mmu_armv8_r11.userExecute       = false;
+
+/**
+ * Region 12: DDR C7x_1 Non-Cacheable Heap (0x100000000 -> 0x880000000) - 32MB
+ */
+mmu_armv8_r12.$name             = "DDR_C7X_1_LOCAL_HEAP_NC";
+mmu_armv8_r12.vAddr             = 0x100000000;
+mmu_armv8_r12.pAddr             = 0x880000000;
+mmu_armv8_r12.size              = 0x02000000;
+mmu_armv8_r12.attribute         = "MAIR4";
+mmu_armv8_r12.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r12.privExecute       = true;
+mmu_armv8_r12.userExecute       = false;
+
+/**
+ * Region 13: DDR C7x_1 Cacheable Heap (0x102000000 -> 0x882000000) - 224MB
+ */
+mmu_armv8_r13.$name             = "DDR_C7X_1_LOCAL_HEAP";
+mmu_armv8_r13.vAddr             = 0x102000000;
+mmu_armv8_r13.pAddr             = 0x882000000;
+mmu_armv8_r13.size              = 0x0E000000;
+mmu_armv8_r13.attribute         = "MAIR7";
+mmu_armv8_r13.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r13.privExecute       = true;
+mmu_armv8_r13.userExecute       = false;
+
+/**
+ * Region 14: DDR C7x_2 Non-Cacheable (0x110000000 -> 0x890000000) - 32MB
+ * For C7x_2 access from C7x_1 (if needed)
+ */
+mmu_armv8_r14.$name             = "DDR_C7X_2_LOCAL_HEAP_NC";
+mmu_armv8_r14.vAddr             = 0x110000000;
+mmu_armv8_r14.pAddr             = 0x890000000;
+mmu_armv8_r14.size              = 0x02000000;
+mmu_armv8_r14.attribute         = "MAIR4";
+mmu_armv8_r14.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r14.privExecute       = true;
+mmu_armv8_r14.userExecute       = false;
+
+/**
+ * Region 15: SHARED COMPUTE BUFFER (0xB5000000) - 16MB
+ * Host-DSP data transfer region for compute service
+ * Uses MAIR7 (cached) for performance
+ * Note: Replaced DDR_C7X_2_LOCAL_HEAP since we don't use C7x_2
+ */
+mmu_armv8_r15.$name             = "SHARED_COMPUTE_BUFFER";
+mmu_armv8_r15.vAddr             = 0xB5000000;
+mmu_armv8_r15.pAddr             = 0xB5000000;
+mmu_armv8_r15.size              = 0x01000000;
+mmu_armv8_r15.attribute         = "MAIR7";
+mmu_armv8_r15.accessPermissions = "Privilege RW, User None";
+mmu_armv8_r15.privExecute       = false;
+mmu_armv8_r15.userExecute       = false;

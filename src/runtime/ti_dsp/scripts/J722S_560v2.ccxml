@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<configurations XML_version="1.2" id="configurations_0">
+    <configuration XML_version="1.2" id="configuration_0">
+        <instance XML_version="1.2" desc="Spectrum Digital XDS560V2 STM LAN Emulator" href="connections/SD560V2LAN_Connection.xml" id="Spectrum Digital XDS560V2 STM LAN Emulator" xml="SD560V2LAN_Connection.xml" xmlpath="connections"/>
+        <connection XML_version="1.2" id="Spectrum Digital XDS560V2 STM LAN Emulator">
+            <instance XML_version="1.2" href="drivers/tixds560cs_dap.xml" id="drivers" xml="tixds560cs_dap.xml" xmlpath="drivers"/>
+            <instance XML_version="1.2" href="drivers/tixds560cortexA53.xml" id="drivers" xml="tixds560cortexA53.xml" xmlpath="drivers"/>
+            <instance XML_version="1.2" href="drivers/tixds560c75x.xml" id="drivers" xml="tixds560c75x.xml" xmlpath="drivers"/>
+            <instance XML_version="1.2" href="drivers/tixds560cortexM.xml" id="drivers" xml="tixds560cortexM.xml" xmlpath="drivers"/>
+            <instance XML_version="1.2" href="drivers/tixds560cortexR.xml" id="drivers" xml="tixds560cortexR.xml" xmlpath="drivers"/>
+            <property id="portAddr1" Type="stringfield" Value="10.219.15.205"/>
+            <platform XML_version="1.2" id="platform_0">
+                <instance XML_version="1.2" desc="EVM_J722S_TDA4VEN_TDA4AEN_AM67" href="boards/evm_J722S.xml" id="EVM_J722S_TDA4VEN_TDA4AEN_AM67" xml="evm_J722S.xml" xmlpath="boards"/>
+                <board XML_version="1.2" description="J722S_TDA4VEN_TDA4AEN_AM67 General Purpose Evaluation Module" id="EVM_J722S_TDA4VEN_TDA4AEN_AM67">
+                    <device HW_revision="1" XML_version="1.2" description="J722S_TDA4VEN_TDA4AEN_AM67" id="J722S_TDA4VEN_0" partnum="J722S_TDA4VEN_TDA4AEN_AM67">
+                        <router HW_revision="1.0" XML_version="1.2" description="CS_DAP Router" id="CS_DAP_0" isa="CS_DAP">
+                            <subpath id="SMS_CM4_0_TIFS">
+                                <cpu HW_revision="1.0" XML_version="1.2" desc="SMS_CM4_0_TIFS_0" description="Cortex_M4F CPU" id="SMS_CM4_0_TIFS" isa="Cortex_M4F"/>
+                            </subpath>
+                        </router>
+                    </device>
+                </board>
+            </platform>
+        </connection>
+    </configuration>
+</configurations>
