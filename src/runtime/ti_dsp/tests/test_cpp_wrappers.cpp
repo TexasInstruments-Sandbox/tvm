@@ -146,7 +146,7 @@ static int test_any_assignment() {
 static int test_any_unsafe_move() {
     TVMFFIAny raw;
     raw.type_index = kTVMFFIInt;
-    raw.small_len = 0;
+    raw.zero_padding = 0;
     raw.v_int64 = 12345;
 
     tvm::ffi::Any result = tvm::ffi::details::AnyUnsafe::MoveTVMFFIAnyToAny(std::move(raw));

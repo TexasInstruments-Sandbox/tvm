@@ -267,7 +267,8 @@ def _schedule_conv2d_nhwc(func, l2_budget):
     weight_elem = (weight_dtype.bits * weight_dtype.lanes + 7) // 8
     weight_bytes = kh * kw * ic * oc * weight_elem
     input_strip = (h_tile + kh - 1) * iw_pad * ic * elem_bytes
-    if weight_bytes + 2 * input_strip <= l2_budget:
+    # Use 95% budget to account for StorageRewrite alignment/merging overhead
+    if weight_bytes + 2 * input_strip <= int(l2_budget * 0.95):
         cache_weight = sch.cache_read(conv_block, 1, "global.l2sram")
         # Compute at nn (outermost) — weights are loaded once, reused
         # by all H-tiles.

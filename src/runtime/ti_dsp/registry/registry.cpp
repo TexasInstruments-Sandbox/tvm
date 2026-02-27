@@ -285,7 +285,7 @@ int TVMFFIFunctionCall(TVMFFIObjectHandle func, TVMFFIAny* args,
   /* Ensure result starts as None */
   if (result != nullptr) {
     result->type_index = kTVMFFINone;
-    result->small_len = 0;
+    result->zero_padding = 0;
     result->v_int64 = 0;
   }
 
@@ -312,7 +312,7 @@ int TVMBackendAnyListSetPackedArg(void* anylist, int index, TVMFFIAny* args,
 
   /* Copy the value */
   dst->type_index = src->type_index;
-  dst->small_len = src->small_len;
+  dst->zero_padding = src->zero_padding;
   dst->v_int64 = src->v_int64;
 
   /*
@@ -339,12 +339,12 @@ int TVMBackendAnyListMoveFromPackedReturn(void* anylist, int index,
 
   /* Move the value (no ref count change - it's a move, not copy) */
   list[index].type_index = src->type_index;
-  list[index].small_len = src->small_len;
+  list[index].zero_padding = src->zero_padding;
   list[index].v_int64 = src->v_int64;
 
   /* Clear source to indicate move */
   src->type_index = kTVMFFINone;
-  src->small_len = 0;
+  src->zero_padding = 0;
   src->v_int64 = 0;
 
   return 0;

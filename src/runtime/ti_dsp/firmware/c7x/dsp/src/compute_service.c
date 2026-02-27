@@ -411,7 +411,7 @@ static int32_t build_input_ndarrays(
         ndarrays[i].byte_offset = 0;
 
         anys[i].type_index = kTVMFFITensor;
-        anys[i].small_len = 0;
+        anys[i].zero_padding = 0;
         anys[i].v_ptr = &ndarrays[i];
     }
 

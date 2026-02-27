@@ -177,7 +177,7 @@ static inline TVMDSPStorage* TVMDSPAnyAsStorage(const TVMFFIAny* any) {
  */
 static inline void TVMDSPAnySetStorage(TVMFFIAny* any, TVMDSPStorage* storage) {
   any->type_index = TVM_DSP_STORAGE_TYPE_INDEX;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_obj = (TVMFFIObject*)storage;
   TVMDSPStorageIncRef(storage);
 }

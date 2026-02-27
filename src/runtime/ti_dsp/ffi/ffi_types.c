@@ -128,19 +128,19 @@ int TVMFFIObjectFree(TVMFFIObjectHandle handle) {
 void TVMFFIAnyMove(TVMFFIAny* src, TVMFFIAny* dst) {
   /* Copy the raw bytes */
   dst->type_index = src->type_index;
-  dst->small_len = src->small_len;
+  dst->zero_padding = src->zero_padding;
   dst->v_int64 = src->v_int64;
 
   /* Clear source (no ref count change since we're moving) */
   src->type_index = kTVMFFINone;
-  src->small_len = 0;
+  src->zero_padding = 0;
   src->v_int64 = 0;
 }
 
 void TVMFFIAnyCopy(const TVMFFIAny* src, TVMFFIAny* dst) {
   /* Copy the raw bytes */
   dst->type_index = src->type_index;
-  dst->small_len = src->small_len;
+  dst->zero_padding = src->zero_padding;
   dst->v_int64 = src->v_int64;
 
   /* If it's an object type, increment reference count */
@@ -157,6 +157,6 @@ void TVMFFIAnyClear(TVMFFIAny* any) {
 
   /* Reset to None */
   any->type_index = kTVMFFINone;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_int64 = 0;
 }

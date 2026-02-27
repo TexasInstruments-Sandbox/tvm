@@ -251,9 +251,22 @@ void FFIPatternAnalyzer::ExtractArgSourcesForPattern(const ffi::Array<Stmt>& seq
         break;
       }
 
+      // Handle zero_padding statements (0.23.0 adds these between type_index and value)
+      if (info.kind == builtin::kTVMFFIAnyZeroPadding) {
+        pattern->first_arg_index = i - 1;
+        continue;
+      }
+
       // Handle union_value statements by looking back for matching type_index
+      // In 0.23.0, there may be a kTVMFFIAnyZeroPadding between type_index and value,
+      // so we look back 1 or 2 statements to find the type_index.
       if (info.kind == builtin::kTVMFFIAnyUnionValue && i >= 2) {
+        // Try i-2 first (0.21.0 pattern: type_index immediately precedes value)
         auto type_info = ExtractStructSetInfo(seq[i - 2]);
+        // If i-2 is zero_padding, look at i-3 (0.23.0 pattern: type, padding, value)
+        if (type_info.IsValid() && type_info.kind == builtin::kTVMFFIAnyZeroPadding && i >= 3) {
+          type_info = ExtractStructSetInfo(seq[i - 3]);
+        }
         bool has_matching_type = type_info.IsValid() &&
                                  type_info.kind == builtin::kTVMFFIAnyTypeIndex &&
                                  type_info.TargetsSameElement(info);

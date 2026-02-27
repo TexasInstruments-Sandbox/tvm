@@ -77,42 +77,42 @@ class Any {
   /*! \brief Default constructor - creates None value */
   Any() {
     data_.type_index = kTVMFFINone;
-    data_.small_len = 0;
+    data_.zero_padding = 0;
     data_.v_int64 = 0;
   }
 
   /*! \brief Construct from nullptr */
   Any(std::nullptr_t) {
     data_.type_index = kTVMFFINone;
-    data_.small_len = 0;
+    data_.zero_padding = 0;
     data_.v_int64 = 0;
   }
 
   /*! \brief Construct from integer */
   Any(int64_t value) {
     data_.type_index = kTVMFFIInt;
-    data_.small_len = 0;
+    data_.zero_padding = 0;
     data_.v_int64 = value;
   }
 
   /*! \brief Construct from int */
   Any(int value) {
     data_.type_index = kTVMFFIInt;
-    data_.small_len = 0;
+    data_.zero_padding = 0;
     data_.v_int64 = static_cast<int64_t>(value);
   }
 
   /*! \brief Construct from double */
   Any(double value) {
     data_.type_index = kTVMFFIFloat;
-    data_.small_len = 0;
+    data_.zero_padding = 0;
     data_.v_float64 = value;
   }
 
   /*! \brief Construct from NDArray */
   Any(const runtime::NDArray& arr) {
     data_.type_index = kTVMFFITensor;
-    data_.small_len = 0;
+    data_.zero_padding = 0;
     data_.v_obj = arr.get();
     if (data_.v_obj) {
       reinterpret_cast<TVMFFIObject*>(data_.v_obj)->ref_counter++;
@@ -136,7 +136,7 @@ class Any {
   /*! \brief Move constructor */
   Any(Any&& other) noexcept : data_(other.data_) {
     other.data_.type_index = kTVMFFINone;
-    other.data_.small_len = 0;
+    other.data_.zero_padding = 0;
     other.data_.v_int64 = 0;
   }
 
@@ -163,7 +163,7 @@ class Any {
       Clear();
       data_ = other.data_;
       other.data_.type_index = kTVMFFINone;
-      other.data_.small_len = 0;
+      other.data_.zero_padding = 0;
       other.data_.v_int64 = 0;
     }
     return *this;
@@ -173,7 +173,7 @@ class Any {
   Any& operator=(std::nullptr_t) {
     Clear();
     data_.type_index = kTVMFFINone;
-    data_.small_len = 0;
+    data_.zero_padding = 0;
     data_.v_int64 = 0;
     return *this;
   }
@@ -182,7 +182,7 @@ class Any {
   Any& operator=(void* ptr) {
     Clear();
     data_.type_index = kTVMFFIOpaquePtr;
-    data_.small_len = 0;
+    data_.zero_padding = 0;
     data_.v_ptr = ptr;
     return *this;
   }
@@ -191,7 +191,7 @@ class Any {
   Any& operator=(const runtime::NDArray& arr) {
     Clear();
     data_.type_index = kTVMFFITensor;
-    data_.small_len = 0;
+    data_.zero_padding = 0;
     data_.v_obj = arr.get();
     if (data_.v_obj) {
       reinterpret_cast<TVMFFIObject*>(data_.v_obj)->ref_counter++;
@@ -268,7 +268,7 @@ inline Any details::AnyUnsafe::MoveTVMFFIAnyToAny(TVMFFIAny&& src) {
   result.data_ = src;
   // Clear source without decrementing ref count (it's a move)
   src.type_index = kTVMFFINone;
-  src.small_len = 0;
+  src.zero_padding = 0;
   src.v_int64 = 0;
   return result;
 }

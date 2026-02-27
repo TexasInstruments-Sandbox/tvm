@@ -195,7 +195,7 @@ static void GenerateConstantLoaderCode(std::ostream& os,
 // For DSP targets, the DSP runtime provides its own TVMGetConstants().
 #include <dmlc/memory_io.h>
 #include <tvm/ffi/any.h>
-#include <tvm/ffi/container.h>
+#include <tvm/ffi/container/shape.h>
 #include <tvm/runtime/tensor.h>
 #include <fstream>
 #include <string>
@@ -239,26 +239,34 @@ std::vector<tvm::ffi::Any> TVMGetConstants() {
         cached_constants.push_back(cell);
       } else if (constant_type == tvm::ffi::TypeIndex::kTVMFFIShape) {
         uint64_t len;
-        stream.Read(&len);
+        stream.Read(&len, sizeof(len));
         std::vector<tvm::ffi::Shape::index_type> sd(len);
-        for (uint64_t j = 0; j < len; ++j) stream.Read(&(sd[j]));
+        for (uint64_t j = 0; j < len; ++j) stream.Read(&(sd[j]), sizeof(sd[j]));
         tvm::ffi::Any cell;
         cell = tvm::ffi::Shape(sd);
         cached_constants.push_back(cell);
+      } else if (constant_type == tvm::ffi::TypeIndex::kTVMFFIStr) {
+        uint64_t len;
+        stream.Read(&len, sizeof(len));
+        std::string str_data(len, '\0');
+        for (uint64_t j = 0; j < len; ++j) stream.Read(&str_data[j], 1);
+        tvm::ffi::Any cell;
+        cell = tvm::ffi::String(str_data);
+        cached_constants.push_back(cell);
       } else if (constant_type == tvm::ffi::TypeIndex::kTVMFFIInt) {
         int64_t value;
-        stream.Read(&value);
+        stream.Read(&value, sizeof(value));
         tvm::ffi::Any cell;
         cell = value;
         cached_constants.push_back(cell);
       } else if (constant_type == tvm::ffi::TypeIndex::kTVMFFIFloat) {
         double value;
-        stream.Read(&value);
+        stream.Read(&value, sizeof(value));
         tvm::ffi::Any cell;
         cell = value;
         cached_constants.push_back(cell);
       } else if (constant_type == tvm::ffi::TypeIndex::kTVMFFIDataType) {
-        stream.Read(&dtype);
+        stream.Read(&dtype, sizeof(dtype));
         tvm::ffi::Any cell;
         cell = dtype;
         cached_constants.push_back(cell);

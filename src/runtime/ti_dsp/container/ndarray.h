@@ -282,7 +282,7 @@ static inline TVMDSPNDArray* TVMDSPAnyAsNDArray(const TVMFFIAny* any) {
  */
 static inline void TVMDSPAnySetNDArray(TVMFFIAny* any, TVMDSPNDArray* arr) {
   any->type_index = kTVMFFITensor;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_obj = (TVMFFIObject*)arr;
   TVMDSPNDArrayIncRef(arr);
 }

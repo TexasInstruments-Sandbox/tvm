@@ -348,6 +348,7 @@ constexpr const char* kStandardTVMHeaders = R"(
 // Custom backend for C Static code generation
 
 typedef unsigned long ulong;
+#include <tvm/runtime/logging.h>
 #include <tvm/runtime/vm/executable.h>
 #include <tvm/runtime/vm/vm.h>
 #include <tvm/runtime/tensor.h>
@@ -371,10 +372,10 @@ using std::fabs;
 extern std::vector<tvm::ffi::Any> TVMGetConstants();
 
 // Helper function for unwrapping ObjectRef arguments to raw pointers
-// ObjectRef wraps pointer with 16-byte header (ref count + type info)
+// ObjectRef wraps pointer with TVMFFIObject header (ref count + type info + deleter)
 // Use kTVMFFITensor from tvm/ffi/c_api.h (available via c_backend_api.h)
 inline void* UnwrapObjectRefArg(const TVMFFIAny& arg) {
-  constexpr size_t kObjectRefHeaderSize = 16;  // Architecture-specific, 64-bit systems
+  constexpr size_t kObjectRefHeaderSize = sizeof(TVMFFIObject);
   if (arg.type_index == kTVMFFITensor) {
     return reinterpret_cast<void*>(
         reinterpret_cast<char*>(arg.v_ptr) + kObjectRefHeaderSize);
@@ -436,7 +437,7 @@ inline int TVMBackendAnyListMoveFromPackedReturn(void* anylist, int index, TVMFF
   using namespace tvm::runtime;
   TVM_FFI_SAFE_CALL_BEGIN();
   auto* list = static_cast<tvm::ffi::Any*>(anylist);
-  list[index] = tvm::ffi::details::AnyUnsafe::MoveTVMFFIAnyToAny(std::move(args[ret_offset]));
+  list[index] = tvm::ffi::details::AnyUnsafe::MoveTVMFFIAnyToAny(&args[ret_offset]);
   TVM_FFI_SAFE_CALL_END();
 }
 
