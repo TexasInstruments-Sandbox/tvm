@@ -401,7 +401,7 @@ TVMDSPNDArray** inputs = TVMDSPReadTensorsFromFile(...);
 
 TVMFFIAny input_any;
 input_any.type_index = kTVMFFITensor;
-input_any.small_len = 0;
+input_any.zero_padding = 0;
 input_any.v_obj = (TVMFFIObject*)inputs[0];
 inputs[0]->ref_counter++;
 

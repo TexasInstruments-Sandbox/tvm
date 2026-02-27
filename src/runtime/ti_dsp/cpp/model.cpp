@@ -201,7 +201,7 @@ ModelError Model::InferInternal(NDArray* input, TVMFFIAny* output_any) {
   /* Prepare input as TVMFFIAny */
   TVMFFIAny input_any;
   input_any.type_index = kTVMFFITensor;
-  input_any.small_len = 0;
+  input_any.zero_padding = 0;
   input_any.v_obj = reinterpret_cast<TVMFFIObject*>(input_arr);
   input_arr->ref_counter++;
 

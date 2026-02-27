@@ -143,7 +143,7 @@ class PackedFunc {
     TVMFFIAny arg_values[sizeof...(Args) > 0 ? sizeof...(Args) : 1];
     TVMFFIAny result;
     result.type_index = kTVMFFINone;
-    result.small_len = 0;
+    result.zero_padding = 0;
     result.v_int64 = 0;
 
     if (defined()) {
@@ -166,21 +166,21 @@ class PackedFunc {
   // Helper to set int64_t argument
   static void SetArgs(TVMFFIAny* args, int index, int64_t value) {
     args[index].type_index = kTVMFFIInt;
-    args[index].small_len = 0;
+    args[index].zero_padding = 0;
     args[index].v_int64 = value;
   }
 
   // Helper to set int argument
   static void SetArgs(TVMFFIAny* args, int index, int value) {
     args[index].type_index = kTVMFFIInt;
-    args[index].small_len = 0;
+    args[index].zero_padding = 0;
     args[index].v_int64 = static_cast<int64_t>(value);
   }
 
   // Helper to set double argument
   static void SetArgs(TVMFFIAny* args, int index, double value) {
     args[index].type_index = kTVMFFIFloat;
-    args[index].small_len = 0;
+    args[index].zero_padding = 0;
     args[index].v_float64 = value;
   }
 

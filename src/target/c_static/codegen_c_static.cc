@@ -695,10 +695,10 @@ void CodeGenCStatic::PrintCallPacked(const CallNode* op) {
     packed_func_name = GetPackedName(op);
     this->PrintGetFuncFromBackend(func_name->value, packed_func_name);
   } else {
-    // directly use the original symbol
+    // directly use the original symbol with __tvm_ffi_ prefix (0.23.0 MakePackedAPI convention)
     ICHECK(is_cpacked)
         << "expected tvm_call_cpacked_lowered but got unknown packed call builtin";
-    packed_func_name = func_name->value;
+    packed_func_name = std::string(ffi::symbol::tvm_ffi_symbol_prefix) + func_name->value;
   }
 
   std::string args_stack = PrintExpr(op->args[1]);
@@ -1054,7 +1054,7 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
         this->PrintIndent();
         this->stream << "_dst->type_index = TVM_DSP_STORAGE_TYPE_INDEX;\n";
         this->PrintIndent();
-        this->stream << "_dst->small_len = 0;\n";
+        this->stream << "_dst->zero_padding = 0;\n";
         this->PrintIndent();
         this->stream << "_dst->v_obj = (TVMFFIObject*)_result;\n";
       }
@@ -1124,7 +1124,7 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
         this->PrintIndent();
         this->stream << "_dst->type_index = kTVMFFITensor;\n";
         this->PrintIndent();
-        this->stream << "_dst->small_len = 0;\n";
+        this->stream << "_dst->zero_padding = 0;\n";
         this->PrintIndent();
         this->stream << "_dst->v_obj = (TVMFFIObject*)_result;\n";
       }
@@ -1177,7 +1177,7 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
         this->PrintIndent();
         this->stream << "_dst->type_index = kTVMFFITensor;\n";
         this->PrintIndent();
-        this->stream << "_dst->small_len = 0;\n";
+        this->stream << "_dst->zero_padding = 0;\n";
         this->PrintIndent();
         this->stream << "_dst->v_obj = (TVMFFIObject*)_result;\n";
       }
@@ -1226,7 +1226,7 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
         this->PrintIndent();
         this->stream << "_dst->type_index = kTVMFFITensor;\n";
         this->PrintIndent();
-        this->stream << "_dst->small_len = 0;\n";
+        this->stream << "_dst->zero_padding = 0;\n";
         this->PrintIndent();
         this->stream << "_dst->v_obj = (TVMFFIObject*)_value;\n";
       }
@@ -1275,7 +1275,7 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
         this->PrintIndent();
         this->stream << "_dst->type_index = kTVMFFITensor;\n";
         this->PrintIndent();
-        this->stream << "_dst->small_len = 0;\n";
+        this->stream << "_dst->zero_padding = 0;\n";
         this->PrintIndent();
         this->stream << "_dst->v_obj = (TVMFFIObject*)_result;\n";
       }

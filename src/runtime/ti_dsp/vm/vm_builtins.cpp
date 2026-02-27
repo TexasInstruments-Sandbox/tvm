@@ -327,7 +327,7 @@ int TVMDSPBuiltinCheckShapeInfo(const TVMDSPShape* shape, int32_t ndim) {
 
 void TVMDSPBuiltinNullValue(TVMFFIAny* out) {
   out->type_index = kTVMFFINone;
-  out->small_len = 0;
+  out->zero_padding = 0;
   out->v_obj = nullptr;
 }
 
@@ -377,7 +377,7 @@ int TVMDSPBuiltinAllocStoragePacked(const TVMFFIAny* args, int32_t num_args,
   }
 
   ret->type_index = TVM_DSP_STORAGE_TYPE_INDEX;
-  ret->small_len = 0;
+  ret->zero_padding = 0;
   ret->v_obj = reinterpret_cast<TVMFFIObject*>(storage);
   return 0;
 }
@@ -414,7 +414,7 @@ int TVMDSPBuiltinAllocTensorPacked(const TVMFFIAny* args, int32_t num_args,
   }
 
   ret->type_index = kTVMFFITensor;
-  ret->small_len = 0;
+  ret->zero_padding = 0;
   ret->v_obj = reinterpret_cast<TVMFFIObject*>(arr);
   return 0;
 }
@@ -435,7 +435,7 @@ int TVMDSPBuiltinAllocShapeHeapPacked(const TVMFFIAny* args, int32_t num_args,
   }
 
   ret->type_index = kTVMFFITensor;
-  ret->small_len = 0;
+  ret->zero_padding = 0;
   ret->v_obj = reinterpret_cast<TVMFFIObject*>(heap);
   return 0;
 }
@@ -485,7 +485,7 @@ int TVMDSPBuiltinMakeShapePacked(const TVMFFIAny* args, int32_t num_args,
   }
 
   ret->type_index = kTVMFFIShape;
-  ret->small_len = 0;
+  ret->zero_padding = 0;
   ret->v_obj = reinterpret_cast<TVMFFIObject*>(shape);
   return 0;
 }
@@ -526,7 +526,7 @@ int TVMDSPBuiltinMatchShapePacked(const TVMFFIAny* args, int32_t num_args,
 
   /* Return void on success */
   ret->type_index = kTVMFFINone;
-  ret->small_len = 0;
+  ret->zero_padding = 0;
   ret->v_obj = nullptr;
 
   return result;
@@ -563,7 +563,7 @@ int TVMDSPBuiltinCheckTensorInfoPacked(const TVMFFIAny* args, int32_t num_args,
   int result = TVMDSPBuiltinCheckTensorInfo(tensor.get(), ndim, dtype);
 
   ret->type_index = kTVMFFINone;
-  ret->small_len = 0;
+  ret->zero_padding = 0;
   ret->v_obj = nullptr;
 
   return result;
@@ -700,7 +700,7 @@ int TVMDSPBuiltinReshapePacked(const TVMFFIAny* args, int32_t num_args,
   }
 
   ret->type_index = kTVMFFITensor;
-  ret->small_len = 0;
+  ret->zero_padding = 0;
   ret->v_obj = reinterpret_cast<TVMFFIObject*>(result.get());
 
   return 0;

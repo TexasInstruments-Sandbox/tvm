@@ -23,6 +23,7 @@
  */
 #include "codegen_c_static_wrapper.h"
 
+#include <tvm/ffi/extra/module.h>
 #include <cstring>
 
 namespace tvm {
@@ -30,6 +31,12 @@ namespace codegen {
 
 std::string WrapperGenerator::GetWrapperName(const std::string& tir_func_name, bool dsp_suffix) {
   std::string wrapper_name = tir_func_name;
+  // Strip __tvm_ffi_ prefix added by MakePackedAPI in 0.23.0
+  static const std::string ffi_prefix = ffi::symbol::tvm_ffi_symbol_prefix;
+  if (wrapper_name.substr(0, ffi_prefix.size()) == ffi_prefix) {
+    wrapper_name = wrapper_name.substr(ffi_prefix.size());
+  }
+  // Strip __vmtir__ prefix to get the original function name
   const size_t prefix_len = std::strlen(kVMTIRPrefix);
   if (wrapper_name.substr(0, prefix_len) == kVMTIRPrefix) {
     wrapper_name = wrapper_name.substr(prefix_len);

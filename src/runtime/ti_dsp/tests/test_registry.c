@@ -55,7 +55,7 @@ static int test_add_packed(const TVMFFIAny* args, int32_t num_args,
   }
 
   ret->type_index = kTVMFFIInt;
-  ret->small_len = 0;
+  ret->zero_padding = 0;
   ret->v_int64 = args[0].v_int64 + args[1].v_int64;
 
   return 0;
@@ -72,7 +72,7 @@ static int test_double_packed(const TVMFFIAny* args, int32_t num_args,
   }
 
   ret->type_index = kTVMFFIInt;
-  ret->small_len = 0;
+  ret->zero_padding = 0;
   ret->v_int64 = args[0].v_int64 * 2;
 
   return 0;
@@ -134,15 +134,15 @@ static int test_function_call(void) {
 
   /* Set up arguments */
   args[0].type_index = kTVMFFIInt;
-  args[0].small_len = 0;
+  args[0].zero_padding = 0;
   args[0].v_int64 = 10;
 
   args[1].type_index = kTVMFFIInt;
-  args[1].small_len = 0;
+  args[1].zero_padding = 0;
   args[1].v_int64 = 25;
 
   result.type_index = kTVMFFINone;
-  result.small_len = 0;
+  result.zero_padding = 0;
   result.v_int64 = 0;
 
   /* Call function */
@@ -173,11 +173,11 @@ static int test_anylist_set_arg(void) {
 
   /* Set up register file values */
   regfile[0].type_index = kTVMFFIInt;
-  regfile[0].small_len = 0;
+  regfile[0].zero_padding = 0;
   regfile[0].v_int64 = 42;
 
   regfile[1].type_index = kTVMFFIFloat;
-  regfile[1].small_len = 0;
+  regfile[1].zero_padding = 0;
   regfile[1].v_float64 = 3.14159;
 
   /* Clear packed args */
@@ -212,7 +212,7 @@ static int test_anylist_move_return(void) {
 
   /* Set up source with result at index 2 */
   source[2].type_index = kTVMFFIInt;
-  source[2].small_len = 0;
+  source[2].zero_padding = 0;
   source[2].v_int64 = 999;
 
   /* Clear target */
@@ -243,11 +243,11 @@ static int test_anylist_reset(void) {
 
   /* Set up list with values */
   list[0].type_index = kTVMFFIInt;
-  list[0].small_len = 0;
+  list[0].zero_padding = 0;
   list[0].v_int64 = 123;
 
   list[1].type_index = kTVMFFIFloat;
-  list[1].small_len = 0;
+  list[1].zero_padding = 0;
   list[1].v_float64 = 4.56;
 
   /* Reset item 1 */
@@ -280,15 +280,15 @@ static int test_e2e_function_call(void) {
 
   /* Prepare argument list like generated code does */
   args[0].type_index = kTVMFFIInt;
-  args[0].small_len = 0;
+  args[0].zero_padding = 0;
   args[0].v_int64 = 100;
 
   args[1].type_index = kTVMFFIInt;
-  args[1].small_len = 0;
+  args[1].zero_padding = 0;
   args[1].v_int64 = 200;
 
   args[2].type_index = kTVMFFINone;
-  args[2].small_len = 0;
+  args[2].zero_padding = 0;
   args[2].v_int64 = 0;
 
   /* Call function: TVMFFIFunctionCall(func, args, 2, &args[2]) */

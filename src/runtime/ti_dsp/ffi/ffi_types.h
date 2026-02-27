@@ -147,7 +147,7 @@ typedef struct TVMFFIObject {
  */
 typedef struct TVMFFIAny {
   int32_t type_index;    /*!< Type index (TVMFFITypeIndex) */
-  int32_t small_len;     /*!< Length for small-string optimization (reserved) */
+  uint32_t zero_padding;   /*!< Padding, must be zero for non-small-string values */
   union {
     int64_t v_int64;           /*!< Integer value */
     double v_float64;          /*!< Floating-point value */
@@ -211,7 +211,7 @@ typedef struct {
  */
 static inline void TVMFFIAnySetNone(TVMFFIAny* any) {
   any->type_index = kTVMFFINone;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_int64 = 0;
 }
 
@@ -220,7 +220,7 @@ static inline void TVMFFIAnySetNone(TVMFFIAny* any) {
  */
 static inline void TVMFFIAnySetInt(TVMFFIAny* any, int64_t value) {
   any->type_index = kTVMFFIInt;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_int64 = value;
 }
 
@@ -229,7 +229,7 @@ static inline void TVMFFIAnySetInt(TVMFFIAny* any, int64_t value) {
  */
 static inline void TVMFFIAnySetBool(TVMFFIAny* any, int value) {
   any->type_index = kTVMFFIBool;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_int64 = value ? 1 : 0;
 }
 
@@ -238,7 +238,7 @@ static inline void TVMFFIAnySetBool(TVMFFIAny* any, int value) {
  */
 static inline void TVMFFIAnySetFloat(TVMFFIAny* any, double value) {
   any->type_index = kTVMFFIFloat;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_float64 = value;
 }
 
@@ -248,7 +248,7 @@ static inline void TVMFFIAnySetFloat(TVMFFIAny* any, double value) {
  */
 static inline void TVMFFIAnySetPtr(TVMFFIAny* any, void* ptr) {
   any->type_index = kTVMFFIOpaquePtr;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_int64 = 0;  /* Clear full union first */
   any->v_ptr = ptr;
 }
@@ -258,7 +258,7 @@ static inline void TVMFFIAnySetPtr(TVMFFIAny* any, void* ptr) {
  */
 static inline void TVMFFIAnySetRawStr(TVMFFIAny* any, const char* str) {
   any->type_index = kTVMFFIRawStr;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_c_str = str;
 }
 
@@ -267,7 +267,7 @@ static inline void TVMFFIAnySetRawStr(TVMFFIAny* any, const char* str) {
  */
 static inline void TVMFFIAnySetDataType(TVMFFIAny* any, DLDataType dtype) {
   any->type_index = kTVMFFIDataType;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_dtype = dtype;
 }
 
@@ -276,7 +276,7 @@ static inline void TVMFFIAnySetDataType(TVMFFIAny* any, DLDataType dtype) {
  */
 static inline void TVMFFIAnySetDevice(TVMFFIAny* any, DLDevice device) {
   any->type_index = kTVMFFIDevice;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_device = device;
 }
 
@@ -285,7 +285,7 @@ static inline void TVMFFIAnySetDevice(TVMFFIAny* any, DLDevice device) {
  */
 static inline void TVMFFIAnySetDLTensor(TVMFFIAny* any, DLTensor* tensor) {
   any->type_index = kTVMFFIDLTensorPtr;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_ptr = tensor;
 }
 
@@ -296,7 +296,7 @@ static inline void TVMFFIAnySetDLTensor(TVMFFIAny* any, DLTensor* tensor) {
 static inline void TVMFFIAnySetObject(TVMFFIAny* any, TVMFFIObject* obj,
                                        int32_t type_index) {
   any->type_index = type_index;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_int64 = 0;  /* Clear full union first */
   any->v_obj = obj;
 }
@@ -307,7 +307,7 @@ static inline void TVMFFIAnySetObject(TVMFFIAny* any, TVMFFIObject* obj,
  */
 static inline void TVMFFIAnySetNDArray(TVMFFIAny* any, void* ndarray_obj) {
   any->type_index = kTVMFFITensor;
-  any->small_len = 0;
+  any->zero_padding = 0;
   any->v_int64 = 0;  /* Clear full union first */
   any->v_obj = (TVMFFIObject*)ndarray_obj;
 }

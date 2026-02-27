@@ -142,8 +142,11 @@ InferLayoutOutput InferLayoutQuantizeDequantize(
       GetStructInfoAs<TensorStructInfoNode>(call->args[2])->ndim);
 
   // Remap the quantization axis to match the new data layout.
+  // axis=-1 means per-tensor quantization (scalar scale/zp) — leave unchanged.
   ObjectPtr<QuantizeAttrs> new_attrs = ffi::make_object<QuantizeAttrs>(*attrs);
-  new_attrs->axis = FindAxis(data_layout->layout, (attrs->axis + ndim) % ndim);
+  if (attrs->axis >= 0) {
+    new_attrs->axis = FindAxis(data_layout->layout, attrs->axis);
+  }
 
   return InferLayoutOutput({data_layout, scale_layout, zp_layout}, {data_layout},
                            Attrs(new_attrs));

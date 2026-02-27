@@ -217,7 +217,7 @@ class AnyArray {
   void SetNDArray(int idx, TVMDSPNDArray* arr) {
     DecRefOld(idx);
     data_[idx].type_index = kTVMFFITensor;
-    data_[idx].small_len = 0;
+    data_[idx].zero_padding = 0;
     data_[idx].v_obj = reinterpret_cast<TVMFFIObject*>(arr);
   }
 
@@ -229,7 +229,7 @@ class AnyArray {
   void SetStorage(int idx, TVMDSPStorage* storage) {
     DecRefOld(idx);
     data_[idx].type_index = TVM_DSP_STORAGE_TYPE_INDEX;
-    data_[idx].small_len = 0;
+    data_[idx].zero_padding = 0;
     data_[idx].v_obj = reinterpret_cast<TVMFFIObject*>(storage);
   }
 
@@ -241,7 +241,7 @@ class AnyArray {
   void SetShape(int idx, TVMDSPShape* shape) {
     DecRefOld(idx);
     data_[idx].type_index = kTVMFFIShape;
-    data_[idx].small_len = 0;
+    data_[idx].zero_padding = 0;
     data_[idx].v_obj = reinterpret_cast<TVMFFIObject*>(shape);
   }
 
@@ -254,7 +254,7 @@ class AnyArray {
   void SetNone(int idx) {
     DecRefOld(idx);
     data_[idx].type_index = kTVMFFINone;
-    data_[idx].small_len = 0;
+    data_[idx].zero_padding = 0;
     data_[idx].v_obj = nullptr;
   }
 
@@ -268,7 +268,7 @@ class AnyArray {
   void SetArray(int idx, TVMDSPArray* arr) {
     DecRefOld(idx);
     data_[idx].type_index = kTVMFFIArray;
-    data_[idx].small_len = 0;
+    data_[idx].zero_padding = 0;
     data_[idx].v_obj = reinterpret_cast<TVMFFIObject*>(arr);
   }
 
@@ -280,7 +280,7 @@ class AnyArray {
   void SetInt(int idx, int64_t value) {
     DecRefOld(idx);
     data_[idx].type_index = kTVMFFIInt;
-    data_[idx].small_len = 0;
+    data_[idx].zero_padding = 0;
     data_[idx].v_int64 = value;
   }
 

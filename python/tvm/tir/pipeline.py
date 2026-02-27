@@ -201,7 +201,7 @@ def _c7x_dma_tir_pipeline():
     _L2_SRAM_BYTES = 1280 * 1024  # 1.25 MB
     _C7X_SIMD_BITS = 512
 
-    @tvm.register_func("tvm.info.mem.global.l2sram", override=True)
+    @tvm.register_global_func("tvm.info.mem.global.l2sram", override=True)
     def _mem_info_l2sram():
         return tvm.ir.make_node(
             "target.MemoryInfo",
