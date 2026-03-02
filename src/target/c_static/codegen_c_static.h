@@ -33,8 +33,8 @@
 #include <algorithm>
 
 #include "../source/codegen_c.h"
-#include "codegen_c_static_ffi_pattern.h"
 #include "tvm/target/codegen.h"
+#include "tvm/tir/builtin.h"
 #include "tvm/tir/expr.h"
 #include "tvm/ffi/c_api.h"  // For TVMFFITypeIndex enum constants
 
@@ -42,6 +42,39 @@ namespace tvm {
 namespace codegen {
 
 using namespace tir;
+
+/*!
+ * \brief Information about a single argument in a VM builtin call.
+ *
+ * Tracks where an argument comes from (register/constant array or literal)
+ * and its index within the source.
+ */
+struct PackedArgInfo {
+  std::string source_array;  // "r" (register) or "c" (constant)
+  int source_index = 0;      // index in source array
+  int stack_index = 0;       // index in FFI stack (unused in compact path)
+  enum ArgType { kArray, kLiteral, kNone } type = kNone;
+  int64_t literal_value = 0;
+};
+
+/*!
+ * \brief Descriptor for a VM builtin call and its arguments.
+ *
+ * Built either from the compact anylist_setitem_call_packed intrinsic
+ * (EmitAnylistVMBuiltinCall) or, historically, by pattern-matching
+ * the expanded struct_set + call_packed_lowered sequence.
+ */
+struct FFICallPattern {
+  bool valid = false;
+  std::string builtin_name;               // e.g. "vm.builtin.alloc_tensor"
+  size_t call_index = 0;
+  size_t result_index = 0;
+  size_t first_arg_index = 0;
+  int64_t num_args = 0;
+  std::string result_array;               // "r" or "c"
+  int result_slot = -1;
+  std::vector<PackedArgInfo> args;
+};
 
 /*!
  * \brief Check if a function name is a VM builtin.
@@ -263,13 +296,6 @@ class CodeGenCStatic final : public CodeGenC {
   int pending_result_index_{-1};      // destination index for result
 
   /*!
-   * \brief Emit direct call for a VM builtin
-   * \param pattern FFI call pattern to replace
-   * \return true if direct call was emitted, false to fall back to FFI
-   */
-  bool EmitDirectVMBuiltinCall(const FFICallPattern& pattern);
-
-  /*!
    * \brief Try to emit merged struct set statements for FFI type+value pairs
    * \param seq Statement sequence
    * \param index Current index in the sequence
@@ -294,6 +320,20 @@ class CodeGenCStatic final : public CodeGenC {
    * Instead of the verbose stack_ffi_any-based approach.
    */
   bool EmitDirectVMBuiltinCallClean(const FFICallPattern& pattern);
+
+  /*!
+   * \brief Convert a preserved anylist_setitem_call_packed Call to an
+   *        FFICallPattern and emit via EmitDirectVMBuiltinCallClean.
+   *
+   * When LowerTVMBuiltin skips anylist expansion (use-cpp-api targets),
+   * the codegen receives the compact form directly.  This method extracts
+   * the builtin name, result slot, and argument info from the Call node
+   * without the round-trip through struct_set + call_packed_lowered.
+   *
+   * \param call The anylist_setitem_call_{c,}packed CallNode
+   * \return true if the call was emitted
+   */
+  bool EmitAnylistVMBuiltinCall(const CallNode* call);
 
   void PrintCallPacked(const CallNode* op);
   std::string GetPackedName(const CallNode* op);

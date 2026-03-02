@@ -41,17 +41,24 @@ class BuiltinLower : public StmtExprMutator {
  public:
   static PrimFunc Build(PrimFunc func) {
     ffi::Optional<PrimExpr> device_type = std::nullopt;
+    bool skip_anylist_lowering = false;
     if (auto target = func->GetAttr<Target>(tvm::attr::kTarget)) {
       device_type = Integer(target.value()->kind->default_device_type);
+      // Targets with use-cpp-api skip anylist lowering so the codegen
+      // receives the compact anylist_setitem_call_packed form directly
+      // instead of the expanded struct_set + call_packed_lowered sequence.
+      skip_anylist_lowering =
+          target.value()->GetAttr<Integer>("use-cpp-api").value_or(0)->value != 0;
     }
 
-    BuiltinLower mutator(device_type);
+    BuiltinLower mutator(device_type, skip_anylist_lowering);
     func.CopyOnWrite()->body = mutator.VisitBodyAndRealizeAlloca(func->body);
     return func;
   }
 
-  explicit BuiltinLower(ffi::Optional<PrimExpr> device_type = std::nullopt)
-      : device_type_(device_type) {}
+  explicit BuiltinLower(ffi::Optional<PrimExpr> device_type = std::nullopt,
+                        bool skip_anylist_lowering = false)
+      : device_type_(device_type), skip_anylist_lowering_(skip_anylist_lowering) {}
 
   // NOTE: Right now, we make the following scoping requirement
   // for memory allocated by the following primitives
@@ -338,8 +345,10 @@ class BuiltinLower : public StmtExprMutator {
       return MakeCallPackedGeneric(op, 0, builtin::tvm_call_trace_packed_lowered(),
                                    /* use_last_value_as_traced_value*/ true);
     } else if (op->op.same_as(builtin::anylist_setitem_call_packed())) {
+      if (skip_anylist_lowering_) return StmtExprMutator::VisitExpr_(op);
       return MakeAnyListSetItemCallPacked(op, builtin::tvm_call_packed_lowered());
     } else if (op->op.same_as(builtin::anylist_setitem_call_cpacked())) {
+      if (skip_anylist_lowering_) return StmtExprMutator::VisitExpr_(op);
       return MakeAnyListSetItemCallPacked(op, builtin::tvm_call_cpacked_lowered());
     } else if (op->op.same_as(builtin::tvm_stack_make_shape())) {
       return MakeShape(op);
@@ -661,6 +670,9 @@ class BuiltinLower : public StmtExprMutator {
   ffi::Optional<PrimExpr> device_id_{std::nullopt};
 
   bool is_precheck_{false};
+  // When true, preserve anylist_setitem_call_{c,}packed in compact form
+  // instead of expanding to struct_set + call_packed_lowered sequences.
+  bool skip_anylist_lowering_{false};
 
   // Record all stack frames.
   std::vector<AllocaScope> alloca_scope_;

@@ -571,8 +571,6 @@ src/target/c_static/
 |-- codegen_c_static.cc          # Main implementation (~1800 lines)
 |-- codegen_c_static_dsp.h       # DSP extension class
 |-- codegen_c_static_dsp.cc      # TI DSP pragmas, profiling
-|-- codegen_c_static_ffi_pattern.h   # FFI pattern analyzer
-|-- codegen_c_static_ffi_pattern.cc  # Pattern detection (~450 lines)
 |-- codegen_c_static_wrapper.h   # Wrapper generator class
 |-- codegen_c_static_wrapper.cc  # C++ wrapper generation
 |-- codegen_c_static_templates.h # Code templates (headers, helpers)
@@ -583,14 +581,13 @@ src/target/c_static/
 | Class | Responsibility |
 |-------|----------------|
 | `CodeGenCStatic` | Core TIR-to-C code generation, inherits from CodeGenCHost |
-| `FFIPatternAnalyzer` | Detect VM builtin call patterns for optimization |
 | `DSPCodeGenExtension` | Emit TI DSP pragmas, headers, profiling infrastructure |
 | `WrapperGenerator` | Generate C++ wrapper functions for exported functions |
 
 ### Code Generation Flow
 
 1. **IR Analysis**: Examine TVM IR to detect function signatures and return types
-2. **FFI Pattern Detection**: `FFIPatternAnalyzer` scans for VM builtin patterns
+2. **VM Builtin Emission**: `EmitAnylistVMBuiltinCall` converts compact anylist intrinsics to C++ API
 3. **Register Allocation**: Calculate register file requirements per function
 4. **Parameter Processing**: Handle serialization (binary or source format)
 5. **DSP Optimization**: `DSPCodeGenExtension` emits TI-specific pragmas
