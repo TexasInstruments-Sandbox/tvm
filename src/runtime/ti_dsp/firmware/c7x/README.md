@@ -145,7 +145,7 @@ c7x_compute infer <handle> <model_id> --input in.bin --output out.bin
 
 # From pytest:
 pytest tvm-relax-tests/dsp-tests/test_clista_dsp.py \
-    -v --dsp-mode=dload --use-cpp-api --profile-layers
+    -v --dsp-mode=c7x_dload --use-cpp-api --profile-layers
 ```
 
 The DSP's DebugP trace buffer (`trace0`) is still available for

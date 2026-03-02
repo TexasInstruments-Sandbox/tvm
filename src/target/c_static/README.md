@@ -370,10 +370,10 @@ The build infrastructure is in the `tvm-relax-tests` repository:
 
 ### Running on AM67A Hardware
 
-The c7x-firmware in `tvm-relax-tests` provides the DSP firmware and host
-CLI. See `tvm-relax-tests/c7x-firmware/README.md` for build, deploy, and
-usage instructions, and `tvm-relax-tests/c7x-firmware/design_doc.md` for
-architecture and DLOAD internals.
+The C7x firmware and host CLI are in `src/runtime/ti_dsp/firmware/c7x/`.
+See `src/runtime/ti_dsp/firmware/c7x/README.md` for build, deploy, and
+usage instructions, and `src/runtime/ti_dsp/firmware/c7x/design_doc.md`
+for architecture and DLOAD internals.
 
 ```bash
 # On dev host: compile model and build DLOAD module
@@ -401,10 +401,10 @@ cd $TVM_HOME
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 
 # Conv2D on C7x via DLOAD
-pytest tvm-relax-tests/dsp-tests/test_conv2d_dsp.py -v --dsp-mode=dload
+pytest tvm-relax-tests/dsp-tests/test_conv2d_dsp.py -v --dsp-mode=c7x_dload
 
 # ResNet-18 on C7x via DLOAD
-pytest tvm-relax-tests/dsp-tests/test_resnet_dsp.py -v --dsp-mode=dload --use-cpp-api
+pytest tvm-relax-tests/dsp-tests/test_resnet_dsp.py -v --dsp-mode=c7x_dload --use-cpp-api
 ```
 
 ### Cross-Repository Structure
@@ -418,7 +418,7 @@ The C7x DLOAD flow spans two repositories:
 | `bin_to_asm.py` (weights embedder) | `tvm` | `src/runtime/ti_dsp/scripts/` |
 | C7x DLOAD build scripts | `tvm-relax-tests` | `dsp-cpp/` |
 | DLOAD linker script + stubs | `tvm-relax-tests` | `dsp-cpp/c7x_dynmod/` |
-| DSP firmware + host CLI | `tvm-relax-tests` | `c7x-firmware/` |
+| DSP firmware + host CLI | `tvm` | `src/runtime/ti_dsp/firmware/c7x/` |
 | pytest integration tests | `tvm-relax-tests` | `dsp-tests/` |
 
 ## C7x DMA Tiling
