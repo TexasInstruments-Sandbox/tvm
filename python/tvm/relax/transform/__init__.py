@@ -101,5 +101,6 @@ from .remove_redundant_reshape import RemoveRedundantReshape
 # Import to register the legalization functions.
 from . import legalize_ops
 
+from .eliminate_qdq_roundtrip import EliminateQDQRoundTrip
 from .fuse_qdq_to_int8 import FuseQDQToInt8Conv2D
 from .schedule_c7x_dma import ScheduleC7xDMATiling

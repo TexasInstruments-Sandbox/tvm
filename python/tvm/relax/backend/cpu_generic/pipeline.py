@@ -76,6 +76,7 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     """The default legalization passes for CPU backend."""
     passes = [
         tvm.relax.transform.FuseQDQToInt8Conv2D(),
+        tvm.relax.transform.EliminateQDQRoundTrip(),
     ]
     # C7x NHWC layout: convert conv2d from NCHW to NHWC before legalization.
     # Uses _ConvertLayoutNHWC which guards against models without conv2d.
