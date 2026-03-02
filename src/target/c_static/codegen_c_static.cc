@@ -69,7 +69,6 @@
 #include "../source/codegen_params.h"
 #include "codegen_c_static.h"
 #include "codegen_c_static_dsp.h"
-#include "codegen_c_static_ffi_pattern.h"
 #include "codegen_c_static_templates.h"
 #include "codegen_c_static_wrapper.h"
 
@@ -975,326 +974,48 @@ void CodeGenCStatic::VisitStmt_(const AssertStmtNode* op) {  // NOLINT(*)
   this->PrintStmt(op->body);
 }
 
-// Note: Analysis functions (IsArgSetupStatement, IsMoveFromPackedReturn, DetectFFICallPattern,
-// ExtractArgSourcesForPattern, ScanVMBuiltinPatterns, PreScanFFIPatterns) have been extracted
-// to FFIPatternAnalyzer in codegen_c_static_ffi_pattern.h/cc.
-// All pattern detection is now done via FFIPatternAnalyzer:: static methods.
-
-/*!
- * \brief Emit direct call for a supported VM builtin
- *
- * Supported builtins:
- * - vm.builtin.alloc_storage
- * - vm.builtin.alloc_tensor
- * - vm.builtin.reshape
- * - vm.builtin.make_tuple
- * - vm.builtin.copy
- */
-bool CodeGenCStatic::EmitDirectVMBuiltinCall(const FFICallPattern& pattern) {
-  if (!pattern.valid) return false;
-
-  const std::string& name = pattern.builtin_name;
-
-  // Helper to get stack-based access expression
-  // Arguments are already set up on the stack by SetPackedArg/SetFFIAny* calls
-  auto GetStackAccess = [](int stack_index) -> std::string {
-    std::ostringstream os;
-    os << "stack_ffi_any[" << stack_index << "]";
-    return os.str();
-  };
-
-  // vm.builtin.alloc_storage: (ctx, size, alignment, device, dtype) -> storage
-  // Stack layout: ctx_ptr(0), size_shape(1), device_type(2), device_id(3), dtype(4)
-  if (name == "vm.builtin.alloc_storage") {
-    if (pattern.num_args >= 4) {
-      this->PrintIndent();
-      this->stream << "// [Direct] " << name << "\n";
-      this->PrintIndent();
-      this->stream << "{\n";
-      {
-        ScopeGuard scope(this);
-
-        // Get size from shape at stack[1]
-        this->PrintIndent();
-        this->stream << "TVMDSPShape* _shape = (TVMDSPShape*)("
-                     << GetStackAccess(1) << ".v_obj);\n";
-        this->PrintIndent();
-        this->stream << "int64_t _size = _shape->data[0];\n";
-
-        // Get dtype from stack[4]
-        this->PrintIndent();
-        this->stream << "DLDataType _dtype;\n";
-        this->PrintIndent();
-        this->stream << "int64_t _dtype_val = " << GetStackAccess(4) << ".v_int64;\n";
-        this->PrintIndent();
-        this->stream << "_dtype.code = (uint8_t)(_dtype_val & 0xFF);\n";
-        this->PrintIndent();
-        this->stream << "_dtype.bits = (uint8_t)((_dtype_val >> 8) & 0xFF);\n";
-        this->PrintIndent();
-        this->stream << "_dtype.lanes = (uint16_t)((_dtype_val >> 16) & 0xFFFF);\n";
-
-        // Call AllocStorage
-        this->PrintIndent();
-        this->stream << "TVMDSPStorage* _result = tvm::dsp::vm::AllocStorage(_size, _dtype);\n";
-
-        // Set result with DecRef
-        this->PrintIndent();
-        this->stream << "TVMFFIAny* _dst = &((TVMFFIAny*)" << pattern.result_array
-                     << ")[" << pattern.result_slot << "];\n";
-        this->PrintIndent();
-        this->stream << "if (_dst->type_index >= kTVMFFIStaticObjectBegin && _dst->v_obj != NULL) {\n";
-        {
-          ScopeGuard decref_scope(this);
-          this->PrintIndent();
-          this->stream << "if (--_dst->v_obj->ref_counter == 0 && _dst->v_obj->deleter) "
-                       << "_dst->v_obj->deleter(_dst->v_obj);\n";
-        }
-        this->PrintIndent();
-        this->stream << "}\n";
-        this->PrintIndent();
-        this->stream << "_dst->type_index = TVM_DSP_STORAGE_TYPE_INDEX;\n";
-        this->PrintIndent();
-        this->stream << "_dst->zero_padding = 0;\n";
-        this->PrintIndent();
-        this->stream << "_dst->v_obj = (TVMFFIObject*)_result;\n";
-      }
-      this->PrintIndent();
-      this->stream << "}\n";
-      return true;
-    }
-    return false;
+// Helper: extract struct_set info from a statement for TryEmitMergedStructSet.
+namespace {
+struct StructSetInfo {
+  const tir::CallNode* call = nullptr;
+  PrimExpr buffer;
+  PrimExpr index;
+  int64_t kind = -1;
+  PrimExpr value;
+  bool IsValid() const { return call != nullptr; }
+  bool TargetsSameElement(const StructSetInfo& other) const {
+    if (!IsValid() || !other.IsValid()) return false;
+    return tvm::StructuralEqual()(buffer, other.buffer) &&
+           tvm::StructuralEqual()(index, other.index);
   }
+};
 
-  // vm.builtin.alloc_tensor: (storage, offset, shape, dtype) -> ndarray
-  // Stack layout: storage(0), offset(1), shape(2), dtype(3)
-  if (name == "vm.builtin.alloc_tensor") {
-    if (pattern.num_args >= 4) {
-      this->PrintIndent();
-      this->stream << "// [Direct] " << name << "\n";
-      this->PrintIndent();
-      this->stream << "{\n";
-      {
-        ScopeGuard scope(this);
-
-        // Get storage from stack[0]
-        this->PrintIndent();
-        this->stream << "TVMDSPStorage* _storage = (TVMDSPStorage*)("
-                     << GetStackAccess(0) << ".v_obj);\n";
-
-        // Get offset from stack[1] (usually 0)
-        this->PrintIndent();
-        this->stream << "int64_t _offset = " << GetStackAccess(1) << ".v_int64;\n";
-
-        // Get shape from stack[2]
-        this->PrintIndent();
-        this->stream << "TVMDSPShape* _shape = (TVMDSPShape*)("
-                     << GetStackAccess(2) << ".v_obj);\n";
-
-        // Get dtype from stack[3]
-        this->PrintIndent();
-        this->stream << "DLDataType _dtype;\n";
-        this->PrintIndent();
-        this->stream << "int64_t _dtype_val = " << GetStackAccess(3) << ".v_int64;\n";
-        this->PrintIndent();
-        this->stream << "_dtype.code = (uint8_t)(_dtype_val & 0xFF);\n";
-        this->PrintIndent();
-        this->stream << "_dtype.bits = (uint8_t)((_dtype_val >> 8) & 0xFF);\n";
-        this->PrintIndent();
-        this->stream << "_dtype.lanes = (uint16_t)((_dtype_val >> 16) & 0xFFFF);\n";
-
-        // Call AllocTensor
-        this->PrintIndent();
-        this->stream << "TVMDSPNDArray* _result = tvm::dsp::vm::AllocTensor("
-                     << "_storage, _offset, _shape, _dtype);\n";
-
-        // Set result with DecRef
-        this->PrintIndent();
-        this->stream << "TVMFFIAny* _dst = &((TVMFFIAny*)" << pattern.result_array
-                     << ")[" << pattern.result_slot << "];\n";
-        this->PrintIndent();
-        this->stream << "if (_dst->type_index >= kTVMFFIStaticObjectBegin && _dst->v_obj != NULL) {\n";
-        {
-          ScopeGuard decref_scope(this);
-          this->PrintIndent();
-          this->stream << "if (--_dst->v_obj->ref_counter == 0 && _dst->v_obj->deleter) "
-                       << "_dst->v_obj->deleter(_dst->v_obj);\n";
+StructSetInfo ExtractStructSetInfo(const Stmt& stmt) {
+  StructSetInfo info;
+  if (auto* eval = stmt.as<EvaluateNode>()) {
+    if (auto* call = eval->value.as<CallNode>()) {
+      if (call->op.same_as(builtin::tvm_struct_set()) && call->args.size() == 4) {
+        if (auto* kind_imm = call->args[2].as<IntImmNode>()) {
+          info.call = call;
+          info.buffer = call->args[0];
+          info.index = call->args[1];
+          info.kind = kind_imm->value;
+          info.value = call->args[3];
         }
-        this->PrintIndent();
-        this->stream << "}\n";
-        this->PrintIndent();
-        this->stream << "_dst->type_index = kTVMFFITensor;\n";
-        this->PrintIndent();
-        this->stream << "_dst->zero_padding = 0;\n";
-        this->PrintIndent();
-        this->stream << "_dst->v_obj = (TVMFFIObject*)_result;\n";
       }
-      this->PrintIndent();
-      this->stream << "}\n";
-      return true;
     }
-    return false;
   }
-
-  // vm.builtin.reshape: (tensor, shape) -> ndarray
-  // Stack layout: tensor(0), shape(1)
-  if (name == "vm.builtin.reshape") {
-    if (pattern.num_args >= 2) {
-      this->PrintIndent();
-      this->stream << "// [Direct] " << name << "\n";
-      this->PrintIndent();
-      this->stream << "{\n";
-      {
-        ScopeGuard scope(this);
-
-        // Get tensor from stack[0]
-        this->PrintIndent();
-        this->stream << "TVMDSPNDArray* _tensor = (TVMDSPNDArray*)("
-                     << GetStackAccess(0) << ".v_obj);\n";
-
-        // Get shape from stack[1]
-        this->PrintIndent();
-        this->stream << "TVMDSPShape* _shape = (TVMDSPShape*)("
-                     << GetStackAccess(1) << ".v_obj);\n";
-
-        // Call Reshape
-        this->PrintIndent();
-        this->stream << "TVMDSPNDArray* _result = tvm::dsp::vm::Reshape(_tensor, _shape);\n";
-
-        // Set result with DecRef
-        this->PrintIndent();
-        this->stream << "TVMFFIAny* _dst = &((TVMFFIAny*)" << pattern.result_array
-                     << ")[" << pattern.result_slot << "];\n";
-        this->PrintIndent();
-        this->stream << "if (_dst->type_index >= kTVMFFIStaticObjectBegin && _dst->v_obj != NULL) {\n";
-        {
-          ScopeGuard decref_scope(this);
-          this->PrintIndent();
-          this->stream << "if (--_dst->v_obj->ref_counter == 0 && _dst->v_obj->deleter) "
-                       << "_dst->v_obj->deleter(_dst->v_obj);\n";
-        }
-        this->PrintIndent();
-        this->stream << "}\n";
-        this->PrintIndent();
-        this->stream << "_dst->type_index = kTVMFFITensor;\n";
-        this->PrintIndent();
-        this->stream << "_dst->zero_padding = 0;\n";
-        this->PrintIndent();
-        this->stream << "_dst->v_obj = (TVMFFIObject*)_result;\n";
-      }
-      this->PrintIndent();
-      this->stream << "}\n";
-      return true;
-    }
-    return false;
-  }
-
-  // vm.builtin.make_tuple: (values...) -> tuple
-  // Stack layout: value0, value1, ...
-  if (name == "vm.builtin.make_tuple") {
-    // For single-element tuples (common case), just copy the value
-    if (pattern.num_args == 1) {
-      this->PrintIndent();
-      this->stream << "// [Direct] " << name << " (single element)\n";
-      this->PrintIndent();
-      this->stream << "{\n";
-      {
-        ScopeGuard scope(this);
-
-        // Get the value from stack[0]
-        this->PrintIndent();
-        this->stream << "TVMDSPNDArray* _value = (TVMDSPNDArray*)("
-                     << GetStackAccess(0) << ".v_obj);\n";
-
-        // IncRef the value
-        this->PrintIndent();
-        this->stream << "if (_value) _value->ref_counter++;\n";
-
-        // Set result with DecRef
-        this->PrintIndent();
-        this->stream << "TVMFFIAny* _dst = &((TVMFFIAny*)" << pattern.result_array
-                     << ")[" << pattern.result_slot << "];\n";
-        this->PrintIndent();
-        this->stream << "if (_dst->type_index >= kTVMFFIStaticObjectBegin && _dst->v_obj != NULL) {\n";
-        {
-          ScopeGuard decref_scope(this);
-          this->PrintIndent();
-          this->stream << "if (--_dst->v_obj->ref_counter == 0 && _dst->v_obj->deleter) "
-                       << "_dst->v_obj->deleter(_dst->v_obj);\n";
-        }
-        this->PrintIndent();
-        this->stream << "}\n";
-        this->PrintIndent();
-        this->stream << "_dst->type_index = kTVMFFITensor;\n";
-        this->PrintIndent();
-        this->stream << "_dst->zero_padding = 0;\n";
-        this->PrintIndent();
-        this->stream << "_dst->v_obj = (TVMFFIObject*)_value;\n";
-      }
-      this->PrintIndent();
-      this->stream << "}\n";
-      return true;
-    }
-    // Fall back to FFI for multi-element tuples
-    return false;
-  }
-
-  // vm.builtin.copy: (value) -> value (with IncRef)
-  // Stack layout: value(0)
-  if (name == "vm.builtin.copy") {
-    if (pattern.num_args >= 1) {
-      this->PrintIndent();
-      this->stream << "// [Direct] " << name << "\n";
-      this->PrintIndent();
-      this->stream << "{\n";
-      {
-        ScopeGuard scope(this);
-
-        // Get the value from stack[0]
-        this->PrintIndent();
-        this->stream << "TVMDSPNDArray* _value = (TVMDSPNDArray*)("
-                     << GetStackAccess(0) << ".v_obj);\n";
-
-        // IncRef
-        this->PrintIndent();
-        this->stream << "TVMDSPNDArray* _result = tvm::dsp::vm::Copy(_value);\n";
-
-        // Set result with DecRef
-        this->PrintIndent();
-        this->stream << "TVMFFIAny* _dst = &((TVMFFIAny*)" << pattern.result_array
-                     << ")[" << pattern.result_slot << "];\n";
-        this->PrintIndent();
-        this->stream << "if (_dst->type_index >= kTVMFFIStaticObjectBegin && _dst->v_obj != NULL) {\n";
-        {
-          ScopeGuard decref_scope(this);
-          this->PrintIndent();
-          this->stream << "if (--_dst->v_obj->ref_counter == 0 && _dst->v_obj->deleter) "
-                       << "_dst->v_obj->deleter(_dst->v_obj);\n";
-        }
-        this->PrintIndent();
-        this->stream << "}\n";
-        this->PrintIndent();
-        this->stream << "_dst->type_index = kTVMFFITensor;\n";
-        this->PrintIndent();
-        this->stream << "_dst->zero_padding = 0;\n";
-        this->PrintIndent();
-        this->stream << "_dst->v_obj = (TVMFFIObject*)_result;\n";
-      }
-      this->PrintIndent();
-      this->stream << "}\n";
-      return true;
-    }
-    return false;
-  }
-
-  return false;  // Unsupported builtin
+  return info;
 }
+}  // namespace
+
 
 bool CodeGenCStatic::TryEmitMergedStructSet(const ffi::Array<Stmt>& seq, size_t index,
                                             size_t* next_index) {
   ICHECK(next_index != nullptr) << "TryEmitMergedStructSet: next_index output parameter is null";
 
   // Try to detect type_index + value pair
-  auto info1 = FFIPatternAnalyzer::ExtractStructSetInfo(seq[index]);
+  auto info1 = ExtractStructSetInfo(seq[index]);
   if (!info1.IsValid() || info1.kind != builtin::kTVMFFIAnyTypeIndex) {
     return false;
   }
@@ -1303,7 +1024,7 @@ bool CodeGenCStatic::TryEmitMergedStructSet(const ffi::Array<Stmt>& seq, size_t 
     return false;
   }
 
-  auto info2 = FFIPatternAnalyzer::ExtractStructSetInfo(seq[index + 1]);
+  auto info2 = ExtractStructSetInfo(seq[index + 1]);
 
   // Check if next statement sets the value for the same element
   if (!info2.IsValid() || info2.kind != builtin::kTVMFFIAnyUnionValue ||
@@ -1369,6 +1090,51 @@ bool CodeGenCStatic::TryEmitMergedStructSet(const ffi::Array<Stmt>& seq, size_t 
   this->stream << ");\n";
   *next_index = index + 2;  // Skip both statements
   return true;
+}
+
+bool CodeGenCStatic::EmitAnylistVMBuiltinCall(const CallNode* call) {
+  // call->args layout:
+  //   [0] = list_handle (Var "r" or "c")
+  //   [1] = list_index  (IntImm — result slot)
+  //   [2] = func_name   (StringImm, e.g. "vm.builtin.alloc_tensor")
+  //   [3..N] = actual args (anylist_getitem or IntImm)
+  FFICallPattern pattern;
+
+  auto* name_node = call->args[2].as<StringImmNode>();
+  if (!name_node) return false;
+  pattern.builtin_name = name_node->value;
+
+  auto* list_var = call->args[0].as<VarNode>();
+  if (!list_var) return false;
+  pattern.result_array = list_var->name_hint;
+
+  auto* slot_imm = call->args[1].as<IntImmNode>();
+  if (!slot_imm) return false;
+  pattern.result_slot = static_cast<int>(slot_imm->value);
+
+  size_t num_actual = call->args.size() - 3;
+  pattern.num_args = static_cast<int64_t>(num_actual);
+
+  for (size_t i = 3; i < call->args.size(); ++i) {
+    PackedArgInfo info;
+    if (auto* get = call->args[i].as<CallNode>();
+        get && get->op.same_as(builtin::anylist_getitem())) {
+      info.type = PackedArgInfo::kArray;
+      if (auto* arr_var = get->args[0].as<VarNode>()) {
+        info.source_array = arr_var->name_hint;
+      }
+      if (auto* idx = get->args[1].as<IntImmNode>()) {
+        info.source_index = static_cast<int>(idx->value);
+      }
+    } else if (auto* imm = call->args[i].as<IntImmNode>()) {
+      info.type = PackedArgInfo::kLiteral;
+      info.literal_value = imm->value;
+    }
+    pattern.args.push_back(info);
+  }
+
+  pattern.valid = true;
+  return EmitDirectVMBuiltinCallClean(pattern);
 }
 
 /*!
@@ -1580,63 +1346,47 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCallClean(const FFICallPattern& pattern)
     return false;
   }
 
+  // vm.builtin.null_value: () -> none
+  // Sets the destination register to kTVMFFINone
+  if (name == "vm.builtin.null_value") {
+    this->PrintIndent();
+    this->stream << "// [Direct] " << name << "\n";
+    this->PrintIndent();
+    this->stream << "_" << pattern.result_array << ".SetNone(" << pattern.result_slot << ");\n";
+    return true;
+  }
+
+  // vm.builtin.check_tensor_info: runtime assertion, skip when checks are disabled
+  if (name == "vm.builtin.check_tensor_info") {
+    this->PrintIndent();
+    this->stream << "// [Skipped] " << name << "\n";
+    return true;
+  }
+
+  // vm.builtin.match_shape: runtime assertion, skip when checks are disabled
+  if (name == "vm.builtin.match_shape") {
+    this->PrintIndent();
+    this->stream << "// [Skipped] " << name << "\n";
+    return true;
+  }
+
   return false;
 }
 
-// Override SeqStmt to merge consecutive type_index + value assignments
-// and detect FFI call patterns for direct VM builtin calls
+// Override SeqStmt to handle compact anylist intrinsics and merge struct_set pairs
 void CodeGenCStatic::VisitStmt_(const SeqStmtNode* op) {
-  // Phase 1: Pre-scan for VM builtin patterns (clean codegen mode)
-  std::map<size_t, FFICallPattern> vm_builtin_patterns;
-  std::set<size_t> skip_indices;
-
-  if (use_cpp_api_ && dsp_.enabled) {
-    FFIPatternAnalyzer::ScanVMBuiltinPatterns(op->seq, &vm_builtin_patterns, &skip_indices);
-  }
-
-  // Phase 2: Emit statements
   for (size_t i = 0; i < op->seq.size(); ++i) {
-    // Skip statements marked for omission (arg setup for clean VM builtins)
-    if (skip_indices.count(i) > 0) {
-      continue;
-    }
-
-    // Try to emit pre-scanned VM builtin pattern with clean codegen
-    auto pattern_it = vm_builtin_patterns.find(i);
-    if (pattern_it != vm_builtin_patterns.end()) {
-      const FFICallPattern& pattern = pattern_it->second;
-      if (EmitDirectVMBuiltinCallClean(pattern)) {
-        i = pattern.result_index;  // Skip call and result extraction
-        continue;
-      }
-      // Fallback to verbose approach
-      if (EmitDirectVMBuiltinCall(pattern)) {
-        i = pattern.result_index;
-        continue;
-      }
-    }
-
-    // Legacy direct VM calls for patterns not caught by pre-scan
-    if (use_cpp_api_ && dsp_.enabled &&
-        vm_builtin_patterns.find(i) == vm_builtin_patterns.end()) {
+    // Preserved anylist intrinsics (compact form, use-cpp-api path).
+    // When LowerTVMBuiltin skips anylist expansion, the codegen receives
+    // anylist_setitem_call_{c,}packed directly and converts them to C++ API
+    // calls without the round-trip through struct_set + call_packed_lowered.
+    if (use_cpp_api_ && dsp_.enabled) {
       auto* eval = op->seq[i].as<EvaluateNode>();
       if (eval) {
         auto* call = eval->value.as<CallNode>();
-        if (call && call->op.same_as(builtin::tvm_call_packed_lowered())) {
-          auto* func_name_node = call->args[0].as<StringImmNode>();
-          if (func_name_node) {
-            std::string func_name = func_name_node->value;
-            if (IsVMBuiltin(func_name) &&
-                func_name != "vm.builtin.null_value" &&
-                func_name != "vm.builtin.check_tensor_info" &&
-                func_name != "vm.builtin.match_shape") {
-              FFICallPattern pattern = FFIPatternAnalyzer::DetectFFICallPattern(op->seq, i);
-              if (pattern.valid && EmitDirectVMBuiltinCall(pattern)) {
-                i = pattern.result_index;
-                continue;
-              }
-            }
-          }
+        if (call && (call->op.same_as(builtin::anylist_setitem_call_packed()) ||
+                     call->op.same_as(builtin::anylist_setitem_call_cpacked()))) {
+          if (EmitAnylistVMBuiltinCall(call)) continue;
         }
       }
     }
@@ -1658,6 +1408,13 @@ void CodeGenCStatic::VisitStmt_(const EvaluateNode* op) {
   if (is_const_int(op->value)) return;
 
   const CallNode* call = op->value.as<CallNode>();
+
+  // Preserved anylist intrinsics (compact form, use-cpp-api path)
+  if (use_cpp_api_ && dsp_.enabled && call &&
+      (call->op.same_as(builtin::anylist_setitem_call_packed()) ||
+       call->op.same_as(builtin::anylist_setitem_call_cpacked()))) {
+    if (EmitAnylistVMBuiltinCall(call)) return;
+  }
 
   // Clean TIR kernel call setup when C++ API is enabled
   // Emit AnyArray declarations on first use (after r, c variables are defined)

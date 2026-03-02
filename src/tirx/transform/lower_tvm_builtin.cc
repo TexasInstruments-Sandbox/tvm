@@ -59,20 +59,29 @@ class BuiltinLower : public StmtExprMutator {
   static PrimFunc Build(PrimFunc func) {
     ffi::Optional<PrimExpr> device_type = std::nullopt;
     bool preserve_ffi_kernel = false;
+    bool skip_anylist_lowering = false;
     if (auto target = func->GetAttr<Target>(tvm::attr::kTarget)) {
       device_type = IntImm::Int32(target.value()->kind->default_device_type);
       auto host = target.value()->GetHost().value_or(target.value());
       preserve_ffi_kernel = host->kind->name == "cuda_host";
+      // Targets with use-cpp-api skip anylist lowering so the codegen
+      // receives the compact anylist_setitem_call_packed form directly
+      // instead of the expanded struct_set + call_packed_lowered sequence.
+      skip_anylist_lowering =
+          target.value()->GetAttr<Integer>("use-cpp-api").value_or(0)->value != 0;
     }
 
-    auto mutator = ffi::make_object<BuiltinLower>(device_type, preserve_ffi_kernel);
+    auto mutator =
+        ffi::make_object<BuiltinLower>(device_type, preserve_ffi_kernel, skip_anylist_lowering);
     func.CopyOnWrite()->body = mutator->VisitBodyAndRealizeAlloca(func->body);
     return func;
   }
 
   explicit BuiltinLower(ffi::Optional<PrimExpr> device_type = std::nullopt,
-                        bool preserve_ffi_kernel = false)
-      : device_type_(device_type), preserve_ffi_kernel_(preserve_ffi_kernel) {}
+                        bool preserve_ffi_kernel = false, bool skip_anylist_lowering = false)
+      : device_type_(device_type),
+        preserve_ffi_kernel_(preserve_ffi_kernel),
+        skip_anylist_lowering_(skip_anylist_lowering) {}
 
   // NOTE: Right now, we make the following scoping requirement
   // for memory allocated by the following primitives
@@ -440,8 +449,10 @@ class BuiltinLower : public StmtExprMutator {
       return MakeCallPackedGeneric(op, 0, builtin::tvm_call_trace_packed_lowered(),
                                    /* use_last_value_as_traced_value*/ true);
     } else if (op->op.same_as(builtin::anylist_setitem_call_packed())) {
+      if (skip_anylist_lowering_) return StmtExprMutator::VisitExpr_(op);
       return MakeAnyListSetItemCallPacked(op, builtin::tvm_call_packed_lowered());
     } else if (op->op.same_as(builtin::anylist_setitem_call_cpacked())) {
+      if (skip_anylist_lowering_) return StmtExprMutator::VisitExpr_(op);
       return MakeAnyListSetItemCallPacked(op, builtin::tvm_call_cpacked_lowered());
     } else if (op->op.same_as(builtin::tvm_stack_make_shape())) {
       return MakeShape(op);
@@ -825,6 +836,9 @@ class BuiltinLower : public StmtExprMutator {
   // CUDA host codegen consumes explicit launches after ordinary builtin lowering.
   bool preserve_ffi_kernel_{false};
   bool is_precheck_{false};
+  // When true, preserve anylist_setitem_call_{c,}packed in compact form
+  // instead of expanding to struct_set + call_packed_lowered sequences.
+  bool skip_anylist_lowering_{false};
 
   // Record all stack frames.
   std::vector<AllocaScope> alloca_scope_;
