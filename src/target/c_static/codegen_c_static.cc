@@ -1380,7 +1380,7 @@ void CodeGenCStatic::VisitStmt_(const SeqStmtNode* op) {
     // When LowerTVMBuiltin skips anylist expansion, the codegen receives
     // anylist_setitem_call_{c,}packed directly and converts them to C++ API
     // calls without the round-trip through struct_set + call_packed_lowered.
-    if (use_cpp_api_ && dsp_.enabled) {
+    if (use_cpp_api_) {
       auto* eval = op->seq[i].as<EvaluateNode>();
       if (eval) {
         auto* call = eval->value.as<CallNode>();
@@ -1410,7 +1410,7 @@ void CodeGenCStatic::VisitStmt_(const EvaluateNode* op) {
   const CallNode* call = op->value.as<CallNode>();
 
   // Preserved anylist intrinsics (compact form, use-cpp-api path)
-  if (use_cpp_api_ && dsp_.enabled && call &&
+  if (use_cpp_api_ && call &&
       (call->op.same_as(builtin::anylist_setitem_call_packed()) ||
        call->op.same_as(builtin::anylist_setitem_call_cpacked()))) {
     if (EmitAnylistVMBuiltinCall(call)) return;
