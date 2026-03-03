@@ -123,7 +123,7 @@ set(TVM_DSP_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
 set(TVM_DSP_RUNTIME_LIB "${TVM_DSP_RUNTIME_DIR}/build-c7x/libtvm_dsp_runtime_c7x.a")
 # TVM repo root is 6 levels up: firmware/c7x/dsp -> ti_dsp -> runtime -> src -> tvm
 set(TVM_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../")
-set(TVM_DLPACK_DIR "${TVM_ROOT}/3rdparty/dlpack/include")
+set(TVM_DLPACK_DIR "${TVM_ROOT}/3rdparty/tvm-ffi/3rdparty/dlpack/include")
 
 if(NOT EXISTS "${TVM_DSP_RUNTIME_LIB}")
     message(WARNING "TVM DSP runtime library not found at: ${TVM_DSP_RUNTIME_LIB}")
