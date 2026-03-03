@@ -215,7 +215,7 @@ set(INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dma
     # DLPack headers from TVM 3rdparty
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../3rdparty/dlpack/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../3rdparty/tvm-ffi/3rdparty/dlpack/include
 )
 
 # === Weight Embedding Module ===
