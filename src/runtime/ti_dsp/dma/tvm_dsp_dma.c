@@ -322,3 +322,14 @@ int tvm_dsp_dma_wait(int queue_id, int max_inflight) {
 
     return 0;
 }
+
+/* ------------------------------------------------------------------ */
+/* UDMA handle accessor (for TIDL)                                    */
+/* ------------------------------------------------------------------ */
+
+void* tvm_dsp_dma_get_udma_handle(void) {
+    if (!g_initialized) {
+        return NULL;
+    }
+    return (void*)&g_udma_drv;
+}
