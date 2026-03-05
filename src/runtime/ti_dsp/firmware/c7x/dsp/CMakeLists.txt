@@ -179,6 +179,7 @@ add_executable(${PROJECT_NAME}.out
     src/dyn_loader.c
     src/tvm_model.c
     src/shm_printf.c
+    src/tidl_support.c
     ${DLOAD_SOURCES}
 )
 
@@ -244,6 +245,49 @@ target_link_directories(${PROJECT_NAME}.out PRIVATE
     ${TI_CGT_ROOT}/lib
 )
 
+# --- TIDL Runtime (optional) ---
+# When enabled, links TIDL algo libraries and MMALIB into the firmware.
+# The DLOAD model module then only needs tidl_api.lib (thin IALG wrapper).
+option(USE_TIDL_RUNTIME "Link TIDL algo libs into firmware" OFF)
+set(TIDL_RUNTIME_LIBS "")
+if(USE_TIDL_RUNTIME)
+    set(PSDK_PATH "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
+        CACHE PATH "TI Processor SDK root")
+    set(TIDL_LIB_PATH "${PSDK_PATH}/c7x-mma-tidl/ti_dl/lib/J722S/dsp/algo/release")
+    # MMALIB: try versioned name first
+    file(GLOB _MMALIB_DIRS "${PSDK_PATH}/mmalib*/lib/C7524/release")
+    if(_MMALIB_DIRS)
+        list(GET _MMALIB_DIRS 0 MMALIB_LIB_PATH)
+    else()
+        set(MMALIB_LIB_PATH "${PSDK_PATH}/mmalib/lib/C7524/release")
+    endif()
+
+    if(NOT EXISTS "${TIDL_LIB_PATH}/tidl_algo.lib")
+        message(FATAL_ERROR "TIDL libraries not found at: ${TIDL_LIB_PATH}")
+    endif()
+
+    set(TIDL_RUNTIME_LIBS
+        ${TIDL_LIB_PATH}/tidl_algo.lib
+        ${TIDL_LIB_PATH}/tidl_obj_algo.lib
+        ${TIDL_LIB_PATH}/tidl_priv_algo.lib
+        ${TIDL_LIB_PATH}/tidl_custom.lib
+        ${MMALIB_LIB_PATH}/mmalib_C7524.lib
+        ${MMALIB_LIB_PATH}/mmalib_cn_C7524.lib
+        ${MMALIB_LIB_PATH}/common_C7524.lib
+    )
+    # Force the linker to retain TIDL_VISION_FXNS (IALG function table)
+    # and key TIDL algo entry points that DLOAD modules reference.
+    # Without --retain, the linker eliminates them as "unused" since
+    # nothing in the firmware calls them directly.
+    target_link_options(${PROJECT_NAME}.out PRIVATE
+        --retain=TIDL_VISION_FXNS
+    )
+
+    message(STATUS "TIDL Runtime: ENABLED")
+    message(STATUS "  TIDL libs: ${TIDL_LIB_PATH}")
+    message(STATUS "  MMALIB: ${MMALIB_LIB_PATH}")
+endif()
+
 # Link libraries
 # dmautils_standalone (from source, standalone UDMA) must come BEFORE
 # drivers.lib so its UDMA symbols satisfy the runtime's references first,
@@ -254,6 +298,7 @@ target_link_libraries(${PROJECT_NAME}.out
     ${MCUPSDK_ROOT}/source/kernel/freertos/lib/freertos.${DEVICE}.c75x.ti-c7000.${PROFILE}.lib
     ${TVM_DSP_RUNTIME_LIB}
     dmautils_standalone
+    ${TIDL_RUNTIME_LIBS}
     ${MCUPSDK_ROOT}/source/drivers/lib/drivers.${DEVICE}.${CORE}.ti-c7000.${PROFILE}.lib
     ${TI_CGT_ROOT}/lib/libc.a
     ${LINKER_CMD}

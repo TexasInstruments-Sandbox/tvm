@@ -119,6 +119,14 @@ void c7x_compute_main(void *args)
         }
     }
 
+    /* Initialize TIDL support (memory pool addresses for IALG allocator).
+     * Must be called after tvm_dsp_platform_init() which sets up L2. */
+    {
+        extern void tidl_support_init(void);
+        tidl_support_init();
+        DebugP_log("[INIT] TIDL support initialized\r\n");
+    }
+
     /* DMA subsystem (EDMA via DRU direct TR mode) and CLEC event routing
      * are initialized per-module in compute_service.c (on load) and
      * torn down on unload.  This ensures UDMA/DRU resources are released

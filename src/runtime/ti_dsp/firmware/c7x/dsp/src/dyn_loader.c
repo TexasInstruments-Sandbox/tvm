@@ -194,6 +194,26 @@ extern void CacheP_inv(void *, uint32_t, uint32_t);
 extern void CacheP_wb(void *, uint32_t, uint32_t);
 extern void CacheP_wbInv(void *, uint32_t, uint32_t);
 
+/* TIDL support (from tidl_support.c and linked tidl_algo.lib) */
+extern void* getUDMADrvObjPtr(void);
+extern void* appUdmaGetObj(void);
+extern void* appMemAlloc(uint32_t, uint32_t, uint32_t);
+extern int32_t appMemFree(uint32_t, void*, uint32_t);
+extern void* g_l1_mem_addr;
+extern uint32_t g_l1_mem_size;
+extern void* g_l2_mem_addr;
+extern uint32_t g_l2_mem_size;
+extern void* g_l3_mem_addr;
+extern uint32_t g_l3_mem_size;
+extern int32_t TVM_lockInterrupts(void);
+extern void TVM_unlockInterrupts(int32_t);
+extern void TVM_cacheWbInv(void);
+extern int32_t TVM_cacheWbInvRegion(void *addr, uint32_t size);
+extern void dsp_trace_msg(const char *msg);
+/* TIDL_VISION_FXNS: IALG function table from tidl_algo.lib.
+ * Must be exported so DLOAD modules can call into TIDL. */
+extern char TIDL_VISION_FXNS[];
+
 /*
  * DebugP_log is a macro in MCU+ SDK, so we can't take its address.
  * Provide a callable wrapper for dynamically loaded modules.
@@ -304,6 +324,28 @@ static const DspSymEntry dsp_syms[] = {
     SYM(CacheP_wb),
     SYM(CacheP_wbInv),
     SYM_ALIAS("DebugP_log", debugp_log_wrapper),
+
+    /* TIDL support (firmware provides TIDL algo libs + shared resources).
+     * DLOAD modules link tidl_api.lib (thin wrapper) and resolve these
+     * symbols from the firmware at load time.
+     * Note: SYM_ALIAS with & for variables — SYM() reads the value
+     * which isn't a compile-time constant for the TI compiler. */
+    SYM(getUDMADrvObjPtr),
+    SYM(appUdmaGetObj),
+    SYM(appMemAlloc),
+    SYM(appMemFree),
+    SYM_ALIAS("g_l1_mem_addr", &g_l1_mem_addr),
+    SYM_ALIAS("g_l1_mem_size", &g_l1_mem_size),
+    SYM_ALIAS("g_l2_mem_addr", &g_l2_mem_addr),
+    SYM_ALIAS("g_l2_mem_size", &g_l2_mem_size),
+    SYM_ALIAS("g_l3_mem_addr", &g_l3_mem_addr),
+    SYM_ALIAS("g_l3_mem_size", &g_l3_mem_size),
+    SYM(TVM_lockInterrupts),
+    SYM(TVM_unlockInterrupts),
+    SYM(TVM_cacheWbInv),
+    SYM(TVM_cacheWbInvRegion),
+    SYM(dsp_trace_msg),
+    SYM(TIDL_VISION_FXNS),
 };
 
 #define NUM_DSP_SYMS (sizeof(dsp_syms) / sizeof(dsp_syms[0]))
@@ -385,29 +427,33 @@ void DLIF_exit(int code)
 
 void DLIF_warning(LOADER_WARNING_TYPE wtype, const char *fmt, ...)
 {
+    char buf[256];
     va_list ap;
     va_start(ap, fmt);
-    DebugP_log("[DLOAD] WARNING: ");
-    vprintf(fmt, ap);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
+    DebugP_log("[DLOAD] WARNING: %s\r\n", buf);
 }
 
 void DLIF_error(LOADER_ERROR_TYPE etype, const char *fmt, ...)
 {
+    char buf[256];
     va_list ap;
     va_start(ap, fmt);
-    DebugP_log("[DLOAD] ERROR: ");
-    vprintf(fmt, ap);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
+    DebugP_log("[DLOAD] ERROR: %s\r\n", buf);
     DLIF_exit(-1);
 }
 
 void DLIF_trace(const char *fmt, ...)
 {
+    char buf[256];
     va_list ap;
     va_start(ap, fmt);
-    vprintf(fmt, ap);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
+    DebugP_log("[DLOAD] %s", buf);
 }
 
 int DLIF_fseek(LOADER_FILE_DESC *stream, int32_t offset, int origin)

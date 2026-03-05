@@ -97,6 +97,19 @@ int tvm_dsp_dma_copy(int queue_id, void* dst, const void* src,
  */
 int tvm_dsp_dma_wait(int queue_id, int max_inflight);
 
+/*!
+ * \brief Get the UDMA driver handle.
+ *
+ * Returns a pointer to the firmware's UDMA driver object, which is
+ * needed by TIDL's IALG init for DMA channel allocation.
+ *
+ * Only valid after tvm_dsp_dma_init() has been called.
+ * On host emulation builds, returns NULL.
+ *
+ * \return Pointer to Udma_DrvObj, or NULL if DMA not initialized.
+ */
+void* tvm_dsp_dma_get_udma_handle(void);
+
 #ifdef __cplusplus
 }
 #endif

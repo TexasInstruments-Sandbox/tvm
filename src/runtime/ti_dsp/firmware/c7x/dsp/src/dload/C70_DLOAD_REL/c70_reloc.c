@@ -184,6 +184,15 @@ static void reloc_do(C7X_RELOC_TYPE r_type,
       case R_C7X_PCR_OFFSET_HI27:
       case R_C7X_PCR_OFFSET_ADDKPC_HI27:
          reloc_value = symval + addend - opnd_p;
+         /* Debug: log components on overflow to diagnose large-module issues */
+         if (((int64_t)reloc_value >> 31) != 0 &&
+             ((int64_t)reloc_value >> 31) != -1) {
+            DLIF_warning(DLWT_MISC,
+               "PCR_OFFSET overflow: symval=%llx addend=%llx opnd_p=%llx "
+               "reloc_value=%llx\n",
+               (uint64_t)symval, (uint64_t)addend,
+               (uint64_t)opnd_p, (uint64_t)reloc_value);
+         }
 	 check_overflow(r_type, reloc_vaddr, reloc_value, 32, OV_SIGNED);
 	 write_field(data, 32, ELFDATA2LSB, (reloc_value>>5), 27, 5);
 	 break;
@@ -275,8 +284,10 @@ static void check_overflow(
 
    if (!ok)
       DLIF_error(DLET_RELOC, "relocation overflow at vaddr %x, "
-                             "rtype=%d reloc_value=%llx\n",
-	         (uint32_t)reloc_vaddr, r_type, (uint64_t)reloc_value);
+                             "rtype=%d reloc_value=%llx "
+                             "field_size=%d kind=%d\n",
+	         (uint32_t)reloc_vaddr, r_type, (uint64_t)reloc_value,
+                 field_size, (int)kind);
 }
 
 /*****************************************************************************/
