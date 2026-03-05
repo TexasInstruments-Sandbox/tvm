@@ -14,9 +14,13 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Relax backends"""
+"""TIDL backend for Relax BYOC partitioning and compilation.
 
-from . import contrib, cpu_generic, cuda, gpu_generic, metal, rocm, adreno, tidl
-from .dispatch_sampling import DispatchSampling
-from .dispatch_sort_scan import DispatchSortScan
-from .pattern_registry import get_pattern, get_patterns_with_prefix
+This package provides TIDL (TI Deep Learning) subgraph offloading for the
+TVM/Relax c_static backend targeting C7x DSP with MMA accelerator.
+"""
+
+from .patterns import get_tidl_patterns as get_tidl_patterns
+from .tidl import LowerTIDLToTIR as LowerTIDLToTIR
+from .tidl import TIDLOffloadCompiler as TIDLOffloadCompiler
+from .tidl import partition_for_tidl as partition_for_tidl
