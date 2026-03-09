@@ -9,19 +9,38 @@ execute as generated C code on the C7x scalar pipeline.
 ```python
 import tvm
 from tvm import relax
-from tvm.relax.backend.tidl import partition_for_tidl, LowerTIDLToTIR
+from tvm.relax.backend.tidl import TIDLOffloadCompiler, LowerTIDLToTIR
+
+compiler = TIDLOffloadCompiler(config={
+    "artifacts_dir": "/tmp/tidl_artifacts",
+    "tidl_tools_path": "~/ml/c7x-mma-tidl/tidl_tools",
+})
 
 # 1. Partition: identify TIDL-supported subgraphs
-partitioned = partition_for_tidl(mod)
+partitioned = compiler.partition(mod)
 
-# 2. Lower: replace TIDL functions with TIR extern stubs
-lowered = LowerTIDLToTIR()(partitioned)
+# 2. Import: compile subgraphs into TIDL artifacts (net.bin + io.bin)
+#    Requires tidl_model_import_relax.so
+imported, artifacts = compiler.tidl_import(partitioned)
 
-# 3. Compile: generate C code via c_static
+# 3. Lower: replace TIDL functions with TIR extern stubs
+lowered = compiler.lower_tidl(imported, artifacts)
+
+# 4. Compile: generate C code via c_static
 target = tvm.target.Target("c_static -mcpu=c7x")
 ex = relax.build(lowered, target=target,
                  exec_mode="compiled", system_lib=True)
 ex.export_library("model.tar", target=target)
+```
+
+Step 2 (import) requires the TIDL import library.  For partition +
+lower only (using pre-generated artifacts or stub bridges), use:
+
+```python
+from tvm.relax.backend.tidl import partition_for_tidl, LowerTIDLToTIR
+
+partitioned = partition_for_tidl(mod)
+lowered = LowerTIDLToTIR()(partitioned)
 ```
 
 The generated `lib0.c` contains `tidl_subgraph_N_process()` extern
@@ -81,13 +100,16 @@ The real bridge:
 ## Running Tests
 
 ```bash
-# All 21 TIDL tests (partition + codegen + e2e + hardware):
-TI_CGT_C7000_PATH=~/ti/.../ti-cgt-c7000_5.0.1.LTS \
-  pytest tvm-relax-tests/tidl-tests/ -v
-
-# Pattern and codegen tests only (no TI compiler needed):
+# Partition + codegen tests only (no TI compiler or .so needed):
 pytest tvm-relax-tests/tidl-tests/test_tidl_partition.py \
        tvm-relax-tests/tidl-tests/test_tidl_codegen.py -v
+
+# Import tests (needs tidl_model_import_relax.so + c7x-mma-tidl):
+pytest tvm-relax-tests/tidl-tests/test_tidl_relax_import.py -v
+
+# All TIDL tests (partition + import + codegen + e2e + hardware):
+TI_CGT_C7000_PATH=~/ti/.../ti-cgt-c7000_5.0.1.LTS \
+  pytest tvm-relax-tests/tidl-tests/ -v
 ```
 
 ---
@@ -100,21 +122,29 @@ pytest tvm-relax-tests/tidl-tests/test_tidl_partition.py \
 Relax IR (conv2d, relu, pool, softmax, ...)
     |
     v
-partition_for_tidl()
+Phase 1: partition()
     |  FuseOpsByPattern: match TIDL patterns, create composites
     |  MergeCompositeFunctions: group into Codegen="tidl" functions
     v
 Partitioned IR (TIDL subgraph functions + main)
     |
     v
-LowerTIDLToTIR()
+Phase 3: tidl_import()
+    |  Load tidl_model_import_relax.so
+    |  For each subgraph: ImportInit -> ImportNode -> Link -> Optimize -> PostProcess
+    |  Produces net.bin + io.bin artifacts on disk
+    v
+Partitioned IR (unchanged) + TIDL artifacts
+    |
+    v
+Phase 4: lower_tidl()
     |  Replace Codegen="tidl" functions with TIR PrimFunc stubs
     |  Each stub: call_extern("tidl_subgraph_N_process", inp, out)
     v
 Lowered IR (TIR stubs + remaining Relax ops)
     |
     v
-relax.build(exec_mode="compiled", system_lib=True)
+Phase 5: generate_bridge() + relax.build()
     |  c_static codegen emits lib0.c
     v
 lib0.c + weights.bin + tidl_bridge.c/h

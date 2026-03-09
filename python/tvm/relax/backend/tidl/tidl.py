@@ -24,7 +24,12 @@ Orchestrates the multi-phase pipeline:
 Phases 2-3 require the TIDL import library (.so); phase 1 is self-contained.
 """
 
-from typing import Any, Dict, Optional, Tuple
+import ctypes
+import logging
+import os
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
 
 import tvm
 from tvm import relax
@@ -33,6 +38,266 @@ from tvm.relax import transform
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .patterns import get_tidl_patterns
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# TIDL constants and ctypes structures
+# ---------------------------------------------------------------------------
+
+TIDL_DIM_MAX = 6
+
+# eTIDL_ElementType from itidl_io.h
+_TIDL_ELEMENT_TYPE = {
+    "uint8": 0,    # TIDL_UnsignedChar
+    "int8": 1,     # TIDL_SignedChar
+    "uint16": 2,   # TIDL_UnsignedShort
+    "int16": 3,    # TIDL_SignedShort
+    "uint32": 4,   # TIDL_UnsignedWord
+    "int32": 5,    # TIDL_SignedWord
+    "float32": 6,  # TIDL_SinglePrecFloat
+    "uint64": 7,   # TIDL_UnsignedDoubleWord
+    "int64": 8,    # TIDL_SignedDoubleWord
+}
+
+
+class TensorDescriptor(ctypes.Structure):
+    """Matches TensorDescriptor_t from tidl_import_common.h:240."""
+
+    _fields_ = [
+        ("scale", ctypes.c_double),
+        ("zp", ctypes.c_int32),
+        ("element_type", ctypes.c_int32),
+        ("dimValues", ctypes.c_int32 * TIDL_DIM_MAX),
+        ("name", ctypes.c_char_p),
+    ]
+
+
+class InOutNodes(ctypes.Structure):
+    """Matches InOutNodes_t from tidl_relaxImport.cpp:104."""
+
+    _fields_ = [
+        ("this_node", ctypes.c_char_p),
+        ("num_in_nodes", ctypes.c_int),
+        ("num_out_nodes", ctypes.c_int),
+        ("in_nodes", ctypes.c_void_p),
+        ("out_nodes", ctypes.c_void_p),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# TIDL import helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_tidl_relax_so(path=None):
+    """Load tidl_model_import_relax.so and verify FFI functions.
+
+    Resolution order: *path* arg > ``TIDL_RELAX_SO_PATH`` env >
+    ``$C7X_MMA_TIDL_PATH/.../tidl_model_import_relax.so``.
+    """
+    if path is None:
+        path = os.environ.get("TIDL_RELAX_SO_PATH")
+    if path is None:
+        c7x = os.environ.get(
+            "C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl")
+        )
+        path = os.path.join(
+            c7x, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
+        )
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"tidl_model_import_relax.so not found: {path}"
+        )
+    tvm.runtime.load_module(path)
+    required = [
+        "TIDL_relaxInit",
+        "TIDL_relaxImportInit",
+        "TIDL_relaxImportNode",
+        "TIDL_relaxImportLinkNode",
+        "TIDL_relaxOptimizeNet",
+        "TIDL_relaxPostProcessNet",
+    ]
+    for name in required:
+        if tvm.get_global_func(name, allow_missing=True) is None:
+            raise RuntimeError(
+                f"FFI function '{name}' not registered after loading .so"
+            )
+
+
+def _tidl_element_type(dtype_str: str) -> int:
+    """Map TVM dtype string to TIDL element type enum."""
+    return _TIDL_ELEMENT_TYPE.get(str(dtype_str), 6)  # default float32
+
+
+def _normalize_shape_6d(shape) -> List[int]:
+    """Normalize shape to TIDL 6D: [N, dim1, dim2, C, H, W]."""
+    s = [int(d) for d in shape]
+    n = len(s)
+    if n >= 6:
+        return s[:6]
+    if n == 4:  # NCHW
+        return [s[0], 1, 1, s[1], s[2], s[3]]
+    if n == 2:  # NC
+        return [s[0], 1, 1, s[1], 1, 1]
+    if n == 1:
+        return [s[0], 1, 1, 1, 1, 1]
+    if n == 3:  # NCH
+        return [s[0], 1, 1, s[1], s[2], 1]
+    if n == 5:  # NCDHW
+        return [s[0], s[1], 1, s[2], s[3], s[4]]
+    return s
+
+
+def _find_tidl_subgraphs(mod: IRModule):
+    """Return ``[(gv, func)]`` for ``Codegen="tidl"`` functions."""
+    result = []
+    for gv, func in mod.functions.items():
+        if isinstance(func, relax.Function) and func.attrs:
+            if func.attrs.get("Codegen") == "tidl":
+                result.append((gv, func))
+    return result
+
+
+def _extract_composite_calls(func):
+    """Walk SeqExpr bindings and return composite call triples.
+
+    Returns
+    -------
+    list of (comp_fn, orig_call, binding_var)
+        *comp_fn* is the ``Composite``-annotated Function,
+        *orig_call* is the Call (whose op is a local Var),
+        *binding_var* is the Var the call result is bound to.
+    """
+    results = []
+    for block in func.body.blocks:
+        comp_fn = None
+        for b in block.bindings:
+            val = b.value
+            if (
+                isinstance(val, relax.Function)
+                and val.attrs
+                and val.attrs.get("Composite")
+            ):
+                comp_fn = val
+            elif isinstance(val, relax.Call) and comp_fn is not None:
+                results.append((comp_fn, val, b.var))
+                comp_fn = None
+    return results
+
+
+def _make_in_out_nodes(this_node, in_names, out_names):
+    """Build an :class:`InOutNodes` ctypes struct.
+
+    Returns ``(struct, *refs)`` — the caller must keep all returned
+    objects alive until the struct has been consumed by the FFI call.
+    """
+    this_b = (
+        this_node.encode("utf-8")
+        if isinstance(this_node, str)
+        else this_node
+    )
+
+    n_in = len(in_names)
+    n_out = len(out_names)
+
+    in_bytes = [
+        n.encode("utf-8") if isinstance(n, str) else n for n in in_names
+    ]
+    out_bytes = [
+        n.encode("utf-8") if isinstance(n, str) else n for n in out_names
+    ]
+
+    InArray = ctypes.c_char_p * max(n_in, 1)
+    OutArray = ctypes.c_char_p * max(n_out, 1)
+    in_arr = InArray(*in_bytes) if n_in else InArray()
+    out_arr = OutArray(*out_bytes) if n_out else OutArray()
+
+    node = InOutNodes()
+    node.this_node = this_b
+    node.num_in_nodes = n_in
+    node.num_out_nodes = n_out
+    node.in_nodes = ctypes.cast(in_arr, ctypes.c_void_p) if n_in else None
+    node.out_nodes = ctypes.cast(out_arr, ctypes.c_void_p) if n_out else None
+
+    return node, this_b, in_bytes, out_bytes, in_arr, out_arr
+
+
+def _lift_constants_in_composite(func):
+    """Lift Constants inlined in Call args into separate VarBindings.
+
+    ``TIDL_relaxFindConstants`` only finds Constants that are bound to
+    their own VarBinding.  After ``FuseOpsByPattern(bind_constants=True)``
+    Constants may appear directly as Call arguments.  This helper rewrites
+    the composite function so every such Constant gets its own binding.
+    """
+    new_bindings = []
+    for block in func.body.blocks:
+        for b in block.bindings:
+            val = b.value
+            if isinstance(val, relax.Call):
+                new_args = list(val.args)
+                for k, arg in enumerate(val.args):
+                    if isinstance(arg, relax.Constant):
+                        const_var = relax.DataflowVar(
+                            f"tidl_const_{len(new_bindings)}",
+                            arg.struct_info,
+                        )
+                        new_bindings.append(
+                            relax.VarBinding(const_var, arg)
+                        )
+                        new_args[k] = const_var
+
+                new_call = relax.Call(
+                    val.op, new_args, val.attrs, val.sinfo_args,
+                )
+                relax._ffi_api.UpdateStructInfo(
+                    new_call, val.struct_info
+                )
+                new_bindings.append(relax.VarBinding(b.var, new_call))
+            else:
+                new_bindings.append(b)
+
+    new_block = relax.DataflowBlock(new_bindings)
+    new_body = relax.SeqExpr([new_block], func.body.body)
+    new_func = relax.Function(
+        func.params,
+        new_body,
+        func.ret_struct_info,
+        func.is_pure,
+        func.attrs,
+    )
+    return new_func
+
+
+def _write_calibration_data(
+    artifacts_dir, sg_id, input_sinfos, num_frames, user_data=None,
+):
+    """Write calibration binary for one subgraph.
+
+    If *user_data* is ``None``, random float32 data is generated.
+    The file is written to ``{artifacts_dir}/calib_raw_data{sg_id}.bin``.
+    """
+    calib_path = os.path.join(artifacts_dir, f"calib_raw_data{sg_id}.bin")
+    if user_data is not None:
+        if isinstance(user_data, np.ndarray):
+            user_data.astype("float32").tofile(calib_path)
+        else:
+            raise TypeError(
+                f"calibration_data must be ndarray, got {type(user_data)}"
+            )
+        return calib_path
+
+    # Generate random float32 data (all inputs concatenated per frame)
+    parts = []
+    for si in input_sinfos:
+        shape = [int(d) for d in si.shape]
+        per_frame_shape = shape[1:] if len(shape) > 1 else shape
+        data = np.random.rand(num_frames, *per_frame_shape).astype("float32")
+        parts.append(data.reshape(num_frames, -1))
+    all_data = np.concatenate(parts, axis=1).flatten()
+    all_data.tofile(calib_path)
+    return calib_path
 
 
 class TIDLOffloadCompiler:
@@ -111,26 +376,244 @@ class TIDLOffloadCompiler:
         return seq(mod)
 
     # ------------------------------------------------------------------
-    # Phase 3: TIDL Import (requires .so — stub for now)
+    # Phase 3: TIDL Import (requires .so)
     # ------------------------------------------------------------------
 
     def tidl_import(self, mod: IRModule) -> Tuple[IRModule, Dict]:
-        """Import TIDL subgraphs, producing net.bin / params.bin artifacts.
+        """Import TIDL subgraphs, producing net.bin / io.bin artifacts.
 
-        Requires the TIDL import library to be available at runtime.
-        Currently a stub that will be implemented in Phase 3.
+        Calls the TIDL import library FFI functions to convert each
+        ``Codegen="tidl"`` subgraph into optimized TIDL network binaries.
+
+        Parameters
+        ----------
+        mod : IRModule
+            Partitioned module (after ``partition()``).
 
         Returns
         -------
         mod : IRModule
-            Module (unchanged for now).
+            Module (unchanged — artifacts are on disk).
         artifacts : dict
-            Mapping from subgraph id to artifact paths.
+            ``{subgraph_name: {"net_bin": path, "io_bin": path}}``.
         """
-        raise NotImplementedError(
-            "TIDL import requires the TIDL import library (.so). "
-            "This will be implemented in Phase 3."
+        # ---- Load .so -------------------------------------------------
+        _load_tidl_relax_so(self.config.get("tidl_relax_so_path"))
+
+        # ---- Resolve paths --------------------------------------------
+        artifacts_dir = self._artifacts_dir
+        os.makedirs(artifacts_dir, exist_ok=True)
+
+        c7x_root = os.environ.get(
+            "C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl")
         )
+        tidl_tools_path = self.config.get(
+            "tidl_tools_path", os.path.join(c7x_root, "tidl_tools")
+        )
+
+        # ---- TIDL_relaxInit -------------------------------------------
+        init_options = dict(self.config.get("tidl_options", {}))
+        init_options.setdefault("tidl_tools_path", tidl_tools_path)
+        init_options.setdefault("artifacts_folder", artifacts_dir)
+        # FFI expects Map<String, String>
+        init_options = {str(k): str(v) for k, v in init_options.items()}
+
+        init_fn = tvm.get_global_func("TIDL_relaxInit")
+        ret = init_fn(1, init_options)
+        if ret != 0:
+            raise RuntimeError(f"TIDL_relaxInit failed (rc={ret})")
+
+        # ---- Per-subgraph import --------------------------------------
+        subgraphs = _find_tidl_subgraphs(mod)
+        if not subgraphs:
+            logger.info("No Codegen='tidl' subgraphs found; nothing to import")
+            return mod, {}
+
+        num_calib_frames = self.config.get("num_calibration_frames", 1)
+        artifacts: Dict[str, Dict[str, str]] = {}
+
+        for sg_id, (gv, func) in enumerate(subgraphs):
+            sg_name = gv.name_hint
+            logger.info("Importing TIDL subgraph %d: %s", sg_id, sg_name)
+
+            # -- Tensor descriptors for inputs + outputs ----------------
+            input_sinfos = [p.struct_info for p in func.params]
+            output_sinfo = func.ret_struct_info
+            if isinstance(output_sinfo, relax.TupleStructInfo):
+                output_sinfos = list(output_sinfo.fields)
+            else:
+                output_sinfos = [output_sinfo]
+
+            n_inputs = len(input_sinfos)
+            n_outputs = len(output_sinfos)
+            n_total = n_inputs + n_outputs
+
+            DescArray = TensorDescriptor * n_total
+            descriptors = DescArray()
+            _name_refs = []  # prevent GC of byte strings
+
+            for i, si in enumerate(input_sinfos):
+                name_b = f"tidl_{sg_id}_i{i}".encode()
+                _name_refs.append(name_b)
+                shape_6d = _normalize_shape_6d(si.shape)
+                descriptors[i].scale = 1.0
+                descriptors[i].zp = 0
+                descriptors[i].element_type = _tidl_element_type(si.dtype)
+                for j in range(TIDL_DIM_MAX):
+                    descriptors[i].dimValues[j] = shape_6d[j]
+                descriptors[i].name = name_b
+
+            for i, si in enumerate(output_sinfos):
+                idx = n_inputs + i
+                name_b = f"tidl_{sg_id}_o{i}".encode()
+                _name_refs.append(name_b)
+                shape_6d = _normalize_shape_6d(si.shape)
+                descriptors[idx].scale = 1.0
+                descriptors[idx].zp = 0
+                descriptors[idx].element_type = _tidl_element_type(si.dtype)
+                for j in range(TIDL_DIM_MAX):
+                    descriptors[idx].dimValues[j] = shape_6d[j]
+                descriptors[idx].name = name_b
+
+            # -- TIDL_relaxImportInit -----------------------------------
+            import_init_fn = tvm.get_global_func("TIDL_relaxImportInit")
+            ret = import_init_fn(
+                sg_id,
+                n_inputs,
+                n_outputs,
+                ctypes.c_void_p(ctypes.addressof(descriptors)),
+                1,               # is_nchw
+                tidl_tools_path,
+                artifacts_dir,
+                False,           # isSubgraphOD
+            )
+            if ret != 0:
+                raise RuntimeError(
+                    f"TIDL_relaxImportInit failed for '{sg_name}' (rc={ret})"
+                )
+
+            # -- Walk composite calls -----------------------------------
+            composites = _extract_composite_calls(func)
+
+            # Build name map: Var name_hint -> TIDL node name
+            name_map: Dict[str, str] = {}
+            for i, p in enumerate(func.params):
+                name_map[p.name_hint] = f"tidl_{sg_id}_i{i}"
+            for i, (_, _, bvar) in enumerate(composites):
+                name_map[bvar.name_hint] = str(i)
+
+            import_node_fn = tvm.get_global_func("TIDL_relaxImportNode")
+            link_node_fn = tvm.get_global_func("TIDL_relaxImportLinkNode")
+
+            for i, (comp_fn, orig_call, bvar) in enumerate(composites):
+                comp_name = str(comp_fn.attrs["Composite"])
+
+                # Lift inlined Constants into VarBindings so the
+                # C++ parser (TIDL_relaxFindConstants) can find them.
+                lifted_fn = _lift_constants_in_composite(comp_fn)
+
+                # Synthetic call: Function as op (C++ expects FunctionNode)
+                syn_call = relax.Call(lifted_fn, orig_call.args)
+                relax._ffi_api.UpdateStructInfo(
+                    syn_call, orig_call.struct_info
+                )
+
+                # No per-tensor quantization for float32 models
+                zp = np.zeros(1, dtype=np.int32)
+                scale = np.ones(1, dtype=np.float32)
+                ret = import_node_fn(
+                    syn_call,
+                    len(zp),
+                    ctypes.c_void_p(zp.ctypes.data),
+                    len(scale),
+                    ctypes.c_void_p(scale.ctypes.data),
+                )
+                if ret != 0:
+                    raise RuntimeError(
+                        f"TIDL_relaxImportNode failed for "
+                        f"'{comp_name}' (rc={ret})"
+                    )
+
+                # -- InOutNodes for linking -----------------------------
+                # Input names
+                in_names = []
+                for arg in orig_call.args:
+                    if isinstance(arg, relax.Var):
+                        in_names.append(
+                            name_map.get(arg.name_hint, arg.name_hint)
+                        )
+
+                # Output consumer names
+                bvar_hint = bvar.name_hint
+                out_names = []
+                for j in range(i + 1, len(composites)):
+                    _, future_call, _ = composites[j]
+                    for farg in future_call.args:
+                        if (
+                            isinstance(farg, relax.Var)
+                            and farg.name_hint == bvar_hint
+                        ):
+                            out_names.append(str(j))
+
+                # Terminal node: use subgraph output tensor name
+                if not out_names:
+                    node_name = f"tidl_{sg_id}_o0"
+                else:
+                    node_name = str(i)
+
+                refs = _make_in_out_nodes(node_name, in_names, out_names)
+                in_out_struct = refs[0]
+                ret = link_node_fn(
+                    ctypes.c_void_p(ctypes.addressof(in_out_struct))
+                )
+                if ret != 0:
+                    raise RuntimeError(
+                        f"TIDL_relaxImportLinkNode failed for "
+                        f"node {i} (rc={ret})"
+                    )
+
+            # -- TIDL_relaxOptimizeNet ----------------------------------
+            optimize_fn = tvm.get_global_func("TIDL_relaxOptimizeNet")
+            ret = optimize_fn(sg_id)
+            if ret != 0:
+                raise RuntimeError(
+                    f"TIDL_relaxOptimizeNet failed for "
+                    f"'{sg_name}' (rc={ret})"
+                )
+
+            # -- Calibration + PostProcess ------------------------------
+            _write_calibration_data(
+                artifacts_dir,
+                sg_id,
+                input_sinfos,
+                num_calib_frames,
+                user_data=self.config.get("calibration_data"),
+            )
+
+            postprocess_fn = tvm.get_global_func(
+                "TIDL_relaxPostProcessNet"
+            )
+            ret = postprocess_fn(num_calib_frames)
+            if ret != 0:
+                raise RuntimeError(
+                    f"TIDL_relaxPostProcessNet failed for "
+                    f"'{sg_name}' (rc={ret})"
+                )
+
+            # Record artifact paths
+            artifacts[sg_name] = {
+                "net_bin": os.path.join(
+                    artifacts_dir, f"tidl_net_{sg_id}.bin"
+                ),
+                "io_bin": os.path.join(
+                    artifacts_dir, f"tidl_io_{sg_id}.bin"
+                ),
+            }
+            logger.info(
+                "Subgraph %d (%s) imported successfully", sg_id, sg_name
+            )
+
+        return mod, artifacts
 
     # ------------------------------------------------------------------
     # Phase 4: Lower TIDL to TIR extern calls
