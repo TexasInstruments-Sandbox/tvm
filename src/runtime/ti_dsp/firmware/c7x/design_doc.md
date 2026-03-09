@@ -498,7 +498,7 @@ compiling for C7x DSP. The workflow is:
 4. **Execution**: Use the host CLI or library to load the ELF onto the
    DSP via DLOAD, run inference, and retrieve results
 
-The DSP-side tests in `tvm-relax-tests/dsp-tests/` automate this full
+The DSP-side tests in `tests/ti-dsp-runtime/dsp-tests/` automate this full
 pipeline using pytest, including TVM compilation, C7x ELF building,
 firmware deployment, and inference verification.
 

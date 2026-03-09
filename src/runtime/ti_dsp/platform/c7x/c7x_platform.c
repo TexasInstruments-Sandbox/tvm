@@ -119,7 +119,7 @@ int tvm_dsp_platform_init(void) {
    * functions. This allows the application to control the memory map via
    * its linker command file, which defines the memory regions.
    *
-   * See tvm-relax-tests/dsp-cpp/j722s/mmu.c for a reference implementation.
+   * See tests/ti-dsp-runtime/dsp-cpp/j722s/mmu.c for a reference implementation.
    */
 
   /* Use linker-defined symbols for heap bounds */

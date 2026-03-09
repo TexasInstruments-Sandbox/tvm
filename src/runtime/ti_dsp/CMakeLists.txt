@@ -112,7 +112,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x")
     endif()
     # Note: MMU initialization is the application's responsibility.
     # The application must configure the MMU before calling TVM runtime functions.
-    # See tvm-relax-tests/dsp-cpp/j722s/mmu.c for a reference implementation.
+    # See tests/ti-dsp-runtime/dsp-cpp/j722s/mmu.c for a reference implementation.
     set(PLATFORM_SOURCES
         platform/c7x/c7x_platform.c
         platform/c7x/c7x_cxm.asm
@@ -370,7 +370,7 @@ if(TVM_DSP_BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     elseif(TVM_DSP_TARGET STREQUAL "c66x")
         # C66x tests - need board support and linker script
         # Use board support from radar project
-        set(RADAR_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../tvm-relax-tests/dsp-cpp")
+        set(RADAR_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../tests/ti-dsp-runtime/dsp-cpp")
 
         if(EXISTS ${RADAR_CPP_DIR}/awrl6844)
             message(STATUS "Using AWRL6844 board support from: ${RADAR_CPP_DIR}/awrl6844")

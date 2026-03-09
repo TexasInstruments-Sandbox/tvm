@@ -206,16 +206,16 @@ cd $TVM_HOME
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 
 # Run on host emulation (default)
-pytest tvm-relax-tests/dsp-tests/ -v --dsp-mode=host
+pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=host
 
 # Run on C66x hardware
-pytest tvm-relax-tests/dsp-tests/ -v --dsp-mode=c66x
+pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x
 
 # Run both
-pytest tvm-relax-tests/dsp-tests/ -v --dsp-mode=both
+pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=both
 
 # With layer profiling
-pytest tvm-relax-tests/dsp-tests/ -v --dsp-mode=c66x --profile-layers
+pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x --profile-layers
 ```
 
 ## C7x DSP and DLOAD Deployment
@@ -362,7 +362,7 @@ against `dsp_syms.out` using the DLOAD linker script (`c7x_dynmod.cmd`):
 The output `lib0.out` is a standard C7x ELF that DLOAD can parse and
 relocate into DSP memory at runtime.
 
-The build infrastructure is in the `tvm-relax-tests` repository:
+The build infrastructure is in the `tests/ti-dsp-runtime` repository:
 - `dsp-cpp/c7x_dynmod/c7x_dynmod.cmd` -- DLOAD linker script
 - `dsp-cpp/c7x_dynmod/dsp_syms.c` -- pseudo-firmware symbol stubs
 - `dsp-cpp/CMakeLists.txt` -- cmake target `c7x-dynmod`
@@ -392,7 +392,7 @@ c7x_compute unload <handle>
 
 ### Automated Testing (pytest)
 
-The `tvm-relax-tests` repository provides end-to-end pytest tests that
+The `tests/ti-dsp-runtime` repository provides end-to-end pytest tests that
 automate the full pipeline: TVM compilation, C7x ELF build, SCP to board,
 and inference verification.
 
@@ -401,10 +401,10 @@ cd $TVM_HOME
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 
 # Conv2D on C7x via DLOAD
-pytest tvm-relax-tests/dsp-tests/test_conv2d_dsp.py -v --dsp-mode=c7x_dload
+pytest tests/ti-dsp-runtime/dsp-tests/test_conv2d_dsp.py -v --dsp-mode=c7x_dload
 
 # ResNet-18 on C7x via DLOAD
-pytest tvm-relax-tests/dsp-tests/test_resnet_dsp.py -v --dsp-mode=c7x_dload --use-cpp-api
+pytest tests/ti-dsp-runtime/dsp-tests/test_resnet_dsp.py -v --dsp-mode=c7x_dload --use-cpp-api
 ```
 
 ### Cross-Repository Structure
@@ -416,10 +416,10 @@ The C7x DLOAD flow spans two repositories:
 | c_static code generator | `tvm` | `src/target/c_static/` |
 | TI DSP runtime | `tvm` | `src/runtime/ti_dsp/` |
 | `bin_to_asm.py` (weights embedder) | `tvm` | `src/runtime/ti_dsp/scripts/` |
-| C7x DLOAD build scripts | `tvm-relax-tests` | `dsp-cpp/` |
-| DLOAD linker script + stubs | `tvm-relax-tests` | `dsp-cpp/c7x_dynmod/` |
+| C7x DLOAD build scripts | `tests/ti-dsp-runtime` | `dsp-cpp/` |
+| DLOAD linker script + stubs | `tests/ti-dsp-runtime` | `dsp-cpp/c7x_dynmod/` |
 | DSP firmware + host CLI | `tvm` | `src/runtime/ti_dsp/firmware/c7x/` |
-| pytest integration tests | `tvm-relax-tests` | `dsp-tests/` |
+| pytest integration tests | `tests/ti-dsp-runtime` | `dsp-tests/` |
 
 ## C7x DMA Tiling
 
@@ -702,10 +702,10 @@ pytest tvm-relax-tests/cstatic-tests/test_matmul.py -v
 pytest tvm-relax-tests/cstatic-tests/test_mlp.py -v
 
 # DSP tests (host emulation)
-pytest tvm-relax-tests/dsp-tests/ -v --dsp-mode=host
+pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=host
 
 # DSP tests (C66x hardware)
-pytest tvm-relax-tests/dsp-tests/ -v --dsp-mode=c66x
+pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x
 ```
 
 ### Build DSP Runtime
