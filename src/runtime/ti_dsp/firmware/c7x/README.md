@@ -144,7 +144,7 @@ completes -- no special flags or trace buffer polling required.
 c7x_compute infer <handle> <model_id> --input in.bin --output out.bin
 
 # From pytest:
-pytest tvm-relax-tests/dsp-tests/test_clista_dsp.py \
+pytest tests/ti-dsp-runtime/dsp-tests/test_clista_dsp.py \
     -v --dsp-mode=c7x_dload --use-cpp-api --profile-layers
 ```
 
@@ -195,7 +195,7 @@ The test script covers 6 milestones:
 
 ### DSP Model Tests (pytest)
 
-The `tvm-relax-tests/dsp-tests/` directory contains pytest-based tests
+The `tests/ti-dsp-runtime/dsp-tests/` directory contains pytest-based tests
 that automate the full TVM compilation, C7x ELF build, firmware deployment,
 and inference verification pipeline:
 
@@ -204,7 +204,7 @@ cd $TVM_HOME
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 
 # Run on C7x hardware
-pytest tvm-relax-tests/dsp-tests/ -v --dsp-mode=c7x_dload
+pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c7x_dload
 ```
 
 ## Architecture Notes
@@ -308,7 +308,7 @@ If the C7x becomes unresponsive:
 
 ## Change History
 
-Moved from `tvm-relax-tests/c7x-firmware/` to
+Moved from `src/runtime/ti_dsp/firmware/c7x/` to
 `src/runtime/ti_dsp/firmware/c7x/` for co-location with the TVM DSP
 runtime it depends on. Key milestones from original development:
 

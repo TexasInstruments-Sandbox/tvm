@@ -35,7 +35,7 @@ HOST_CLI="$REPO_ROOT/c7x-firmware/host/build/c7x_compute"
 # Default module search paths (tried in order)
 MODULE_SEARCH_PATHS=(
     "$REPO_ROOT/dsp-cpp/build-test-dynmod/lib0.out"
-    "$REPO_ROOT/../tvm/tvm-relax-tests/dsp-cpp/build-test-dynmod/lib0.out"
+    "$REPO_ROOT/../tvm/tests/ti-dsp-runtime/dsp-cpp/build-test-dynmod/lib0.out"
 )
 
 # --- Counters ---

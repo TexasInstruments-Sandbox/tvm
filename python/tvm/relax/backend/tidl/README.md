@@ -97,19 +97,64 @@ The real bridge:
 4. Calls `process_tidl_subgraph(instance, in_tensors, out_tensors)`
 5. Invalidates output cache after DMA completes
 
+## Import Orchestration (`tidl_import()`)
+
+`TIDLOffloadCompiler.tidl_import()` drives the Relax FFI pipeline:
+
+1. Load `tidl_model_import_relax.so`
+2. `TIDL_relaxInit()` — initialize with device config and artifacts dir
+3. For each composite in each subgraph:
+   - Lift constants into VarBindings (`_lift_constants_in_composite`)
+   - Construct synthetic `relax.Call` with `UpdateStructInfo`
+   - `TIDL_relaxImportNode()` — parse op attrs, register with TIDL
+   - `TIDL_relaxImportLinkNode()` — connect data flow edges
+4. `TIDL_relaxOptimizeNet()` — run network compiler
+5. `TIDL_relaxPostProcessNet()` — write net.bin + params_1.bin
+
+**Config keys:**
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `artifacts_dir` | `/tmp/tidl_artifacts` | Output directory for TIDL binaries |
+| `tidl_tools_path` | auto-detect from `C7X_MMA_TIDL_PATH` | Path to device_config.cfg |
+| `tidl_relax_so_path` | auto-detect | Path to `tidl_model_import_relax.so` |
+| `num_calibration_frames` | 1 | Calibration iterations |
+
+**Node naming:** `tidl_{sg_id}_i{idx}` for inputs, `tidl_{sg_id}_o{idx}`
+for outputs, sequential integers for internal nodes.  Shapes normalized
+to 6D TIDL format `[N,1,1,C,H,W]`.
+
+For C7x runtime details (IALG lifecycle, UDMA, memory pools), see
+`src/runtime/ti_dsp/tidl/README.md`.
+
+## Building Dependencies
+
+The import tests and hardware tests require `tidl_model_import_relax.so`
+and supporting tools from the c7x-mma-tidl source tree.  Build all
+components with:
+
+```bash
+cd ~/ml/c7x-mma-tidl
+bash build_j722s.sh          # incremental build
+bash build_j722s.sh clean    # clean + full rebuild
+```
+
+See `tests/ti-dsp-runtime/tidl-tests/README.md` for full prerequisites
+and one-time setup steps.
+
 ## Running Tests
 
 ```bash
 # Partition + codegen tests only (no TI compiler or .so needed):
-pytest tvm-relax-tests/tidl-tests/test_tidl_partition.py \
-       tvm-relax-tests/tidl-tests/test_tidl_codegen.py -v
+pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_partition.py \
+       tests/ti-dsp-runtime/tidl-tests/test_tidl_codegen.py -v
 
 # Import tests (needs tidl_model_import_relax.so + c7x-mma-tidl):
-pytest tvm-relax-tests/tidl-tests/test_tidl_relax_import.py -v
+pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_relax_import.py -v
 
 # All TIDL tests (partition + import + codegen + e2e + hardware):
 TI_CGT_C7000_PATH=~/ti/.../ti-cgt-c7000_5.0.1.LTS \
-  pytest tvm-relax-tests/tidl-tests/ -v
+  pytest tests/ti-dsp-runtime/tidl-tests/ -v
 ```
 
 ---

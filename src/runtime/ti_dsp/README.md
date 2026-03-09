@@ -516,7 +516,7 @@ The application's MMU configuration must include mappings for:
 - **DDR** (0x80000000-0xFFFFFFFF): Cached, Outer Shareable
   - Used for TVM's main memory pool, code, and weights
 
-See `tvm-relax-tests/dsp-cpp/j722s/mmu.c` for a reference implementation with
+See `tests/ti-dsp-runtime/dsp-cpp/j722s/mmu.c` for a reference implementation with
 detailed documentation of MMU registers and page table structure.
 
 ## Tensor File I/O (Host Testing Only)
@@ -538,7 +538,7 @@ TVMDSPFreeTensorArray(tensors, num_tensors);
 ```
 
 Python utilities for creating/reading these files are in
-`tvm-relax-tests/dsp-cpp/dsp_utils.py`.
+`tests/ti-dsp-runtime/dsp-cpp/dsp_utils.py`.
 
 ## Differences from Full TVM Runtime
 
