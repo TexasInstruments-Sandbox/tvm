@@ -603,10 +603,10 @@ class TIDLOffloadCompiler:
             # Record artifact paths
             artifacts[sg_name] = {
                 "net_bin": os.path.join(
-                    artifacts_dir, f"tidl_net_{sg_id}.bin"
+                    artifacts_dir, f"subgraph{sg_id}_net.bin"
                 ),
                 "io_bin": os.path.join(
-                    artifacts_dir, f"tidl_io_{sg_id}.bin"
+                    artifacts_dir, f"subgraph{sg_id}_params_1.bin"
                 ),
             }
             logger.info(

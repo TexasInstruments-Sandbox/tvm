@@ -23,6 +23,19 @@
 /*------------------------------------------------------------------------------*/
 #include "tidl_api.h"
 #include "tidl_api_mem.h"
+/* The IOBufDesc (params_1.bin) is written by the import tool using
+ * TIDL_IO_MAX_NUM_CORES=4 (from itidl_io.h in c7x-mma-tidl source).
+ * The PSDK header sizes sTIDL_IOBufDesc_t arrays with TIDL_MAX_NUM_CORES
+ * which is SOC-dependent (2 for J722S).  This mismatch causes the C7x
+ * code to read IOBufDesc fields at wrong offsets.
+ *
+ * Fix: force TIDL_MAX_NUM_CORES=4 BEFORE including itidl_ti.h so the
+ * struct layout matches the import tool's.  Single-core operation is
+ * controlled by the runtime numCores=1 field, not this constant. */
+#ifdef TIDL_MAX_NUM_CORES
+#undef TIDL_MAX_NUM_CORES
+#endif
+#define TIDL_MAX_NUM_CORES 4
 #include "itidl_ti.h"
 /* itidl_rt.h is not available in our build — TIDLRT_LogMetaData is
  * debug-only tracing that we stub out below. */
@@ -336,13 +349,13 @@ EXTERN_C int32_t process_tidl_subgraph(void *instance_,
 
   // Call IALG process API to run the network. This is the TIDL interpreter.
   //   TIDL_process
-  handle->fxns->algProcess(instance->handle,
+  status = handle->fxns->algProcess(instance->handle,
                            instance->inBufs, instance->outBufs,
 		           (IVISION_InArgs *)instance->inArgs,
 	                   (IVISION_OutArgs *)instance->outArgs);
   if (status != IALG_EOK)
   {
-    printf("process_tidl_subgraph: algProcess failed\n");
+    printf("process_tidl_subgraph: algProcess failed (status=%d)\n", status);
   }
 
   // With TIDL DataConv layers, subgraph directly use TVM tensors' data buffers
@@ -576,18 +589,24 @@ static int32_t connect_input_output_tensors(TIDL_subgraph_instance *instance,
   {
     IVISION_BufDesc* outBufDesc = outBufDescList[i];
 
-    /* Find tvm/tidlrt tensor that corresponds to this tidl output tensor */
-    /* After imported into TIDL layers, TIDL performs transormations and
-         topologically sorts all layers, always iterating from layer 0.
-         While tvm/tidl_rt input tensor <i> is still TIDL input tensor <i>,
-         tvm/tidl_rt output tensor <i> could become TIDL output tensor <j>.
-       TIDL outDataName is encoded as tidl_<subgraph_id>_o<tidlrt_id>,
-         from which we can extract the corresponding tvm output tensor index.
-    */
+    /* Map TIDL output buffer i to TVM output tensor j.
+     *
+     * When outDataName is populated (Relay/Relax import path), the name
+     * encodes the TVM tensor index: "tidl_<sg>_o<j>".  TIDL may reorder
+     * outputs during compilation, so i != j in general.
+     *
+     * When outDataName is empty (standalone ONNX import), fall back to
+     * sequential mapping (j = i).  This is correct for single-output
+     * models and single-core operation on J722S.
+     */
     const char *out_name = (const char *) IOParams->outDataName[i];
-    int32_t pos = strlen(out_name) - 1;
-    while(out_name[pos] != 'o')  pos--;
-    int32_t j = atoi(&out_name[pos+1]);
+    int32_t j = i;  /* default: sequential mapping */
+    if (out_name[0] != '\0') {
+      int32_t pos = strlen(out_name) - 1;
+      while (pos >= 0 && out_name[pos] != 'o')  pos--;
+      if (pos >= 0)
+        j = atoi(&out_name[pos + 1]);
+    }
 
     outBufDesc->bufPlanes[0].buf = out_tensors[j]->data;
   }
