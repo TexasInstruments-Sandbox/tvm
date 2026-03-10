@@ -113,6 +113,10 @@ target_compile_definitions(syscfg_generated PRIVATE
     BUILD_C7X_1
     OS_FREERTOS
     Hwi_bootToNonSecure__D=1
+    # Increase remoteproc trace buffer from 4KB to 256KB.
+    # Requires #ifndef guard patch in SDK DebugP.h (see commit log).
+    # Must fit within DDR_C7x_1_IPC_TRACE linker region (0xFFC00 bytes).
+    DebugP_MEM_LOG_SIZE=\(256U*1024U\)
 )
 
 # Linker command file

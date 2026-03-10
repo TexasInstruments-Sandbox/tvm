@@ -39,7 +39,7 @@ case "${1:-}" in
         echo ""
         mkdir -p "${BUILD_DIR}"
         cd "${BUILD_DIR}"
-        cmake ..
+        cmake -DUSE_TIDL_RUNTIME=ON ..
         make VERBOSE=1
         echo ""
         echo "Build complete: ${BUILD_DIR}/${FIRMWARE_NAME}"
