@@ -160,11 +160,19 @@ def _check_relu(ctx: PatternCheckContext) -> bool:
 
 
 def _check_add(ctx: PatternCheckContext) -> bool:
-    """Element-wise add — dtype + rank checks."""
+    """Element-wise add — dtype + rank checks.
+
+    TIDL eltwise layers require 4-D (NCHW) tensors.  Reject adds
+    on lower-rank tensors such as the FC bias add ``(1, 1000)``
+    which would crash in TIDL's algProcess.
+    """
     for key in ("lhs", "rhs"):
         expr = ctx.annotated_expr.get(key)
         if expr is not None:
             if not _check_dtype(expr):
+                return False
+            shape = _get_shape(expr)
+            if shape is not None and len(shape) < 4:
                 return False
             if not _check_rank(expr, 4):
                 return False
