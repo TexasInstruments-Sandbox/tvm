@@ -891,8 +891,9 @@ def run_dsp_dload(
             The firmware auto-detects embedded weights at dyn-load time.
 
     Returns:
-        Tuple of (output_array, stdout_string) where output_array is a numpy
-        array reconstructed from the DSP output.
+        Tuple of (output_array, stdout_string, cycles) where output_array is
+        a numpy array reconstructed from the DSP output and cycles is the
+        inference cycle count from the DSP's TSC counter (0 if unavailable).
 
     Raises:
         RuntimeError: If any SSH/SCP command or CLI step fails.
@@ -1062,7 +1063,7 @@ def run_dsp_dload(
 
     logger.info(f"  Output shape: {output_arr.shape}, dtype: {output_arr.dtype}")
     stdout_str = f"[run] {out}"
-    return output_arr, stdout_str
+    return output_arr, stdout_str, cycles
 
 
 def run_dsp_host(
@@ -1332,7 +1333,7 @@ def compile_and_run_dsp(
                 build_dir=build_dir,
                 weights_file=weights_path,
             )
-            c7x_dload_output, c7x_dload_stdout = run_dsp_dload(
+            c7x_dload_output, c7x_dload_stdout, c7x_dload_cycles = run_dsp_dload(
                 module_path,
                 weights_path,
                 input_tensors,
@@ -1341,6 +1342,7 @@ def compile_and_run_dsp(
             )
             results["c7x_dload_result"] = c7x_dload_output
             results["c7x_dload_stdout"] = c7x_dload_stdout
+            results["c7x_dload_cycles"] = c7x_dload_cycles
 
     return results
 

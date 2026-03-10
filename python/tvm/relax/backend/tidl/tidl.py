@@ -167,6 +167,11 @@ def _find_tidl_subgraphs(mod: IRModule):
 def _extract_composite_calls(func):
     """Walk SeqExpr bindings and return composite call triples.
 
+    Handles both first-use calls (immediately after the Composite function
+    definition) and reuse calls (later calls to a previously defined
+    Composite function).  The Relax partitioner reuses function definitions
+    when two operations match the same pattern with the same signature.
+
     Returns
     -------
     list of (comp_fn, orig_call, binding_var)
@@ -174,9 +179,12 @@ def _extract_composite_calls(func):
         *orig_call* is the Call (whose op is a local Var),
         *binding_var* is the Var the call result is bound to.
     """
+    # Map: local function Var -> Composite Function (for reuse detection)
+    comp_func_map: Dict[relax.Var, relax.Function] = {}
+
     results = []
     for block in func.body.blocks:
-        comp_fn = None
+        pending_fn = None
         for b in block.bindings:
             val = b.value
             if (
@@ -184,10 +192,19 @@ def _extract_composite_calls(func):
                 and val.attrs
                 and val.attrs.get("Composite")
             ):
-                comp_fn = val
-            elif isinstance(val, relax.Call) and comp_fn is not None:
-                results.append((comp_fn, val, b.var))
-                comp_fn = None
+                pending_fn = val
+                comp_func_map[b.var] = val
+            elif isinstance(val, relax.Call):
+                if pending_fn is not None:
+                    # First call immediately after a composite function def
+                    results.append((pending_fn, val, b.var))
+                    pending_fn = None
+                elif (
+                    isinstance(val.op, relax.Var)
+                    and val.op in comp_func_map
+                ):
+                    # Reuse of a previously defined composite function
+                    results.append((comp_func_map[val.op], val, b.var))
     return results
 
 
@@ -528,12 +545,15 @@ class TIDLOffloadCompiler:
             # -- Walk composite calls -----------------------------------
             composites = _extract_composite_calls(func)
 
-            # Build name map: Var name_hint -> TIDL node name
-            name_map: Dict[str, str] = {}
+            # Build var map: Var object -> TIDL node name.
+            # Keyed by Var identity (not name_hint) because Relax
+            # reuses name hints like "lv" across different bindings
+            # within the same function body.
+            var_map: Dict[relax.Var, str] = {}
             for i, p in enumerate(func.params):
-                name_map[p.name_hint] = f"tidl_{sg_id}_i{i}"
+                var_map[p] = f"tidl_{sg_id}_i{i}"
             for i, (_, _, bvar) in enumerate(composites):
-                name_map[bvar.name_hint] = str(i)
+                var_map[bvar] = str(i)
 
             import_node_fn = tvm.get_global_func("TIDL_relaxImportNode")
             link_node_fn = tvm.get_global_func("TIDL_relaxImportLinkNode")
@@ -568,23 +588,22 @@ class TIDLOffloadCompiler:
                     )
 
                 # -- InOutNodes for linking -----------------------------
-                # Input names
+                # Input names (use Var identity via var_map)
                 in_names = []
                 for arg in orig_call.args:
                     if isinstance(arg, relax.Var):
                         in_names.append(
-                            name_map.get(arg.name_hint, arg.name_hint)
+                            var_map.get(arg, arg.name_hint)
                         )
 
-                # Output consumer names
-                bvar_hint = bvar.name_hint
+                # Output consumer names (use Var.same_as for identity)
                 out_names = []
                 for j in range(i + 1, len(composites)):
                     _, future_call, _ = composites[j]
                     for farg in future_call.args:
                         if (
                             isinstance(farg, relax.Var)
-                            and farg.name_hint == bvar_hint
+                            and farg.same_as(bvar)
                         ):
                             out_names.append(str(j))
 
