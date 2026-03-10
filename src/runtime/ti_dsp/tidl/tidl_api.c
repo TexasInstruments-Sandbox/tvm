@@ -402,22 +402,32 @@ EXTERN_C int32_t free_tidl_subgraph(void *instance_)
   IVISION_Handle handle = instance->handle;
   int32_t status = IALG_EOK;
 
+  RPROC_TRACE_MSG("tidl_api: free_tidl_subgraph START");
+
   tidl_free(instance->outArgs, sizeof(TIDL_outArgs));
   tidl_free(instance->inArgs, sizeof(TIDL_InArgs));
   free_outbufs(instance);
   free_inbufs(instance);
 
   // tidl_tb_algFree()
+  RPROC_TRACE_MSG("tidl_api: before algFree");
   if (handle != NULL)
     status = handle->fxns->ialg.algFree((IALG_Handle)(handle),instance->memRec);
   if (status != IALG_EOK)
   {
     printf("free_tidl_subgraph: algFree failed\n");
+    RPROC_TRACE_MSG("tidl_api: algFree FAILED");
+  }
+  else
+  {
+    RPROC_TRACE_MSG("tidl_api: algFree OK");
   }
 
+  RPROC_TRACE_MSG("tidl_api: before free_mem_records");
   free_mem_records(instance->memRec, instance->numMemRec);
   tidl_free(instance->memRec, instance->numMemRec * sizeof(IALG_MemRec));
   tidl_free(instance->createParams, sizeof(TIDL_CreateParams));
+  RPROC_TRACE_MSG("tidl_api: free_tidl_subgraph DONE");
 
   if (instance->network_size > 0)
     tidl_free(instance->network, instance->network_size);

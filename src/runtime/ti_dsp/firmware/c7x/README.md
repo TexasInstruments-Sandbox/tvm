@@ -231,11 +231,12 @@ API, platform functions, DMA operations). Key design decisions:
   `_binary_weights_bin_*` symbols) or loaded separately via `model-load`
 - Memory pools are reset on unload to avoid fragmentation across
   back-to-back load cycles
-- Module unload sequence: cleanup register file, unload constants,
-  cleanup constants state, then free ELF segments (ordering matters
-  because register file lives in the module's .bss)
+- Module unload sequence: TIDL bridge cleanup (if present), register
+  file cleanup, unload constants, then free ELF segments (ordering
+  matters because the register file lives in the module's .bss and
+  TIDL instances must release DMA channels before pool reset)
 
-### EDMA Subsystem
+### EDMA / UDMA Subsystem
 
 Async DMA via DmaUtilsAutoInc3d with standalone UDMA driver in DRU
 direct TR mode. The standalone UDMA driver is compiled from MCU+ SDK
@@ -243,10 +244,19 @@ source (not the prebuilt `dmautils.lib`) because the prebuilt version
 uses the full UDMA driver which accesses NAVSS registers not available
 in remoteproc mode.
 
-- CLEC events 128-143 mapped to C7x events 32-47 (required for
-  DmaUtilsAutoInc3d completion polling)
-- DMA init/deinit is per-module-load (not at boot) to avoid DRU
-  resource conflicts with host DMA-BUF cleanup between invocations
+- CLEC events 128-143 mapped to C7x events 32-47 at firmware boot
+  (required for DmaUtilsAutoInc3d completion polling)
+- UDMA driver (`g_udma_drv`) initialized once at boot and **shared**
+  between TVM DMA tiling and TIDL.  TIDL obtains the handle via
+  `appUdmaGetObj()` -> `tvm_dsp_dma_get_udma_handle()` and allocates
+  its own channels from the same driver during `algInit`.
+- DmaUtils context and TR memory use **static buffers** (not pool-
+  allocated) so they survive `tvm_dsp_reset_pools()` between module
+  load/unload cycles.
+- `tvm_dsp_dma_deinit()` is NOT called at module unload.  TIDL's
+  `algFree` releases its channels from the shared driver, leaving
+  internal state inconsistent for `Udma_deinit`.  This matches the
+  neo-tvm/PSDK approach of init-once-never-deinit.
 
 ### IPC and Host Communication
 
@@ -292,7 +302,9 @@ If repeated c7x_compute invocations fail with DMA-BUF errors, the host
 may be leaking DMA-BUF attachments. Ensure:
 1. The host CLI discovers the correct remoteproc index (matching
    `7e000000.dsp`), not a hardcoded `/dev/remoteproc0`
-2. CLEC/UDMA init happens per-module-load, not at firmware boot
+2. DMA-BUF is allocated/freed by the host (`c7x_client_open/close`),
+   not by UDMA init/deinit on the DSP.  The DSP-side UDMA driver
+   manages DRU channels, not DMA-BUF CMA allocations.
 
 ### Recovery
 

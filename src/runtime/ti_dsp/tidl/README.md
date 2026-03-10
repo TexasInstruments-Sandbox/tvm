@@ -46,6 +46,10 @@ free_tidl_subgraph(instance):
 
 ## UDMA Handle Functions
 
+TVM and TIDL share a single UDMA driver instance.  See the firmware
+README (`firmware/c7x/README.md`, "EDMA / UDMA Subsystem") for the
+full lifecycle.
+
 | Function | Used by | Notes |
 |----------|---------|-------|
 | `appUdmaGetObj()` | DLOAD module (bridge code) | **Use this one** |
@@ -67,6 +71,18 @@ mechanism wasn't fully diagnosed, but `appUdmaGetObj` works reliably.
 **Why `getUDMADrvObjPtr` must stay in the DLOAD export table:**
 Removing it causes firmware hangs when TIDL algo libs run.  The
 algo libs reference it internally.
+
+## Bridge Cleanup
+
+The auto-generated `tidl_bridge.c` includes a `tidl_bridge_cleanup()`
+function that calls `free_tidl_subgraph` for each lazily-initialized
+TIDL instance.  The firmware calls this via DLOAD symbol lookup
+before `dyn_loader_unload` to ensure TIDL's IALG handle, DMA
+channels, and memory records are released cleanly.
+
+Without this cleanup, module unload causes a crash in
+`Udma_chDisable` because TIDL's channels are still registered in
+the shared UDMA driver when the module's memory is freed.
 
 ## IOBufDesc Struct Layout
 

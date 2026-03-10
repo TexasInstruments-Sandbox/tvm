@@ -1078,6 +1078,7 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
     for sg in real_subgraphs:
         lines.append(
             f"void {sg['name']}_process(void* inp0, void* out0);")
+    lines.append("void tidl_bridge_cleanup(void);")
     lines.append("#ifdef __cplusplus")
     lines.append("}")
     lines.append("#endif")
@@ -1167,6 +1168,22 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
                 f"    TVM_cacheWbInvRegion(out0, {out_bytes});")
             lines.append("}")
             lines.append("")
+
+    # Cleanup function: free all TIDL instances.
+    # The firmware calls this before dyn_loader_unload() so TIDL can
+    # release DMA channels, IALG memory, and MMA state cleanly.
+    if not stub and real_subgraphs:
+        lines.append("void tidl_bridge_cleanup(void) {")
+        for sg in real_subgraphs:
+            name = sg["name"]
+            lines.append(f"    if ({name}_instance != NULL) {{")
+            lines.append(f"        free_tidl_subgraph({name}_instance);")
+            lines.append(f"        {name}_instance = NULL;")
+            lines.append("    }")
+        lines.append("}")
+    else:
+        lines.append("void tidl_bridge_cleanup(void) {}")
+    lines.append("")
 
     return "\n".join(lines) + "\n"
 

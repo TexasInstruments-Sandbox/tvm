@@ -205,7 +205,7 @@ endif()
 if(TVM_HOME AND EXISTS "${TVM_HOME}/3rdparty/tvm-ffi/3rdparty/dlpack/include")
     list(APPEND DYNMOD_INCLUDES -I${TVM_HOME}/3rdparty/tvm-ffi/3rdparty/dlpack/include)
 endif()
-set(DYNMOD_DEFINES -DTVM_DSP_TARGET_C7X -DSOC_J722S -DTIDL_MAX_NUM_CORES=4 -DRPROC_TRACE=1)
+set(DYNMOD_DEFINES -DTVM_DSP_TARGET_C7X -DSOC_J722S -DTIDL_MAX_NUM_CORES=4 -DRPROC_TRACE=0)
 
 # Common C7x headers (rproc_trace.h etc.)
 set(C7X_COMMON_DIR "${TVM_HOME}/src/runtime/ti_dsp/firmware/c7x/common")
@@ -272,6 +272,7 @@ if(USE_TIDL)
         --export=init_tidl_subgraph
         --export=process_tidl_subgraph
         --export=free_tidl_subgraph
+        --export=tidl_bridge_cleanup
     )
 
     # Embed TIDL artifacts (multi-subgraph support via glob)
