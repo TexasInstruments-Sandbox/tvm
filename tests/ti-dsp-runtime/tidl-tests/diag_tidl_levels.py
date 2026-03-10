@@ -3,16 +3,16 @@
 
 Usage:
     # Level 0: stub only (no TIDL calls, just load+run)
-    python diag_tidl_init.py 0
+    python diag_tidl_levels.py 0
 
     # Level 1: call algNumAlloc only
-    python diag_tidl_init.py 1
+    python diag_tidl_levels.py 1
 
     # Level 2: call algAlloc (the step that hangs)
-    python diag_tidl_init.py 2
+    python diag_tidl_levels.py 2
 
     # Level 3: full init_tidl_subgraph
-    python diag_tidl_init.py 3
+    python diag_tidl_levels.py 3
 
 Requires:
     TI_CGT_C7000_PATH env var

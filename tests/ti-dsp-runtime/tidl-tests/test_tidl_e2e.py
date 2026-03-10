@@ -1,9 +1,43 @@
 #!/usr/bin/env python
-"""End-to-end pipeline tests for TIDL subgraph offloading.
+"""End-to-end pipeline test with stub bridge on c7x_host.
 
-Level 1: Pipeline validation with stub bridge (c7x_host).
-Verifies the full partition -> lower -> codegen -> bridge -> build -> run
-pipeline without requiring actual TIDL libraries or artifacts.
+Validates the full TIDL offloading pipeline without requiring TIDL
+libraries, artifacts, or AM67A hardware.  Uses a stub bridge that
+zero-fills TIDL subgraph outputs, allowing the rest of the pipeline
+(partitioning, lowering, c_static codegen, cross-compile, execution)
+to be verified on the host.
+
+Pipeline under test
+-------------------
+  1. partition_for_tidl -- pattern match and merge TIDL subgraphs
+  2. LowerTIDLToTIR    -- replace Codegen="tidl" funcs with TIR stubs
+  3. relax.build       -- c_static codegen (lib0.c + weights.bin)
+  4. generate_bridge   -- stub bridge (memset output to zero)
+  5. build_dsp_c7x_host -- compile with g++ + TI Host Emulation library
+  6. run_dsp_host      -- execute the binary on the host PC
+
+Model
+-----
+ConvReluSoftmaxModel: Conv2D(3->16, 3x3) + ReLU + Softmax.
+Conv+ReLU is partitioned to TIDL; softmax stays in TVM.  The stub
+bridge zeros the conv+relu output, so softmax produces a uniform
+distribution of 1/16 per channel -- this is the expected output.
+
+Assertions
+----------
+- Build produces an executable
+- Output shape is (1, 16, 32, 32)
+- All output values are ~1/16 (uniform softmax over 16 channels of
+  zeros), confirming the stub bridge and TVM softmax both executed
+
+Requirements
+------------
+- TI_CGT_C7000_PATH -- TI C7000 CGT with Host Emulation library
+- TVM DSP runtime built for c7x_host target
+- No TIDL .so, no hardware, no TIDL artifacts needed
+
+See test_tidl_import_e2e.py for the full hardware test with real
+TIDL artifacts on AM67A.
 """
 
 import os
@@ -14,6 +48,7 @@ import tempfile
 
 import numpy as np
 import pytest
+
 import tvm
 from tvm import relax
 from tvm.relax.backend.tidl import (

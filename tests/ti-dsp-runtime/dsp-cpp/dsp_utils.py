@@ -653,7 +653,9 @@ def build_dsp_dynmod(
 
     Args:
         generated_dir: Directory containing lib0.c (from TVM compilation).
-        dsp_cpp_dir: Directory containing CMakeLists.txt. If None, uses this module's directory.
+        dsp_cpp_dir: Directory containing CMakeLists.txt for dynmod build.
+            If None, uses ``src/runtime/ti_dsp/dynmod/`` (canonical location).
+            Falls back to this module's directory for backward compatibility.
         build_type: Build type - "Release" (default) or "Debug".
         build_dir: Optional build directory. If None, creates one in dsp_cpp_dir.
 
@@ -661,7 +663,12 @@ def build_dsp_dynmod(
         Path to the lib0.out relocatable module
     """
     if dsp_cpp_dir is None:
-        dsp_cpp_dir = _MODULE_DIR
+        # Prefer canonical dynmod location; fall back to test dir
+        dynmod_dir = _DSP_RUNTIME_DIR / "dynmod"
+        if dynmod_dir.exists():
+            dsp_cpp_dir = dynmod_dir
+        else:
+            dsp_cpp_dir = _MODULE_DIR
 
     generated_dir = Path(generated_dir).resolve()
     dsp_cpp_dir = Path(dsp_cpp_dir).resolve()
