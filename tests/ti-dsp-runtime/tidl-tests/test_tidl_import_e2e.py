@@ -24,22 +24,27 @@ build() internally runs every stage of the TIDL offloading flow:
 The test then deploys lib0.out to the AM67A via SSH/SCP and runs
 inference through the c7x_compute DLOAD CLI.
 
-Model
------
-ConvReluSoftmaxModel: Conv2D(3->16, 3x3) + ReLU + Softmax.
-Conv+ReLU is offloaded to TIDL (MMA accelerator, int8 internally).
-Softmax is not in the TIDL pattern table and stays as TVM-generated
-C code executing on the C7x scalar pipeline.  This mixed model
-ensures the VM register-file / call_tir plumbing works correctly
-when TIDL and non-TIDL ops coexist.
+Models
+------
+test_import_build_run -- ConvReluSoftmaxModel (1 TIDL subgraph):
+  Conv2D(3->16, 3x3) + ReLU + Softmax.
+  Conv+ReLU offloads to TIDL; softmax stays as TVM C code.
+  Verifies the basic single-subgraph pipeline.
+
+test_two_subgraph_model -- TwoSubgraphModel (2 TIDL subgraphs):
+  Conv+ReLU -> Softmax -> Conv+ReLU -> Softmax.
+  Each Conv+ReLU is a separate TIDL subgraph; the softmax between
+  them forces a partition split.  Verifies the firmware handles
+  multiple init_tidl_subgraph / process_tidl_subgraph calls within
+  one inference invocation.
 
 Assertions
 ----------
 - build() produces a lib0.out that exists on disk
-- At least one TIDL artifact pair (net.bin + io.bin) is generated
-- DSP output shape matches expected (1, 16, 32, 32)
+- Expected number of TIDL artifacts are generated
+- DSP output shape matches expected dimensions
 - Softmax invariant: channel sums ~= 1.0 (atol=0.1), confirming
-  both the TIDL subgraph and the TVM softmax executed correctly
+  both the TIDL subgraphs and the TVM softmax executed correctly
 
 Environment
 -----------
@@ -111,6 +116,28 @@ class ConvReluSoftmaxModel(nn.Module):
         return x
 
 
+class TwoSubgraphModel(nn.Module):
+    """Two TIDL subgraphs separated by softmax (not in TIDL patterns).
+
+    Conv+ReLU -> Softmax -> Conv+ReLU -> Softmax
+    [TIDL sg0]   [TVM]    [TIDL sg1]   [TVM]
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+        self.conv2 = nn.Conv2D(8, 4, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        x = self.conv1(x)
+        x = nn.relu(x)
+        x = nn.softmax(x, axis=1)
+        x = self.conv2(x)
+        x = nn.relu(x)
+        x = nn.softmax(x, axis=1)
+        return x
+
+
 @pytest.mark.skipif(
     not _has_import_so(),
     reason=f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}",
@@ -168,7 +195,7 @@ class TestTIDLImportE2E:
         # 3. Deploy and run on AM67A
         try:
             input_data = np.random.randn(1, 3, 32, 32).astype("float32")
-            output, stdout = run_dsp_dload(
+            output, stdout, _cycles = run_dsp_dload(
                 result.module_path,
                 result.weights_path,
                 [input_data],
@@ -187,6 +214,84 @@ class TestTIDLImportE2E:
             )
 
             # Softmax output should sum to ~1 along channel axis
+            sums = output.sum(axis=1)
+            assert np.allclose(sums, 1.0, atol=0.1), (
+                f"Softmax channel sums should be ~1.0, got mean={sums.mean():.4f}"
+            )
+
+        finally:
+            if not os.environ.get("DSP_KEEP_TEMP"):
+                shutil.rmtree(str(result.gen_dir), ignore_errors=True)
+                shutil.rmtree(str(result.build_dir), ignore_errors=True)
+
+    def test_two_subgraph_model(self, tmp_path):
+        """Two TIDL subgraphs in one module, run on AM67A.
+
+        Tests that the firmware correctly handles multiple
+        init_tidl_subgraph / process_tidl_subgraph calls within a
+        single inference invocation.
+        """
+        from dsp_utils import run_dsp_dload
+
+        model = TwoSubgraphModel()
+        mod, param_spec = model.export_tvm(
+            spec={"main": {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")}}
+        )
+        np.random.seed(42)
+        params = [
+            tvm.runtime.tensor(
+                np.random.rand(*p.shape).astype("float32"),
+                device=tvm.cpu(),
+            )
+            for _, p in param_spec
+        ]
+        param_dict = dict(zip(mod["main"].params[1:], params))
+
+        artifacts_dir = str(tmp_path / "tidl_artifacts")
+        compiler = TIDLOffloadCompiler(
+            config={
+                "artifacts_dir": artifacts_dir,
+                "tidl_tools_path": TIDL_TOOLS_PATH,
+                "tidl_relax_so_path": RELAX_SO_PATH,
+                "num_calibration_frames": 2,
+            }
+        )
+        result = compiler.build(
+            mod,
+            params=param_dict,
+            build_dir=str(tmp_path / "build"),
+        )
+
+        assert result.module_path.exists(), f"Build failed: {result.module_path}"
+        n_artifacts = len(result.artifacts)
+        assert n_artifacts >= 2, (
+            f"Expected >= 2 TIDL subgraphs, got {n_artifacts}"
+        )
+
+        size_mb = result.module_path.stat().st_size / (1024 * 1024)
+        print(f"\nModule: {result.module_path} ({size_mb:.1f} MB)")
+        print(f"TIDL artifacts: {n_artifacts} subgraph(s)")
+
+        try:
+            input_data = np.random.randn(1, 3, 32, 32).astype("float32")
+            output, stdout, cycles = run_dsp_dload(
+                result.module_path,
+                result.weights_path,
+                [input_data],
+                embedded_weights=True,
+            )
+
+            assert output is not None, "No output from DSP"
+            assert output.shape == (1, 4, 32, 32), (
+                f"Unexpected shape: {output.shape}"
+            )
+            print(
+                f"Output: shape={output.shape}, "
+                f"min={output.min():.4f}, max={output.max():.4f}"
+            )
+            print(f"Cycles: {cycles:,}")
+
+            # Second softmax output should sum to ~1 along channel axis
             sums = output.sum(axis=1)
             assert np.allclose(sums, 1.0, atol=0.1), (
                 f"Softmax channel sums should be ~1.0, got mean={sums.mean():.4f}"
