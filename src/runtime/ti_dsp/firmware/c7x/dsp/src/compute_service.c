@@ -202,24 +202,6 @@ static void handle_dyn_load(struct c7x_msg_dyn_load *req,
 
     DebugP_log("[COMPUTE] Module loaded: handle=%u\r\n", handle);
 
-    /* Initialize EDMA/DRU for DMA tiling (CLEC + UDMA).
-     * Done per-load so resources are released on unload, preventing
-     * conflicts with the host's DMA-BUF cleanup between invocations. */
-    {
-        CSL_ClecEventConfig cfgClec;
-        CSL_CLEC_EVTRegs *clecBaseAddr = (CSL_CLEC_EVTRegs *)CSL_C7X256V0_CLEC_BASE;
-        uint32_t i;
-        for (i = 128; i < 144; i++) {
-            cfgClec.secureClaimEnable = FALSE;
-            cfgClec.evtSendEnable = TRUE;
-            cfgClec.rtMap = CSL_CLEC_RTMAP_CPU_ALL;
-            cfgClec.extEvtNum = 0;
-            cfgClec.c7xEvtNum = (i - 128) + 32;
-            CSL_clecConfigEvent(clecBaseAddr, i, &cfgClec);
-        }
-        tvm_dsp_dma_init(1);
-    }
-
 done:
     send_response(C7X_MSG_DYN_LOAD_RESP, req->hdr.seq,
                   sizeof(*resp), srcCore, srcEndpt);
@@ -240,6 +222,20 @@ static void handle_dyn_unload(struct c7x_msg_dyn_unload *req,
      * module's memory segments.
      */
     if (req->module_handle == g_loaded_module_handle) {
+        /* Free TIDL subgraph instances so TIDL can release DMA
+         * channels, IALG memory, and MMA state before the module's
+         * code/data sections are freed by dyn_loader_unload(). */
+        {
+            uint64_t cleanup_addr = 0;
+            if (dyn_loader_query_symbol(req->module_handle,
+                    "tidl_bridge_cleanup", &cleanup_addr) == 0
+                    && cleanup_addr != 0) {
+                DebugP_log("[COMPUTE] Calling tidl_bridge_cleanup\r\n");
+                ((void (*)(void))(uintptr_t)cleanup_addr)();
+                DebugP_log("[COMPUTE] tidl_bridge_cleanup done\r\n");
+            }
+        }
+
         /* Free storage/NDArray objects from the last inference.
          * These are heap-allocated objects referenced by the static
          * register file inside the loaded module. */
@@ -264,10 +260,11 @@ static void handle_dyn_unload(struct c7x_msg_dyn_unload *req,
             g_cg_main_dsp = NULL;
             g_embedded_model_id = 0;
         }
-        /* Release EDMA/DRU resources so the host's DMA-BUF cleanup
-         * doesn't conflict with active UDMA channels.  The next
-         * module that uses DMA will re-init lazily. */
-        tvm_dsp_dma_deinit();
+        /* UDMA driver is initialized once at boot and shared between
+         * TVM DMA tiling and TIDL.  Do NOT call tvm_dsp_dma_deinit()
+         * here — TIDL's algFree releases its DMA channels from the
+         * shared driver, and calling Udma_deinit after that crashes
+         * on stale channel handles. */
 
         /* Reset memory pools to eliminate fragmentation from the
          * load/unload cycle.  All pool memory has been freed by
@@ -788,6 +785,24 @@ int32_t compute_service_init(void)
     status = tvm_model_init();
     if (status != 0) {
         DebugP_log("[COMPUTE] WARNING: TVM model manager init failed: %d\r\n", status);
+    }
+
+    /* Initialize CLEC event routing for DRU (events 128-143 -> C7x 32-47)
+     * and the shared UDMA driver.  Done once at boot; the driver is shared
+     * between TVM DMA tiling and TIDL's MMA/DMA operations. */
+    {
+        CSL_ClecEventConfig cfgClec;
+        CSL_CLEC_EVTRegs *clecBaseAddr = (CSL_CLEC_EVTRegs *)CSL_C7X256V0_CLEC_BASE;
+        uint32_t i;
+        for (i = 128; i < 144; i++) {
+            cfgClec.secureClaimEnable = FALSE;
+            cfgClec.evtSendEnable = TRUE;
+            cfgClec.rtMap = CSL_CLEC_RTMAP_CPU_ALL;
+            cfgClec.extEvtNum = 0;
+            cfgClec.c7xEvtNum = (i - 128) + 32;
+            CSL_clecConfigEvent(clecBaseAddr, i, &cfgClec);
+        }
+        tvm_dsp_dma_init(1);
     }
 
     /* Initialize shared memory printf device */

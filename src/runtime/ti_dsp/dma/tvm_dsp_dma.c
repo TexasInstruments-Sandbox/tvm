@@ -46,6 +46,17 @@
 /* Maximum DMA channels (queue IDs) supported */
 #define MAX_DMA_CHANNELS 2
 
+/* Static buffers for DmaUtils context and TR memory.
+ * These must survive pool resets between module load/unload cycles.
+ * Sizes are generous upper bounds; the actual sizes are queried at
+ * runtime via DmaUtilsAutoInc3d_getContextSize/getTrMemReq. */
+#define DMA_CONTEXT_BUF_SIZE   4096
+#define DMA_TR_BUF_SIZE         512
+static uint8_t g_dma_context_buf[DMA_CONTEXT_BUF_SIZE]
+    __attribute__((aligned(128)));
+static uint8_t g_dma_tr_buf[MAX_DMA_CHANNELS][DMA_TR_BUF_SIZE]
+    __attribute__((aligned(128)));
+
 /* UDMA instance for the C7x local DRU.
  * J722S: C7x_1 DRU = instance 5 (from MCU+ SDK udma_soc.h).
  * The standalone udma.h bundled with dmautils only defines MAIN_0/1,
@@ -135,24 +146,23 @@ int tvm_dsp_dma_init(int num_channels) {
         return ret;
     }
 
-    /* Allocate DmaUtils context from L2 SRAM (fast memory) */
-    g_dma_context = (uint8_t *)tvm_dsp_alloc(
-        DmaUtilsAutoInc3d_getContextSize(num_channels),
-        64, TVM_DSP_MEM_FAST);
-    if (!g_dma_context) {
-        Udma_deinit(&g_udma_drv);
-        return -2;
+    /* Use static buffers for DmaUtils context and TR memory so they
+     * survive tvm_dsp_reset_pools() between module load/unload cycles. */
+    {
+        int32_t ctx_size = DmaUtilsAutoInc3d_getContextSize(num_channels);
+        if (ctx_size > (int32_t)sizeof(g_dma_context_buf)) {
+            Udma_deinit(&g_udma_drv);
+            return -2;
+        }
+        g_dma_context = g_dma_context_buf;
     }
-
-    /* Allocate per-channel TR memory from L2 SRAM */
     for (ch = 0; ch < num_channels; ch++) {
-        g_tr_mem[ch] = (uint8_t *)tvm_dsp_alloc(
-            DmaUtilsAutoInc3d_getTrMemReq(1),
-            64, TVM_DSP_MEM_FAST);
-        if (!g_tr_mem[ch]) {
+        int32_t tr_size = DmaUtilsAutoInc3d_getTrMemReq(1);
+        if (tr_size > (int32_t)sizeof(g_dma_tr_buf[ch])) {
             Udma_deinit(&g_udma_drv);
             return -3;
         }
+        g_tr_mem[ch] = g_dma_tr_buf[ch];
     }
 
     /* Init DmaUtilsAutoInc3d */
