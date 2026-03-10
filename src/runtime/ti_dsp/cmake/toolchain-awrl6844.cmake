@@ -23,6 +23,10 @@ set(TVM_DSP_DEVICE "awrl6844" CACHE STRING "Device variant" FORCE)
 
 # TI C6000 compiler path - check environment or use default
 set(TI_CGT_C6000_PATH "$ENV{TI_CGT_C6000_PATH}")
+# Expand ~ to $HOME (CMake doesn't do shell-style tilde expansion)
+if(TI_CGT_C6000_PATH MATCHES "^~")
+    string(REGEX REPLACE "^~" "$ENV{HOME}" TI_CGT_C6000_PATH "${TI_CGT_C6000_PATH}")
+endif()
 if(NOT TI_CGT_C6000_PATH)
     # Try common installation paths
     if(EXISTS "$ENV{HOME}/ti/ccs2050/ccs/tools/compiler/ti-cgt-c6000_8.5.0.LTS")

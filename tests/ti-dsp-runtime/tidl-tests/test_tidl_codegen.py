@@ -14,6 +14,7 @@ import tempfile
 
 import numpy as np
 import pytest
+
 import tvm
 from tvm import relax
 from tvm.relax.backend.tidl import LowerTIDLToTIR, partition_for_tidl
@@ -250,6 +251,151 @@ class TestTIDLCodegen:
         assert len(source) > 500, (
             "Expected substantial generated code (softmax compute)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: Bridge generation (multi-subgraph)
+# ---------------------------------------------------------------------------
+
+
+class ConvSoftmaxConvModel(nn.Module):
+    """Two TIDL subgraphs separated by an unsupported op.
+
+    conv+relu -> softmax (not TIDL) -> conv+relu
+    This produces two separate tidl_subgraph TIR stubs.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2D(3, 16, 3, 1, 1, bias=False)
+        self.conv2 = nn.Conv2D(16, 32, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        x = self.conv1(x)
+        x = nn.relu(x)
+        x = nn.softmax(x, axis=1)  # breaks the TIDL subgraph
+        x = self.conv2(x)
+        x = nn.relu(x)
+        return x
+
+
+class TestTIDLBridgeGeneration:
+    """Test bridge code generation including multi-subgraph support."""
+
+    def test_stub_bridge_single_subgraph(self):
+        """Stub bridge for a single subgraph zeros the output."""
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+        mod = _export_and_bind(
+            ConvReluModel,
+            {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
+        )
+        lowered = _partition_and_lower(mod)
+
+        with tempfile.NamedTemporaryFile(suffix=".c", delete=False) as f:
+            bridge_path = f.name
+        try:
+            TIDLOffloadCompiler.generate_bridge(lowered, bridge_path, stub=True)
+            with open(bridge_path) as f:
+                code = f.read()
+
+            assert "tidl_subgraph_0_process" in code
+            assert "memset(out0, 0," in code
+        finally:
+            os.unlink(bridge_path)
+
+    def test_stub_bridge_multi_subgraph(self):
+        """Stub bridge produces separate functions per subgraph."""
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+        mod = _export_and_bind(
+            ConvSoftmaxConvModel,
+            {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
+        )
+        lowered = _partition_and_lower(mod)
+
+        # Count TIR stubs — should be 2 for the two TIDL subgraphs
+        stubs = [
+            gv.name_hint
+            for gv, func in lowered.functions.items()
+            if isinstance(func, tvm.tir.PrimFunc)
+            and "tidl_subgraph" in gv.name_hint
+        ]
+        assert len(stubs) == 2, f"Expected 2 TIR stubs, got {len(stubs)}: {stubs}"
+
+        with tempfile.NamedTemporaryFile(suffix=".c", delete=False) as f:
+            bridge_path = f.name
+        try:
+            TIDLOffloadCompiler.generate_bridge(lowered, bridge_path, stub=True)
+            with open(bridge_path) as f:
+                code = f.read()
+
+            assert "tidl_subgraph_0_process" in code
+            assert "tidl_subgraph_1_process" in code
+            # Both should have memset (stub mode)
+            assert code.count("memset(out0, 0,") == 2, (
+                "Expected 2 memset calls (one per subgraph stub)"
+            )
+        finally:
+            os.unlink(bridge_path)
+
+    def test_real_bridge_multi_subgraph_symbols(self):
+        """Real bridge produces per-subgraph artifact symbols."""
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+        mod = _export_and_bind(
+            ConvSoftmaxConvModel,
+            {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
+        )
+        lowered = _partition_and_lower(mod)
+
+        with tempfile.NamedTemporaryFile(suffix=".c", delete=False) as f:
+            bridge_path = f.name
+        try:
+            TIDLOffloadCompiler.generate_bridge(lowered, bridge_path, stub=False)
+            with open(bridge_path) as f:
+                code = f.read()
+
+            # Per-subgraph artifact symbols
+            assert "_binary_tidl_net_0_start" in code
+            assert "_binary_tidl_net_0_size" in code
+            assert "_binary_tidl_io_0_start" in code
+            assert "_binary_tidl_net_1_start" in code
+            assert "_binary_tidl_net_1_size" in code
+            assert "_binary_tidl_io_1_start" in code
+
+            # Both process functions
+            assert "tidl_subgraph_0_process" in code
+            assert "tidl_subgraph_1_process" in code
+
+            # Each calls init_tidl_subgraph with its own artifacts
+            assert code.count("init_tidl_subgraph(") == 2
+
+            # Shared includes emitted once
+            assert code.count('#include "tidl_api.h"') == 1
+            assert code.count('#include "dlpack/dlpack.h"') == 1
+        finally:
+            os.unlink(bridge_path)
+
+    def test_bridge_header_generated(self):
+        """Bridge generation also produces a .h header."""
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+        mod = _export_and_bind(
+            ConvReluModel,
+            {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
+        )
+        lowered = _partition_and_lower(mod)
+
+        with tempfile.TemporaryDirectory() as td:
+            bridge_path = os.path.join(td, "tidl_bridge.c")
+            TIDLOffloadCompiler.generate_bridge(lowered, bridge_path, stub=True)
+
+            header_path = os.path.join(td, "tidl_bridge.h")
+            assert os.path.exists(header_path), "Bridge header not generated"
+            with open(header_path) as f:
+                header = f.read()
+            assert "tidl_subgraph_0_process" in header
 
 
 if __name__ == "__main__":

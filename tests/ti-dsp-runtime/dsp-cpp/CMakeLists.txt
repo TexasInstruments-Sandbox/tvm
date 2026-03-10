@@ -82,6 +82,14 @@ set(TIDL_BRIDGE_SOURCES "" CACHE STRING "Extra .c files for TIDL bridge")
 option(USE_TIDL "Link TIDL libraries into model module" OFF)
 set(PSDK_PATH "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
     CACHE PATH "Path to TI Processor SDK (for TIDL/MMALIB libs and headers)")
+# === Tilde expansion helper ===
+# CMake doesn't expand ~ in paths read from environment variables.
+macro(expand_tilde VAR)
+    if("${${VAR}}" MATCHES "^~")
+        string(REGEX REPLACE "^~" "$ENV{HOME}" ${VAR} "${${VAR}}")
+    endif()
+endmacro()
+
 # === Path Configuration ===
 # TVM and DSP runtime paths
 if(APPLE)
@@ -93,6 +101,7 @@ endif()
 # Allow environment override
 if(DEFINED ENV{TVM_HOME})
     set(TVM_HOME "$ENV{TVM_HOME}" CACHE PATH "Path to TVM" FORCE)
+    expand_tilde(TVM_HOME)
 endif()
 
 set(DSP_RUNTIME_DIR "${TVM_HOME}/src/runtime/ti_dsp")
@@ -383,6 +392,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
     # TI C7000 Host Emulation library
     if(DEFINED ENV{TI_CGT_C7000_PATH})
         set(TI_CGT_C7000_PATH "$ENV{TI_CGT_C7000_PATH}")
+        expand_tilde(TI_CGT_C7000_PATH)
     endif()
     if(NOT DEFINED TI_CGT_C7000_PATH)
         message(FATAL_ERROR "TI_CGT_C7000_PATH is not set. "
@@ -484,8 +494,8 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
     #         -DTVM_DSP_TARGET=c7x-dynmod ..
     #   cmake --build .
 
-    # Dynmod infrastructure directory
-    set(DYNMOD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/c7x_dynmod")
+    # Dynmod infrastructure directory (canonical location in src/runtime/ti_dsp/dynmod)
+    set(DYNMOD_DIR "${DSP_RUNTIME_DIR}/dynmod/c7x_dynmod")
 
     # Compiler flags — same as standalone c7x but no -k (no asm output needed)
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -699,44 +709,57 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
             --export=free_tidl_subgraph
         )
 
-        # Embed TIDL artifacts (net.bin + io.bin) as .rodata sections
+        # Embed TIDL artifacts (multi-subgraph: glob for net.bin + io.bin)
         set(TIDL_ARTIFACTS_DIR "" CACHE PATH "Directory with TIDL artifacts")
         if(TIDL_ARTIFACTS_DIR AND EXISTS "${TIDL_ARTIFACTS_DIR}")
-            set(TIDL_NET_BIN "${TIDL_ARTIFACTS_DIR}/subgraph0_net.bin")
-            set(TIDL_IO_BIN "${TIDL_ARTIFACTS_DIR}/subgraph0_params_1.bin")
+            file(GLOB TIDL_NET_BINS "${TIDL_ARTIFACTS_DIR}/subgraph*_net.bin")
+            file(GLOB TIDL_IO_BINS "${TIDL_ARTIFACTS_DIR}/subgraph*_params_1.bin")
+            list(SORT TIDL_NET_BINS)
+            list(SORT TIDL_IO_BINS)
 
-            foreach(ARTIFACT_NAME "tidl_net" "tidl_io")
-                if(ARTIFACT_NAME STREQUAL "tidl_net")
-                    set(ARTIFACT_BIN "${TIDL_NET_BIN}")
-                else()
-                    set(ARTIFACT_BIN "${TIDL_IO_BIN}")
+            foreach(NET_BIN ${TIDL_NET_BINS})
+                get_filename_component(NET_NAME ${NET_BIN} NAME)
+                string(REGEX MATCH "subgraph([0-9]+)_net\\.bin" _MATCH "${NET_NAME}")
+                set(SG_ID "${CMAKE_MATCH_1}")
+
+                set(IO_BIN "${TIDL_ARTIFACTS_DIR}/subgraph${SG_ID}_params_1.bin")
+                if(NOT EXISTS "${IO_BIN}")
+                    message(WARNING "TIDL io.bin not found for subgraph ${SG_ID}: ${IO_BIN}")
+                    continue()
                 endif()
-                set(ARTIFACT_ASM "${CMAKE_CURRENT_BINARY_DIR}/${ARTIFACT_NAME}_data.asm")
-                set(ARTIFACT_OBJ "${CMAKE_CURRENT_BINARY_DIR}/${ARTIFACT_NAME}_data.obj")
 
-                add_custom_command(
-                    OUTPUT "${ARTIFACT_ASM}"
-                    COMMAND python3 "${BIN_TO_ASM_SCRIPT}"
-                        "${ARTIFACT_BIN}" "${ARTIFACT_ASM}" "${ARTIFACT_NAME}"
-                    DEPENDS "${ARTIFACT_BIN}" "${BIN_TO_ASM_SCRIPT}"
-                    COMMENT "TIDL: Embedding ${ARTIFACT_NAME}"
-                )
-                add_custom_command(
-                    OUTPUT "${ARTIFACT_OBJ}"
-                    COMMAND ${CMAKE_C_COMPILER}
-                        -mv7524 --abi=eabi
-                        --compile_only
-                        --output_file="${ARTIFACT_OBJ}"
-                        "${ARTIFACT_ASM}"
-                    DEPENDS "${ARTIFACT_ASM}"
-                    COMMENT "TIDL: Assembling ${ARTIFACT_NAME}"
-                )
-                list(APPEND TIDL_OBJ_FILES "${ARTIFACT_OBJ}")
-                list(APPEND TIDL_EXPORT_FLAGS
-                    --export=_binary_${ARTIFACT_NAME}_start
-                    --export=_binary_${ARTIFACT_NAME}_end
-                    --export=_binary_${ARTIFACT_NAME}_size
-                )
+                foreach(ARTIFACT_PAIR "tidl_net_${SG_ID};${NET_BIN}" "tidl_io_${SG_ID};${IO_BIN}")
+                    list(GET ARTIFACT_PAIR 0 ARTIFACT_NAME)
+                    list(GET ARTIFACT_PAIR 1 ARTIFACT_BIN)
+
+                    set(ARTIFACT_ASM "${CMAKE_CURRENT_BINARY_DIR}/${ARTIFACT_NAME}_data.asm")
+                    set(ARTIFACT_OBJ "${CMAKE_CURRENT_BINARY_DIR}/${ARTIFACT_NAME}_data.obj")
+
+                    add_custom_command(
+                        OUTPUT "${ARTIFACT_ASM}"
+                        COMMAND python3 "${BIN_TO_ASM_SCRIPT}"
+                            "${ARTIFACT_BIN}" "${ARTIFACT_ASM}" "${ARTIFACT_NAME}"
+                        DEPENDS "${ARTIFACT_BIN}" "${BIN_TO_ASM_SCRIPT}"
+                        COMMENT "TIDL: Embedding ${ARTIFACT_NAME}"
+                    )
+                    add_custom_command(
+                        OUTPUT "${ARTIFACT_OBJ}"
+                        COMMAND ${CMAKE_C_COMPILER}
+                            -mv7524 --abi=eabi
+                            --compile_only
+                            --output_file="${ARTIFACT_OBJ}"
+                            "${ARTIFACT_ASM}"
+                        DEPENDS "${ARTIFACT_ASM}"
+                        COMMENT "TIDL: Assembling ${ARTIFACT_NAME}"
+                    )
+                    list(APPEND TIDL_OBJ_FILES "${ARTIFACT_OBJ}")
+                    list(APPEND TIDL_EXPORT_FLAGS
+                        --export=_binary_${ARTIFACT_NAME}_start
+                        --export=_binary_${ARTIFACT_NAME}_end
+                        --export=_binary_${ARTIFACT_NAME}_size
+                    )
+                endforeach()
+                message(STATUS "  TIDL subgraph ${SG_ID}: ${NET_BIN}")
             endforeach()
             message(STATUS "  TIDL artifacts: ${TIDL_ARTIFACTS_DIR}")
         endif()

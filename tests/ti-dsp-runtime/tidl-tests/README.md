@@ -4,14 +4,14 @@ Tests for TIDL subgraph offloading in the TVM/Relax c_static backend.
 
 ## Tests
 
-| Test | Tests | What it tests | Requirements |
+| Test | Count | What it tests | Requirements |
 |------|-------|---------------|--------------|
 | `test_tidl_partition.py` | 10 | Pattern matching, partitioning, constraints | TVM only |
+| `test_tidl_codegen.py` | 12 | Lowering pass, TIR stubs, c_static codegen, bridge generation (single + multi-subgraph, stub + real) | TVM only |
 | `test_tidl_relax_import.py` | 16 | FFI load, init, AllowNode, tidl_import() pipeline | `tidl_model_import_relax.so` + c7x-mma-tidl tree |
-| `test_tidl_codegen.py` | 8 | Lowering pass, TIR stub generation, c_static codegen | TVM only |
-| `test_tidl_e2e.py` | | Full pipeline: partition -> lower -> codegen -> bridge -> build -> run | `TI_CGT_C7000_PATH` |
-| `test_tidl_import_e2e.py` | | E2E: tidl_import() -> build -> run on AM67A | `tidl_model_import_relax.so` + `TI_CGT_C7000_PATH` + AM67A |
-| `diag_tidl_levels.py` | | Standalone multi-level TIDL init debug script | `TI_CGT_C7000_PATH` + TIDL artifacts + AM67A |
+| `test_tidl_e2e.py` | 1 | Full pipeline with stub bridge on c7x_host (no TIDL libs needed) | `TI_CGT_C7000_PATH` |
+| `test_tidl_import_e2e.py` | 1 | `compiler.build()` one-call pipeline -> deploy -> run on AM67A | `.so` + `TI_CGT_C7000_PATH` + AM67A |
+| `diag_tidl_levels.py` | -- | Standalone multi-level TIDL init debug script | `TI_CGT_C7000_PATH` + artifacts + AM67A |
 
 ```bash
 # Run partition + codegen tests (no hardware needed):

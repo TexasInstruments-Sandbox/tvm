@@ -1,30 +1,76 @@
 #!/usr/bin/env python
 """End-to-end TIDL hardware test on AM67A (c7x_dload).
 
-Tests the full pipeline:
-  partition -> tidl_import() -> lower -> codegen -> bridge -> build -> deploy -> run
+Exercises the full automated build pipeline via a single
+``TIDLOffloadCompiler.build()`` call, then deploys the resulting
+DLOAD module to an AM67A board and verifies inference output.
 
-Uses tidl_import() (Relax FFI) to generate TIDL artifacts on-the-fly,
-then compiles, deploys, and runs on AM67A hardware.
+Pipeline under test
+-------------------
+build() internally runs every stage of the TIDL offloading flow:
 
-Requires:
-  - tidl_model_import_relax.so (from c7x-mma-tidl)
-  - TI C7x cross-compiler (TI_CGT_C7000_PATH)
-  - PSDK with TIDL+MMALIB libraries
-  - AM67A board with c7x_compute firmware
+  1. prepare    -- bind params, fold constants, normalize
+  2. partition  -- FuseOpsByPattern with TIDL patterns, merge composites
+  3. tidl_import -- call TIDL import .so via Relax FFI to produce
+                    net.bin + io.bin artifacts for each subgraph
+  4. lower_tidl -- replace Codegen="tidl" functions with TIR extern
+                   stubs (call_extern -> tidl_subgraph_N_process)
+  5. relax.build + export -- c_static codegen emits lib0.c + weights.bin
+  6. generate_bridge -- emit tidl_bridge.c with real TIDL API calls and
+                        per-subgraph embedded artifact symbols
+  7. _build_dynmod  -- cmake cross-compile via TI C7x toolchain,
+                       two-stage link producing lib0.out
+
+The test then deploys lib0.out to the AM67A via SSH/SCP and runs
+inference through the c7x_compute DLOAD CLI.
+
+Model
+-----
+ConvReluSoftmaxModel: Conv2D(3->16, 3x3) + ReLU + Softmax.
+Conv+ReLU is offloaded to TIDL (MMA accelerator, int8 internally).
+Softmax is not in the TIDL pattern table and stays as TVM-generated
+C code executing on the C7x scalar pipeline.  This mixed model
+ensures the VM register-file / call_tir plumbing works correctly
+when TIDL and non-TIDL ops coexist.
+
+Assertions
+----------
+- build() produces a lib0.out that exists on disk
+- At least one TIDL artifact pair (net.bin + io.bin) is generated
+- DSP output shape matches expected (1, 16, 32, 32)
+- Softmax invariant: channel sums ~= 1.0 (atol=0.1), confirming
+  both the TIDL subgraph and the TVM softmax executed correctly
+
+Environment
+-----------
+Requires all of the following (test is skipped otherwise):
+
+- tidl_model_import_relax.so  -- Relax FFI bridge to TIDL import tool.
+  Built from c7x-mma-tidl repo (see tidl README for build steps).
+  Located via TIDL_RELAX_SO_PATH or auto-detected from C7X_MMA_TIDL_PATH.
+
+- TI C7x cross-compiler (TI_CGT_C7000_PATH) -- cl7x / lnk7x used by
+  the cmake dynmod build to produce the relocatable ELF module.
+
+- PSDK with TIDL + MMALIB libraries -- linked into the c7x_compute
+  firmware (not the model module).  The firmware must already be
+  deployed and running on the AM67A.
+
+- AM67A board at hostname ``am67a`` with c7x_compute firmware running.
+  The firmware provides DLOAD, TIDL algo libs, and shared UDMA/DMA
+  resources.  See src/runtime/ti_dsp/firmware/c7x/ for firmware docs.
+
+Set DSP_KEEP_TEMP=1 to preserve build artifacts for debugging.
 """
 
 import os
 import shutil
 import sys
-import tarfile
-import tempfile
 
 import numpy as np
 import pytest
 
 import tvm
-from tvm import relax
 from tvm.relax.backend.tidl import TIDLOffloadCompiler
 from tvm.relax.frontend import nn
 
@@ -65,21 +111,6 @@ class ConvReluSoftmaxModel(nn.Module):
         return x
 
 
-def _compile_c_static(mod, target_str="c_static -mcpu=c7x"):
-    from pathlib import Path
-
-    target = tvm.target.Target(target_str)
-    with tvm.transform.PassContext(opt_level=0):
-        ex = relax.build(mod, target=target, exec_mode="compiled", system_lib=True)
-    td = tempfile.mkdtemp(prefix="tidl_e2e_")
-    tar_path = os.path.join(td, "model.tar")
-    ex.export_library(tar_path, target=target)
-    with tarfile.open(tar_path) as tf:
-        tf.extractall(td)
-    os.remove(tar_path)
-    return Path(td)
-
-
 @pytest.mark.skipif(
     not _has_import_so(),
     reason=f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}",
@@ -92,10 +123,8 @@ class TestTIDLImportE2E:
     """End-to-end: tidl_import() -> build -> run on AM67A."""
 
     def test_import_build_run(self, tmp_path):
-        """Full pipeline: partition -> import -> lower -> build -> run."""
-        from pathlib import Path
-
-        from dsp_utils import build_dsp_dynmod, run_dsp_dload
+        """Full pipeline via compiler.build()."""
+        from dsp_utils import run_dsp_dload
 
         # 1. Export and bind params
         model = ConvReluSoftmaxModel()
@@ -112,7 +141,7 @@ class TestTIDLImportE2E:
         ]
         param_dict = dict(zip(mod["main"].params[1:], params))
 
-        # 2. Prepare + partition + import
+        # 2. Build via single API call
         artifacts_dir = str(tmp_path / "tidl_artifacts")
         compiler = TIDLOffloadCompiler(
             config={
@@ -122,88 +151,51 @@ class TestTIDLImportE2E:
                 "num_calibration_frames": 2,
             }
         )
-        mod = compiler.prepare(mod, param_dict)
-        mod = compiler.partition(mod)
+        result = compiler.build(
+            mod,
+            params=param_dict,
+            build_dir=str(tmp_path / "build"),
+        )
 
-        # Verify we have TIDL subgraphs
-        tidl_funcs = [
-            name
-            for name, f in mod.functions.items()
-            if hasattr(f, "attrs") and f.attrs and f.attrs.get("Codegen") == "tidl"
-        ]
-        assert len(tidl_funcs) > 0, "No TIDL subgraphs found after partition"
+        assert result.module_path.exists(), (
+            f"Build failed: {result.module_path}"
+        )
+        assert len(result.artifacts) > 0, "No TIDL artifacts produced"
 
-        mod, artifacts = compiler.tidl_import(mod)
-        assert len(artifacts) > 0, "tidl_import() returned no artifacts"
+        size_mb = result.module_path.stat().st_size / (1024 * 1024)
+        print(f"Module: {result.module_path} ({size_mb:.1f} MB)")
 
-        # Verify artifact files exist
-        for sg_name, paths in artifacts.items():
-            assert os.path.isfile(paths["net_bin"]), (
-                f"Missing net_bin for {sg_name}: {paths['net_bin']}"
-            )
-            assert os.path.isfile(paths["io_bin"]), (
-                f"Missing io_bin for {sg_name}: {paths['io_bin']}"
-            )
-            net_size = os.path.getsize(paths["net_bin"])
-            io_size = os.path.getsize(paths["io_bin"])
-            print(f"  {sg_name}: net={net_size / 1024:.0f}KB, io={io_size / 1024:.0f}KB")
-
-        # 3. Lower TIDL subgraphs to TIR extern calls
-        lowered = compiler.lower_tidl(mod, artifacts)
-
-        # 4. Compile to C static
-        gen_dir = _compile_c_static(lowered)
-
-        build_dir = None
+        # 3. Deploy and run on AM67A
         try:
-            # 5. Generate real bridge (TIDL API with embedded artifacts)
-            bridge_path = str(gen_dir / "tidl_bridge.c")
-            TIDLOffloadCompiler.generate_bridge(lowered, bridge_path, stub=False)
-
-            # 6. Build c7x-dynmod with TIDL artifacts from import
-            build_dir = Path(tempfile.mkdtemp(prefix="tidl_e2e_build_"))
-            module_path = build_dsp_dynmod(
-                generated_dir=gen_dir,
-                build_dir=build_dir,
-                weights_file=gen_dir / "weights.bin",
-                tidl_bridge=bridge_path,
-                use_tidl=True,
-                tidl_artifacts_dir=artifacts_dir,
-            )
-
-            assert module_path.exists(), f"Build failed: {module_path}"
-            size_mb = module_path.stat().st_size / (1024 * 1024)
-            print(f"Module: {module_path} ({size_mb:.1f} MB)")
-
-            # 7. Deploy and run on AM67A
             input_data = np.random.randn(1, 3, 32, 32).astype("float32")
-            result, stdout = run_dsp_dload(
-                module_path,
-                gen_dir / "weights.bin",
+            output, stdout = run_dsp_dload(
+                result.module_path,
+                result.weights_path,
                 [input_data],
                 embedded_weights=True,
             )
 
-            # 8. Verify output
-            assert result is not None, "No output from DSP"
-            assert result.shape == (1, 16, 32, 32), f"Unexpected shape: {result.shape}"
+            # 4. Verify output
+            assert output is not None, "No output from DSP"
+            assert output.shape == (1, 16, 32, 32), (
+                f"Unexpected shape: {output.shape}"
+            )
             print(
-                f"Output: shape={result.shape}, "
-                f"min={result.min():.4f}, max={result.max():.4f}, "
-                f"mean={result.mean():.4f}"
+                f"Output: shape={output.shape}, "
+                f"min={output.min():.4f}, max={output.max():.4f}, "
+                f"mean={output.mean():.4f}"
             )
 
             # Softmax output should sum to ~1 along channel axis
-            sums = result.sum(axis=1)
+            sums = output.sum(axis=1)
             assert np.allclose(sums, 1.0, atol=0.1), (
                 f"Softmax channel sums should be ~1.0, got mean={sums.mean():.4f}"
             )
 
         finally:
             if not os.environ.get("DSP_KEEP_TEMP"):
-                shutil.rmtree(str(gen_dir), ignore_errors=True)
-                if build_dir:
-                    shutil.rmtree(str(build_dir), ignore_errors=True)
+                shutil.rmtree(str(result.gen_dir), ignore_errors=True)
+                shutil.rmtree(str(result.build_dir), ignore_errors=True)
 
 
 if __name__ == "__main__":

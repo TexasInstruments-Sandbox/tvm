@@ -27,6 +27,11 @@ Phases 2-3 require the TIDL import library (.so); phase 1 is self-contained.
 import ctypes
 import logging
 import os
+import subprocess
+import tarfile
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -298,6 +303,32 @@ def _write_calibration_data(
     all_data = np.concatenate(parts, axis=1).flatten()
     all_data.tofile(calib_path)
     return calib_path
+
+
+@dataclass
+class TIDLBuildResult:
+    """Result of TIDLOffloadCompiler.build().
+
+    Attributes
+    ----------
+    module_path : Path
+        Path to lib0.out (C7x DLOAD relocatable module).
+    weights_path : Path
+        Path to weights.bin (TVM model constants).
+    gen_dir : Path
+        Path to generated code directory (lib0.c, weights.bin, etc.).
+    artifacts : dict
+        TIDL artifacts per subgraph:
+        ``{sg_name: {"net_bin": path, "io_bin": path}}``.
+    build_dir : Path
+        Path to cmake build directory.
+    """
+
+    module_path: Path
+    weights_path: Path
+    gen_dir: Path
+    artifacts: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    build_dir: Path = field(default_factory=lambda: Path())
 
 
 class TIDLOffloadCompiler:
@@ -712,7 +743,7 @@ class TIDLOffloadCompiler:
     # Full pipeline
     # ------------------------------------------------------------------
 
-    def compile(self, mod: IRModule, params: Optional[Dict] = None) -> IRModule:
+    def compile(self, mod: IRModule, params: Optional[Dict] = None) -> Tuple[IRModule, Dict]:
         """Full TIDL offload pipeline: prepare -> partition -> import -> lower.
 
         Parameters
@@ -724,15 +755,214 @@ class TIDLOffloadCompiler:
 
         Returns
         -------
-        IRModule
+        mod : IRModule
             Module ready for c_static codegen with TIDL subgraphs lowered
             to extern calls.
+        artifacts : dict
+            TIDL artifacts ``{sg_name: {"net_bin": path, "io_bin": path}}``.
         """
         mod = self.prepare(mod, params)
         mod = self.partition(mod)
         mod, artifacts = self.tidl_import(mod)
         mod = self.lower_tidl(mod, artifacts)
-        return mod
+        return mod, artifacts
+
+    # ------------------------------------------------------------------
+    # Full build pipeline: compile -> codegen -> bridge -> dynmod
+    # ------------------------------------------------------------------
+
+    def build(
+        self,
+        mod: IRModule,
+        params: Optional[Dict] = None,
+        target: str = "c_static -mcpu=c7x",
+        build_dir: Optional[str] = None,
+    ) -> TIDLBuildResult:
+        """Full pipeline: compile + codegen + bridge + dynmod build.
+
+        Produces a ready-to-load lib0.out from a Relax module in a
+        single call.
+
+        Parameters
+        ----------
+        mod : IRModule
+            Input module (raw, before preparation).
+        params : dict, optional
+            Named parameters to bind as constants.
+        target : str
+            TVM target string for c_static codegen.
+        build_dir : str, optional
+            Directory for cmake build output. If None, a temp dir is used.
+
+        Returns
+        -------
+        TIDLBuildResult
+            Paths to lib0.out, weights.bin, generated code, and artifacts.
+        """
+        # 1. Full TIDL offload pipeline
+        lowered, artifacts = self.compile(mod, params)
+
+        # 2. Compile to C via relax.build
+        tvm_target = tvm.target.Target(target)
+        with tvm.transform.PassContext(opt_level=0):
+            ex = relax.build(
+                lowered,
+                target=tvm_target,
+                exec_mode="compiled",
+                system_lib=True,
+            )
+
+        # 3. Export and extract generated code
+        gen_dir = Path(tempfile.mkdtemp(prefix="tidl_build_gen_"))
+        tar_path = gen_dir / "model.tar"
+        ex.export_library(str(tar_path), target=tvm_target)
+        with tarfile.open(str(tar_path)) as tf:
+            tf.extractall(str(gen_dir))
+        tar_path.unlink()
+
+        # 4. Generate real TIDL bridge
+        bridge_path = gen_dir / "tidl_bridge.c"
+        self.generate_bridge(
+            lowered,
+            str(bridge_path),
+            stub=False,
+            artifacts_dir=self._artifacts_dir,
+        )
+
+        # 5. Build C7x DLOAD module
+        if build_dir is None:
+            build_path = Path(tempfile.mkdtemp(prefix="tidl_build_cmake_"))
+        else:
+            build_path = Path(build_dir)
+            build_path.mkdir(parents=True, exist_ok=True)
+
+        weights_path = gen_dir / "weights.bin"
+        module_path = _build_dynmod(
+            generated_dir=gen_dir,
+            build_dir=build_path,
+            weights_file=weights_path if weights_path.exists() else None,
+            tidl_bridge=str(bridge_path),
+            use_tidl=bool(artifacts),
+            tidl_artifacts_dir=self._artifacts_dir if artifacts else None,
+        )
+
+        return TIDLBuildResult(
+            module_path=module_path,
+            weights_path=weights_path,
+            gen_dir=gen_dir,
+            artifacts=artifacts,
+            build_dir=build_path,
+        )
+
+
+# ------------------------------------------------------------------
+# Internal: C7x DLOAD module build
+# ------------------------------------------------------------------
+
+
+def _build_dynmod(
+    generated_dir: Path,
+    build_dir: Path,
+    weights_file: Optional[Path] = None,
+    tidl_bridge: Optional[str] = None,
+    use_tidl: bool = False,
+    tidl_artifacts_dir: Optional[str] = None,
+    build_type: str = "Release",
+) -> Path:
+    """Build a C7x DLOAD relocatable module from generated code.
+
+    Uses the CMakeLists.txt at ``src/runtime/ti_dsp/dynmod/`` with the
+    TI C7x cross-compiler toolchain.
+
+    Parameters
+    ----------
+    generated_dir : Path
+        Directory containing lib0.c.
+    build_dir : Path
+        CMake build output directory.
+    weights_file : Path, optional
+        Path to weights.bin to embed.
+    tidl_bridge : str, optional
+        Path to tidl_bridge.c source file.
+    use_tidl : bool
+        Whether to link TIDL API and artifacts.
+    tidl_artifacts_dir : str, optional
+        Directory containing TIDL net.bin / io.bin files.
+    build_type : str
+        CMake build type (Release or Debug).
+
+    Returns
+    -------
+    Path
+        Path to the built lib0.out module.
+    """
+    tvm_home = Path(__file__).resolve().parents[5]  # python/tvm/relax/backend/tidl -> tvm
+    dsp_runtime_dir = tvm_home / "src" / "runtime" / "ti_dsp"
+    dynmod_cmake = dsp_runtime_dir / "dynmod"
+    toolchain_file = dsp_runtime_dir / "cmake" / "toolchain-j722s-c7x.cmake"
+
+    if not toolchain_file.exists():
+        raise FileNotFoundError(f"Toolchain file not found: {toolchain_file}")
+    if not dynmod_cmake.exists():
+        raise FileNotFoundError(f"Dynmod CMakeLists.txt not found: {dynmod_cmake}")
+
+    generated_dir = Path(generated_dir).resolve()
+    build_dir = Path(build_dir).resolve()
+    build_dir.mkdir(parents=True, exist_ok=True)
+
+    # Configure cmake
+    cmake_cmd = [
+        "cmake",
+        f"-DTVM_HOME={tvm_home}",
+        f"-DCMAKE_BUILD_TYPE={build_type}",
+        f"-DCMAKE_TOOLCHAIN_FILE={toolchain_file}",
+        f"-DGENERATED_CODE_DIR={generated_dir}",
+    ]
+    if weights_file is not None and Path(weights_file).exists():
+        cmake_cmd.append(f"-DWEIGHTS_FILE={Path(weights_file).resolve()}")
+    if tidl_bridge:
+        cmake_cmd.append(f"-DTIDL_BRIDGE_SOURCES={tidl_bridge}")
+    if use_tidl:
+        cmake_cmd.append("-DUSE_TIDL=ON")
+    if tidl_artifacts_dir:
+        cmake_cmd.append(f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
+    cmake_cmd.append(str(dynmod_cmake))
+
+    log_path = build_dir / "cmake.log"
+    logger.info("Building C7x DLOAD module: %s", generated_dir)
+
+    with open(log_path, "w") as f:
+        result = subprocess.run(
+            cmake_cmd,
+            cwd=str(build_dir),
+            stdout=f,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"CMake configuration failed (rc={result.returncode}). "
+                f"Check {log_path}"
+            )
+
+        result = subprocess.run(
+            ["cmake", "--build", "."],
+            cwd=str(build_dir),
+            stdout=f,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Build failed (rc={result.returncode}). Check {log_path}"
+            )
+
+    module = build_dir / "lib0.out"
+    if not module.exists():
+        raise FileNotFoundError(f"Module not found after build: {module}")
+
+    logger.info("Built C7x DLOAD module: %s", module)
+    return module
 
 
 # ------------------------------------------------------------------
@@ -781,7 +1011,12 @@ def _dtype_sizeof(dtype):
 
 
 def _generate_bridge_code(subgraphs, stub, artifacts_dir):
-    """Generate C source code for TIDL bridge functions."""
+    """Generate C source code for TIDL bridge functions.
+
+    Supports multiple TIDL subgraphs. Each subgraph gets its own
+    embedded artifact symbols (tidl_net_N, tidl_io_N) and its own
+    init/process lifecycle.
+    """
     lines = []
     lines.append("/* Auto-generated TIDL bridge functions. */")
     lines.append("/* Implements tidl_subgraph_N_process() called by lib0.c */")
@@ -790,26 +1025,47 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
     lines.append("#include <stdint.h>")
     lines.append("")
 
+    # Filter to subgraphs that have output (i.e., real bridge candidates)
+    real_subgraphs = [sg for sg in subgraphs if sg["output"] is not None]
+
+    if not stub and real_subgraphs:
+        # Shared includes and externs for real bridge mode (emitted once)
+        lines.append('#include "tidl_api.h"')
+        lines.append('#include "dlpack/dlpack.h"')
+        lines.append("")
+        lines.append("extern void* appUdmaGetObj(void);")
+        lines.append(
+            "extern int32_t TVM_cacheWbInvRegion"
+            "(void *addr, uint32_t size);")
+        lines.append("")
+
+        # Per-subgraph artifact symbols (from bin_to_asm.py)
+        lines.append("/* Embedded TIDL artifacts (from bin_to_asm.py) */")
+        for i, sg in enumerate(real_subgraphs):
+            lines.append(
+                f"extern unsigned char _binary_tidl_net_{i}_start[];")
+            lines.append(
+                f"extern unsigned int  _binary_tidl_net_{i}_size;")
+            lines.append(
+                f"extern unsigned char _binary_tidl_io_{i}_start[];")
+        lines.append("")
+
     # Forward declarations with C linkage (lib0.c is compiled as C++)
     lines.append("#ifdef __cplusplus")
     lines.append('extern "C" {')
     lines.append("#endif")
-    for sg in subgraphs:
-        if sg["output"] is not None:
-            lines.append(
-                f"void {sg['name']}_process(void* inp0, void* out0);")
+    for sg in real_subgraphs:
+        lines.append(
+            f"void {sg['name']}_process(void* inp0, void* out0);")
     lines.append("#ifdef __cplusplus")
     lines.append("}")
     lines.append("#endif")
     lines.append("")
 
-    for sg in subgraphs:
+    for i, sg in enumerate(real_subgraphs):
         name = sg["name"]
         process_fn = f"{name}_process"
         output = sg["output"]
-
-        if output is None:
-            continue
 
         out_shape = output["shape"]
         out_dtype = output["dtype"]
@@ -828,26 +1084,7 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
             lines.append("}")
             lines.append("")
         else:
-            # Real TIDL bridge
-            lines.append('#include "tidl_api.h"')
-            lines.append('#include "dlpack/dlpack.h"')
-            lines.append("")
-            lines.append("extern void* appUdmaGetObj(void);")
-            lines.append(
-                "extern int32_t TVM_cacheWbInvRegion"
-                "(void *addr, uint32_t size);")
-            lines.append("")
-
-            # Artifact symbols from embedded .rodata sections
-            # (produced by bin_to_asm.py with prefix "tidl_net" / "tidl_io")
-            lines.append(
-                "/* Embedded TIDL artifacts (from bin_to_asm.py) */")
-            lines.append(
-                "extern unsigned char _binary_tidl_net_start[];")
-            lines.append(
-                "extern unsigned int _binary_tidl_net_size;")
-            lines.append(
-                "extern unsigned char _binary_tidl_io_start[];")
+            # Real TIDL bridge (per-subgraph)
             lines.append(f"static void* {name}_instance = NULL;")
             lines.append("")
 
@@ -858,9 +1095,10 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
             lines.append(f"    if ({name}_instance == NULL) {{")
             lines.append(f"        {name}_instance = init_tidl_subgraph(")
             lines.append(
-                "            _binary_tidl_net_start, _binary_tidl_net_size,")
+                f"            _binary_tidl_net_{i}_start,"
+                f" _binary_tidl_net_{i}_size,")
             lines.append(
-                "            _binary_tidl_io_start, appUdmaGetObj(),"
+                f"            _binary_tidl_io_{i}_start, appUdmaGetObj(),"
                 " 1, 0);")
             lines.append("    }")
             lines.append("")
@@ -908,7 +1146,6 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
                 f"    TVM_cacheWbInvRegion(out0, {out_bytes});")
             lines.append("}")
             lines.append("")
-            break  # only emit real bridge once (shared includes)
 
     return "\n".join(lines) + "\n"
 

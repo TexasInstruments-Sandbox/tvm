@@ -6,6 +6,29 @@ execute as generated C code on the C7x scalar pipeline.
 
 ## Quick Start
 
+### One-call build (recommended)
+
+```python
+from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+compiler = TIDLOffloadCompiler(config={
+    "artifacts_dir": "/tmp/tidl_artifacts",
+    "tidl_tools_path": "~/ml/c7x-mma-tidl/tidl_tools",
+})
+
+# Single call: partition -> import -> lower -> codegen -> bridge -> build
+result = compiler.build(mod, params=param_dict)
+
+result.module_path   # Path to lib0.out (C7x DLOAD module)
+result.weights_path  # Path to weights.bin
+result.gen_dir       # Path to generated code directory
+result.artifacts     # {sg_name: {"net_bin": path, "io_bin": path}}
+```
+
+Requires: `tidl_model_import_relax.so`, TI C7x cross-compiler.
+
+### Step-by-step (for debugging or custom pipelines)
+
 ```python
 import tvm
 from tvm import relax
@@ -33,8 +56,8 @@ ex = relax.build(lowered, target=target,
 ex.export_library("model.tar", target=target)
 ```
 
-Step 2 (import) requires the TIDL import library.  For partition +
-lower only (using pre-generated artifacts or stub bridges), use:
+For partition + lower only (using pre-generated artifacts or stub
+bridges, no TIDL library needed):
 
 ```python
 from tvm.relax.backend.tidl import partition_for_tidl, LowerTIDLToTIR
@@ -90,12 +113,17 @@ This produces `tidl_bridge.c` and `tidl_bridge.h`.  The header provides
 `extern "C"` declarations.  The build system uses `-include tidl_bridge.h`
 so `lib0.c` can resolve the symbols at compile time.
 
-The real bridge:
-1. Lazy-inits the TIDL instance via `init_tidl_subgraph()`
+The real bridge (supports multiple TIDL subgraphs):
+1. Lazy-inits each TIDL instance via `init_tidl_subgraph()`
+   using per-subgraph artifact symbols (`_binary_tidl_net_N_*`,
+   `_binary_tidl_io_N_*`)
 2. Wraps raw `void*` pointers in `DLTensor` structs
 3. Flushes input from cache (`TVM_cacheWbInvRegion`)
 4. Calls `process_tidl_subgraph(instance, in_tensors, out_tensors)`
 5. Invalidates output cache after DMA completes
+
+Shared includes (`tidl_api.h`, `dlpack.h`, externs) are emitted once;
+each subgraph gets its own `_process()` function and instance.
 
 ## Import Orchestration (`tidl_import()`)
 
@@ -195,14 +223,21 @@ Phase 5: generate_bridge() + relax.build()
 lib0.c + weights.bin + tidl_bridge.c/h
     |
     v
-Cross-compile (TI C7x) -> lib0.out (DLOAD module)
-    |  Embedded TIDL artifacts (net.bin + io.bin as .rodata)
+Phase 6: _build_dynmod()
+    |  CMakeLists.txt at src/runtime/ti_dsp/dynmod/
+    |  TI C7x cross-compile via toolchain-j722s-c7x.cmake
+    |  Embeds TIDL artifacts (net.bin + io.bin as .rodata)
     |  Links tidl_api.c (IALG wrapper) + bridge
+    v
+lib0.out (DLOAD module)
+    |
     v
 Deploy to AM67A via c7x_compute
     |  DLOAD loads module, resolves firmware symbols
     v
 Inference: TIDL int8 on MMA + TVM float32 on C7x scalar
+
+build() runs the entire pipeline in a single call
 ```
 
 ### Firmware integration
@@ -242,11 +277,28 @@ The default `"bytecode"` does not generate `__vmtir__main`.
 
 ---
 
+## Build Infrastructure
+
+The C7x DLOAD module build infrastructure lives at
+`src/runtime/ti_dsp/dynmod/`:
+
+| File | Purpose |
+|------|---------|
+| `CMakeLists.txt` | Standalone dynmod build (used by `build()` API) |
+| `c7x_dynmod/dsp_syms.c` | Pseudo-firmware symbol table for DLOAD |
+| `c7x_dynmod/c7x_dynmod.cmd` | Linker script for relocatable ELF |
+| `c7x_dynmod/tidl_firmware_syms.c` | TIDL firmware symbol stubs |
+| `c7x_dynmod/gen_dsp_syms_sect.py` | Embed dsp_syms.out as .dsp_syms_out section |
+
+The test CMakeLists.txt at `tests/ti-dsp-runtime/dsp-cpp/` references
+this location for c7x-dynmod builds, while retaining host/c66x/c7x_host
+standalone build targets.
+
 ## Build Flags
 
 | Flag | Where | Purpose |
 |------|-------|---------|
-| `USE_TIDL` | `dsp-cpp/CMakeLists.txt` | Compile TIDL API, embed artifacts |
-| `TIDL_BRIDGE_SOURCES` | `dsp-cpp/CMakeLists.txt` | Bridge .c file path |
-| `TIDL_ARTIFACTS_DIR` | `dsp-cpp/CMakeLists.txt` | Directory with net.bin + io.bin |
+| `USE_TIDL` | dynmod + test CMakeLists.txt | Compile TIDL API, embed artifacts |
+| `TIDL_BRIDGE_SOURCES` | dynmod + test CMakeLists.txt | Bridge .c file path |
+| `TIDL_ARTIFACTS_DIR` | dynmod + test CMakeLists.txt | Directory with net.bin + io.bin |
 | `USE_TIDL_RUNTIME` | firmware `CMakeLists.txt` | Link TIDL algo + MMALIB into firmware |
