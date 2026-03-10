@@ -82,7 +82,6 @@ bridge function (see "Bridge Function" below).
 | `tidl.nn.conv2d_bias_clip` | `conv2d` + `add` + `clip` |
 | `tidl.nn.max_pool2d` | `max_pool2d` |
 | `tidl.nn.avg_pool2d` | `avg_pool2d` |
-| `tidl.nn.batch_norm` | `batch_norm` + `tuple_get_item[0]` |
 | `tidl.nn.relu` | `relu` |
 | `tidl.add` | `add` (element-wise) |
 | `tidl.quantize` | `quantize` (stub) |
@@ -92,6 +91,12 @@ Constraint checks run during partitioning:
 - Conv2d: kernel <= 7, equal H/W strides
 - Pool: kernel <= 3, input rank == 4
 - All ops: dtype in {float32, int8, int16, uint8}
+
+**Batch normalization:** `prepare()` runs `FoldBatchnormToConv2D` +
+`FoldConstant` before partitioning, which algebraically folds
+inference-mode batch_norm parameters into the preceding conv2d weights
+and bias.  After folding the IR becomes `conv2d + add + relu` (no
+batch_norm nodes), so the existing `conv2d_bias_relu` patterns match.
 
 ## Bridge Function
 

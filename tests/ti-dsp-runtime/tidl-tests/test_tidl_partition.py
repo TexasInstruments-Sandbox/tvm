@@ -180,7 +180,6 @@ class TestTIDLPatternRegistration:
             "tidl.nn.conv2d_bias_relu",
             "tidl.nn.max_pool2d",
             "tidl.nn.avg_pool2d",
-            "tidl.nn.batch_norm",
             "tidl.nn.relu",
             "tidl.add",
         }
@@ -352,6 +351,105 @@ class TestTIDLPartitionMixed:
 
         # main function should still exist (softmax stays there)
         assert _has_main_function(partitioned)
+
+
+class TestTIDLBatchNormFolding:
+    """Test that batch_norm is folded into conv2d before partitioning."""
+
+    @pytest.fixture()
+    def resnet18_mod(self):
+        """Import torchvision ResNet-18 into Relax with params bound."""
+        torch = pytest.importorskip("torch")
+        tv_resnet = pytest.importorskip("torchvision.models.resnet")
+        from_exported_program = pytest.importorskip(
+            "tvm.relax.frontend.torch"
+        ).from_exported_program
+
+        model = tv_resnet.resnet18(weights=None).eval()
+        example = (torch.randn(1, 3, 224, 224),)
+        with torch.no_grad():
+            exported = torch.export.export(model, example)
+            mod = from_exported_program(exported, keep_params_as_input=True)
+
+        mod, params = relax.frontend.detach_params(mod)
+        func_params = dict(zip(mod["main"].params[1:], params["main"]))
+        mod = relax.transform.BindParams("main", func_params)(mod)
+        return mod
+
+    @staticmethod
+    def _count_ops(mod, op_name):
+        """Count occurrences of a Relax op in the module."""
+        count = 0
+
+        def _walk(expr):
+            nonlocal count
+            if isinstance(expr, relax.Call) and hasattr(expr.op, "name"):
+                if expr.op.name == op_name:
+                    count += 1
+                for arg in expr.args:
+                    _walk(arg)
+            elif isinstance(expr, relax.SeqExpr):
+                for block in expr.blocks:
+                    for binding in block.bindings:
+                        _walk(binding.value)
+            elif isinstance(expr, relax.Function):
+                _walk(expr.body)
+            elif isinstance(expr, relax.Tuple):
+                for f in expr.fields:
+                    _walk(f)
+            elif isinstance(expr, relax.TupleGetItem):
+                _walk(expr.tuple_value)
+
+        for _gv, func in mod.functions.items():
+            if isinstance(func, relax.Function):
+                _walk(func)
+        return count
+
+    def test_bn_folded_after_prepare(self, resnet18_mod):
+        """After prepare(), no batch_norm ops should remain."""
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+        compiler = TIDLOffloadCompiler()
+        prepared = compiler.prepare(resnet18_mod)
+
+        bn_count = self._count_ops(prepared, "relax.nn.batch_norm")
+        assert bn_count == 0, (
+            f"Expected 0 batch_norm ops after prepare(), found {bn_count}"
+        )
+
+    def test_resnet18_partition_has_conv2d_bias(self, resnet18_mod):
+        """Partitioned ResNet-18 should have conv2d_bias* composites."""
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+        compiler = TIDLOffloadCompiler()
+        prepared = compiler.prepare(resnet18_mod)
+        partitioned = compiler.partition(prepared)
+
+        composites = _find_composites_in_module(partitioned)
+        has_bias = any("conv2d_bias" in c for c in composites)
+        assert has_bias, (
+            f"Expected conv2d_bias* composites (from folded BN). "
+            f"Found: {composites}"
+        )
+
+    def test_resnet18_few_subgraphs(self, resnet18_mod):
+        """ResNet-18 with BN folding should produce few TIDL subgraphs."""
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+        compiler = TIDLOffloadCompiler()
+        prepared = compiler.prepare(resnet18_mod)
+        partitioned = compiler.partition(prepared)
+
+        n_tidl = _count_tidl_subgraphs(partitioned)
+        # ResNet-18 has ~20 conv layers; without BN folding we'd get ~16
+        # tiny subgraphs. With folding, conv+add+relu fuse together and
+        # adjacent composites merge, so we expect far fewer subgraphs.
+        assert n_tidl <= 5, (
+            f"Expected <= 5 TIDL subgraphs with BN folding, got {n_tidl}"
+        )
+        assert n_tidl >= 1, (
+            f"Expected at least 1 TIDL subgraph, got {n_tidl}"
+        )
 
 
 if __name__ == "__main__":

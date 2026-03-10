@@ -401,6 +401,8 @@ class TIDLOffloadCompiler:
         seq = tvm.transform.Sequential(
             [
                 relax.transform.FoldConstant(),
+                relax.transform.FoldBatchnormToConv2D(),
+                relax.transform.FoldConstant(),
                 relax.transform.Normalize(),
             ]
         )

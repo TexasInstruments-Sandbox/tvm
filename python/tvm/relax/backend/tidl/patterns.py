@@ -28,7 +28,7 @@ to the lightweight Python checks defined here.
 from typing import Dict, List, Optional
 
 import tvm
-from tvm.relax.dpl.pattern import DFPattern, is_const, is_op, is_tuple_get_item, wildcard
+from tvm.relax.dpl.pattern import DFPattern, is_op, wildcard
 from tvm.relax.transform import FusionPattern, PatternCheckContext
 
 from ..pattern_registry import register_patterns
@@ -152,14 +152,6 @@ def _check_pool(ctx: PatternCheckContext) -> bool:
     return True
 
 
-def _check_batch_norm(ctx: PatternCheckContext) -> bool:
-    """Validate batch_norm for TIDL — basic dtype check."""
-    data = ctx.annotated_expr.get("data")
-    if data is not None and not _check_dtype(data):
-        return False
-    return True
-
-
 def _check_relu(ctx: PatternCheckContext) -> bool:
     data = ctx.annotated_expr.get("data")
     if data is not None and not _check_dtype(data):
@@ -250,28 +242,6 @@ def _pool_patterns() -> List[FusionPattern]:
     return patterns
 
 
-def _batch_norm_pattern() -> List[FusionPattern]:
-    """Batch norm — matches batch_norm -> tuple_get_item[0]."""
-    data = wildcard()
-    gamma = is_const()
-    beta = is_const()
-    moving_mean = is_const()
-    moving_var = is_const()
-
-    bn = is_op("relax.nn.batch_norm")(data, gamma, beta, moving_mean, moving_var)
-    pat = is_tuple_get_item(bn, 0)
-
-    annotations = {
-        "data": data,
-        "gamma": gamma,
-        "beta": beta,
-        "moving_mean": moving_mean,
-        "moving_var": moving_var,
-        "root": pat,
-    }
-    return [FusionPattern("tidl.nn.batch_norm", pat, annotations, _check_batch_norm)]
-
-
 def _relu_pattern() -> List[FusionPattern]:
     data = wildcard()
     pat = is_op("relax.nn.relu")(data)
@@ -320,8 +290,6 @@ def get_tidl_patterns() -> List[FusionPattern]:
     return [
         # conv2d variants — most specific first
         *_conv2d_patterns(),
-        # batch norm
-        *_batch_norm_pattern(),
         # pooling
         *_pool_patterns(),
         # standalone activations / element-wise ops (lower priority so they
