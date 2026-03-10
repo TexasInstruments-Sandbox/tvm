@@ -205,7 +205,13 @@ endif()
 if(TVM_HOME AND EXISTS "${TVM_HOME}/3rdparty/tvm-ffi/3rdparty/dlpack/include")
     list(APPEND DYNMOD_INCLUDES -I${TVM_HOME}/3rdparty/tvm-ffi/3rdparty/dlpack/include)
 endif()
-set(DYNMOD_DEFINES -DTVM_DSP_TARGET_C7X -DSOC_J722S -DTIDL_MAX_NUM_CORES=4)
+set(DYNMOD_DEFINES -DTVM_DSP_TARGET_C7X -DSOC_J722S -DTIDL_MAX_NUM_CORES=4 -DRPROC_TRACE=1)
+
+# Common C7x headers (rproc_trace.h etc.)
+set(C7X_COMMON_DIR "${TVM_HOME}/src/runtime/ti_dsp/firmware/c7x/common")
+if(EXISTS "${C7X_COMMON_DIR}")
+    list(APPEND DYNMOD_INCLUDES -I${C7X_COMMON_DIR})
+endif()
 set(DYNMOD_LANG_FLAGS --cpp_default)
 
 # TIDL bridge header for extern declarations

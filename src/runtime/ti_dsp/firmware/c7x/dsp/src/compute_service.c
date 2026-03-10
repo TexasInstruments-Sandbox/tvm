@@ -529,6 +529,8 @@ static void handle_infer(struct c7x_msg_infer *req, uint16_t recvMsgSize,
             goto done;
         }
         g_cg_main_dsp = (cg_main_dsp_fn)(uintptr_t)sym_addr;
+        DebugP_log("[COMPUTE] cg_main_dsp resolved at %p\r\n",
+                   (void *)(uintptr_t)sym_addr);
     }
 
     /* C. Resolve constants */
@@ -563,6 +565,9 @@ static void handle_infer(struct c7x_msg_infer *req, uint16_t recvMsgSize,
 
     CycleCounterP_reset();
     start_cycles = __TSC;
+
+    DebugP_log("[COMPUTE] >>> calling cg_main_dsp at %p\r\n",
+               (void *)g_cg_main_dsp);
 
     ret = g_cg_main_dsp(input_anys, (int)req->num_inputs,
                          constants, &output_any);

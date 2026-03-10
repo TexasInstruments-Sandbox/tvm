@@ -64,6 +64,10 @@
 #define EXTERN_C
 #endif
 
+// Debug tracing via remoteproc trace buffer.
+// Enable with -DRPROC_TRACE=1 at compile time.
+#include "rproc_trace.h"
+
 // Copied from tidl_config.h
 #define TIDL_FLOW_CTRL_DEFAULT  (0x00000000)
 #define TIDL_FLOW_CTRL_REF_ONLY (0x00000001)
@@ -139,6 +143,8 @@ EXTERN_C void* init_tidl_subgraph(void *network,
                                   void* in_rt_info)
 {
   int32_t status = IALG_EOK;
+  RPROC_TRACE_MSG("tidl_api: init_tidl_subgraph START");
+
   // Setup L1/L2/L3/L4 system memory regions, for servicing memory requests.
   init_mem_regions();
 
@@ -155,10 +161,6 @@ EXTERN_C void* init_tidl_subgraph(void *network,
   instance->network_size = 0;
 #endif
   instance->IOParams = (sTIDL_IOBufDesc_t*)IOParams;
-
-  printf("init_tidl_subgraph: network=%p network_size=%u netVersion=0x%x\n",
-         instance->network, network_size,
-         instance->network ? instance->network->netVersion : 0);
 
   // Setup TIDL construction parameters.
   // Mostly defaults from setDefaultParams()
@@ -235,27 +237,26 @@ EXTERN_C void* init_tidl_subgraph(void *network,
   //   TIDL_alloc
   if (status == IALG_EOK)
   {
-    extern void dsp_trace_msg(const char *msg);
-    printf("init_tidl_subgraph: calling algAlloc (net=%p, network_size=%u)...\n",
-           createParams->net, instance->network_size);
-    dsp_trace_msg("tidl_api: before algAlloc");
+    RPROC_TRACE_MSG("tidl_api: before algAlloc");
     status = TIDL_VISION_FXNS.ialg.algAlloc((IALG_Params *)(createParams),
                                              NULL, memRec);
     if (status != IALG_EOK) {
-      printf("init_tidl_subgraph: algAlloc failed (status=%d)\n", status);
-      dsp_trace_msg("tidl_api: algAlloc FAILED");
+      RPROC_TRACE_MSG("tidl_api: algAlloc FAILED");
     } else {
-      printf("init_tidl_subgraph: algAlloc OK\n");
-      dsp_trace_msg("tidl_api: algAlloc OK");
+      RPROC_TRACE_MSG("tidl_api: algAlloc OK");
     }
   }
 
   // Allocate the memory pools as requested.
   if (status == IALG_EOK)
   {
+    RPROC_TRACE_MSG("tidl_api: before alloc_mem_records");
     status = alloc_mem_records(memRec, numMemRec);
-    if (status != IALG_EOK)
-      printf("init_tidl_subgraph: alloc_mem_records failed\n");
+    if (status != IALG_EOK) {
+      RPROC_TRACE_MSG("tidl_api: alloc_mem_records FAILED");
+    } else {
+      RPROC_TRACE_MSG("tidl_api: alloc_mem_records OK");
+    }
   }
 
   // Call IALG algInit API to instantiate TIDL and setup all its internal
@@ -264,9 +265,14 @@ EXTERN_C void* init_tidl_subgraph(void *network,
   if (status == IALG_EOK)
   {
     IALG_Handle handle = (IALG_Handle) memRec[0].base;
+    RPROC_TRACE_MSG("tidl_api: before algInit");
     status = TIDL_VISION_FXNS.ialg.algInit(handle, memRec, NULL,
 				(IALG_Params *)(createParams));
-    if (status != IALG_EOK)  printf("init_tidl_subgraph: algInit failed\n");
+    if (status != IALG_EOK) {
+      RPROC_TRACE_MSG("tidl_api: algInit FAILED");
+    } else {
+      RPROC_TRACE_MSG("tidl_api: algInit OK");
+    }
   }
 
   // Set the algorithm handle to the newly created TIDL instance.
@@ -278,8 +284,12 @@ EXTERN_C void* init_tidl_subgraph(void *network,
   // Allocate IVISION_InBufs/OutBufs for input and output tensors.
   if (status == IALG_EOK)
   {
+    RPROC_TRACE_MSG("tidl_api: before init_inbufs/outbufs");
     status  = init_inbufs(instance);
     status |= init_outbufs(instance);
+    if (status != IALG_EOK) {
+      RPROC_TRACE_MSG("tidl_api: init_inbufs/outbufs FAILED");
+    }
   }
 
   // Allocate TIDL_InArgs structure for passing arguments to TIDL_process.
@@ -323,10 +333,12 @@ EXTERN_C void* init_tidl_subgraph(void *network,
   if (status != IALG_EOK)
   {
     // Cleanup Sequence
+    RPROC_TRACE_MSG("tidl_api: init_tidl_subgraph FAILED, cleaning up");
     free_tidl_subgraph(instance);
     return NULL;
   }
 
+  RPROC_TRACE_MSG("tidl_api: init_tidl_subgraph DONE");
   return instance;
 }
 
@@ -340,6 +352,7 @@ EXTERN_C int32_t process_tidl_subgraph(void *instance_,
   IVISION_Handle handle = instance->handle;
   int32_t status = IALG_EOK;
 
+  RPROC_TRACE_MSG("tidl_api: process_tidl_subgraph START");
   // Call IALG activate API to give TIDL ownership of its memory.
   //   TIDL_activate
   handle->fxns->ialg.algActivate((IALG_Handle)(instance->handle));
@@ -349,13 +362,19 @@ EXTERN_C int32_t process_tidl_subgraph(void *instance_,
 
   // Call IALG process API to run the network. This is the TIDL interpreter.
   //   TIDL_process
+  RPROC_TRACE_MSG("tidl_api: before algProcess");
   status = handle->fxns->algProcess(instance->handle,
                            instance->inBufs, instance->outBufs,
 		           (IVISION_InArgs *)instance->inArgs,
 	                   (IVISION_OutArgs *)instance->outArgs);
   if (status != IALG_EOK)
   {
-    printf("process_tidl_subgraph: algProcess failed (status=%d)\n", status);
+    printf("process_tidl_subgraph: algProcess FAILED (status=%d)\n", status);
+  }
+  else
+  {
+    printf("process_tidl_subgraph: algProcess OK\n");
+    RPROC_TRACE_MSG("tidl_api: algProcess OK");
   }
 
   // With TIDL DataConv layers, subgraph directly use TVM tensors' data buffers
@@ -364,6 +383,7 @@ EXTERN_C int32_t process_tidl_subgraph(void *instance_,
   // Call IALG deactivate API to release TIDL's ownership.
   //   TIDL_deactivate
   handle->fxns->ialg.algDeactivate((IALG_Handle)(instance->handle));
+  RPROC_TRACE_MSG("tidl_api: process_tidl_subgraph DONE");
 
   // Dump layer perf info
   if (instance->inArgs->enableLayerPerfTraces > 0)
@@ -771,15 +791,18 @@ static int32_t alloc_mem_records(IALG_MemRec * memRec,int32_t numMemRec)
     }
   }
 
-  //printf("Num,    Space,     SizeinBytes,   SizeInMB\n");
+  printf("alloc_mem_records: Num  Space  SizeBytes     SizeMB  Base\n");
   for (i = 0; i < numMemRec; i++)
   {
-    //printf(" %3d, %5d, %12d,    %7.3f %p\n", i, memRec[i].space, memRec[i].size, memRec[i].size / (1024.0 * 1024), memRec[i].base);
+    printf("alloc_mem_records: %3d  %5d  %12d  %7.3f  %p\n",
+           i, memRec[i].space, memRec[i].size,
+           memRec[i].size / (1024.0 * 1024), memRec[i].base);
     if(memRec[i].space == IALG_EXTERNAL)
       totalDdrSize += memRec[i].size;
   }
-  //printf("Total External Memory (DDR) Size = %12d,    %7.3f \n", totalDdrSize, totalDdrSize / (1024.0 * 1024));
- // printf("Total Heap Size = %12d,    %7.3f \n", totalHeapSize, totalHeapSize / (1024.0 * 1024));
+  printf("alloc_mem_records: Total DDR = %d (%.3f MB), Heap = %d (%.3f MB)\n",
+         totalDdrSize, totalDdrSize / (1024.0 * 1024),
+         totalHeapSize, totalHeapSize / (1024.0 * 1024));
 
   return IALG_EOK;
 }
