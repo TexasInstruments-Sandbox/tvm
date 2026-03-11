@@ -174,6 +174,12 @@ def main():
         action="store_true",
         help="Enable per-layer cycle profiling",
     )
+    parser.add_argument(
+        "--visualize",
+        default=None,
+        metavar="FILE",
+        help="Generate interactive HTML visualization (e.g. resnet18.html)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     args = parser.parse_args()
 
@@ -289,6 +295,28 @@ def main():
         passed = passed and c7x_dload_passed
 
     print("=" * 70)
+
+    # Generate visualization if requested
+    if args.visualize:
+        from tvm.relax.backend.tidl.visualize import (
+            parse_layer_profile,
+            visualize_partitioning,
+        )
+
+        profile = None
+        stdout = dsp_results.get("c7x_dload_stdout", "")
+        if stdout:
+            profile = parse_layer_profile(stdout)
+            if profile:
+                print(f"\n  Parsed {len(profile)} layer profiles")
+
+        visualize_partitioning(
+            tvm_mod,
+            args.visualize,
+            title="ResNet-18 DSP Execution",
+            profile_data=profile,
+        )
+        print(f"  Visualization: {args.visualize}")
 
     return 0 if passed else 1
 
