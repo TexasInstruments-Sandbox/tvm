@@ -179,6 +179,76 @@ def _check_add(ctx: PatternCheckContext) -> bool:
     return True
 
 
+def _check_mean(ctx: PatternCheckContext) -> bool:
+    """Validate mean constraints for TIDL.
+
+    - Supported dtypes
+    - Input rank == 4 (NCHW)
+    - Reduction over spatial axes only: axis in {[2,3], [-2,-1]}
+    """
+    root = ctx.annotated_expr.get("root")
+    if root is None or not isinstance(root, tvm.relax.Call):
+        return False
+
+    data = ctx.annotated_expr.get("data")
+    if data is not None:
+        if not _check_dtype(data):
+            return False
+        shape = _get_shape(data)
+        if shape is not None and len(shape) != 4:
+            return False
+
+    # Validate axis from attrs
+    if root.attrs is not None:
+        axis = getattr(root.attrs, "axis", None)
+        if axis is not None:
+            ax_list = [int(a) for a in axis]
+            ndim = 4
+            # Normalize negative axes
+            ax_norm = sorted(a % ndim for a in ax_list)
+            # TIDL supports spatial reduction: axes [2,3]
+            if ax_norm != [2, 3]:
+                return False
+
+    return True
+
+
+def _check_reshape(ctx: PatternCheckContext) -> bool:
+    """Validate reshape constraints for TIDL.
+
+    Lightweight check: dtype only.  Shape validation is done by TIDL import.
+    """
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_matmul(ctx: PatternCheckContext) -> bool:
+    """Validate matmul constraints for TIDL (InnerProduct layer).
+
+    - Supported dtypes
+    - Both inputs must be tensors
+    """
+    for key in ("data", "weight"):
+        expr = ctx.annotated_expr.get(key)
+        if expr is not None and not _check_dtype(expr):
+            return False
+    return True
+
+
+def _check_matmul_bias(ctx: PatternCheckContext) -> bool:
+    """Validate fused matmul+bias constraints for TIDL (InnerProduct with bias).
+
+    - Supported dtypes on all inputs
+    """
+    for key in ("data", "weight", "bias"):
+        expr = ctx.annotated_expr.get(key)
+        if expr is not None and not _check_dtype(expr):
+            return False
+    return True
+
+
 def _check_quantize(ctx: PatternCheckContext) -> bool:
     return True
 
@@ -266,6 +336,50 @@ def _add_pattern() -> List[FusionPattern]:
     return [FusionPattern("tidl.add", pat, annotations, _check_add)]
 
 
+def _mean_pattern() -> List[FusionPattern]:
+    """Mean reduction (global avg pool in ResNet-18)."""
+    data = wildcard()
+    pat = is_op("relax.mean")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.mean", pat, annotations, _check_mean)]
+
+
+def _reshape_pattern() -> List[FusionPattern]:
+    """Reshape (flatten before FC layer)."""
+    data = wildcard()
+    pat = is_op("relax.reshape")(data, wildcard())
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.reshape", pat, annotations, _check_reshape)]
+
+
+def _matmul_patterns() -> List[FusionPattern]:
+    """Matmul with optional bias (FC layer).
+
+    Returns patterns in priority order:
+        tidl.matmul_bias  (fused matmul + add)
+        tidl.matmul       (standalone matmul)
+    """
+    patterns = []
+
+    # Fused matmul + bias add (must come first for greedy matching)
+    data_mb = wildcard()
+    weight_mb = wildcard()
+    bias = wildcard()
+    matmul_out = is_op("relax.matmul")(data_mb, weight_mb)
+    pat_mb = is_op("relax.add")(matmul_out, bias)
+    annotations_mb = {"data": data_mb, "weight": weight_mb, "bias": bias, "root": pat_mb}
+    patterns.append(FusionPattern("tidl.matmul_bias", pat_mb, annotations_mb, _check_matmul_bias))
+
+    # Standalone matmul (lower priority)
+    data_m = wildcard()
+    weight_m = wildcard()
+    pat_m = is_op("relax.matmul")(data_m, weight_m)
+    annotations_m = {"data": data_m, "weight": weight_m, "root": pat_m}
+    patterns.append(FusionPattern("tidl.matmul", pat_m, annotations_m, _check_matmul))
+
+    return patterns
+
+
 def _quantize_pattern() -> List[FusionPattern]:
     data = wildcard()
     scale = wildcard()
@@ -300,10 +414,17 @@ def get_tidl_patterns() -> List[FusionPattern]:
         *_conv2d_patterns(),
         # pooling
         *_pool_patterns(),
+        # mean reduction (global avg pool)
+        *_mean_pattern(),
         # standalone activations / element-wise ops (lower priority so they
         # get absorbed into conv2d composites when possible)
         *_relu_pattern(),
+        # matmul (FC layer) — fused matmul_bias before standalone matmul
+        *_matmul_patterns(),
+        # element-wise add (residual connections, rank >= 4 only)
         *_add_pattern(),
+        # reshape (flatten)
+        *_reshape_pattern(),
         # quantize/dequantize
         *_quantize_pattern(),
         *_dequantize_pattern(),
