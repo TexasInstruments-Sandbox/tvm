@@ -10,7 +10,8 @@ Tests for TIDL subgraph offloading in the TVM/Relax c_static backend.
 | `test_tidl_codegen.py` | 12 | Lowering pass, TIR stubs, c_static codegen, bridge generation (single + multi-subgraph, stub + real) | TVM only |
 | `test_tidl_relax_import.py` | 16 | FFI load, init, AllowNode, tidl_import() pipeline | `tidl_model_import_relax.so` + c7x-mma-tidl tree |
 | `test_tidl_e2e.py` | 1 | Full pipeline with stub bridge on c7x_host (no TIDL libs needed) | `TI_CGT_C7000_PATH` |
-| `test_tidl_import_e2e.py` | 1 | `compiler.build()` one-call pipeline -> deploy -> run on AM67A | `.so` + `TI_CGT_C7000_PATH` + AM67A |
+| `test_tidl_import_e2e.py` | 2 | `compiler.build()` one-call pipeline -> deploy -> run on AM67A (single-subgraph ConvReluSoftmax + multi-subgraph 2-conv model) | `.so` + `TI_CGT_C7000_PATH` + AM67A |
+| `test_tidl_resnet_e2e.py` | 3 | ResNet-18 TIDL build pipeline validation, hardware correctness, cycle comparison | `.so` + `TI_CGT_C7000_PATH` (build test); + AM67A (hardware tests) |
 | `diag_tidl_levels.py` | -- | Standalone multi-level TIDL init debug script | `TI_CGT_C7000_PATH` + artifacts + AM67A |
 
 ```bash
@@ -21,8 +22,16 @@ pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_partition.py \
 # Run import tests (needs tidl_model_import_relax.so):
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_relax_import.py -v
 
-# Run hardware e2e test (needs .so + C7x compiler + AM67A):
+# Run hardware e2e tests (needs .so + C7x compiler + AM67A):
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_import_e2e.py -v -s
+pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_resnet_e2e.py -v -s
+
+# ResNet-18 build-only test (no AM67A needed, validates full pipeline):
+pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_resnet_e2e.py::TestTIDLResNetE2E::test_tidl_resnet18_build -v
+
+# Generate TIDL offloading visualization:
+python tests/ti-dsp-runtime/tidl-tests/test_tidl_resnet_e2e.py \
+    --visualize resnet18_tidl.html
 
 # Standalone TIDL diagnostic (levels 0/1/1b/2/3):
 python tests/ti-dsp-runtime/tidl-tests/diag_tidl_levels.py 3

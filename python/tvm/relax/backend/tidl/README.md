@@ -83,13 +83,15 @@ bridge function (see "Bridge Function" below).
 | `tidl.nn.max_pool2d` | `max_pool2d` |
 | `tidl.nn.avg_pool2d` | `avg_pool2d` |
 | `tidl.nn.relu` | `relu` |
-| `tidl.add` | `add` (element-wise) |
+| `tidl.add` | `add` (element-wise, 4-D only) |
 | `tidl.quantize` | `quantize` (stub) |
 | `tidl.dequantize` | `dequantize` (stub) |
 
 Constraint checks run during partitioning:
 - Conv2d: kernel <= 7, equal H/W strides
 - Pool: kernel <= 3, input rank == 4
+- Add: input rank must be exactly 4 (NCHW); sub-4D adds like FC
+  bias ``(1, 1000)`` are rejected (causes TIDL algProcess crash)
 - All ops: dtype in {float32, int8, int16, uint8}
 
 **Batch normalization:** `prepare()` runs `FoldBatchnormToConv2D` +
@@ -281,6 +283,40 @@ handles `call_extern` in TIR PrimFuncs natively.
 The default `"bytecode"` does not generate `__vmtir__main`.
 
 ---
+
+## Visualization
+
+Generate an interactive HTML page showing which ops are offloaded
+to TIDL vs executed as TVM C code, with optional per-layer profiling:
+
+```python
+from tvm.relax.backend.tidl.visualize import (
+    visualize_partitioning,
+    parse_layer_profile,
+)
+
+# Graph-only view (partition structure)
+visualize_partitioning(partitioned_mod, "graph.html")
+
+# With profile data from DSP hardware run
+profile = parse_layer_profile(dsp_stdout)
+visualize_partitioning(partitioned_mod, "graph.html",
+                       profile_data=profile)
+```
+
+The HTML has two tabs:
+- **Graph** — hierarchical dataflow graph with TIDL (red) and TVM
+  (teal) nodes.  Click a TIDL node to expand its 37 internal layers
+  with PyTorch source paths.
+- **Profile** — per-layer cycle table with horizontal bar chart,
+  sorted by cost.  Only shown when ``profile_data`` is provided.
+
+From the command line:
+```bash
+python test_tidl_resnet_e2e.py --visualize resnet18.html
+python test_tidl_resnet_e2e.py --visualize resnet18.html \
+    --profile-json profile.json
+```
 
 ## Build Infrastructure
 

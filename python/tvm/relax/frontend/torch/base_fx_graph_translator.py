@@ -43,6 +43,38 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         self.convert_map: Dict[
             Union[torch.nn.Module, str], Callable[[fx.Node], relax.Var]
         ] = self.create_convert_map()
+        self._current_node: Optional["fx.Node"] = None
+
+    ########## Source Span Propagation ##########
+
+    def _node_span(self) -> Optional[tvm.ir.Span]:
+        """Extract a TVM Span from the current FX node's metadata.
+
+        Uses ``nn_module_stack`` to build a human-readable source name
+        like ``"layer1.0.conv1 [Conv2d]"`` and stores it in a
+        ``SourceName``.  Line numbers are set to 0 (torch stack_trace
+        parsing is fragile and not needed for visualization).
+        """
+        node = self._current_node
+        if node is None:
+            return None
+        nn_stack = node.meta.get("nn_module_stack")
+        if not nn_stack:
+            return None
+        # nn_module_stack: OrderedDict of key -> (qualified_name, module_class)
+        last = list(nn_stack.values())[-1]
+        qual_name = str(last[0]) if last else ""
+        class_name = ""
+        if len(last) > 1:
+            cls = last[1]
+            class_name = cls.__name__ if hasattr(cls, "__name__") else str(cls)
+        source_str = f"{qual_name} [{class_name}]" if class_name else qual_name
+        if not source_str:
+            return None
+        return tvm.ir.Span(
+            tvm.ir.SourceName(source_str),
+            line=0, end_line=0, column=0, end_column=0,
+        )
 
     ########## Utilities ##########
 

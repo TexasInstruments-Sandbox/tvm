@@ -298,5 +298,66 @@ class TestTIDLResNetE2E:
             )
 
 
+def main():
+    """Standalone: build TIDL-partitioned ResNet-18 and visualize."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="ResNet-18 TIDL E2E")
+    parser.add_argument(
+        "--visualize",
+        default=None,
+        metavar="FILE",
+        help="Generate interactive HTML visualization",
+    )
+    parser.add_argument(
+        "--profile-json",
+        default=None,
+        metavar="FILE",
+        help="JSON file with layer profile data (from parse_layer_profile)",
+    )
+    parser.add_argument(
+        "--test", action="store_true",
+        help="Run pytest instead of standalone mode",
+    )
+    args = parser.parse_args()
+
+    if args.test or args.visualize is None:
+        pytest.main([__file__, "-v", "-s"])
+        return
+
+    import json
+
+    from tvm.relax.backend.tidl import TIDLOffloadCompiler
+    from tvm.relax.backend.tidl.visualize import visualize_partitioning
+
+    mod, param_dict, _torch_model, _input_data = _create_resnet18()
+
+    print("Partitioning ResNet-18 with TIDL...")
+    compiler = TIDLOffloadCompiler(
+        config={
+            "artifacts_dir": "/tmp/tidl_viz_artifacts",
+            "tidl_tools_path": TIDL_TOOLS_PATH,
+            "tidl_relax_so_path": RELAX_SO_PATH,
+            "num_calibration_frames": 2,
+        }
+    )
+    prepared = compiler.prepare(mod, param_dict)
+    partitioned = compiler.partition(prepared)
+
+    profile = None
+    if args.profile_json:
+        with open(args.profile_json) as f:
+            profile = json.load(f)
+        print(f"Loaded {len(profile)} layer profiles from {args.profile_json}")
+
+    visualize_partitioning(
+        partitioned,
+        args.visualize,
+        title="ResNet-18 TIDL Offloading",
+        profile_data=profile,
+    )
+    print(f"Visualization: {args.visualize}")
+
+
 if __name__ == "__main__":
-    pytest.main([__file__, "-v", "-s"])
+    main()

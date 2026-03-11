@@ -30,6 +30,35 @@ from tvm import relax
 from .base_fx_graph_translator import BaseFXGraphImporter
 
 
+class _SpanBlockBuilderProxy:
+    """Proxy that intercepts ``emit()`` to attach PyTorch source spans.
+
+    Wraps a :class:`relax.BlockBuilder` and delegates all attribute
+    access to it.  Only ``emit`` is overridden: when the importer's
+    ``_node_span()`` returns a span, the emitted ``relax.Call`` is
+    reconstructed with that span before being passed to the real
+    ``emit``.
+
+    This avoids modifying any of the 300+ ``self.block_builder.emit``
+    call sites across the converter functions.
+    """
+
+    def __init__(self, block_builder, span_fn):
+        self._bb = block_builder
+        self._span_fn = span_fn
+
+    def emit(self, expr, name_hint=""):
+        span = self._span_fn()
+        if span is not None and isinstance(expr, relax.Call):
+            expr = relax.Call(
+                expr.op, expr.args, expr.attrs, expr.sinfo_args, span
+            )
+        return self._bb.emit(expr, name_hint)
+
+    def __getattr__(self, name):
+        return getattr(self._bb, name)
+
+
 class ExportedProgramImporter(BaseFXGraphImporter):
     """An importer from ExportedProgram to Relax."""
 
@@ -1698,7 +1727,10 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             name=func_name, params=list(inputs_vars.values()).copy(), attrs=func_attrs
         ):
             output = None
-            with self.block_builder.dataflow():
+            # Wrap block_builder to auto-attach PyTorch source spans
+            real_bb = self.block_builder
+            self.block_builder = _SpanBlockBuilderProxy(real_bb, self._node_span)
+            with real_bb.dataflow():
                 # Translate the model.
                 for node in nodes:
                     if node.op == "placeholder":
@@ -1724,6 +1756,7 @@ class ExportedProgramImporter(BaseFXGraphImporter):
                     elif node.op == "get_attr":
                         self.env[node] = getattr(exported_program.graph_module, node.target)
                     elif node.op == "call_function":
+                        self._current_node = node
                         func_name = node.target.__name__
                         if func_name in custom_ops:
                             self.env[node] = self.convert_map[func_name](node, self)
@@ -1731,6 +1764,8 @@ class ExportedProgramImporter(BaseFXGraphImporter):
                             self.env[node] = self.convert_map[func_name](node)
                     else:
                         raise ValueError(f"Unsupported op {node.op}")
+            self._current_node = None
+            self.block_builder = real_bb  # restore unwrapped block_builder
             assert output is not None
             self.block_builder.emit_func_output(output)
 
