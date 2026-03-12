@@ -553,40 +553,66 @@ static void handle_infer(struct c7x_msg_infer *req, uint16_t recvMsgSize,
         goto done;
     }
 
-    /* F. TVM execution */
-    memset(&output_any, 0, sizeof(output_any));
-    output_any.type_index = kTVMFFINone;
-
-    /* Reset printf buffer before inference */
-    shm_printf_reset();
-
-    CycleCounterP_reset();
-    start_cycles = __TSC;
-
-    DebugP_log("[COMPUTE] >>> calling cg_main_dsp at %p\r\n",
-               (void *)g_cg_main_dsp);
-
-    ret = g_cg_main_dsp(input_anys, (int)req->num_inputs,
-                         constants, &output_any);
-
-    end_cycles = __TSC;
-
-    DebugP_log("[COMPUTE] cg_main_dsp returned %d, %llu cycles\r\n",
-               ret, (unsigned long long)(end_cycles - start_cycles));
-
-    resp->return_value = ret;
-    resp->cycles = end_cycles - start_cycles;
-
-    /* Print layer profile (if profiling was compiled in).
-     * This runs AFTER cycle recording so printf overhead
-     * is not counted in inference cycles. */
+    /* F. TVM execution — with optional repeat loop for profiling.
+     * flags bits[15:0] = repeat count; 0 or 1 = run once. */
     {
-        uint64_t profile_fn_addr = 0;
-        if (g_loaded_module_handle != 0 &&
-            dyn_loader_query_symbol(g_loaded_module_handle,
-                "TVMPrintLayerProfile", &profile_fn_addr) == 0) {
-            void (*print_profile)(void) = (void (*)(void))(uintptr_t)profile_fn_addr;
-            print_profile();
+        uint32_t repeat = req->flags & 0xFFFF;
+        if (repeat < 1) repeat = 1;
+
+        /* Look up layer-profile printer once (may not exist) */
+        void (*print_profile)(void) = NULL;
+        {
+            uint64_t profile_fn_addr = 0;
+            if (g_loaded_module_handle != 0 &&
+                dyn_loader_query_symbol(g_loaded_module_handle,
+                    "TVMPrintLayerProfile", &profile_fn_addr) == 0) {
+                print_profile = (void (*)(void))(uintptr_t)profile_fn_addr;
+            }
+        }
+
+        /* Reset printf buffer once before all iterations */
+        shm_printf_reset();
+
+        uint32_t iter;
+        for (iter = 0; iter < repeat; iter++) {
+            memset(&output_any, 0, sizeof(output_any));
+            output_any.type_index = kTVMFFINone;
+
+            CycleCounterP_reset();
+            start_cycles = __TSC;
+
+            DebugP_log("[COMPUTE] >>> calling cg_main_dsp at %p (iter %u/%u)\r\n",
+                       (void *)g_cg_main_dsp, iter + 1, repeat);
+
+            ret = g_cg_main_dsp(input_anys, (int)req->num_inputs,
+                                 constants, &output_any);
+
+            end_cycles = __TSC;
+
+            uint64_t iter_cycles = end_cycles - start_cycles;
+
+            DebugP_log("[COMPUTE] cg_main_dsp returned %d, %llu cycles\r\n",
+                       ret, (unsigned long long)iter_cycles);
+
+            /* Per-iteration header (only when profiling with repeat>1) */
+            if (repeat > 1) {
+                printf("\n[Iteration %u/%u] %llu cycles (%.2f ms)\n",
+                       iter + 1, repeat,
+                       (unsigned long long)iter_cycles,
+                       iter_cycles / 1e6);
+            }
+
+            /* Print layer profile AFTER cycle recording so printf
+             * overhead is not counted in inference cycles. */
+            if (print_profile) {
+                print_profile();
+            }
+
+            /* Keep last iteration's cycles for the response */
+            resp->return_value = ret;
+            resp->cycles = iter_cycles;
+
+            if (ret != 0) break;
         }
     }
 

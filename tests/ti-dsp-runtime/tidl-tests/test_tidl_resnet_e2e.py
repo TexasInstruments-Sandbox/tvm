@@ -157,7 +157,7 @@ class TestTIDLResNetE2E:
         with torch.no_grad():
             torch_out = torch_model(torch.from_numpy(input_data)).numpy()
 
-        # Build with TIDL
+        # Build with TIDL + layer profiling
         artifacts_dir = str(tmp_path / "tidl_artifacts")
         compiler = TIDLOffloadCompiler(
             config={
@@ -165,6 +165,7 @@ class TestTIDLResNetE2E:
                 "tidl_tools_path": TIDL_TOOLS_PATH,
                 "tidl_relax_so_path": RELAX_SO_PATH,
                 "num_calibration_frames": 2,
+                "profile_layers": True,
             }
         )
         result = compiler.build(
@@ -180,13 +181,15 @@ class TestTIDLResNetE2E:
         print(f"\nTIDL module: {result.module_path} ({size_mb:.1f} MB)")
         print(f"TIDL artifacts: {len(result.artifacts)} subgraph(s)")
 
-        # Deploy and run on AM67A
+        # Deploy and run on AM67A with profile mode (repeat=2):
+        # iteration 1 includes TIDL init, iteration 2 is steady-state.
         try:
             output, stdout, cycles = run_dsp_dload(
                 result.module_path,
                 result.weights_path,
                 [input_data],
                 embedded_weights=True,
+                profile=True,
             )
 
             assert output is not None, "No output from DSP"
@@ -194,7 +197,11 @@ class TestTIDLResNetE2E:
 
             max_diff = np.max(np.abs(output - torch_out))
             print(f"TIDL output: shape={output.shape}, max_diff_vs_pytorch={max_diff:.4f}")
-            print(f"TIDL cycles: {cycles:,} ({cycles / 1e6:.2f} ms @ 1 GHz)")
+            print(f"TIDL cycles (steady-state): {cycles:,} ({cycles / 1e6:.2f} ms @ 1 GHz)")
+            if stdout:
+                print(f"--- DSP profile output ({len(stdout)} chars) ---")
+                print(stdout)
+                print("--- end DSP profile output ---")
 
             # TIDL uses int8 internally so allow wider tolerance
             assert max_diff < 0.15, (

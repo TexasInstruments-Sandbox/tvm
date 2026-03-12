@@ -176,6 +176,27 @@ int c7x_client_infer(c7x_client_t *client,
                      uint64_t *cycles);
 
 /**
+ * Run inference with repeat count (for profiling).
+ *
+ * Same as c7x_client_infer but sets the repeat count in the INFER
+ * request flags.  The firmware loops cg_main_dsp() ``repeat`` times,
+ * recording per-iteration cycles.  Use repeat=2 to separate one-time
+ * init cost from steady-state inference.
+ *
+ * The response ``cycles`` reports the LAST iteration (steady-state).
+ * DSP printf output contains all iterations' layer profiles.
+ *
+ * @param repeat  Number of inference iterations (0 or 1 = run once)
+ */
+int c7x_client_infer_repeat(c7x_client_t *client,
+                            uint32_t module_handle,
+                            uint32_t model_id,
+                            const c7x_tensor_desc_t *inputs, int num_inputs,
+                            c7x_tensor_desc_t *outputs, int *num_outputs,
+                            uint64_t *cycles,
+                            uint32_t repeat);
+
+/**
  * Get error message for a status code.
  *
  * @param status  Status code from c7x functions

@@ -9,3 +9,12 @@ The file must exist so pytest treats ``tidl-tests/`` as a separate
 test root and does not inherit the ``dsp-tests/`` conftest, which
 would require ``--dsp-mode`` for every invocation.
 """
+
+
+
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line(
+        "markers",
+        "quick: mark test as quick (no hardware, no .so, fast execution)",
+    )

@@ -10,6 +10,7 @@
  *   c7x_compute unload <handle>                        Unload dynamic module
  *   c7x_compute infer <handle> <model_id> --input <in> --output <out>
  *   c7x_compute run --module <lib0.out> --input <in>   Load+infer+unload (JSON)
+ *   c7x_compute profile --module <lib0.out> --input <in>  Run with repeat=2
  *   c7x_compute trace                                  Monitor trace buffer
  */
 
@@ -54,6 +55,7 @@ static void print_usage(const char *prog)
     printf("  unload <handle>                   Unload dynamic module\n");
     printf("  infer <handle> <model_id>         Run TVM inference\n");
     printf("  run                               Load, infer, and unload (JSON output)\n");
+    printf("  profile                           Like 'run' but with repeat=2 for profiling\n");
     printf("  trace                             Monitor DSP trace buffer\n");
     printf("\n");
     printf("Infer options:\n");
@@ -76,6 +78,7 @@ static void print_usage(const char *prog)
     printf("  %s load lib0.out\n", prog);
     printf("  %s infer 1 1 --input input.bin --output output.bin --shape 1,3,224,224\n", prog);
     printf("  %s run --module lib0.out --input input.bin --output output.bin --shape 1,8,1\n", prog);
+    printf("  %s profile --module lib0.out --input input.bin --output output.bin --shape 1,3,224,224\n", prog);
     printf("  %s unload 1\n", prog);
     printf("  %s model-unload 1\n", prog);
     printf("  %s trace\n", prog);
@@ -436,7 +439,8 @@ static int cmd_infer(uint32_t module_handle, uint32_t model_id,
 
 static int cmd_run(const char *module_file,
                    const char *input_file, const char *output_file,
-                   const char *shape_str, const char *dtype_str)
+                   const char *shape_str, const char *dtype_str,
+                   uint32_t repeat = 1)
 {
     c7x_tensor_desc_t input, output;
     int num_outputs = 0;
@@ -509,9 +513,11 @@ static int cmd_run(const char *module_file,
     }
     module_loaded = true;
 
-    /* INFER — model_id=0 triggers embedded-weights fallback */
-    ret = c7x_client_infer(client, handle, 0,
-                           &input, 1, &output, &num_outputs, &cycles);
+    /* INFER — model_id=0 triggers embedded-weights fallback.
+     * repeat>1 enables profiling (firmware loops cg_main_dsp N times). */
+    ret = c7x_client_infer_repeat(client, handle, 0,
+                                   &input, 1, &output, &num_outputs, &cycles,
+                                   repeat);
     if (ret != 0) {
         error_stage = "infer";
         goto cleanup;
@@ -680,7 +686,10 @@ int main(int argc, char *argv[])
                          input_file, output_file, shape_str, dtype_str);
     } else if (strcmp(command, "run") == 0) {
         return cmd_run(module_file, input_file, output_file,
-                       shape_str, dtype_str);
+                       shape_str, dtype_str, /*repeat=*/1);
+    } else if (strcmp(command, "profile") == 0) {
+        return cmd_run(module_file, input_file, output_file,
+                       shape_str, dtype_str, /*repeat=*/2);
     } else if (strcmp(command, "trace") == 0) {
         return cmd_trace();
     } else if (strcmp(command, "help") == 0 || strcmp(command, "-h") == 0 ||

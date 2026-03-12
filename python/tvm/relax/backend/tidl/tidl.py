@@ -824,6 +824,10 @@ class TIDLOffloadCompiler:
         lowered, artifacts = self.compile(mod, params)
 
         # 2. Compile to C via relax.build
+        # Honor profile_layers config: append -profile-layers to target
+        if self.config.get("profile_layers", False):
+            if "-profile-layers" not in target:
+                target += " -profile-layers"
         tvm_target = tvm.target.Target(target)
         with tvm.transform.PassContext(opt_level=0):
             ex = relax.build(

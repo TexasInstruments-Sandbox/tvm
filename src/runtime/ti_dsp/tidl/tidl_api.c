@@ -105,6 +105,61 @@ typedef struct
 // The original is: EXTERN_C void TIDLRT_LogMetaData(TIDL_outArgs *, char*);
 #define TIDLRT_LogMetaData(outArgs, baseName) ((void)0)
 
+// Layer type names for readable trace output.
+// Values from itidl_ti.h (use integers to avoid header dependency issues).
+static const char* tidl_layer_type_name(int32_t type) {
+  switch(type) {
+    case 0:  return "Data";
+    case 1:  return "Conv";
+    case 2:  return "Pool";
+    case 3:  return "ReLU";
+    case 5:  return "EltWise";
+    case 6:  return "InnerProd";
+    case 7:  return "SoftMax";
+    case 8:  return "BatchNorm";
+    case 29: return "DataConv";
+    case 38: return "Reshape";
+    case 39: return "ConstData";
+    default: return "Other";
+  }
+}
+
+// Print per-layer cycle breakdown from TIDL_outArgs after algProcess
+static void tidl_print_layer_perf(TIDL_outArgs *outArgs,
+                                  sTIDL_Network_t *network) {
+  int32_t numLayers = outArgs->numLayers;
+  if (numLayers <= 0) return;
+
+  uint64_t totalCycles = 0;
+  printf("\n===== TIDL Per-Layer Cycle Trace =====\n");
+  printf("%4s  %-12s  %14s  %14s  %14s\n",
+         "Idx", "LayerType", "TotalCycles", "KernelCycles", "DMAPipeup");
+  printf("----  ------------  --------------  --------------  --------------\n");
+  for (int32_t i = 0; i < numLayers; i++) {
+    TIDL_LayerMetaData *md = &outArgs->metaDataLayer[i];
+    int32_t layerType = 0;
+    int32_t execId = md->layerExecId;
+    if (execId >= 0 && execId < TIDL_NUM_MAX_LAYERS)
+      layerType = network->TIDLLayers[execId].layerType;
+
+    uint64_t layer   = md->profilePoint[TIDL_PROFILE_LAYER];
+    uint64_t kernel  = md->profilePoint[TIDL_PROFILE_KERNEL_ONLY];
+    uint64_t dmapipe = md->profilePoint[TIDL_PROFILE_DMA_PIPEUP];
+    totalCycles += layer;
+
+    printf("%4d  %-12s  %14llu  %14llu  %14llu\n",
+           i, tidl_layer_type_name(layerType),
+           (unsigned long long)layer,
+           (unsigned long long)kernel,
+           (unsigned long long)dmapipe);
+  }
+  printf("----  ------------  --------------\n");
+  printf("      %-12s  %14llu  (%.2f ms @ 1 GHz)\n",
+         "TOTAL", (unsigned long long)totalCycles,
+         totalCycles / 1e6);
+  printf("===== End TIDL Layer Trace =====\n\n");
+}
+
 // Helper functions
 static int32_t init_inbufs(TIDL_subgraph_instance *instance);
 static void    free_inbufs(TIDL_subgraph_instance *instance);
@@ -189,10 +244,10 @@ EXTERN_C void* init_tidl_subgraph(void *network,
     createParams->coreId                        = rt_info->tvm_rt_core_num - 1;
   }
   createParams->reservedCtrl                  = 0;
-  /* traceWriteLevel > 0 requires a non-NULL TIDLWriteBinToFile callback.
-   * TIDL_initDebugTraceParams rejects the combination, causing algAlloc
-   * to fail.  Enable traceLogLevel for printf diagnostics (via TIDLVprintf)
-   * but keep traceWriteLevel=0 (no file output). */
+  /* traceLogLevel > 0 enables verbose TIDL printf which can overflow the
+   * shared memory buffer and crash.  Keep it at 0.
+   * Per-layer perf counters are enabled separately via
+   * inArgs->enableLayerPerfTraces (set below in init code). */
   createParams->traceLogLevel                 = 0;
   createParams->traceWriteLevel               = 0;
 #ifdef HOST_EMULATION
@@ -301,7 +356,7 @@ EXTERN_C void* init_tidl_subgraph(void *network,
     {
       inArgs->iVisionInArgs.size = sizeof(TIDL_InArgs);
       inArgs->iVisionInArgs.subFrameInfo = 0;
-      inArgs->enableLayerPerfTraces = (createParams->traceLogLevel > 0) ? 1 : 0;
+      inArgs->enableLayerPerfTraces = 1;
     }
     else
     {
@@ -385,10 +440,13 @@ EXTERN_C int32_t process_tidl_subgraph(void *instance_,
   handle->fxns->ialg.algDeactivate((IALG_Handle)(instance->handle));
   RPROC_TRACE_MSG("tidl_api: process_tidl_subgraph DONE");
 
-  // Dump layer perf info
-  if (instance->inArgs->enableLayerPerfTraces > 0)
+  // Dump per-layer cycle breakdown
+  printf("tidl_api: enableLayerPerfTraces=%d numLayers=%d\n",
+         instance->inArgs->enableLayerPerfTraces,
+         instance->outArgs->numLayers);
+  if (instance->outArgs->numLayers > 0)
   {
-    TIDLRT_LogMetaData(instance->outArgs, NULL);
+    tidl_print_layer_perf(instance->outArgs, instance->network);
   }
 
   return status;

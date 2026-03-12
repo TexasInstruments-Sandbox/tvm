@@ -138,6 +138,7 @@ class TwoSubgraphModel(nn.Module):
         return x
 
 
+@pytest.mark.quick
 @pytest.mark.skipif(
     not _has_import_so(),
     reason=f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}",
