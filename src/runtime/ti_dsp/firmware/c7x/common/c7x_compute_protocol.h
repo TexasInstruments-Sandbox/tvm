@@ -44,7 +44,15 @@ extern "C" {
 #define C7X_SHARED_PHYS_BASE    0x900000000ULL  /* Physical address (host DMA heap) */
 #define C7X_SHARED_SIZE         0x20000000ULL   /* 512 MB total — full DMA heap carveout */
 
-/* Input buffer: first 504 MB (must fit DLOAD ELF with embedded weights) */
+/* Input buffer: first 504 MB (must fit DLOAD ELF with embedded weights).
+ *
+ * C7X_INPUT_BUFFER_ADDR is the DSP virtual address of the shared DDR
+ * region.  It is hardcoded because the DSP MMU mapping is static:
+ *   Physical 0x900000000 -> DSP virtual 0xC0000000
+ * configured in the device tree.  The host side uses mmap'd userspace
+ * pointers (client->input_buf) and never references this address.
+ * The DSP-side constant is only used in INFER tensor descriptors so
+ * the DSP knows where to find staged input data. */
 #define C7X_INPUT_BUFFER_ADDR   0xC0000000ULL
 #define C7X_INPUT_BUFFER_SIZE   0x1F800000ULL   /* 504 MB */
 

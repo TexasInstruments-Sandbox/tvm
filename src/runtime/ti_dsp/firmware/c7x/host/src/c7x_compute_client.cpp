@@ -76,6 +76,10 @@ struct c7x_client {
     void *output_buf = nullptr; /* = shared_map.get() + C7X_INPUT_BUFFER_SIZE */
     uint64_t phys_addr = 0;     /* physical address of shared buffer */
     uint32_t seq = 0;           /* Message sequence number */
+    size_t input_data_offset = 0; /* Offset in input buffer for tensor data.
+                                     Set to elf_size after DYN_LOAD so that
+                                     in-place rodata segments in the ELF are
+                                     not overwritten by input tensor staging. */
 };
 
 /* C7x core 0 device tree address (stable across reboots/stop-start cycles) */
@@ -459,8 +463,13 @@ int c7x_client_dyn_load(c7x_client_t *client, const char *elf_file,
     }
 
     *handle_out = resp.module_handle;
-    printf("c7x: Loaded module handle=%u (text=%u data=%u)\n",
-           resp.module_handle, resp.text_size, resp.data_size);
+    /* DLOAD maps rodata segments in-place in the input buffer.
+     * Stage input tensors after the ELF to avoid overwriting them. */
+    client->input_data_offset = file_size;
+    printf("c7x: Loaded module handle=%u (text=%u data=%u "
+           "input_offset=%zu)\n",
+           resp.module_handle, resp.text_size, resp.data_size,
+           client->input_data_offset);
 
     return 0;
 }
@@ -487,6 +496,9 @@ int c7x_client_dyn_unload(c7x_client_t *client, uint32_t handle)
         return resp.hdr.status;
     }
 
+    /* In-place rodata region is no longer needed -- reset offset so
+     * the next load cycle can use the full input buffer. */
+    client->input_data_offset = 0;
     printf("c7x: Unloaded module handle=%u\n", handle);
     return 0;
 }
@@ -512,8 +524,10 @@ static int c7x_client_infer_impl(c7x_client_t *client,
     if (!client || !inputs || num_inputs < 1 || !outputs || !num_outputs)
         return -EINVAL;
 
-    /* Stage input tensor data in shared input buffer */
-    data_offset = 0;
+    /* Stage input tensor data AFTER the ELF region in the input buffer.
+     * DLOAD maps rodata segments in-place from the ELF, so we must not
+     * overwrite that region with input tensors. */
+    data_offset = client->input_data_offset;
     for (int i = 0; i < num_inputs; i++) {
         if (data_offset + inputs[i].data_size > C7X_INPUT_BUFFER_SIZE) {
             fprintf(stderr, "c7x: Input data exceeds buffer size\n");
@@ -536,8 +550,11 @@ static int c7x_client_infer_impl(c7x_client_t *client,
     req->num_inputs = static_cast<uint32_t>(num_inputs);
     req->flags = (repeat > 1) ? (repeat & 0xFFFF) : 0;  /* 0 = run once (backward compat) */
 
-    /* Fill tensor descriptors */
-    uint64_t cur_addr = C7X_INPUT_BUFFER_ADDR;
+    /* Fill tensor descriptors.  DSP addresses start after the ELF
+     * region to match the host-side staging offset (rodata segments
+     * mapped in-place by DLOAD must not be overwritten). */
+    uint64_t cur_addr = C7X_INPUT_BUFFER_ADDR
+                      + client->input_data_offset;
     for (int i = 0; i < num_inputs; i++) {
         req->inputs[i].data_addr = cur_addr;
         req->inputs[i].data_size = inputs[i].data_size;
