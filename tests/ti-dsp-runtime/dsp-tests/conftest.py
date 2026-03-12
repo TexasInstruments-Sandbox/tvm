@@ -28,7 +28,7 @@ import pytest
 
 
 def pytest_configure(config):
-    """Register custom markers."""
+    """Register custom markers and suppress noisy third-party warnings."""
     config.addinivalue_line(
         "markers",
         "dsp_host_only: mark test as host-only (too large for C66x hardware)",
@@ -36,6 +36,21 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "quick: mark test as quick (small model, fast compile and run)",
+    )
+    # Suppress torch.ao.quantization deprecation warnings.
+    # torch 2.10 deprecates these in favor of torchao, but torchao 0.16
+    # doesn't ship XNNPACKQuantizer yet.  Suppress until migration.
+    config.addinivalue_line(
+        "filterwarnings",
+        "ignore:.*torch.ao.quantization is deprecated.*:DeprecationWarning",
+    )
+    config.addinivalue_line(
+        "filterwarnings",
+        "ignore:.*XNNPACKQuantizer is deprecated.*:DeprecationWarning",
+    )
+    config.addinivalue_line(
+        "filterwarnings",
+        "ignore:.*erase_node.*:UserWarning",
     )
 
 
@@ -76,10 +91,18 @@ def pytest_addoption(parser):
         help="Copy build artifacts (lib0.c, weights.bin, devc.c) to specified directory",
     )
     parser.addoption(
+        "--profile",
+        action="store_true",
+        default=False,
+        help="Enable profiling: compile with per-layer cycle counters "
+        "and run with repeat=2 for init/steady-state separation "
+        "(c7x_dload only)",
+    )
+    parser.addoption(
         "--profile-layers",
         action="store_true",
         default=False,
-        help="Enable per-layer cycle profiling",
+        help="(Deprecated, use --profile) Alias for --profile",
     )
     parser.addoption(
         "--use-cpp-api",
@@ -114,9 +137,21 @@ def save_artifacts(request):
 
 
 @pytest.fixture
+def profile(request):
+    """Fixture: enable profiling (layer counters + repeat=2)."""
+    return (
+        request.config.getoption("--profile")
+        or request.config.getoption("--profile-layers")
+    )
+
+
+@pytest.fixture
 def profile_layers(request):
-    """Fixture providing per-layer profiling flag."""
-    return request.config.getoption("--profile-layers")
+    """Fixture: compile with per-layer cycle counters."""
+    return (
+        request.config.getoption("--profile")
+        or request.config.getoption("--profile-layers")
+    )
 
 
 @pytest.fixture
@@ -126,7 +161,10 @@ def use_cpp_api(request):
 
 
 @pytest.fixture
-def dsp_config(dsp_mode, dsp_timeout, dsp_verbose, save_artifacts, profile_layers, use_cpp_api):
+def dsp_config(
+    dsp_mode, dsp_timeout, dsp_verbose, save_artifacts,
+    profile_layers, profile, use_cpp_api,
+):
     """Combined fixture providing all DSP configuration."""
     return {
         "mode": dsp_mode,
@@ -134,6 +172,7 @@ def dsp_config(dsp_mode, dsp_timeout, dsp_verbose, save_artifacts, profile_layer
         "verbose": dsp_verbose,
         "save_artifacts": save_artifacts,
         "profile_layers": profile_layers,
+        "profile": profile,
         "use_cpp_api": use_cpp_api,
     }
 

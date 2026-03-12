@@ -61,11 +61,20 @@ def create_quantized_resnet_model() -> tuple:
         - quantized_gm: PyTorch quantized GraphModule for reference
         - input_data: numpy array for test input [1, 3, 224, 224]
     """
-    from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
-    from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-        XNNPACKQuantizer,
-        get_symmetric_quantization_config,
-    )
+    import warnings
+
+    # torch.ao.quantization is deprecated in torch 2.10 in favor of
+    # torchao, but torchao 0.16 doesn't ship XNNPACKQuantizer yet.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        from torch.ao.quantization.quantize_pt2e import (
+            convert_pt2e,
+            prepare_pt2e,
+        )
+        from torch.ao.quantization.quantizer.xnnpack_quantizer import (
+            XNNPACKQuantizer,
+            get_symmetric_quantization_config,
+        )
 
     # Initialize torch model with pre-trained weights
     torch_model = resnet18(weights=ResNet18_Weights.DEFAULT).eval()
@@ -87,7 +96,9 @@ def create_quantized_resnet_model() -> tuple:
         for _ in range(10):
             prepared(torch.randn(1, 3, 224, 224, dtype=torch.float32))
 
-    quantized_gm = convert_pt2e(prepared)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="erase_node")
+        quantized_gm = convert_pt2e(prepared)
 
     # Step 3: Re-export the quantized model and import to TVM
     with torch.no_grad():
@@ -116,6 +127,7 @@ def _run_quantized_resnet_dsp_test(
     timeout_ms: int = 120000,
     use_cpp_api: bool = False,
     profile_layers: bool = False,
+    profile: bool = False,
 ) -> dict:
     """
     Run quantized ResNet-18 model on DSP and compare with PyTorch reference.
@@ -152,6 +164,7 @@ def _run_quantized_resnet_dsp_test(
         execution_mode=dsp_mode,
         timeout_ms=timeout_ms,
         profile_layers=profile_layers,
+        profile=profile,
     )
 
     # Compare results — after EliminateQDQRoundTrip, TVM keeps full float32
@@ -167,7 +180,7 @@ def _run_quantized_resnet_dsp_test(
     }
 
 
-def test_quantized_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers):
+def test_quantized_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile):
     """Test quantized ResNet-18 model on DSP comparing against PyTorch reference.
 
     Uses PT2E static quantization (INT8 QDQ graph).
@@ -179,6 +192,7 @@ def test_quantized_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers
         timeout_ms=dsp_timeout,
         use_cpp_api=use_cpp_api,
         profile_layers=profile_layers,
+        profile=profile,
     )
 
     assert_dsp_comparison(results["dsp_results"], results["comparison"])

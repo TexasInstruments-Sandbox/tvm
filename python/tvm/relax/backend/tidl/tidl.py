@@ -829,13 +829,24 @@ class TIDLOffloadCompiler:
             if "-profile-layers" not in target:
                 target += " -profile-layers"
         tvm_target = tvm.target.Target(target)
-        with tvm.transform.PassContext(opt_level=0):
-            ex = relax.build(
-                lowered,
-                target=tvm_target,
-                exec_mode="compiled",
-                system_lib=True,
-            )
+        # Use cpu_generic pipeline (FuseOps+FuseTIR for op fusion) and
+        # target-aware TIR pipeline (ScheduleC7xDMATiling for loop
+        # reorder, decompose_reduction, DMA tiling).
+        from tvm.relax.backend.cpu_generic.pipeline import (
+            get_default_pipeline,
+        )
+
+        pipeline = get_default_pipeline(tvm_target)
+        with tvm_target:
+            with tvm.transform.PassContext(opt_level=3):
+                ex = relax.build(
+                    lowered,
+                    target=tvm_target,
+                    exec_mode="compiled",
+                    system_lib=True,
+                    relax_pipeline=pipeline,
+                    tir_pipeline=None,  # target-aware TIR pipeline
+                )
 
         # 3. Export and extract generated code
         gen_dir = Path(tempfile.mkdtemp(prefix="tidl_build_gen_"))
