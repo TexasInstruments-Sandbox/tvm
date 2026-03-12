@@ -93,14 +93,19 @@ def _create_resnet18():
     return mod, param_dict, torch_model, input_data
 
 
-@pytest.mark.skipif(not _has_torch(), reason="torch/torchvision not installed")
-@pytest.mark.skipif(
-    not _has_import_so(),
-    reason=f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}",
-)
-@pytest.mark.skipif(not _has_c7x_compiler(), reason="TI_CGT_C7000_PATH not set")
 class TestTIDLResNetE2E:
     """ResNet-18 TIDL offloading: build pipeline + hardware validation."""
+
+    @pytest.fixture(autouse=True)
+    def _check_deps(self):
+        if not _has_torch():
+            pytest.fail("torch/torchvision not installed")
+        if not _has_import_so():
+            pytest.fail(
+                f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}"
+            )
+        if not _has_c7x_compiler():
+            pytest.fail("TI_CGT_C7000_PATH not set")
 
     def test_tidl_resnet18_build(self, tmp_path):
         """Build ResNet-18 with TIDL offloading (no hardware needed).

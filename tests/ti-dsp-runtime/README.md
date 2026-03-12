@@ -17,11 +17,22 @@ targets.
 All quick tests are marked with `@pytest.mark.quick`.  Run them as a
 fast regression check before pushing changes.
 
+### Required environment setup
+
+```bash
+export TVM_HOME=$(pwd)          # or wherever the tvm repo is
+export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
+export TI_CGT_C7000_PATH=~/ti/ccs2041/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS
+```
+
+`TI_CGT_C7000_PATH` is required for all DSP and TIDL e2e tests.
+Tests will **fail** (not skip) if it is missing.
+
 ### TIDL quick tests (27 tests, ~90 s)
 
 Partition, codegen, and small-model hardware e2e.  No `--dsp-mode`
-needed.  The 2 hardware e2e tests skip automatically if the TIDL
-import .so or C7x compiler is absent.
+needed.  The 2 hardware e2e tests require the TIDL import .so and
+C7x compiler — they fail with a clear message if either is missing.
 
 ```bash
 pytest tests/ti-dsp-runtime/tidl-tests/ -m quick -v
@@ -65,8 +76,9 @@ sessions cause DMA-BUF exhaustion and firmware hangs.
 ```bash
 cd $TVM_HOME
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
+export TI_CGT_C7000_PATH=~/ti/ccs2041/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS
 
-# 1. TIDL (no --dsp-mode, hardware tests auto-skip if deps missing):
+# 1. TIDL (no --dsp-mode needed):
 pytest tests/ti-dsp-runtime/tidl-tests/ -m quick -v
 
 # 2. DSP host emulation:
