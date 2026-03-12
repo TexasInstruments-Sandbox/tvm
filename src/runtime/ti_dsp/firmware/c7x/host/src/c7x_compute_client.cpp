@@ -491,12 +491,16 @@ int c7x_client_dyn_unload(c7x_client_t *client, uint32_t handle)
     return 0;
 }
 
-int c7x_client_infer(c7x_client_t *client,
-                     uint32_t module_handle,
-                     uint32_t model_id,
-                     const c7x_tensor_desc_t *inputs, int num_inputs,
-                     c7x_tensor_desc_t *outputs, int *num_outputs,
-                     uint64_t *cycles)
+/**
+ * Internal helper: run INFER with an explicit repeat count in flags.
+ */
+static int c7x_client_infer_impl(c7x_client_t *client,
+                                  uint32_t module_handle,
+                                  uint32_t model_id,
+                                  const c7x_tensor_desc_t *inputs, int num_inputs,
+                                  c7x_tensor_desc_t *outputs, int *num_outputs,
+                                  uint64_t *cycles,
+                                  uint32_t repeat)
 {
     /* INFER message - sized for up to 4 inputs */
     uint8_t req_buf[512];
@@ -530,6 +534,7 @@ int c7x_client_infer(c7x_client_t *client,
     req->module_handle = module_handle;
     req->model_id = model_id;
     req->num_inputs = static_cast<uint32_t>(num_inputs);
+    req->flags = (repeat > 1) ? (repeat & 0xFFFF) : 0;  /* 0 = run once (backward compat) */
 
     /* Fill tensor descriptors */
     uint64_t cur_addr = C7X_INPUT_BUFFER_ADDR;
@@ -578,20 +583,46 @@ int c7x_client_infer(c7x_client_t *client,
         }
     }
 
-    /* Print DSP printf output if any */
+    /* Print DSP printf output to stderr (profile text, layer traces).
+     * Using stderr so it doesn't interfere with JSON on stdout. */
     if (resp->printf_size > 0 &&
         resp->printf_size <= C7X_PRINTF_BUF_SIZE) {
         size_t printf_offset = C7X_OUTPUT_BUFFER_SIZE
                              - C7X_PRINTF_BUF_SIZE + 16;
         const char *pdata = static_cast<const char *>(client->output_buf)
                             + printf_offset;
-        fwrite(pdata, 1, resp->printf_size, stdout);
-        fflush(stdout);
+        fwrite(pdata, 1, resp->printf_size, stderr);
+        fflush(stderr);
     }
 
     if (cycles) *cycles = resp->cycles;
 
     return 0;
+}
+
+int c7x_client_infer(c7x_client_t *client,
+                     uint32_t module_handle,
+                     uint32_t model_id,
+                     const c7x_tensor_desc_t *inputs, int num_inputs,
+                     c7x_tensor_desc_t *outputs, int *num_outputs,
+                     uint64_t *cycles)
+{
+    return c7x_client_infer_impl(client, module_handle, model_id,
+                                  inputs, num_inputs, outputs, num_outputs,
+                                  cycles, /*repeat=*/1);
+}
+
+int c7x_client_infer_repeat(c7x_client_t *client,
+                            uint32_t module_handle,
+                            uint32_t model_id,
+                            const c7x_tensor_desc_t *inputs, int num_inputs,
+                            c7x_tensor_desc_t *outputs, int *num_outputs,
+                            uint64_t *cycles,
+                            uint32_t repeat)
+{
+    return c7x_client_infer_impl(client, module_handle, model_id,
+                                  inputs, num_inputs, outputs, num_outputs,
+                                  cycles, repeat);
 }
 
 const char *c7x_strerror(int status)

@@ -12,12 +12,16 @@ Tests verify that:
 
 import numpy as np
 import pytest
+
 import tvm
 from tvm import relax
 from tvm.relax.backend.tidl import get_tidl_patterns, partition_for_tidl
 from tvm.relax.frontend import nn
 from tvm.script import ir as I
 from tvm.script import relax as R
+
+# All tests in this file are quick (pure IR, no hardware, no .so)
+pytestmark = pytest.mark.quick
 
 # ---------------------------------------------------------------------------
 # Helper: inspect partitioned module

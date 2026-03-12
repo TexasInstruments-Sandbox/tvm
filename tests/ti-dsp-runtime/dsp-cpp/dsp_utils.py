@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 import numpy as np
+
 import tvm
 from tvm import relax
 from tvm.contrib import tar
@@ -867,6 +868,7 @@ def run_dsp_dload(
     c7x_compute_cli: str = "/usr/local/bin/c7x_compute",
     embedded_weights: bool = False,
     profile_layers: bool = False,
+    profile: bool = False,
 ) -> tuple:
     """
     Run inference via c7x_compute DLOAD pipeline over SSH.
@@ -889,6 +891,10 @@ def run_dsp_dload(
         embedded_weights: If True, weights are embedded in lib0.out. Skips
             SCP of weights.bin, model-load step, and model-unload cleanup.
             The firmware auto-detects embedded weights at dyn-load time.
+        profile: If True, use 'c7x_compute profile' instead of 'run'.
+            This sets repeat=2 in the INFER request so the firmware runs
+            inference twice: iteration 1 includes init, iteration 2 is
+            steady-state.  Per-layer breakdowns are printed by the DSP.
 
     Returns:
         Tuple of (output_array, stdout_string, cycles) where output_array is
@@ -988,27 +994,46 @@ def run_dsp_dload(
     finally:
         local_input.unlink(missing_ok=True)
 
-    # Run composite load+infer+unload via single SSH call
-    logger.info("  Running composite load+infer+unload...")
+    # Run composite load+infer+unload via single SSH call.
+    # Profile output (layer traces) goes to stderr; JSON goes to stdout.
+    cli_verb = "profile" if profile else "run"
+    logger.info(f"  Running composite load+infer+unload ({cli_verb})...")
     run_cmd = (
-        f"{c7x_compute_cli} run"
+        f"{c7x_compute_cli} {cli_verb}"
         f" --module {remote_module}"
         f" --input {remote_input}"
         f" --output {remote_output}"
         f" --shape {shape_str}"
         f" --dtype {dtype_str}"
     )
-    out = ssh_cmd(run_cmd)
-    logger.debug(f"  run: {out}")
+    run_result = subprocess.run(
+        ["ssh", remote, run_cmd],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if run_result.returncode != 0:
+        raise RuntimeError(
+            f"SSH command failed (rc={run_result.returncode}): {run_cmd}\n"
+            f"stdout: {run_result.stdout}\nstderr: {run_result.stderr}"
+        )
+    out = run_result.stdout.strip()
+    dsp_stderr = run_result.stderr.strip()
+    logger.debug(f"  run stdout: {out}")
+    if dsp_stderr:
+        logger.debug(f"  run stderr: {dsp_stderr}")
 
-    # Parse JSON from stdout. DSP printf text may precede the JSON;
-    # split on the first '{' to separate it.
+    # Parse JSON from stdout. DSP printf text may precede the JSON
+    # (from c7x_client_open/close info messages); split on the first '{'.
     json_start = out.find("{")
     if json_start < 0:
         raise RuntimeError(
             f"No JSON found in c7x_compute run output: {out}"
         )
     dsp_text = out[:json_start].strip()
+    # Append DSP profile output from stderr (layer traces, iteration headers)
+    if dsp_stderr:
+        dsp_text = (dsp_text + "\n" + dsp_stderr).strip() if dsp_text else dsp_stderr
     if dsp_text:
         logger.debug(f"  DSP printf: {dsp_text}")
 
@@ -1063,6 +1088,8 @@ def run_dsp_dload(
 
     logger.info(f"  Output shape: {output_arr.shape}, dtype: {output_arr.dtype}")
     stdout_str = f"[run] {out}"
+    if dsp_text:
+        stdout_str = dsp_text + "\n" + stdout_str
     return output_arr, stdout_str, cycles
 
 

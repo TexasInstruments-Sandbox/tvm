@@ -261,13 +261,20 @@ struct c7x_tensor_desc {
 
 /*
  * INFER request (variable size, fits in C7X_MAX_MSG_SIZE for 1 input)
+ *
+ * flags field:
+ *   bits [15:0] = repeat count.  The firmware loops cg_main_dsp() this
+ *                 many times, recording per-iteration cycles and printing
+ *                 layer profiles.  0 or 1 = run once (backward compatible).
+ *                 Use repeat=2 to separate one-time init from steady-state.
+ *   bits [31:16] = reserved (must be 0).
  */
 struct c7x_msg_infer {
     struct c7x_msg_hdr hdr;     /* type = C7X_MSG_INFER */
     uint32_t module_handle;     /* Loaded module handle */
     uint32_t model_id;          /* Loaded weights model ID */
     uint32_t num_inputs;        /* Number of input tensors */
-    uint32_t flags;             /* Reserved flags */
+    uint32_t flags;             /* See above: bits[15:0]=repeat count */
     struct c7x_tensor_desc inputs[1]; /* Variable-length array */
 } __attribute__((packed));
 
