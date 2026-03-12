@@ -130,7 +130,10 @@ def _schedule_conv2d_nhwc(func, l2_budget):
     sch = tir.Schedule(func)
 
     # --- Detect conv2d_nhwc block ---
-    root_block = sch.get_block("root")
+    try:
+        root_block = sch.get_block("root")
+    except Exception:
+        return func  # No root block (e.g. TIDL extern stub)
     all_blocks = sch.get_child_blocks(root_block)
     block_names = [sch.get(b).name_hint for b in all_blocks]
     if "conv2d_nhwc" not in block_names:
@@ -323,7 +326,10 @@ def _schedule_conv2d(func, l2_budget):
     sch = tir.Schedule(func)
 
     # --- 1a. Detect conv2d block ---
-    root_block = sch.get_block("root")
+    try:
+        root_block = sch.get_block("root")
+    except Exception:
+        return func  # No root block (e.g. TIDL extern stub)
     all_blocks = sch.get_child_blocks(root_block)
     block_names = [sch.get(b).name_hint for b in all_blocks]
     if "conv2d_nchw" not in block_names:

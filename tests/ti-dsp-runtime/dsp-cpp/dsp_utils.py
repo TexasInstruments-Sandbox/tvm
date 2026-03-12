@@ -102,6 +102,25 @@ def assert_dsp_comparison(
         mode = key.removesuffix("_error")
         raise AssertionError(f"{mode} execution error: {dsp_results[key]}")
 
+    # Print profile data if available (cycles, layer traces)
+    for mode_prefix in ("c7x_dload", "c66x", "c7x_host", "c66x_host"):
+        cycles_key = f"{mode_prefix}_cycles"
+        stdout_key = f"{mode_prefix}_stdout"
+        if cycles_key in dsp_results:
+            cycles = dsp_results[cycles_key]
+            print(f"\n{mode_prefix} cycles: {cycles:,} "
+                  f"({cycles / 1e6:.2f} ms @ 1 GHz)")
+        if stdout_key in dsp_results:
+            stdout = dsp_results[stdout_key]
+            # Print layer profile and TIDL trace sections
+            for line in stdout.split("\n"):
+                if any(k in line for k in (
+                    "Layer Profile", "Total:", "cycles",
+                    "TIDL Per-Layer", "End TIDL", "Iteration",
+                    "input_offset",
+                )):
+                    print(line)
+
     # Check each mode's comparison results
     diff_keys = [k for k in comparison if k.endswith("_vs_ref_max_diff")]
     for key in diff_keys:
@@ -1246,6 +1265,7 @@ def compile_and_run_dsp(
     build_type: str = "Release",
     timeout_ms: int = 60000,
     profile_layers: bool = False,
+    profile: bool = False,
 ) -> dict:
     """
     End-to-end: compile, build, run, and return results.
@@ -1270,6 +1290,8 @@ def compile_and_run_dsp(
         build_type: Build type - "Release" (default) or "Debug".
         timeout_ms: Execution timeout for DSP hardware in milliseconds
         profile_layers: Enable trace buffer monitoring during DLOAD inference
+        profile: Use c7x_compute profile (repeat=2) for init/steady-state
+            separation.  Only applies to c7x_dload mode.
 
     Returns:
         Dictionary with results:
@@ -1366,6 +1388,7 @@ def compile_and_run_dsp(
                 input_tensors,
                 embedded_weights=True,
                 profile_layers=profile_layers,
+                profile=profile,
             )
             results["c7x_dload_result"] = c7x_dload_output
             results["c7x_dload_stdout"] = c7x_dload_stdout

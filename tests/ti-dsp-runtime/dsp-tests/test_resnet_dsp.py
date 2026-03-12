@@ -94,6 +94,7 @@ def _run_resnet_dsp_test(
     timeout_ms: int = 120000,
     use_cpp_api: bool = False,
     profile_layers: bool = False,
+    profile: bool = False,
 ) -> dict:
     """
     Run ResNet-18 model on DSP and compare with PyTorch reference.
@@ -127,6 +128,7 @@ def _run_resnet_dsp_test(
         execution_mode=dsp_mode,
         timeout_ms=timeout_ms,
         profile_layers=profile_layers,
+        profile=profile,
     )
 
     # Compare results — wider tolerance for 18 layers of float32 accumulation
@@ -140,7 +142,7 @@ def _run_resnet_dsp_test(
     }
 
 
-def test_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers):
+def test_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile):
     """Test ResNet-18 model on DSP comparing against PyTorch reference.
 
     Supports host emulation and DLOAD (dynamic loading on C7x hardware).
@@ -151,6 +153,7 @@ def test_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers):
         timeout_ms=dsp_timeout,
         use_cpp_api=use_cpp_api,
         profile_layers=profile_layers,
+        profile=profile,
     )
     assert_dsp_comparison(results["dsp_results"], results["comparison"])
 

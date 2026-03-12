@@ -540,11 +540,21 @@ def create_quantized_conv2d_stack_model(seed: int = 42) -> tuple:
         - quantized_gm: PyTorch quantized GraphModule for reference
         - input_data: numpy array for test input [1, 3, 56, 56]
     """
-    from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
-    from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-        XNNPACKQuantizer,
-        get_symmetric_quantization_config,
-    )
+    import warnings
+
+    # torch.ao.quantization is deprecated in torch 2.10 in favor of
+    # torchao, but torchao 0.16 doesn't ship XNNPACKQuantizer yet.
+    # Suppress the warnings until we can migrate.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        from torch.ao.quantization.quantize_pt2e import (
+            convert_pt2e,
+            prepare_pt2e,
+        )
+        from torch.ao.quantization.quantizer.xnnpack_quantizer import (
+            XNNPACKQuantizer,
+            get_symmetric_quantization_config,
+        )
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -569,7 +579,9 @@ def create_quantized_conv2d_stack_model(seed: int = 42) -> tuple:
         for _ in range(10):
             prepared(torch.randn(1, 3, 56, 56, dtype=torch.float32))
 
-    quantized_gm = convert_pt2e(prepared)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="erase_node")
+        quantized_gm = convert_pt2e(prepared)
 
     # Step 3: Re-export the quantized model and import to TVM
     with torch.no_grad():
