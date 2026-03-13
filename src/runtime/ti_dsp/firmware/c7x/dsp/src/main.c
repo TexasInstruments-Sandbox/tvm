@@ -86,10 +86,10 @@ void c7x_compute_main(void *args)
     DebugP_log("[INIT] Shared buffer: 0x%08llx - 0x%08llx (%u MB)\r\n",
                C7X_SHARED_BASE, C7X_SHARED_BASE + C7X_SHARED_SIZE,
                (uint32_t)(C7X_SHARED_SIZE / (1024 * 1024)));
-    DebugP_log("[INIT] Input buffer:  0x%08llx (%u MB)\r\n",
-               C7X_INPUT_BUFFER_ADDR, (uint32_t)(C7X_INPUT_BUFFER_SIZE / (1024 * 1024)));
-    DebugP_log("[INIT] Output buffer: 0x%08llx (%u MB)\r\n",
-               C7X_OUTPUT_BUFFER_ADDR, (uint32_t)(C7X_OUTPUT_BUFFER_SIZE / (1024 * 1024)));
+    DebugP_log("[INIT] Staging buffer: 0x%08llx (%u MB)\r\n",
+               C7X_STAGING_ADDR, (uint32_t)(C7X_STAGING_SIZE / (1024 * 1024)));
+    DebugP_log("[INIT] Result buffer:  0x%08llx (%u MB)\r\n",
+               C7X_RESULT_ADDR, (uint32_t)(C7X_RESULT_SIZE / (1024 * 1024)));
 
     /* Wait for Linux to initialize virtio vrings (polls resource table status) */
     DebugP_log("[IPC] Waiting for Linux to be ready...\r\n");

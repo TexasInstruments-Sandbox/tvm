@@ -44,26 +44,24 @@ extern "C" {
 #define C7X_SHARED_PHYS_BASE    0x900000000ULL  /* Physical address (host DMA heap) */
 #define C7X_SHARED_SIZE         0x20000000ULL   /* 512 MB total — full DMA heap carveout */
 
-/* Input buffer: first 504 MB (must fit DLOAD ELF with embedded weights).
+/* Staging buffer: first 504 MB of the shared DDR carveout.
+ * Used for host-to-DSP data transfer: ELF modules (DLOAD), weights
+ * (MODEL_LOAD), and inference input tensors (INFER).
  *
- * C7X_INPUT_BUFFER_ADDR is the DSP virtual address of the shared DDR
- * region.  It is hardcoded because the DSP MMU mapping is static:
+ * The address is the DSP virtual address from the static MMU mapping:
  *   Physical 0x900000000 -> DSP virtual 0xC0000000
- * configured in the device tree.  The host side uses mmap'd userspace
- * pointers (client->input_buf) and never references this address.
- * The DSP-side constant is only used in INFER tensor descriptors so
- * the DSP knows where to find staged input data. */
-#define C7X_INPUT_BUFFER_ADDR   0xC0000000ULL
-#define C7X_INPUT_BUFFER_SIZE   0x1F800000ULL   /* 504 MB */
+ * The host side uses mmap'd userspace pointers (client->staging_buf). */
+#define C7X_STAGING_ADDR   0xC0000000ULL
+#define C7X_STAGING_SIZE   0x1F800000ULL   /* 504 MB */
 
-/* Output buffer: last 8 MB */
-#define C7X_OUTPUT_BUFFER_ADDR  0xDF800000ULL
-#define C7X_OUTPUT_BUFFER_SIZE  0x00800000ULL   /* 8 MB */
+/* Result buffer: last 8 MB (DSP-to-host: inference output + printf) */
+#define C7X_RESULT_ADDR  0xDF800000ULL
+#define C7X_RESULT_SIZE  0x00800000ULL   /* 8 MB */
 
-/* Printf buffer: last 64 KB of output buffer */
+/* Printf buffer: last 64 KB of result buffer */
 #define C7X_PRINTF_BUF_SIZE     0x00010000ULL   /* 64 KB */
-#define C7X_PRINTF_BUF_ADDR     (C7X_OUTPUT_BUFFER_ADDR + \
-        C7X_OUTPUT_BUFFER_SIZE - C7X_PRINTF_BUF_SIZE)
+#define C7X_PRINTF_BUF_ADDR     (C7X_RESULT_ADDR + \
+        C7X_RESULT_SIZE - C7X_PRINTF_BUF_SIZE)
 
 /*
  * =============================================================================
@@ -327,15 +325,15 @@ union c7x_msg {
  */
 
 /* Check if address+size is within shared buffer region (overflow-safe) */
-#define C7X_IS_VALID_INPUT_ADDR(addr, size) \
-    ((size) <= C7X_INPUT_BUFFER_SIZE && \
-     (addr) >= C7X_INPUT_BUFFER_ADDR && \
-     ((addr) - C7X_INPUT_BUFFER_ADDR) <= (C7X_INPUT_BUFFER_SIZE - (size)))
+#define C7X_IS_VALID_STAGING_ADDR(addr, size) \
+    ((size) <= C7X_STAGING_SIZE && \
+     (addr) >= C7X_STAGING_ADDR && \
+     ((addr) - C7X_STAGING_ADDR) <= (C7X_STAGING_SIZE - (size)))
 
-#define C7X_IS_VALID_OUTPUT_ADDR(addr, size) \
-    ((size) <= C7X_OUTPUT_BUFFER_SIZE && \
-     (addr) >= C7X_OUTPUT_BUFFER_ADDR && \
-     ((addr) - C7X_OUTPUT_BUFFER_ADDR) <= (C7X_OUTPUT_BUFFER_SIZE - (size)))
+#define C7X_IS_VALID_RESULT_ADDR(addr, size) \
+    ((size) <= C7X_RESULT_SIZE && \
+     (addr) >= C7X_RESULT_ADDR && \
+     ((addr) - C7X_RESULT_ADDR) <= (C7X_RESULT_SIZE - (size)))
 
 /* Service version: major.minor.patch encoded as 0xMMmmpp */
 #define C7X_SERVICE_VERSION     0x020000  /* v2.0.0 */

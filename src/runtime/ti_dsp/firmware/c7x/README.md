@@ -353,3 +353,27 @@ runtime it depends on. Key milestones from original development:
   indices, sysfs-based remoteproc matching
 - **EDMA subsystem**: DmaUtilsAutoInc3d with standalone UDMA/DRU,
   per-module DMA lifecycle, L2 symbol exports
+- **DLOAD in-place rodata**: Read-only ELF segments (weights, TIDL
+  artifacts) mapped in-place from the staging buffer, eliminating
+  DDR pool copies (~13 MB saved for ResNet-18 TIDL)
+
+## Future work: dynamic buffer allocation
+
+The 512 MB shared DDR carveout is currently split into fixed-size
+regions at compile time (`C7X_STAGING_ADDR` / `C7X_STAGING_SIZE` =
+504 MB, `C7X_RESULT_ADDR` / `C7X_RESULT_SIZE` = 8 MB).  These
+constants are hardcoded in `c7x_compute_protocol.h` because the
+DSP MMU mapping is static.
+
+A future improvement would make the partitioning dynamic:
+
+- Replace the fixed staging/result split with a single
+  `C7X_SHARED_BASE` + `C7X_SHARED_SIZE` region
+- Have the host negotiate the layout at connection time (e.g. in
+  the PING response or a new CONFIGURE message): staging region
+  size, result region offset, printf buffer offset
+- The DSP would use the negotiated offsets instead of compile-time
+  constants
+- This enables models with very large outputs (e.g. segmentation
+  masks) to borrow space from the staging region after inference
+  input has been consumed
