@@ -249,6 +249,45 @@ def _check_matmul_bias(ctx: PatternCheckContext) -> bool:
     return True
 
 
+def _check_multiply(ctx: PatternCheckContext) -> bool:
+    """Element-wise multiply — same constraints as add (rank >= 4)."""
+    for key in ("lhs", "rhs"):
+        expr = ctx.annotated_expr.get(key)
+        if expr is not None:
+            if not _check_dtype(expr):
+                return False
+            shape = _get_shape(expr)
+            if shape is not None and len(shape) < 4:
+                return False
+            if not _check_rank(expr, 4):
+                return False
+    return True
+
+
+def _check_permute_dims(ctx: PatternCheckContext) -> bool:
+    """Validate permute_dims (transpose) constraints for TIDL."""
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_softmax(ctx: PatternCheckContext) -> bool:
+    """Validate softmax constraints for TIDL."""
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_concat(ctx: PatternCheckContext) -> bool:
+    """Validate concat constraints for TIDL."""
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
 def _check_quantize(ctx: PatternCheckContext) -> bool:
     return True
 
@@ -380,6 +419,40 @@ def _matmul_patterns() -> List[FusionPattern]:
     return patterns
 
 
+def _multiply_pattern() -> List[FusionPattern]:
+    """Element-wise multiply (gate * up in transformers)."""
+    lhs = wildcard()
+    rhs = wildcard()
+    pat = is_op("relax.multiply")(lhs, rhs)
+    annotations = {"lhs": lhs, "rhs": rhs, "root": pat}
+    return [FusionPattern("tidl.multiply", pat, annotations, _check_multiply)]
+
+
+def _permute_dims_pattern() -> List[FusionPattern]:
+    """Transpose / permute dimensions."""
+    data = wildcard()
+    pat = is_op("relax.permute_dims")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.permute_dims", pat, annotations, _check_permute_dims)]
+
+
+def _softmax_pattern() -> List[FusionPattern]:
+    """Softmax (attention scores in transformers)."""
+    data = wildcard()
+    pat = is_op("relax.nn.softmax")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.nn.softmax", pat, annotations, _check_softmax)]
+
+
+def _concat_pattern() -> List[FusionPattern]:
+    """Concatenation (RoPE, multi-head assembly)."""
+    # concat takes a Tuple, match it with a wildcard
+    data = wildcard()
+    pat = is_op("relax.concat")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.concat", pat, annotations, _check_concat)]
+
+
 def _quantize_pattern() -> List[FusionPattern]:
     data = wildcard()
     scale = wildcard()
@@ -409,7 +482,7 @@ def get_tidl_patterns() -> List[FusionPattern]:
     More specific patterns (e.g. conv2d_bias_relu) appear first so that
     ``FuseOpsByPattern`` greedily matches the largest possible fused op.
     """
-    return [
+    patterns = [
         # conv2d variants — most specific first
         *_conv2d_patterns(),
         # pooling
@@ -429,6 +502,22 @@ def get_tidl_patterns() -> List[FusionPattern]:
         *_quantize_pattern(),
         *_dequantize_pattern(),
     ]
+
+    # Transformer ops
+    patterns.extend([
+        *_softmax_pattern(),
+        *_multiply_pattern(),
+    ])
+    # permute_dims and concat: parsers work but TIDL algo library
+    # crashes on TransposeLayer during calibration, and concat is
+    # not merged into subgraphs by the import tool.  Disabled until
+    # TIDL runtime fixes are available.
+    # patterns.extend([
+    #     *_permute_dims_pattern(),
+    #     *_concat_pattern(),
+    # ])
+
+    return patterns
 
 
 # Register all patterns at module import time

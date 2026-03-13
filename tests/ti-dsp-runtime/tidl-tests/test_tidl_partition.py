@@ -185,7 +185,9 @@ class TestTIDLPatternRegistration:
             "tidl.nn.max_pool2d",
             "tidl.nn.avg_pool2d",
             "tidl.nn.relu",
+            "tidl.nn.softmax",
             "tidl.add",
+            "tidl.multiply",
         }
         for exp in expected:
             assert exp in names, f"Expected pattern '{exp}' not found"
