@@ -307,6 +307,7 @@ def compile_for_dsp(
     mod: tvm.IRModule,
     target_string: str = "c_static -mcpu=c66x",
     output_dir: Optional[Path] = None,
+    relax_pipeline=None,
 ) -> Path:
     """
     Compile TVM IRModule to C code for DSP.
@@ -319,6 +320,8 @@ def compile_for_dsp(
         target_string: Target specification (default: "c_static -mcpu=c66x")
         output_dir: Directory to store generated files.
                    If None, creates a temporary directory.
+        relax_pipeline: Custom Relax compilation pipeline.
+                   If None, uses the default cpu_generic pipeline.
 
     Returns:
         Path to directory containing lib0.c, devc.c, weights.bin
@@ -335,10 +338,12 @@ def compile_for_dsp(
     # Compile the Relax module
     # Use cpu_generic pipeline which includes FuseOps+FuseTIR for operator
     # fusion, reducing per-layer function call overhead on DSP targets.
-    from tvm.relax.backend.cpu_generic.pipeline import get_default_pipeline
+    if relax_pipeline is None:
+        from tvm.relax.backend.cpu_generic.pipeline import get_default_pipeline
+
+        relax_pipeline = get_default_pipeline(target)
 
     logger.debug("Building Relax module...")
-    pipeline = get_default_pipeline(target)
     with target:
         with tvm.transform.PassContext(opt_level=3):
             executable = relax.build(
@@ -346,7 +351,7 @@ def compile_for_dsp(
                 target,
                 exec_mode="compiled",
                 system_lib=True,
-                relax_pipeline=pipeline,
+                relax_pipeline=relax_pipeline,
                 tir_pipeline=None,  # use target-aware TIR pipeline
             )
     logger.debug("Relax module build complete")
@@ -1266,6 +1271,7 @@ def compile_and_run_dsp(
     timeout_ms: int = 60000,
     profile_layers: bool = False,
     profile: bool = False,
+    relax_pipeline=None,
 ) -> dict:
     """
     End-to-end: compile, build, run, and return results.
@@ -1313,7 +1319,7 @@ def compile_and_run_dsp(
     # c7x_host mode always uses C7x code generation
     if execution_mode == "c7x_host":
         target_string = "c_static -mcpu=c7x"
-    generated_dir = compile_for_dsp(mod, target_string)
+    generated_dir = compile_for_dsp(mod, target_string, relax_pipeline=relax_pipeline)
     results["generated_dir"] = generated_dir
 
     # Convert input_data to list of arrays if needed

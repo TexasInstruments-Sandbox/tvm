@@ -85,28 +85,33 @@ StructInfo InferStructInfoQuantize(const Call& call, const BlockBuilder& ctx) {
                      << zp_sinfo->dtype);
   }
 
-  // Check that "axis" attribute is not out of range:
-  int axis = (attrs->axis < 0) ? (input_sinfo->ndim + attrs->axis) : attrs->axis;
-  if (axis < 0 || axis > input_sinfo->ndim - 1) {
-    ctx->ReportFatal(Diagnostic::Error(call)
-                     << "relax.quantize: axis param is out of range (" << attrs->axis << ")");
-  }
-
-  auto check_param_size = [&](const TensorStructInfo& param_sinfo,
-                              const TensorStructInfo& data_sinfo, ffi::String param_name) {
-    const PrimExpr& param_dim = param_sinfo->GetShape().value()[0];
-    const PrimExpr& input_dim = data_sinfo->GetShape().value()[axis];
-    if (!ctx->GetAnalyzer()->CanProveEqual(param_dim, input_dim)) {
+  // For per-tensor quantization (scalar scale and zp), axis is irrelevant.
+  // Only validate axis and check size matching for per-channel quantization.
+  bool is_per_tensor = IsScalarTensor(scale_sinfo) && IsScalarTensor(zp_sinfo);
+  int axis = 0;
+  if (!is_per_tensor) {
+    // Check that "axis" attribute is not out of range:
+    axis = (attrs->axis < 0) ? (input_sinfo->ndim + attrs->axis) : attrs->axis;
+    if (axis < 0 || axis > input_sinfo->ndim - 1) {
       ctx->ReportFatal(Diagnostic::Error(call)
-                       << "Size mismatch: " << call->op << ": the input shape at dim "
-                       << attrs->axis << " is '" << input_dim << "', but size of " << param_name
-                       << " param is '" << param_dim << "'");
+                       << "relax.quantize: axis param is out of range (" << attrs->axis << ")");
     }
-  };
 
-  // Check size matching of scale/zp params with input shape at dim = attrs->axis.
-  if (!IsScalarTensor(scale_sinfo)) check_param_size(scale_sinfo, input_sinfo, "scale");
-  if (!IsScalarTensor(zp_sinfo)) check_param_size(zp_sinfo, input_sinfo, "zero_point");
+    auto check_param_size = [&](const TensorStructInfo& param_sinfo,
+                                const TensorStructInfo& data_sinfo, ffi::String param_name) {
+      const PrimExpr& param_dim = param_sinfo->GetShape().value()[0];
+      const PrimExpr& input_dim = data_sinfo->GetShape().value()[axis];
+      if (!ctx->GetAnalyzer()->CanProveEqual(param_dim, input_dim)) {
+        ctx->ReportFatal(Diagnostic::Error(call)
+                         << "Size mismatch: " << call->op << ": the input shape at dim "
+                         << attrs->axis << " is '" << input_dim << "', but size of " << param_name
+                         << " param is '" << param_dim << "'");
+      }
+    };
+
+    check_param_size(scale_sinfo, input_sinfo, "scale");
+    check_param_size(zp_sinfo, input_sinfo, "zero_point");
+  }
 
   auto output_sinfo = ffi::make_object<TensorStructInfoNode>(*input_sinfo.get());
   output_sinfo->dtype = attrs->out_dtype;
@@ -213,28 +218,33 @@ StructInfo InferStructInfoDequantize(const Call& call, const BlockBuilder& ctx) 
                      << zp_sinfo->dtype);
   }
 
-  // Check that "axis" attribute is not out of range:
-  int axis = (attrs->axis < 0) ? (input_sinfo->ndim + attrs->axis) : attrs->axis;
-  if (axis < 0 || axis > input_sinfo->ndim - 1) {
-    ctx->ReportFatal(Diagnostic::Error(call)
-                     << "relax.dequantize: axis param is out of range (" << attrs->axis << ")");
-  }
-
-  auto check_param_size = [&](const TensorStructInfo& param_sinfo,
-                              const TensorStructInfo& data_sinfo, ffi::String param_name) {
-    const PrimExpr& param_dim = param_sinfo->GetShape().value()[0];
-    const PrimExpr& input_dim = data_sinfo->GetShape().value()[axis];
-    if (!ctx->GetAnalyzer()->CanProveEqual(param_dim, input_dim)) {
+  // For per-tensor quantization (scalar scale and zp), axis is irrelevant.
+  // Only validate axis and check size matching for per-channel quantization.
+  bool is_per_tensor = IsScalarTensor(scale_sinfo) && IsScalarTensor(zp_sinfo);
+  int axis = 0;
+  if (!is_per_tensor) {
+    // Check that "axis" attribute is not out of range:
+    axis = (attrs->axis < 0) ? (input_sinfo->ndim + attrs->axis) : attrs->axis;
+    if (axis < 0 || axis > input_sinfo->ndim - 1) {
       ctx->ReportFatal(Diagnostic::Error(call)
-                       << "Size mismatch: " << call->op << ": the input shape at dim "
-                       << attrs->axis << " is '" << input_dim << "', but size of " << param_name
-                       << " param is '" << param_dim << "'");
+                       << "relax.dequantize: axis param is out of range (" << attrs->axis << ")");
     }
-  };
 
-  // Check size matching of scale/zp params with input shape at dim = attrs->axis.
-  if (!IsScalarTensor(scale_sinfo)) check_param_size(scale_sinfo, input_sinfo, "scale");
-  if (!IsScalarTensor(zp_sinfo)) check_param_size(zp_sinfo, input_sinfo, "zero_point");
+    auto check_param_size = [&](const TensorStructInfo& param_sinfo,
+                                const TensorStructInfo& data_sinfo, ffi::String param_name) {
+      const PrimExpr& param_dim = param_sinfo->GetShape().value()[0];
+      const PrimExpr& input_dim = data_sinfo->GetShape().value()[axis];
+      if (!ctx->GetAnalyzer()->CanProveEqual(param_dim, input_dim)) {
+        ctx->ReportFatal(Diagnostic::Error(call)
+                         << "Size mismatch: " << call->op << ": the input shape at dim "
+                         << attrs->axis << " is '" << input_dim << "', but size of " << param_name
+                         << " param is '" << param_dim << "'");
+      }
+    };
+
+    check_param_size(scale_sinfo, input_sinfo, "scale");
+    check_param_size(zp_sinfo, input_sinfo, "zero_point");
+  }
 
   auto output_sinfo = ffi::make_object<TensorStructInfoNode>(*input_sinfo.get());
   output_sinfo->dtype = attrs->out_dtype;

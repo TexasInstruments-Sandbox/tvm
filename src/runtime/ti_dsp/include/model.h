@@ -249,9 +249,10 @@ class Model {
   // ----------------------------------------------------------
 
   /*!
-   * \brief Run inference on input tensor (single output)
+   * \brief Run inference on input tensors (single output)
    *
-   * \param input Pointer to input NDArray (caller retains ownership)
+   * \param inputs Pointer to array of input NDArrays (caller retains ownership)
+   * \param num_inputs Number of input tensors
    * \param output Output pointer - set to output NDArray on success
    * \return ModelError::kSuccess on success, error code on failure
    *
@@ -259,19 +260,30 @@ class Model {
    * Use InferMulti() to get all outputs.
    * Output is valid until next Infer() call or destructor.
    */
-  ModelError Infer(NDArray* input, NDArray** output);
+  ModelError Infer(NDArray* inputs, int num_inputs, NDArray** output);
+
+  /*! \brief Single-input convenience overload */
+  ModelError Infer(NDArray* input, NDArray** output) {
+    return Infer(input, 1, output);
+  }
 
   /*!
-   * \brief Run inference on input tensor (multi-output)
+   * \brief Run inference on input tensors (multi-output)
    *
-   * \param input Pointer to input NDArray (caller retains ownership)
+   * \param inputs Pointer to array of input NDArrays (caller retains ownership)
+   * \param num_inputs Number of input tensors
    * \param outputs Array of output NDArray pointers (max 8)
    * \param num_outputs Set to number of outputs on success
    * \return ModelError::kSuccess on success, error code on failure
    *
    * Outputs are valid until next Infer/InferMulti() call or destructor.
    */
-  ModelError InferMulti(NDArray* input, NDArray** outputs, int* num_outputs);
+  ModelError InferMulti(NDArray* inputs, int num_inputs, NDArray** outputs, int* num_outputs);
+
+  /*! \brief Single-input convenience overload */
+  ModelError InferMulti(NDArray* input, NDArray** outputs, int* num_outputs) {
+    return InferMulti(input, 1, outputs, num_outputs);
+  }
 
   /*!
    * \brief Get number of outputs from last inference
@@ -316,6 +328,8 @@ class Model {
   Model& operator=(const Model&) = delete;
 
  private:
+  /*! \brief Maximum inputs supported */
+  static constexpr int kMaxInputs = 8;
   /*! \brief Maximum outputs supported (matches TVM_DSP_ARRAY_MAX_ELEMENTS) */
   static constexpr int kMaxOutputs = 8;
 
@@ -323,7 +337,7 @@ class Model {
   void Cleanup();
 
   /* Internal inference implementation */
-  ModelError InferInternal(NDArray* input, struct TVMFFIAny* output_any);
+  ModelError InferInternal(NDArray* inputs, int num_inputs, struct TVMFFIAny* output_any);
 
   TVMFFIAny* constants_;
   int const_count_;

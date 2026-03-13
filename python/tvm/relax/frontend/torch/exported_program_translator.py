@@ -1201,7 +1201,7 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         out_dtype = BaseFXGraphImporter._convert_data_type(args[5])
         zero_point = relax.const(args[2], out_dtype)
         return self.block_builder.emit(
-            relax.op.quantize(data, scale, zero_point, axis=-1, out_dtype=out_dtype)
+            relax.op.quantize(data, scale, zero_point, axis=0, out_dtype=out_dtype)
         )
 
     def _dequantize_per_tensor(self, node: fx.Node) -> relax.Var:
@@ -1212,7 +1212,7 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         in_dtype = data.struct_info.dtype
         zero_point = relax.const(args[2], in_dtype)
         return self.block_builder.emit(
-            relax.op.dequantize(data, scale, zero_point, axis=-1, out_dtype="float32")
+            relax.op.dequantize(data, scale, zero_point, axis=0, out_dtype="float32")
         )
 
     ########## Others ##########

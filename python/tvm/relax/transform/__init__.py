@@ -90,6 +90,7 @@ from .transform import (
 
 from .attach_external_modules import AttachExternModules
 from .fast_math import FastMathTransform
+from .fuse_dequantize_matmul import FuseDequantizeMatmul
 from .fuse_transpose_matmul import FuseTransposeMatmul
 from .ipc_allreduce_rewrite import IPCAllReduceRewrite
 from .lazy_transform_params import LazyTransformParams
@@ -103,4 +104,5 @@ from . import legalize_ops
 
 from .eliminate_qdq_roundtrip import EliminateQDQRoundTrip
 from .fuse_qdq_to_int8 import FuseQDQToInt8Conv2D
+from .rewrite_dequantize import RewriteDequantize
 from .schedule_c7x_dma import ScheduleC7xDMATiling
