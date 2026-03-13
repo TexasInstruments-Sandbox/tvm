@@ -148,14 +148,14 @@ static void handle_dyn_load(struct c7x_msg_dyn_load *req,
     DebugP_log("[COMPUTE] DYN_LOAD elf_size=%u\r\n", req->elf_size);
 
     /* Validate ELF size */
-    if (req->elf_size == 0 || req->elf_size > C7X_INPUT_BUFFER_SIZE) {
+    if (req->elf_size == 0 || req->elf_size > C7X_STAGING_SIZE) {
         DebugP_log("[COMPUTE] Invalid ELF size\r\n");
         resp->hdr.status = C7X_STATUS_ERR_SIZE;
         goto done;
     }
 
     /* Load the ELF from input buffer */
-    status = dyn_loader_load(C7X_INPUT_BUFFER_ADDR, req->elf_size, &handle);
+    status = dyn_loader_load(C7X_STAGING_ADDR, req->elf_size, &handle);
     if (status != 0) {
         DebugP_log("[COMPUTE] dyn_loader_load failed: %d\r\n", status);
         resp->hdr.status = C7X_STATUS_ERR_LOAD;
@@ -287,7 +287,7 @@ static void handle_model_load(struct c7x_msg_model_load *req,
 
     DebugP_log("[COMPUTE] MODEL_LOAD weights_size=%u\r\n", req->weights_size);
 
-    if (req->weights_size == 0 || req->weights_size > C7X_INPUT_BUFFER_SIZE) {
+    if (req->weights_size == 0 || req->weights_size > C7X_STAGING_SIZE) {
         DebugP_log("[COMPUTE] Invalid weights size\r\n");
         resp->hdr.status = C7X_STATUS_ERR_SIZE;
         resp->model_id = 0;
@@ -299,10 +299,10 @@ static void handle_model_load(struct c7x_msg_model_load *req,
      * The ARM host wrote weights to the shared buffer and flushed its cache,
      * but the DSP D-cache may still hold stale data from a previous operation
      * (e.g. ELF data from a prior DLOAD load at the same address). */
-    CacheP_inv((void *)(uintptr_t)C7X_INPUT_BUFFER_ADDR,
+    CacheP_inv((void *)(uintptr_t)C7X_STAGING_ADDR,
                req->weights_size, CacheP_TYPE_ALL);
 
-    status = tvm_model_load_weights(C7X_INPUT_BUFFER_ADDR, req->weights_size,
+    status = tvm_model_load_weights(C7X_STAGING_ADDR, req->weights_size,
                                     &model_id);
     if (status != 0) {
         DebugP_log("[COMPUTE] tvm_model_load_weights failed: %d\r\n", status);
@@ -363,7 +363,7 @@ static int32_t build_input_ndarrays(
         struct c7x_tensor_desc *td = &req->inputs[i];
 
         if (td->data_addr != 0 && td->data_size != 0) {
-            if (!C7X_IS_VALID_INPUT_ADDR(td->data_addr, td->data_size)) {
+            if (!C7X_IS_VALID_STAGING_ADDR(td->data_addr, td->data_size)) {
                 DebugP_log("[COMPUTE] Input %u addr 0x%llx+0x%llx outside "
                            "shared buffer\r\n",
                            i, (unsigned long long)td->data_addr,
@@ -456,16 +456,16 @@ static void extract_infer_output(TVMFFIAny *output_any,
     }
 
     /* Copy output data to shared output buffer if it's not already there */
-    if ((uint64_t)(uintptr_t)out_nd->data < C7X_OUTPUT_BUFFER_ADDR ||
-        (uint64_t)(uintptr_t)out_nd->data >= C7X_OUTPUT_BUFFER_ADDR + C7X_OUTPUT_BUFFER_SIZE) {
-        if (out_td->data_size <= C7X_OUTPUT_BUFFER_SIZE) {
-            memcpy((void *)(uintptr_t)C7X_OUTPUT_BUFFER_ADDR,
+    if ((uint64_t)(uintptr_t)out_nd->data < C7X_RESULT_ADDR ||
+        (uint64_t)(uintptr_t)out_nd->data >= C7X_RESULT_ADDR + C7X_RESULT_SIZE) {
+        if (out_td->data_size <= C7X_RESULT_SIZE) {
+            memcpy((void *)(uintptr_t)C7X_RESULT_ADDR,
                    out_nd->data, (size_t)out_td->data_size);
             uint32_t wb_size2 = (out_td->data_size > 0xFFFFFFFFU)
                                 ? 0xFFFFFFFFU : (uint32_t)out_td->data_size;
-            CacheP_wb((void *)(uintptr_t)C7X_OUTPUT_BUFFER_ADDR,
+            CacheP_wb((void *)(uintptr_t)C7X_RESULT_ADDR,
                      wb_size2, CacheP_TYPE_ALL);
-            out_td->data_addr = C7X_OUTPUT_BUFFER_ADDR;
+            out_td->data_addr = C7X_RESULT_ADDR;
         }
     }
 

@@ -72,11 +72,11 @@ struct c7x_client {
     UniqueFd rproc_fd;          /* /dev/remoteproc0 fd -- must stay open to keep
                                    the dmabuf device attachment alive for DSP */
     MmapRegion shared_map;      /* mmap'd shared buffer (input + output) */
-    void *input_buf = nullptr;  /* = shared_map.get() */
-    void *output_buf = nullptr; /* = shared_map.get() + C7X_INPUT_BUFFER_SIZE */
+    void *staging_buf = nullptr;  /* = shared_map.get() */
+    void *result_buf = nullptr; /* = shared_map.get() + C7X_STAGING_SIZE */
     uint64_t phys_addr = 0;     /* physical address of shared buffer */
     uint32_t seq = 0;           /* Message sequence number */
-    size_t input_data_offset = 0; /* Offset in input buffer for tensor data.
+    size_t input_data_offset = 0; /* Offset in staging buffer for tensor data.
                                      Set to elf_size after DYN_LOAD so that
                                      in-place rodata segments in the ELF are
                                      not overwritten by input tensor staging. */
@@ -96,7 +96,7 @@ struct c7x_client {
 
 /**
  * Flush ARM cache for the shared DMA buffer so the DSP sees fresh data.
- * Must be called after writing to input_buf and before sending RPMsg.
+ * Must be called after writing to staging_buf and before sending RPMsg.
  */
 static void sync_input_to_device(c7x_client_t *client)
 {
@@ -107,7 +107,7 @@ static void sync_input_to_device(c7x_client_t *client)
 
 /**
  * Invalidate ARM cache for the shared DMA buffer so the host sees DSP writes.
- * Must be called after receiving RPMsg response and before reading output_buf.
+ * Must be called after receiving RPMsg response and before reading result_buf.
  */
 static void sync_output_from_device(c7x_client_t *client)
 {
@@ -191,9 +191,9 @@ c7x_client_t *c7x_client_open(void)
     }
     client->shared_map = MmapRegion(mapped, C7X_SHARED_SIZE);
 
-    client->input_buf  = client->shared_map.get();
-    client->output_buf = static_cast<uint8_t *>(client->shared_map.get())
-                         + C7X_INPUT_BUFFER_SIZE;
+    client->staging_buf  = client->shared_map.get();
+    client->result_buf = static_cast<uint8_t *>(client->shared_map.get())
+                         + C7X_STAGING_SIZE;
 
     /* Get physical address via remoteproc driver.
      * rproc_fd must stay open -- RPROC_IOC_DMA_BUF_ATTACH creates a device
@@ -231,12 +231,12 @@ c7x_client_t *c7x_client_open(void)
     }
 
     printf("c7x: Connected to compute service\n");
-    printf("c7x: Input buffer:  %p (phys 0x%llx)\n",
-           client->input_buf,
+    printf("c7x: Staging buffer:  %p (phys 0x%llx)\n",
+           client->staging_buf,
            static_cast<unsigned long long>(client->phys_addr));
-    printf("c7x: Output buffer: %p (phys 0x%llx)\n",
-           client->output_buf,
-           static_cast<unsigned long long>(client->phys_addr + C7X_INPUT_BUFFER_SIZE));
+    printf("c7x: Result buffer: %p (phys 0x%llx)\n",
+           client->result_buf,
+           static_cast<unsigned long long>(client->phys_addr + C7X_STAGING_SIZE));
 
     return client.release();
 }
@@ -318,18 +318,18 @@ int c7x_client_get_status(c7x_client_t *client, c7x_status_t *status)
     return 0;
 }
 
-void *c7x_client_get_input_buffer(c7x_client_t *client, size_t *size)
+void *c7x_client_get_staging_buffer(c7x_client_t *client, size_t *size)
 {
     if (!client) return nullptr;
-    if (size) *size = C7X_INPUT_BUFFER_SIZE;
-    return client->input_buf;
+    if (size) *size = C7X_STAGING_SIZE;
+    return client->staging_buf;
 }
 
-void *c7x_client_get_output_buffer(c7x_client_t *client, size_t *size)
+void *c7x_client_get_result_buffer(c7x_client_t *client, size_t *size)
 {
     if (!client) return nullptr;
-    if (size) *size = C7X_OUTPUT_BUFFER_SIZE;
-    return client->output_buf;
+    if (size) *size = C7X_RESULT_SIZE;
+    return client->result_buf;
 }
 
 /*
@@ -339,7 +339,7 @@ void *c7x_client_get_output_buffer(c7x_client_t *client, size_t *size)
  */
 
 /**
- * Helper: stage a file into the shared input buffer.
+ * Helper: stage a file into the shared staging buffer.
  */
 static int stage_file(c7x_client_t *client, const char *file_path, size_t *size_out)
 {
@@ -353,13 +353,13 @@ static int stage_file(c7x_client_t *client, const char *file_path, size_t *size_
     size_t file_size = ftell(f.get());
     fseek(f.get(), 0, SEEK_SET);
 
-    if (file_size > C7X_INPUT_BUFFER_SIZE) {
+    if (file_size > C7X_STAGING_SIZE) {
         fprintf(stderr, "c7x: File too large: %zu bytes (max %llu)\n",
-                file_size, static_cast<unsigned long long>(C7X_INPUT_BUFFER_SIZE));
+                file_size, static_cast<unsigned long long>(C7X_STAGING_SIZE));
         return -EFBIG;
     }
 
-    if (fread(client->input_buf, 1, file_size, f.get()) != file_size) {
+    if (fread(client->staging_buf, 1, file_size, f.get()) != file_size) {
         fprintf(stderr, "c7x: Failed to read %s\n", file_path);
         return -EIO;
     }
@@ -378,7 +378,7 @@ int c7x_client_model_load(c7x_client_t *client, const char *weights_file,
 
     if (!client || !weights_file || !model_id_out) return -EINVAL;
 
-    /* Stage weights.bin in shared input buffer */
+    /* Stage weights.bin in shared staging buffer */
     int ret = stage_file(client, weights_file, &file_size);
     if (ret < 0) return ret;
 
@@ -441,7 +441,7 @@ int c7x_client_dyn_load(c7x_client_t *client, const char *elf_file,
 
     if (!client || !elf_file || !handle_out) return -EINVAL;
 
-    /* Stage ELF in shared input buffer */
+    /* Stage ELF in shared staging buffer */
     int ret = stage_file(client, elf_file, &file_size);
     if (ret < 0) return ret;
 
@@ -463,7 +463,7 @@ int c7x_client_dyn_load(c7x_client_t *client, const char *elf_file,
     }
 
     *handle_out = resp.module_handle;
-    /* DLOAD maps rodata segments in-place in the input buffer.
+    /* DLOAD maps rodata segments in-place in the staging buffer.
      * Stage input tensors after the ELF to avoid overwriting them. */
     client->input_data_offset = file_size;
     printf("c7x: Loaded module handle=%u (text=%u data=%u "
@@ -497,7 +497,7 @@ int c7x_client_dyn_unload(c7x_client_t *client, uint32_t handle)
     }
 
     /* In-place rodata region is no longer needed -- reset offset so
-     * the next load cycle can use the full input buffer. */
+     * the next load cycle can use the full staging buffer. */
     client->input_data_offset = 0;
     printf("c7x: Unloaded module handle=%u\n", handle);
     return 0;
@@ -524,17 +524,17 @@ static int c7x_client_infer_impl(c7x_client_t *client,
     if (!client || !inputs || num_inputs < 1 || !outputs || !num_outputs)
         return -EINVAL;
 
-    /* Stage input tensor data AFTER the ELF region in the input buffer.
+    /* Stage input tensor data AFTER the ELF region in the staging buffer.
      * DLOAD maps rodata segments in-place from the ELF, so we must not
      * overwrite that region with input tensors. */
     data_offset = client->input_data_offset;
     for (int i = 0; i < num_inputs; i++) {
-        if (data_offset + inputs[i].data_size > C7X_INPUT_BUFFER_SIZE) {
+        if (data_offset + inputs[i].data_size > C7X_STAGING_SIZE) {
             fprintf(stderr, "c7x: Input data exceeds buffer size\n");
             return -EFBIG;
         }
         if (inputs[i].data && inputs[i].data_size > 0) {
-            memcpy(static_cast<uint8_t *>(client->input_buf) + data_offset,
+            memcpy(static_cast<uint8_t *>(client->staging_buf) + data_offset,
                    inputs[i].data, inputs[i].data_size);
         }
         data_offset += inputs[i].data_size;
@@ -553,7 +553,7 @@ static int c7x_client_infer_impl(c7x_client_t *client,
     /* Fill tensor descriptors.  DSP addresses start after the ELF
      * region to match the host-side staging offset (rodata segments
      * mapped in-place by DLOAD must not be overwritten). */
-    uint64_t cur_addr = C7X_INPUT_BUFFER_ADDR
+    uint64_t cur_addr = C7X_STAGING_ADDR
                       + client->input_data_offset;
     for (int i = 0; i < num_inputs; i++) {
         req->inputs[i].data_addr = cur_addr;
@@ -582,7 +582,7 @@ static int c7x_client_infer_impl(c7x_client_t *client,
         return resp->hdr.status;
     }
 
-    /* Sync output buffer from DSP before reading */
+    /* Sync result buffer from DSP before reading */
     sync_output_from_device(client);
 
     /* Extract output tensor metadata */
@@ -590,7 +590,7 @@ static int c7x_client_infer_impl(c7x_client_t *client,
     for (int i = 0; i < static_cast<int>(resp->num_outputs)
                     && i < C7X_TENSOR_MAX_NDIM; i++) {
         struct c7x_tensor_desc *out_td = &resp->outputs[i];
-        outputs[i].data = client->output_buf; /* points to mmap'd output buffer */
+        outputs[i].data = client->result_buf; /* points to mmap'd result buffer */
         outputs[i].data_size = static_cast<size_t>(out_td->data_size);
         outputs[i].ndim = out_td->ndim;
         outputs[i].dtype_code = out_td->dtype_code;
@@ -604,9 +604,9 @@ static int c7x_client_infer_impl(c7x_client_t *client,
      * Using stderr so it doesn't interfere with JSON on stdout. */
     if (resp->printf_size > 0 &&
         resp->printf_size <= C7X_PRINTF_BUF_SIZE) {
-        size_t printf_offset = C7X_OUTPUT_BUFFER_SIZE
+        size_t printf_offset = C7X_RESULT_SIZE
                              - C7X_PRINTF_BUF_SIZE + 16;
-        const char *pdata = static_cast<const char *>(client->output_buf)
+        const char *pdata = static_cast<const char *>(client->result_buf)
                             + printf_offset;
         fwrite(pdata, 1, resp->printf_size, stderr);
         fflush(stderr);

@@ -26,7 +26,6 @@
 #include "platform/dsp_platform.h"
 
 #include "dyn_loader.h"
-#include "c7x_compute_protocol.h"
 #include "dload/DLOAD_API/dload_api.h"
 #include "dload/DLOAD/elf32.h"
 
@@ -83,6 +82,8 @@ typedef struct {
     uint32_t        text_size;
     uint32_t        data_size;
     uint32_t        inplace_end;    /* End of in-place rodata in input buf */
+    uintptr_t       input_buf_start; /* Start of input buffer (from file_data) */
+    uintptr_t       input_buf_end;   /* End of input buffer (file_data + file_size) */
 } DynLoaderClient_t;
 
 /*
@@ -633,11 +634,12 @@ BOOL DLIF_allocate(void *client_handle, struct DLOAD_MEMORY_REQUEST *req)
 
 BOOL DLIF_release(void *client_handle, struct DLOAD_MEMORY_SEGMENT *ptr)
 {
+    DynLoaderClient_t *client = (DynLoaderClient_t *)client_handle;
     TARGET_ADDRESS addr = ptr->target_address;
-    /* In-place rodata lives in the input buffer (0xC0000000 region),
-     * not the DDR pool -- do not free it. */
-    if (addr >= C7X_INPUT_BUFFER_ADDR &&
-        addr < C7X_INPUT_BUFFER_ADDR + C7X_INPUT_BUFFER_SIZE)
+    /* In-place rodata: address is within the input buffer range
+     * passed to dyn_loader_load() -- do not free it. */
+    if ((uintptr_t)addr >= client->input_buf_start &&
+        (uintptr_t)addr < client->input_buf_end)
         return TRUE;
     DLIF_free((void *)addr);
     return TRUE;
@@ -850,6 +852,8 @@ int32_t dyn_loader_load(uint64_t elf_addr, uint32_t elf_size,
         client->dload_handle = DLOAD_create(client);
         client->file_data = (const char *)(uintptr_t)elf_addr;
         client->file_size = elf_size;
+        client->input_buf_start = (uintptr_t)elf_addr;
+        client->input_buf_end = (uintptr_t)elf_addr + elf_size;
         client->dsp_syms_size = (int)NUM_DSP_SYMS;
         client->dsp_syms = dsp_syms;
 

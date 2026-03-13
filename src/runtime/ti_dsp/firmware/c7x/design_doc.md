@@ -406,8 +406,8 @@ Two output paths coexist:
 
 ### Buffer Layout
 
-The printf buffer occupies the last 64 KB of the output buffer
-(`C7X_PRINTF_BUF_ADDR` = output buffer end - 64 KB):
+The printf buffer occupies the last 64 KB of the result buffer
+(`C7X_PRINTF_BUF_ADDR` = result buffer end - 64 KB):
 
 ```
 Offset  Size    Field
