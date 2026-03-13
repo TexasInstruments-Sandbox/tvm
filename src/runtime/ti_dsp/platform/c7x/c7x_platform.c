@@ -101,7 +101,8 @@ uint32_t tvm_dsp_get_l2_size(void) { return g_tvm_l2_size; }
 #ifndef __TI_COMPILER_VERSION__
 /* Fallback storage for non-TI compilers (host emulation) */
 static uint8_t g_l2_heap_storage[TVM_DSP_L2_SIZE_FALLBACK];
-static uint8_t g_ddr_heap_storage[TVM_DSP_DDR_SIZE_FALLBACK];
+/* DDR pool is dynamically allocated to avoid large BSS for big models */
+static uint8_t* g_ddr_heap_storage = NULL;
 #endif
 
 /* Platform initialization state */
@@ -131,8 +132,12 @@ int tvm_dsp_platform_init(void) {
   /* Fallback for host emulation */
   g_l2_heap_base = g_l2_heap_storage;
   g_l2_heap_size = sizeof(g_l2_heap_storage);
+  if (!g_ddr_heap_storage) {
+    g_ddr_heap_storage = (uint8_t*)malloc(TVM_DSP_DDR_SIZE_FALLBACK);
+    if (!g_ddr_heap_storage) return -1;
+  }
   g_ddr_heap_base = g_ddr_heap_storage;
-  g_ddr_heap_size = sizeof(g_ddr_heap_storage);
+  g_ddr_heap_size = TVM_DSP_DDR_SIZE_FALLBACK;
 #endif
 
   /* Export L2 base/size for the inline bump allocator in generated code.

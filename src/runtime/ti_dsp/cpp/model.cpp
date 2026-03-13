@@ -176,34 +176,41 @@ ModelError Model::Load(const void* weights_data, size_t weights_size) {
   return ModelError::kSuccess;
 }
 
-ModelError Model::InferInternal(NDArray* input, TVMFFIAny* output_any) {
+ModelError Model::InferInternal(NDArray* inputs, int num_inputs,
+                                TVMFFIAny* output_any) {
   if (!initialized_) {
     return ModelError::kNotLoaded;
   }
 
-  if (input == nullptr || output_any == nullptr) {
+  if (inputs == nullptr || num_inputs < 1 || output_any == nullptr) {
     return ModelError::kNullInput;
   }
 
-  /* Create temporary TVMDSPNDArray wrapper for input */
+  if (num_inputs > kMaxInputs) {
+    return ModelError::kNullInput;
+  }
+
+  /* Create TVMDSPNDArray wrappers and TVMFFIAny array for all inputs */
   DLDevice device = {kDLCPU, 0};
-  TVMDSPNDArray* input_arr = TVMDSPNDArrayFromData(
-      input->data,
-      input->shape,
-      input->ndim,
-      input->dtype,
-      device);
+  TVMFFIAny input_anys[kMaxInputs];
 
-  if (input_arr == nullptr) {
-    return ModelError::kNullInput;
+  for (int i = 0; i < num_inputs; i++) {
+    TVMDSPNDArray* input_arr = TVMDSPNDArrayFromData(
+        inputs[i].data,
+        inputs[i].shape,
+        inputs[i].ndim,
+        inputs[i].dtype,
+        device);
+
+    if (input_arr == nullptr) {
+      return ModelError::kNullInput;
+    }
+
+    input_anys[i].type_index = kTVMFFITensor;
+    input_anys[i].zero_padding = 0;
+    input_anys[i].v_obj = reinterpret_cast<TVMFFIObject*>(input_arr);
+    input_arr->ref_counter++;
   }
-
-  /* Prepare input as TVMFFIAny */
-  TVMFFIAny input_any;
-  input_any.type_index = kTVMFFITensor;
-  input_any.zero_padding = 0;
-  input_any.v_obj = reinterpret_cast<TVMFFIObject*>(input_arr);
-  input_arr->ref_counter++;
 
   /* Clear output */
   std::memset(output_any, 0, sizeof(*output_any));
@@ -213,7 +220,7 @@ ModelError Model::InferInternal(NDArray* input, TVMFFIAny* output_any) {
   uint64_t cycles_start = TVMDSPCycleCounter_getCount64();
 
   /* Call generated wrapper */
-  int ret = cg_main_dsp(&input_any, 1, constants_, output_any);
+  int ret = cg_main_dsp(input_anys, num_inputs, constants_, output_any);
 
   uint64_t cycles_end = TVMDSPCycleCounter_getCount64();
   last_cycles_ = TVMDSPCycleCounter_elapsed(cycles_start, cycles_end);
@@ -225,14 +232,14 @@ ModelError Model::InferInternal(NDArray* input, TVMFFIAny* output_any) {
   return ModelError::kSuccess;
 }
 
-ModelError Model::Infer(NDArray* input, NDArray** output) {
+ModelError Model::Infer(NDArray* inputs, int num_inputs, NDArray** output) {
   if (output == nullptr) {
     return ModelError::kNullInput;
   }
 
   /* Run inference */
   TVMFFIAny output_any;
-  ModelError err = InferInternal(input, &output_any);
+  ModelError err = InferInternal(inputs, num_inputs, &output_any);
   if (err != ModelError::kSuccess) {
     return err;
   }
@@ -283,14 +290,15 @@ ModelError Model::Infer(NDArray* input, NDArray** output) {
   return ModelError::kSuccess;
 }
 
-ModelError Model::InferMulti(NDArray* input, NDArray** outputs, int* num_outputs) {
+ModelError Model::InferMulti(NDArray* inputs, int num_inputs,
+                             NDArray** outputs, int* num_outputs) {
   if (outputs == nullptr || num_outputs == nullptr) {
     return ModelError::kNullInput;
   }
 
   /* Run inference with single-output API (it populates output_views_) */
   NDArray* first_output;
-  ModelError err = Infer(input, &first_output);
+  ModelError err = Infer(inputs, num_inputs, &first_output);
   if (err != ModelError::kSuccess) {
     return err;
   }

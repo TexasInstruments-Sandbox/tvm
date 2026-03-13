@@ -63,20 +63,27 @@ int main(int argc, char** argv) {
   }
   printf("Loaded %d constants\n", model.ConstantCount());
 
-  /* Read input */
+  /* Read input(s) */
   int num_inputs = 0;
   OwnedNDArray** input_tensors = ReadTensorsFromFile("input.bin", &num_inputs);
   if (!input_tensors || num_inputs < 1) {
     printf("ERROR: Failed to read input.bin\n");
     return 1;
   }
-  NDArray input = input_tensors[0]->AsView();
-  print_ndarray_info("Input", &input);
 
-  /* Run inference (multi-output) */
+  /* Create NDArray views for all inputs */
+  NDArray inputs[8];
+  for (int i = 0; i < num_inputs && i < 8; i++) {
+    inputs[i] = input_tensors[i]->AsView();
+    char name[32];
+    snprintf(name, sizeof(name), "Input[%d]", i);
+    print_ndarray_info(name, &inputs[i]);
+  }
+
+  /* Run inference (multi-input, multi-output) */
   NDArray* outputs[8];
   int num_outputs = 0;
-  err = model.InferMulti(&input, outputs, &num_outputs);
+  err = model.InferMulti(inputs, num_inputs, outputs, &num_outputs);
   if (err != ModelError::kSuccess) {
     printf("ERROR: Inference failed (%d)\n", static_cast<int>(err));
     FreeTensors(input_tensors, num_inputs);

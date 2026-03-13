@@ -106,9 +106,11 @@ Type InferTypeQuantize(const Call& call, const BlockBuilder& ctx) {
         << "but got " << zp_ty->dtype;
   }
 
-  // Check that "axis" attribute is not out of range:
+  // For per-tensor quantization (scalar scale and zp), axis is irrelevant, so only
+  // validate it for per-channel quantization.
   int axis = (attrs->axis < 0) ? (input_ty->ndim + attrs->axis) : attrs->axis;
-  if (input_ty->ndim != 0 && (axis < 0 || axis > input_ty->ndim - 1)) {
+  bool is_per_tensor = IsScalarTensor(scale_ty) && IsScalarTensor(zp_ty);
+  if (!is_per_tensor && input_ty->ndim != 0 && (axis < 0 || axis > input_ty->ndim - 1)) {
     TVM_FFI_VISIT_THROW(ValueError, call)
         << "relax.quantize: axis param is out of range (" << attrs->axis << ")";
   }
@@ -268,9 +270,11 @@ Type InferTypeDequantize(const Call& call, const BlockBuilder& ctx) {
         << "but got " << zp_ty->dtype;
   }
 
-  // Check that "axis" attribute is not out of range:
+  // For per-tensor quantization (scalar scale and zp), axis is irrelevant, so only
+  // validate it for per-channel quantization.
   int axis = (attrs->axis < 0) ? (input_ty->ndim + attrs->axis) : attrs->axis;
-  if (input_ty->ndim != 0 && (axis < 0 || axis > input_ty->ndim - 1)) {
+  bool is_per_tensor = IsScalarTensor(scale_ty) && IsScalarTensor(zp_ty);
+  if (!is_per_tensor && input_ty->ndim != 0 && (axis < 0 || axis > input_ty->ndim - 1)) {
     TVM_FFI_VISIT_THROW(ValueError, call)
         << "relax.dequantize: axis param is out of range (" << attrs->axis << ")";
   }
