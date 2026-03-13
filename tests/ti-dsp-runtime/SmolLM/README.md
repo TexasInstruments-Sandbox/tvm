@@ -8,8 +8,8 @@ host emulation (c7x_host), then on AM67A hardware (c7x_dload).
 
 | Variant | c7x_host | c7x_dload |
 |---------|----------|-----------|
-| Float32 (~621 MB weights) | PASS (max diff 0.21) | not tested |
-| INT8 weight-only (~333 MB weights) | PASS (max diff 0.19) | not tested |
+| Float32 (~621 MB weights) | PASS (max diff 0.21) | build fails (ELF too large) |
+| INT8 weight-only (~333 MB weights) | PASS (max diff 0.19) | FAIL (max diff 30.9, investigating) |
 
 ## Model Overview
 

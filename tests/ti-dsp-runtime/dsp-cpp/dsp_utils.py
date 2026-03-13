@@ -942,6 +942,7 @@ def run_dsp_dload(
     dtype_to_str = {
         np.dtype("float32"): "float32",
         np.dtype("float16"): "float16",
+        np.dtype("int64"): "int64",
         np.dtype("int32"): "int32",
         np.dtype("int8"): "int8",
         np.dtype("uint8"): "uint8",
@@ -987,25 +988,26 @@ def run_dsp_dload(
 
     logger.info(f"Running DLOAD inference on {target_host}")
 
-    # Validate single input (CLI limitation)
-    if len(input_tensors) != 1:
-        raise ValueError(
-            f"c7x_compute CLI supports single-input models, got {len(input_tensors)} inputs"
-        )
-    input_arr = np.ascontiguousarray(input_tensors[0])
-
-    # Get input shape/dtype strings
-    shape_str = ",".join(str(d) for d in input_arr.shape)
-    dtype_str = dtype_to_str.get(input_arr.dtype)
-    if dtype_str is None:
-        raise ValueError(f"Unsupported input dtype: {input_arr.dtype}")
+    # Build semicolon-separated shape/dtype for multi-input support
+    shape_parts = []
+    dtype_parts = []
+    for arr in input_tensors:
+        arr = np.ascontiguousarray(arr)
+        shape_parts.append(",".join(str(d) for d in arr.shape))
+        dt = dtype_to_str.get(arr.dtype)
+        if dt is None:
+            raise ValueError(f"Unsupported input dtype: {arr.dtype}")
+        dtype_parts.append(dt)
+    shape_str = ";".join(shape_parts)
+    dtype_str = ";".join(dtype_parts)
 
     # Create remote directory
     ssh_cmd(f"mkdir -p {remote_dir}")
 
-    # Write input tensor as raw binary to temp file
+    # Concatenate all input tensors into one binary file
     with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tmp:
-        tmp.write(input_arr.tobytes())
+        for arr in input_tensors:
+            tmp.write(np.ascontiguousarray(arr).tobytes())
         local_input = Path(tmp.name)
 
     try:
@@ -1027,8 +1029,8 @@ def run_dsp_dload(
         f" --module {remote_module}"
         f" --input {remote_input}"
         f" --output {remote_output}"
-        f" --shape {shape_str}"
-        f" --dtype {dtype_str}"
+        f" --shape '{shape_str}'"
+        f" --dtype '{dtype_str}'"
     )
     run_result = subprocess.run(
         ["ssh", remote, run_cmd],

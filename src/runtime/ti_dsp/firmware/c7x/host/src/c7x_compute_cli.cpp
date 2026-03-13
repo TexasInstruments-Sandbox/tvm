@@ -334,6 +334,8 @@ static int parse_dtype(const char *str, int32_t *code, int32_t *bits)
         *code = 2; *bits = 16;
     } else if (strcmp(str, "int32") == 0) {
         *code = 0; *bits = 32;
+    } else if (strcmp(str, "int64") == 0) {
+        *code = 0; *bits = 64;
     } else if (strcmp(str, "int8") == 0) {
         *code = 0; *bits = 8;
     } else if (strcmp(str, "uint8") == 0) {
@@ -345,22 +347,97 @@ static int parse_dtype(const char *str, int32_t *code, int32_t *bits)
     return 0;
 }
 
+static constexpr int kMaxInputs = 8;
+
+/**
+ * Parse multi-input descriptors from semicolon-separated shape/dtype
+ * strings and a concatenated binary file buffer.
+ *
+ * shape_str: "1,16;1,16;1,16"  (semicolon-separated per-input shapes)
+ * dtype_str: "int64;int64;int64" or "float32" (broadcast single dtype)
+ *
+ * Returns number of inputs parsed, or -1 on error.
+ */
+static int parse_multi_inputs(const char *shape_str, const char *dtype_str,
+                              uint8_t *file_data, size_t file_size,
+                              c7x_tensor_desc_t *inputs)
+{
+    /* Split shape_str on ';' to count inputs */
+    char shape_buf[1024];
+    strncpy(shape_buf, shape_str, sizeof(shape_buf) - 1);
+    shape_buf[sizeof(shape_buf) - 1] = '\0';
+
+    char dtype_buf[256];
+    if (dtype_str)
+        strncpy(dtype_buf, dtype_str, sizeof(dtype_buf) - 1);
+    else
+        strncpy(dtype_buf, "float32", sizeof(dtype_buf) - 1);
+    dtype_buf[sizeof(dtype_buf) - 1] = '\0';
+
+    /* Collect per-input shape tokens */
+    char *shape_tokens[kMaxInputs];
+    int num_inputs = 0;
+    char *tok = strtok(shape_buf, ";");
+    while (tok && num_inputs < kMaxInputs) {
+        shape_tokens[num_inputs++] = tok;
+        tok = strtok(nullptr, ";");
+    }
+
+    /* Collect per-input dtype tokens */
+    char *dtype_tokens[kMaxInputs];
+    int num_dtypes = 0;
+    tok = strtok(dtype_buf, ";");
+    while (tok && num_dtypes < kMaxInputs) {
+        dtype_tokens[num_dtypes++] = tok;
+        tok = strtok(nullptr, ";");
+    }
+
+    size_t offset = 0;
+    for (int i = 0; i < num_inputs; i++) {
+        memset(&inputs[i], 0, sizeof(inputs[i]));
+
+        /* Parse dtype (broadcast single dtype to all inputs) */
+        const char *dt = (i < num_dtypes) ? dtype_tokens[i] : dtype_tokens[0];
+        if (parse_dtype(dt, &inputs[i].dtype_code, &inputs[i].dtype_bits) < 0)
+            return -1;
+
+        /* Parse shape */
+        inputs[i].ndim = parse_shape(shape_tokens[i], inputs[i].shape,
+                                      C7X_TENSOR_MAX_NDIM);
+
+        /* Compute byte size from shape * dtype */
+        size_t num_elems = 1;
+        for (int d = 0; d < inputs[i].ndim; d++)
+            num_elems *= static_cast<size_t>(inputs[i].shape[d]);
+        size_t byte_size = num_elems * (inputs[i].dtype_bits / 8);
+
+        if (offset + byte_size > file_size) {
+            fprintf(stderr, "Input %d: need %zu bytes at offset %zu, "
+                    "but file is only %zu bytes\n",
+                    i, byte_size, offset, file_size);
+            return -1;
+        }
+
+        inputs[i].data = file_data + offset;
+        inputs[i].data_size = byte_size;
+        offset += byte_size;
+    }
+
+    return num_inputs;
+}
+
 static int cmd_infer(uint32_t module_handle, uint32_t model_id,
                      const char *input_file, const char *output_file,
                      const char *shape_str, const char *dtype_str)
 {
-    c7x_tensor_desc_t input, output;
-    int num_outputs = 0;
+    c7x_tensor_desc_t inputs[kMaxInputs], output;
+    int num_inputs = 0, num_outputs = 0;
     uint64_t cycles = 0;
 
     if (!input_file) {
         fprintf(stderr, "Error: --input file required\n");
         return 1;
     }
-
-    /* Parse dtype */
-    int32_t dtype_code = 2, dtype_bits = 32;
-    if (parse_dtype(dtype_str, &dtype_code, &dtype_bits) < 0) return 1;
 
     /* Read input file */
     UniqueFile f(fopen(input_file, "rb"));
@@ -379,19 +456,23 @@ static int cmd_infer(uint32_t module_handle, uint32_t model_id,
     }
     f = {};  /* close input file early */
 
-    /* Build input tensor descriptor */
-    memset(&input, 0, sizeof(input));
-    input.data = input_data.get();
-    input.data_size = file_size;
-    input.dtype_code = dtype_code;
-    input.dtype_bits = dtype_bits;
-
+    /* Parse input descriptors (single or multi-input) */
     if (shape_str) {
-        input.ndim = parse_shape(shape_str, input.shape, C7X_TENSOR_MAX_NDIM);
+        num_inputs = parse_multi_inputs(shape_str, dtype_str,
+                                         input_data.get(), file_size, inputs);
+        if (num_inputs < 0) return 1;
     } else {
-        /* Default: 1D tensor of appropriate type */
-        input.ndim = 1;
-        input.shape[0] = static_cast<int64_t>(file_size / (dtype_bits / 8));
+        /* Default: single 1D float32 tensor */
+        int32_t dtype_code = 2, dtype_bits = 32;
+        if (parse_dtype(dtype_str, &dtype_code, &dtype_bits) < 0) return 1;
+        memset(&inputs[0], 0, sizeof(inputs[0]));
+        inputs[0].data = input_data.get();
+        inputs[0].data_size = file_size;
+        inputs[0].dtype_code = dtype_code;
+        inputs[0].dtype_bits = dtype_bits;
+        inputs[0].ndim = 1;
+        inputs[0].shape[0] = static_cast<int64_t>(file_size / (dtype_bits / 8));
+        num_inputs = 1;
     }
 
     memset(&output, 0, sizeof(output));
@@ -402,7 +483,7 @@ static int cmd_infer(uint32_t module_handle, uint32_t model_id,
     }
 
     int ret = c7x_client_infer(client, module_handle, model_id,
-                               &input, 1, &output, &num_outputs, &cycles);
+                               inputs, num_inputs, &output, &num_outputs, &cycles);
 
     if (ret == 0) {
         printf("Inference complete: %llu cycles\n", (unsigned long long)cycles);
@@ -442,8 +523,8 @@ static int cmd_run(const char *module_file,
                    const char *shape_str, const char *dtype_str,
                    uint32_t repeat = 1)
 {
-    c7x_tensor_desc_t input, output;
-    int num_outputs = 0;
+    c7x_tensor_desc_t inputs[kMaxInputs], output;
+    int num_inputs = 0, num_outputs = 0;
     uint64_t cycles = 0;
     c7x_client_t *client = nullptr;
     uint32_t handle = 0;
@@ -459,10 +540,6 @@ static int cmd_run(const char *module_file,
         fprintf(stderr, "Error: --input file required\n");
         return 1;
     }
-
-    /* Parse dtype */
-    int32_t dtype_code = 2, dtype_bits = 32;
-    if (parse_dtype(dtype_str, &dtype_code, &dtype_bits) < 0) return 1;
 
     /* Read input file */
     UniqueFile f(fopen(input_file, "rb"));
@@ -481,18 +558,22 @@ static int cmd_run(const char *module_file,
     }
     f = {};  /* close input file early */
 
-    /* Build input tensor descriptor */
-    memset(&input, 0, sizeof(input));
-    input.data = input_data.get();
-    input.data_size = file_size;
-    input.dtype_code = dtype_code;
-    input.dtype_bits = dtype_bits;
-
+    /* Parse input descriptors (single or multi-input) */
     if (shape_str) {
-        input.ndim = parse_shape(shape_str, input.shape, C7X_TENSOR_MAX_NDIM);
+        num_inputs = parse_multi_inputs(shape_str, dtype_str,
+                                         input_data.get(), file_size, inputs);
+        if (num_inputs < 0) return 1;
     } else {
-        input.ndim = 1;
-        input.shape[0] = static_cast<int64_t>(file_size / (dtype_bits / 8));
+        int32_t dtype_code = 2, dtype_bits = 32;
+        if (parse_dtype(dtype_str, &dtype_code, &dtype_bits) < 0) return 1;
+        memset(&inputs[0], 0, sizeof(inputs[0]));
+        inputs[0].data = input_data.get();
+        inputs[0].data_size = file_size;
+        inputs[0].dtype_code = dtype_code;
+        inputs[0].dtype_bits = dtype_bits;
+        inputs[0].ndim = 1;
+        inputs[0].shape[0] = static_cast<int64_t>(file_size / (dtype_bits / 8));
+        num_inputs = 1;
     }
 
     memset(&output, 0, sizeof(output));
@@ -516,8 +597,8 @@ static int cmd_run(const char *module_file,
     /* INFER — model_id=0 triggers embedded-weights fallback.
      * repeat>1 enables profiling (firmware loops cg_main_dsp N times). */
     ret = c7x_client_infer_repeat(client, handle, 0,
-                                   &input, 1, &output, &num_outputs, &cycles,
-                                   repeat);
+                                   inputs, num_inputs, &output, &num_outputs,
+                                   &cycles, repeat);
     if (ret != 0) {
         error_stage = "infer";
         goto cleanup;
