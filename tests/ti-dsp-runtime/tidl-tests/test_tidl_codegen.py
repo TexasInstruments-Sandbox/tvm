@@ -231,7 +231,7 @@ class TestTIDLCodegen:
         TIDL extern calls and regular TVM compute in generated code."""
 
         @I.ir_module
-        class ConvSoftmaxModel:
+        class ConvSigmoidModel:
             @R.function
             def main(x: R.Tensor((1, 3, 32, 32), "float32")):
                 R.func_attr({"num_input": 1})
@@ -239,20 +239,20 @@ class TestTIDLCodegen:
                     w = R.const(np.random.randn(16, 3, 3, 3).astype("float32"))
                     y = R.nn.conv2d(x, w, strides=[1, 1], padding=[1, 1, 1, 1])
                     y = R.nn.relu(y)
-                    y = R.nn.softmax(y, axis=1)
+                    y = R.sigmoid(y)
                     R.output(y)
                 return y
 
-        lowered = _partition_and_lower(ConvSoftmaxModel)
+        lowered = _partition_and_lower(ConvSigmoidModel)
         source = _build_and_get_source(lowered)
 
         # TIDL subgraph for conv+relu
         assert "tidl_subgraph_0_process" in source, (
             "Expected TIDL extern call for conv+relu"
         )
-        # Softmax should be lowered as regular TVM compute
+        # Sigmoid should be lowered as regular TVM compute
         assert len(source) > 500, (
-            "Expected substantial generated code (softmax compute)"
+            "Expected substantial generated code (sigmoid compute)"
         )
 
 
@@ -261,10 +261,10 @@ class TestTIDLCodegen:
 # ---------------------------------------------------------------------------
 
 
-class ConvSoftmaxConvModel(nn.Module):
+class ConvSigmoidConvModel(nn.Module):
     """Two TIDL subgraphs separated by an unsupported op.
 
-    conv+relu -> softmax (not TIDL) -> conv+relu
+    conv+relu -> sigmoid (not TIDL) -> conv+relu
     This produces two separate tidl_subgraph TIR stubs.
     """
 
@@ -276,7 +276,7 @@ class ConvSoftmaxConvModel(nn.Module):
     def main(self, x):
         x = self.conv1(x)
         x = nn.relu(x)
-        x = nn.softmax(x, axis=1)  # breaks the TIDL subgraph
+        x = nn.sigmoid(x)  # breaks the TIDL subgraph
         x = self.conv2(x)
         x = nn.relu(x)
         return x
@@ -312,7 +312,7 @@ class TestTIDLBridgeGeneration:
         from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
         mod = _export_and_bind(
-            ConvSoftmaxConvModel,
+            ConvSigmoidConvModel,
             {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
         )
         lowered = _partition_and_lower(mod)
@@ -347,7 +347,7 @@ class TestTIDLBridgeGeneration:
         from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
         mod = _export_and_bind(
-            ConvSoftmaxConvModel,
+            ConvSigmoidConvModel,
             {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
         )
         lowered = _partition_and_lower(mod)
