@@ -344,21 +344,20 @@ void CodeGenCStatic::PrintType(DataType t, std::ostream& os) {  // NOLINT(*)
       return;
     }
   } else if (t.is_uint() || t.is_int()) {
-    if (t.is_uint()) {
-      os << 'u';
-    }
     switch (t.bits()) {
       case 8:
-        os << "char";
+        // Use explicitly-sized types to avoid platform-dependent signedness
+        // of plain 'char' (e.g. TI cl7x defaults to unsigned char).
+        os << (t.is_uint() ? "uint8_t" : "int8_t");
         break;
       case 16:
-        os << "short";
+        os << (t.is_uint() ? "uint16_t" : "int16_t");
         break;
       case 32:
-        os << "int";
+        os << (t.is_uint() ? "uint32_t" : "int32_t");
         break;
       case 64:
-        os << "long";
+        os << (t.is_uint() ? "uint64_t" : "int64_t");
         break;
       case 1:
         os << "int";
