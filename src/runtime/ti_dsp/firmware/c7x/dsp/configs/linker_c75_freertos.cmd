@@ -83,18 +83,12 @@ MEMORY
     DDR_C7X_1_LOCAL_HEAP_NON_CACHEABLE ( RWIX ) : ORIGIN = 0x100000000 , LENGTH = 0x04000000
     /* DDR for c7x_1 for non cacheable scratch Memory [ size 64.00 MB ] */
     DDR_C7X_1_SCRATCH_NON_CACHEABLE ( RWIX ) : ORIGIN = 0x104000000 , LENGTH = 0x04000000
-    /* DDR for c7x_1 for local heap + scratch [ size 128.00 MB ]
-     * Merged LOCAL_HEAP (64 MB) + SCRATCH (64 MB) into a single contiguous
-     * cacheable region for TVM runtime + DLOAD allocations. */
-    DDR_C7X_1_LOCAL_HEAP     ( RWIX ) : ORIGIN = 0x108000000 , LENGTH = 0x08000000
-    /* Virtual address of non-cacheable DDR for c7x_2 for local heap wrt c7x_1 [ size 64.00 MB ] */
-    DDR_C7X_1_2_LOCAL_HEAP_NON_CACHEABLE ( RWIX ) : ORIGIN = 0x110000000 , LENGTH = 0x04000000
-    /* Virtual address of non-cacheable DDR for c7x_2 for Scratch Memory wrt c7x_1 [ size 64.00 MB ] */
-    DDR_C7X_1_2_SCRATCH_NON_CACHEABLE ( RWIX ) : ORIGIN = 0x114000000 , LENGTH = 0x04000000
-    /* Virtual address of cacheable DDR for c7x_2 for local heap wrt c7x_1 [ size 64.00 MB ] */
-    DDR_C7X_1_2_LOCAL_HEAP   ( RWIX ) : ORIGIN = 0x118000000 , LENGTH = 0x04000000
-    /* Virtual address of cacheable DDR for c7x_2 for Scratch Memory wrt c7x_1 [ size 64.00 MB ] */
-    DDR_C7X_1_2_SCRATCH      ( RWIX ) : ORIGIN = 0x11C000000 , LENGTH = 0x04000000
+    /* DDR for c7x_1 for local heap + scratch [ size 256.00 MB ]
+     * Merged LOCAL_HEAP (64 MB) + SCRATCH (64 MB) + c7x_2 regions (128 MB)
+     * into a single contiguous cacheable region for TVM runtime + DLOAD
+     * allocations.  c7x_2 regions are unused on J722S (single C7x core).
+     * MMU Region 13 in c75ss0.syscfg maps 0x102000000-0x118000000 (352 MB). */
+    DDR_C7X_1_LOCAL_HEAP     ( RWIX ) : ORIGIN = 0x108000000 , LENGTH = 0x10000000
 }
 
 /*
@@ -189,7 +183,7 @@ SECTIONS
         RUN_START(__TVM_DSP_L2_HEAP_START)
         RUN_END(__TVM_DSP_L2_HEAP_END)
 
-    .bss:tvm_ddr_heap        (NOLOAD) : { . = . + 0x8000000; } > DDR_C7X_1_LOCAL_HEAP
+    .bss:tvm_ddr_heap        (NOLOAD) : { . = . + 0x10000000; } > DDR_C7X_1_LOCAL_HEAP
         RUN_START(__TVM_DSP_DDR_HEAP_START)
         RUN_END(__TVM_DSP_DDR_HEAP_END)
 
