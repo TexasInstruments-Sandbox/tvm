@@ -150,16 +150,16 @@ t.save_pretrained('tests/ti-dsp-runtime/SmolLM/model')
 ## Usage
 
 ```bash
-# Float32 on c7x_host (~621 MB weights)
-python smollm_c7x_host.py
+# Compile once, run many times
+python smollm_c7x.py compile --quantize -o /tmp/smol_int8
+python smollm_c7x.py infer   --artifacts /tmp/smol_int8
 
-# INT8 weight-only on c7x_host (~333 MB weights)
-python smollm_c7x_host.py --quantize
-
-# INT8 on AM67A hardware (not yet tested)
-python smollm_c7x_host.py --quantize --dsp-mode c7x_dload
+# Compile + infer in one shot
+python smollm_c7x.py test                          # FP32 on c7x_host
+python smollm_c7x.py test --quantize               # INT8 on c7x_host
+python smollm_c7x.py test --quantize --dsp-mode c7x_dload  # INT8 on AM67A
 
 # Options
-python smollm_c7x_host.py --seq-len 32   # longer sequence
-python smollm_c7x_host.py -v             # verbose logging
+python smollm_c7x.py test --seq-len 32   # longer sequence
+python smollm_c7x.py test -v             # verbose logging
 ```
