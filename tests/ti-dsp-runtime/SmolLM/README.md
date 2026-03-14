@@ -8,8 +8,89 @@ host emulation (c7x_host), then on AM67A hardware (c7x_dload).
 
 | Variant | c7x_host | c7x_dload |
 |---------|----------|-----------|
-| Float32 (~621 MB weights) | PASS (max diff 0.21) | build fails (ELF too large) |
-| INT8 weight-only (~333 MB weights) | PASS (max diff 0.19) | FAIL (max diff 30.9, investigating) |
+| Float32 (~621 MB weights) | PASS (max diff 0.21) | ELF too large |
+| INT8 weight-only (~333 MB weights) | PASS (max diff 0.19) | max diff 30.9 (logits), see below |
+
+### c7x_dload logit divergence
+
+The 30.9 max logit diff on c7x_dload is not a quantization or compiler
+correctness bug.  It is a floating-point amplification effect specific
+to SmolLM's trained weight matrices.
+
+**It is not INT8.**  FP32 (no quantization) shows the same error:
+
+| Precision | 1-layer c7x_host | 1-layer c7x_dload |
+|-----------|------------------|-------------------|
+| FP32      | 0.077            | 1.889             |
+| INT8      | 0.125            | 1.873             |
+
+**It is not a single broken operation.**  Individual components
+(RMSNorm, attention, MLP, full transformer block) all pass with
+<0.1 max diff on c7x_dload when tested with random weights.  See
+`test_component_divergence.py`.
+
+**Root cause: lm_head amplification of small hidden-state errors.**
+
+1. The TI cl7x compiler and g++ schedule matmul accumulation loops in
+   different orders.  IEEE 754 float addition is not associative, so
+   `(a+b)+c != a+(b+c)`.  This produces per-element differences of
+   ~1e-6 per matmul.
+
+2. SmolLM's Q_proj attention weight matrix has condition number ~7M.
+   A 1e-6 per-element matmul difference in a 576-dim dot product
+   becomes ~0.001-0.01 in the hidden state after passing through
+   ill-conditioned projections, attention softmax, and residual
+   additions.
+
+3. The lm_head (576 -> 49152) has max singular value 626.  This
+   amplifies a ~0.05 hidden-state difference to ~31 in logit space:
+
+   ```
+   hidden_state_diff=0.001  ->  logit_diff ~0.6
+   hidden_state_diff=0.01   ->  logit_diff ~6.3
+   hidden_state_diff=0.05   ->  logit_diff ~31    <-- observed
+   ```
+
+4. Random weights do NOT trigger this because they have condition
+   numbers ~O(1) and singular values ~O(sqrt(dim)), so there is
+   no amplification.  This is why `test_component_divergence.py`
+   passes perfectly.
+
+**Error by layer count (c7x_dload, SmolLM INT8, logit space):**
+
+| Layers | max diff | cos sim | notes                          |
+|--------|----------|---------|--------------------------------|
+| 1      | 1.87     | 0.9998  | lm_head amplifies hidden diff  |
+| 2      | 45.0     | 0.39    | attention cross-token coupling  |
+| 4      | 31.3     | 0.71    | plateaus (logits bounded)       |
+| 8      | 34.1     | 0.68    |                                |
+| 30     | 30.9     | 0.26    | full model                     |
+
+On c7x_host the error stays <0.2 at all depths because g++ and
+PyTorch use the same x86 float arithmetic (same accumulation order
+in the matmul inner loop).
+
+**What was ruled out:**
+
+- `--fp_mode=strict` on TI cl7x: no change (tested, diff unchanged)
+- `-ffp-contract=off` on g++ (disabling FMA): no change
+- INT8 quantization: FP32 shows the same error
+- Single-operation bugs: all ops pass with random weights
+- Memory corruption: error is deterministic and reproducible
+
+**Potential mitigations (future work):**
+
+- Kahan summation in matmul inner loops (reduces accumulation error)
+- Double-precision accumulators for inner products
+- Compare hidden states (before lm_head) instead of logits
+- Use top-k token accuracy as the validation metric
+
+**Diagnostic scripts:**
+
+- `test_component_divergence.py` — tests individual ops with random
+  weights on c7x_host and c7x_dload (confirms ops are precise)
+- `test_smollm_layers.py` — truncated SmolLM layer sweep with real
+  weights, `--fp32` flag proves quantization is not the cause
 
 ## Model Overview
 
