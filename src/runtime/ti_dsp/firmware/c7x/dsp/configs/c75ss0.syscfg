@@ -221,28 +221,31 @@ mmu_armv8_r12.privExecute       = true;
 mmu_armv8_r12.userExecute       = false;
 
 /**
- * Region 13: DDR C7x_1 Cacheable Heap (0x102000000 -> 0x882000000) - 224MB
+ * Region 13: DDR C7x_1 Cacheable Heap (0x102000000 -> 0x882000000) - 352MB
+ * Extended from 224 MB to include c7x_2 space (J722S has one C7x core).
+ * Covers the DDR_C7X_1_LOCAL_HEAP linker region (256 MB at 0x108000000).
  */
 mmu_armv8_r13.$name             = "DDR_C7X_1_LOCAL_HEAP";
 mmu_armv8_r13.vAddr             = 0x102000000;
 mmu_armv8_r13.pAddr             = 0x882000000;
-mmu_armv8_r13.size              = 0x0E000000;
+mmu_armv8_r13.size              = 0x16000000;
 mmu_armv8_r13.attribute         = "MAIR7";
 mmu_armv8_r13.accessPermissions = "Privilege RW, User None";
 mmu_armv8_r13.privExecute       = true;
 mmu_armv8_r13.userExecute       = false;
 
 /**
- * Region 14: DDR C7x_2 Non-Cacheable (0x110000000 -> 0x890000000) - 32MB
- * For C7x_2 access from C7x_1 (if needed)
+ * Region 14: Unused (was DDR C7x_2 Non-Cacheable)
+ * J722S has a single C7x core; c7x_2 regions are not needed.
+ * Map a small dummy region to satisfy SysConfig's 16-region requirement.
  */
-mmu_armv8_r14.$name             = "DDR_C7X_2_LOCAL_HEAP_NC";
-mmu_armv8_r14.vAddr             = 0x110000000;
-mmu_armv8_r14.pAddr             = 0x890000000;
-mmu_armv8_r14.size              = 0x02000000;
+mmu_armv8_r14.$name             = "DDR_C7X_2_UNUSED";
+mmu_armv8_r14.vAddr             = 0x118000000;
+mmu_armv8_r14.pAddr             = 0x898000000;
+mmu_armv8_r14.size              = 0x00200000;
 mmu_armv8_r14.attribute         = "MAIR4";
 mmu_armv8_r14.accessPermissions = "Privilege RW, User None";
-mmu_armv8_r14.privExecute       = true;
+mmu_armv8_r14.privExecute       = false;
 mmu_armv8_r14.userExecute       = false;
 
 /**
