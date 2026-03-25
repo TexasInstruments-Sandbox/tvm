@@ -326,12 +326,17 @@ def cmd_compile(args) -> int:
     elif args.dsp_mode == "c7x_dload":
         build_dir = artifacts_dir / "build-dynmod"
         weights_path = generated_dir / "weights.bin"
+        fp_reassoc_off = getattr(args, "fp_reassoc_off", False)
         module_path = build_dsp_dynmod(
             generated_dir,
             build_dir=build_dir,
             weights_file=weights_path,
+            fp_reassoc_off=fp_reassoc_off,
         )
-        print(f"  Built: {module_path}")
+        if fp_reassoc_off:
+            print(f"  Built (--fp_reassoc=off): {module_path}")
+        else:
+            print(f"  Built: {module_path}")
 
     # Save metadata
     metadata = {
@@ -339,6 +344,7 @@ def cmd_compile(args) -> int:
         "seq_len": args.seq_len,
         "quantize": args.quantize,
         "model_dir": str(args.model_dir),
+        "fp_reassoc_off": getattr(args, "fp_reassoc_off", False),
     }
     metadata_path = artifacts_dir / "metadata.json"
     with open(metadata_path, "w") as f:
@@ -467,18 +473,18 @@ def cmd_infer(args) -> int:
         print(f"  Top-1 match:   {top1_match:.1%}")
         print(f"  Avg cos sim:   {avg_cos:.4f}")
 
-        # Pass criteria depends on mode:
-        # - c7x_host: tight tolerance (same compiler family)
-        # - c7x_dload: known divergence from cross-platform float
-        #   non-associativity amplified by lm_head (sigma_max=626) and
-        #   ill-conditioned attention weights (cond~7M).  See README.
-        if dsp_mode == "c7x_dload":
-            # c7x_dload always passes — the logit divergence is a known
-            # platform difference, not a correctness bug.  Metrics are
-            # printed for monitoring; fix requires Kahan summation or
-            # double-precision accumulators in matmul inner loops.
+        # Pass criteria:
+        # - c7x_host: tight tolerance (same compiler family as PyTorch)
+        # - c7x_dload + fp_reassoc_off: tight tolerance (--fp_reassoc=off
+        #   prevents the cl7x optimizer reordering that causes divergence)
+        # - c7x_dload without fp_reassoc_off: the cl7x -O2 fp-reassoc
+        #   optimization reorders matmul accumulations, producing 30+ logit
+        #   diff in ill-conditioned models.  Always passes but reports metrics
+        #   for monitoring.  See README for the full investigation.
+        fp_reassoc_off = metadata.get("fp_reassoc_off", False)
+        if dsp_mode == "c7x_dload" and not fp_reassoc_off:
             passed = True
-            metric = f"top1={top1_match:.0%}, cos={avg_cos:.3f} (known platform diff)"
+            metric = f"top1={top1_match:.0%}, cos={avg_cos:.3f} (fp_reassoc on, known divergence)"
         else:
             quantize = metadata["quantize"]
             atol = 2.5 if quantize else 0.5
@@ -546,7 +552,7 @@ examples:
   %(prog)s compile --quantize -o /tmp/smol_int8
   %(prog)s infer   --artifacts /tmp/smol_int8
   %(prog)s test    --quantize
-  %(prog)s test    --quantize --dsp-mode c7x_dload
+  %(prog)s test    --quantize --dsp-mode c7x_dload --fp-reassoc-off
 """,
     )
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -577,6 +583,17 @@ examples:
         "--output",
         default="/tmp/smollm_artifacts",
         help="Output directory for artifacts (default: /tmp/smollm_artifacts)",
+    )
+    p_compile.add_argument(
+        "--fp-reassoc-off",
+        action="store_true",
+        dest="fp_reassoc_off",
+        help=(
+            "Compile lib0.c with --fp_reassoc=off (c7x_dload only). "
+            "Prevents the cl7x -O2 optimizer from reordering float "
+            "accumulations. Fixes 30+ logit divergence in LLMs with "
+            "ill-conditioned weights at ~27%% cycle overhead."
+        ),
     )
 
     # -- infer --
@@ -612,6 +629,12 @@ examples:
         choices=["c7x_host", "c7x_dload"],
         default="c7x_host",
         help="DSP execution mode (default: c7x_host)",
+    )
+    p_test.add_argument(
+        "--fp-reassoc-off",
+        action="store_true",
+        dest="fp_reassoc_off",
+        help="Compile lib0.c with --fp_reassoc=off (c7x_dload only, see compile --help)",
     )
 
     args = parser.parse_args()

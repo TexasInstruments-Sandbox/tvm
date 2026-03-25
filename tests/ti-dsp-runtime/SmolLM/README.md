@@ -9,7 +9,7 @@ host emulation (c7x_host), then on AM67A hardware (c7x_dload).
 | Variant | c7x_host | c7x_dload |
 |---------|----------|-----------|
 | Float32 (~621 MB weights) | PASS (max diff 0.21) | ELF too large |
-| INT8 weight-only (~333 MB weights) | PASS (max diff 0.19) | max diff 30.9 (logits), see below |
+| INT8 weight-only (~333 MB weights) | PASS (max diff 0.19) | PASS (max diff 0.19, --fp_reassoc=off) |
 
 ### c7x_dload logit divergence
 
@@ -29,32 +29,20 @@ to SmolLM's trained weight matrices.
 <0.1 max diff on c7x_dload when tested with random weights.  See
 `test_component_divergence.py`.
 
-**Root cause: lm_head amplification of small hidden-state errors.**
+**Amplification mechanism: lm_head + ill-conditioned weights.**
 
-1. The TI cl7x compiler and g++ schedule matmul accumulation loops in
-   different orders.  IEEE 754 float addition is not associative, so
-   `(a+b)+c != a+(b+c)`.  This produces per-element differences of
-   ~1e-6 per matmul.
+SmolLM's Q_proj attention weight matrix has condition number ~7M,
+and the lm_head (576 -> 49152) has max singular value 626.  A ~0.05
+hidden-state difference gets amplified to ~31 in logit space:
 
-2. SmolLM's Q_proj attention weight matrix has condition number ~7M.
-   A 1e-6 per-element matmul difference in a 576-dim dot product
-   becomes ~0.001-0.01 in the hidden state after passing through
-   ill-conditioned projections, attention softmax, and residual
-   additions.
+```
+hidden_state_diff=0.001  ->  logit_diff ~0.6
+hidden_state_diff=0.01   ->  logit_diff ~6.3
+hidden_state_diff=0.05   ->  logit_diff ~31    <-- observed
+```
 
-3. The lm_head (576 -> 49152) has max singular value 626.  This
-   amplifies a ~0.05 hidden-state difference to ~31 in logit space:
-
-   ```
-   hidden_state_diff=0.001  ->  logit_diff ~0.6
-   hidden_state_diff=0.01   ->  logit_diff ~6.3
-   hidden_state_diff=0.05   ->  logit_diff ~31    <-- observed
-   ```
-
-4. Random weights do NOT trigger this because they have condition
-   numbers ~O(1) and singular values ~O(sqrt(dim)), so there is
-   no amplification.  This is why `test_component_divergence.py`
-   passes perfectly.
+Random weights do NOT trigger this because they have condition
+numbers ~O(1), which is why `test_component_divergence.py` passes.
 
 **Error by layer count (c7x_dload, SmolLM INT8, logit space):**
 
@@ -67,23 +55,47 @@ to SmolLM's trained weight matrices.
 | 30     | 30.9     | 0.26    | full model                     |
 
 On c7x_host the error stays <0.2 at all depths because g++ and
-PyTorch use the same x86 float arithmetic (same accumulation order
-in the matmul inner loop).
+PyTorch use the same x86 float arithmetic.
 
 **What was ruled out:**
 
-- `--fp_mode=strict` on TI cl7x: no change (tested, diff unchanged)
+- `--fp_mode=strict` on TI cl7x: no change
 - `-ffp-contract=off` on g++ (disabling FMA): no change
 - INT8 quantization: FP32 shows the same error
 - Single-operation bugs: all ops pass with random weights
 - Memory corruption: error is deterministic and reproducible
+- Pairwise summation in dequantize_matmul inner loops: no change
+  (error comes from regular matmuls/RMSNorm/softmax, not INT8 path)
+- Kahan compensated summation on ALL reduction loops: no change,
+  2.7x slower (125B vs 47B cycles).  Rules out float accumulation
+  order as the error source.
+- Replacing `__recip`/`__recip_sqrt` C7x intrinsics with IEEE
+  division (`1.0f/x`, `1.0f/sqrtf(x)`): no change.  Rules out
+  approximate reciprocal precision as the error source.
 
-**Potential mitigations (future work):**
+Every float-precision mitigation was tried and failed.  The
+divergence is not from float non-associativity, approximate
+intrinsics, or FP relaxation modes.  This points to a TI cl7x
+compiler optimization issue at -O2 that changes the numerical
+behavior of some operation beyond simple reordering.
 
-- Kahan summation in matmul inner loops (reduces accumulation error)
-- Double-precision accumulators for inner products
-- Compare hidden states (before lm_head) instead of logits
-- Use top-k token accuracy as the validation metric
+**Root cause found: TI cl7x `-O2` floating-point reassociation.**
+
+The `--fp_reassoc` optimization (enabled by default at -O2) reorders
+floating-point additions in matmul inner loops.  This is the specific
+optimization that produces the 30.9 logit divergence.
+
+**Fix:** `--fp_reassoc=off` in the C7x toolchain (27% overhead).
+
+| Build | max_diff | top-1 | cycles | overhead |
+|-------|----------|-------|--------|----------|
+| c7x_host (g++ -O3) | 0.189 | 100% | n/a | — |
+| c7x_dload -O2 | 30.9 | 6% | 47B | 1.0x |
+| c7x_dload -O2 --fp_reassoc=off | 0.191 | 100% | 59B | 1.27x |
+| c7x_dload -O1 | 0.191 | 100% | 153B | 3.3x |
+| c7x_dload -O0 | 0.191 | 100% | 155B | 3.3x |
+
+Applied in `toolchain-j722s-c7x.cmake`.
 
 **Diagnostic scripts:**
 
@@ -231,14 +243,20 @@ t.save_pretrained('tests/ti-dsp-runtime/SmolLM/model')
 ## Usage
 
 ```bash
-# Compile once, run many times
+# c7x_host: compile once, run many times
 python smollm_c7x.py compile --quantize -o /tmp/smol_int8
 python smollm_c7x.py infer   --artifacts /tmp/smol_int8
 
-# Compile + infer in one shot
-python smollm_c7x.py test                          # FP32 on c7x_host
-python smollm_c7x.py test --quantize               # INT8 on c7x_host
-python smollm_c7x.py test --quantize --dsp-mode c7x_dload  # INT8 on AM67A
+# c7x_dload (AM67A): use --fp-reassoc-off to prevent logit divergence
+python smollm_c7x.py compile --quantize --dsp-mode c7x_dload \
+                              --fp-reassoc-off -o /tmp/smol_int8_dload
+python smollm_c7x.py infer   --artifacts /tmp/smol_int8_dload \
+                              --dsp-mode c7x_dload
+
+# One-shot test
+python smollm_c7x.py test --quantize                          # c7x_host
+python smollm_c7x.py test --quantize --dsp-mode c7x_dload \
+                          --fp-reassoc-off                    # c7x_dload
 
 # Options
 python smollm_c7x.py test --seq-len 32   # longer sequence

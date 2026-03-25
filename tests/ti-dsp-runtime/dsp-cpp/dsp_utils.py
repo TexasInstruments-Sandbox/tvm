@@ -665,6 +665,7 @@ def build_dsp_dynmod(
     tidl_bridge: Optional[str] = None,
     use_tidl: bool = False,
     tidl_artifacts_dir: Optional[str] = None,
+    fp_reassoc_off: bool = False,
 ) -> Path:
     """
     Build TVM-generated lib0.c as a DLOAD-compatible C7x relocatable module.
@@ -683,6 +684,11 @@ def build_dsp_dynmod(
             Falls back to this module's directory for backward compatibility.
         build_type: Build type - "Release" (default) or "Debug".
         build_dir: Optional build directory. If None, creates one in dsp_cpp_dir.
+        fp_reassoc_off: If True, compile lib0.c with ``--fp_reassoc=off`` to
+            disable the cl7x floating-point reassociation optimization.  This
+            prevents the compiler from reordering matmul accumulations, which
+            causes large numerical divergence in models with ill-conditioned
+            weights (e.g. LLMs).  Adds ~27% cycle overhead.
 
     Returns:
         Path to the lib0.out relocatable module
@@ -741,6 +747,8 @@ def build_dsp_dynmod(
         cmake_cmd.insert(-1, "-DUSE_TIDL=ON")
     if tidl_artifacts_dir:
         cmake_cmd.insert(-1, f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
+    if fp_reassoc_off:
+        cmake_cmd.insert(-1, "-DFP_REASSOC_OFF=ON")
 
     log_path = build_dir / "cmake.log"
     logger.debug(f"Running CMake: {' '.join(cmake_cmd)}")
@@ -1274,6 +1282,7 @@ def compile_and_run_dsp(
     profile_layers: bool = False,
     profile: bool = False,
     relax_pipeline=None,
+    fp_reassoc_off: bool = False,
 ) -> dict:
     """
     End-to-end: compile, build, run, and return results.
@@ -1300,6 +1309,10 @@ def compile_and_run_dsp(
         profile_layers: Enable trace buffer monitoring during DLOAD inference
         profile: Use c7x_compute profile (repeat=2) for init/steady-state
             separation.  Only applies to c7x_dload mode.
+        fp_reassoc_off: Compile lib0.c with ``--fp_reassoc=off`` (c7x_dload
+            only).  Prevents the cl7x -O2 optimizer from reordering float
+            accumulations, fixing large logit divergence in LLMs.  ~27%
+            cycle overhead.  No effect on other execution modes.
 
     Returns:
         Dictionary with results:
@@ -1389,6 +1402,7 @@ def compile_and_run_dsp(
                 generated_dir,
                 build_dir=build_dir,
                 weights_file=weights_path,
+                fp_reassoc_off=fp_reassoc_off,
             )
             c7x_dload_output, c7x_dload_stdout, c7x_dload_cycles = run_dsp_dload(
                 module_path,
