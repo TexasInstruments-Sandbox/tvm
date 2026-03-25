@@ -352,11 +352,24 @@ if(USE_TIDL)
     message(STATUS "  TIDL: enabled")
 endif()
 
+# Optional: disable floating-point reassociation for lib0.c.
+# The cl7x -O2 optimizer reorders float additions in matmul inner loops,
+# which produces large numerical divergence in models with ill-conditioned
+# weight matrices (e.g. LLM attention Q_proj cond=7M, lm_head sigma_max=626).
+# --fp_reassoc=off prevents this reordering at ~27% cycle cost.
+# Pass -DFP_REASSOC_OFF=ON from build_dsp_dynmod to enable.
+set(LIB0_EXTRA_FLAGS "")
+if(FP_REASSOC_OFF)
+    set(LIB0_EXTRA_FLAGS "--fp_reassoc=off")
+    message(STATUS "  FP reassociation disabled for lib0.c (--fp_reassoc=off)")
+endif()
+
 # Compile lib0.c -> lib0.obj
 add_custom_command(
     OUTPUT "${LIB0_OBJ}"
     COMMAND ${CMAKE_CXX_COMPILER}
         ${CXX_FLAGS_LIST}
+        ${LIB0_EXTRA_FLAGS}
         ${DYNMOD_LANG_FLAGS}
         ${DYNMOD_INCLUDES}
         ${DYNMOD_DEFINES}
