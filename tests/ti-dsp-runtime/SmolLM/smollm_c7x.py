@@ -40,6 +40,7 @@ Usage:
 import argparse
 import json
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -539,6 +540,479 @@ def cmd_test(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# compile-chat subcommand
+# ---------------------------------------------------------------------------
+
+
+def _build_kv_cache_model(model_dir: Path, quantize: bool, max_cache_len: int):
+    """Load SmolLM and wrap with TorchExportableModuleWithStaticCache.
+
+    Returns the exportable module with the static KV cache registered as
+    named module buffers (key_cache_0..29, value_cache_0..29).  Each buffer
+    has shape [1, num_kv_heads, max_cache_len, head_dim] = [1, 3, max_len, 64].
+
+    The forward signature is:
+        (input_ids[1, seq], cache_position[seq]) → logits[1, seq, 49152]
+
+    Cache buffers are updated in-place; torch.export makes these mutations
+    explicit as additional output tensors.
+    """
+    from transformers.integrations.executorch import TorchExportableModuleWithStaticCache
+
+    if not model_dir.exists():
+        raise FileNotFoundError(f"Model not found: {model_dir}")
+
+    print(f"  Loading model from {model_dir} ...")
+    model = AutoModelForCausalLM.from_pretrained(
+        str(model_dir), dtype=torch.float32, local_files_only=True
+    )
+    model.eval()
+
+    if quantize:
+        print("  Applying per-channel INT8 weight quantization ...")
+        quantize_linears(model)
+
+    # Configure model for static caching
+    model.generation_config.use_cache = True
+    model.generation_config.cache_implementation = "static"
+
+    exportable = TorchExportableModuleWithStaticCache(
+        model, max_cache_len=max_cache_len, batch_size=1
+    )
+    exportable.eval()
+    return exportable
+
+
+def _add_kv_scatter_outputs(mod):
+    """Add scatter_elements outputs for KV cache to the function return.
+
+    After import, the TVM function returns just logits.  The 60
+    scatter_elements ops that write updated K/V values produce new tensors
+    that are used in attention but NOT returned to the host.  This means the
+    KV cache is never updated between calls.
+
+    This pass finds every scatter_elements call whose data argument is one of
+    the KV cache lifted_tensor_* parameters and appends the result to the
+    function's return tuple:
+
+        Before:  return logits
+        After:   return (logits, new_k_0, new_v_0, ..., new_k_29, new_v_29)
+
+    Returns (new_mod, n_kv_added).
+    """
+    import tvm  # noqa: PLC0415
+
+    func = mod["main"]
+
+    # KV cache params have names like c_model_model_layers_N_self_attn_lifted_tensor_M
+    kv_param_set = {
+        var for var in func.params if "lifted_tensor" in var.name_hint
+    }
+
+    # Walk bindings to find scatter_elements results for KV params
+    scatter_map: dict = {}  # param_var -> latest scatter_result var
+    for block in func.body.blocks:
+        for binding in block.bindings:
+            if not isinstance(binding, relax.VarBinding):
+                continue
+            val = binding.value
+            if not isinstance(val, relax.Call):
+                continue
+            if "scatter_elements" not in str(val.op):
+                continue
+            data_arg = val.args[0]
+            if isinstance(data_arg, relax.Var) and data_arg in kv_param_set:
+                scatter_map[data_arg] = binding.var
+
+    if not scatter_map:
+        return mod, 0
+
+    # Sort by parameter order for a stable, deterministic output layout
+    param_order = {var: i for i, var in enumerate(func.params)}
+    sorted_kv_vars = [
+        scatter_map[p]
+        for p in sorted(scatter_map.keys(), key=lambda v: param_order.get(v, 9999))
+    ]
+    n_kv = len(sorted_kv_vars)
+
+    # Build new return: Tuple([orig_return_field(s)] + kv_scatter_results)
+    orig_ret = func.body.body
+    if isinstance(orig_ret, relax.Tuple):
+        new_fields = list(orig_ret.fields) + sorted_kv_vars
+    else:
+        new_fields = [orig_ret] + sorted_kv_vars
+    new_ret = relax.Tuple(new_fields)
+
+    new_body = relax.SeqExpr(blocks=func.body.blocks, body=new_ret)
+    new_ret_sinfo = relax.TupleStructInfo([f.struct_info for f in new_fields])
+    new_func = relax.Function(
+        params=func.params,
+        body=new_body,
+        ret_struct_info=new_ret_sinfo,
+        attrs=func.attrs,
+    )
+
+    new_mod = tvm.IRModule({"main": new_func})
+    for gv, f in mod.functions_items():
+        if gv.name_hint != "main":
+            new_mod[gv] = f
+
+    return new_mod, n_kv
+
+
+def _compile_one_kvcache_mode(
+    exportable,
+    seq_len: int,
+    artifacts_dir: Path,
+    dsp_mode: str,
+    fp_reassoc_off: bool,
+    quantize: bool,
+    label: str,
+) -> int:
+    """Export, compile, and build one KV-cache model variant (prefill or decode).
+
+    The exported program has buffer mutations (60 KV cache tensors) that
+    torch.export lifts as explicit outputs.  After TVM import with
+    keep_params_as_input=True, we identify KV cache params by name pattern
+    and keep them as runtime inputs; model weights are bound as constants.
+
+    Returns 0 on success, 1 on failure.
+    """
+    print(f"\n  [{label}] seq_len={seq_len}")
+
+    # Example inputs for shape inference
+    input_ids = torch.randint(0, 49152, (1, seq_len), dtype=torch.long)
+    cache_position = torch.arange(seq_len, dtype=torch.long)
+
+    # Export to torch.export ExportedProgram.
+    # TorchExportableModuleWithStaticCache.forward signature:
+    #   (input_ids=None, inputs_embeds=None, cache_position=None)
+    # Must use kwargs to avoid mistaking cache_position for inputs_embeds.
+    print(f"    torch.export (seq_len={seq_len}) ...")
+    with torch.no_grad():
+        ep = export(
+            exportable,
+            args=(),
+            kwargs={"input_ids": input_ids, "cache_position": cache_position},
+        )
+
+    # Import into Relax — all params (weights + KV buffers) become inputs.
+    #
+    # Two import options are needed for StaticCache:
+    #
+    # 1. run_ep_decomposition=False: skips ep.run_decompositions() which
+    #    crashes (AssertionError in aot_stage2_export) for programs with
+    #    buffer mutations (StaticCache uses aten.index_copy_ to write new
+    #    K/V at cache_position into the pre-allocated KV buffers).
+    #
+    # 2. custom_convert_map for aten.index_copy_.default: TVM's FX
+    #    translator doesn't know this op.  It is equivalent to
+    #    scatter_elements(data, broadcast(index, source.shape), source, axis=dim)
+    #    i.e. "write source into data at positions index along axis dim".
+
+    def _convert_index_copy(node, importer):
+        """Convert aten.index_copy_(data, dim, index, source) → scatter_elements.
+
+        index_copy_ writes `source` (shape [..., seq, ...]) into `data`
+        (shape [..., max_cache_len, ...]) at positions `index` (shape [seq])
+        along `dim`.  scatter_elements needs an index tensor broadcast to
+        source.shape, so we expand the 1D cache_position to match source.
+
+        We use the static shapes from struct_info (not runtime shape_of) so
+        that downstream legalize_ops passes see ShapeExpr constants.
+        """
+        data, dim, index, source = node.args
+        data_expr = importer.env[data]
+        index_expr = importer.env[index]
+        source_expr = importer.env[source]
+
+        # Use static shapes from struct_info for broadcast_to target
+        src_sinfo = source_expr.struct_info
+        src_shape_static = list(src_sinfo.shape)  # list of int / tir.SizeVar
+        ndim = len(src_shape_static)
+
+        # Reshape index to [1, 1, seq, 1] → then broadcast_to source shape
+        new_shape = [1] * ndim
+        new_shape[dim] = src_shape_static[dim]  # seq dimension
+        index_r = relax.op.reshape(index_expr, relax.ShapeExpr(new_shape))
+        index_b = relax.op.broadcast_to(index_r, relax.ShapeExpr(src_shape_static))
+        return relax.op.scatter_elements(data_expr, index_b, source_expr, axis=dim)
+
+    print("    from_exported_program ...")
+    mod = from_exported_program(
+        ep,
+        keep_params_as_input=True,
+        run_ep_decomposition=False,
+        # Key must be node.target.__name__ = "index_copy_.default" (no aten. prefix)
+        custom_convert_map={"index_copy_.default": _convert_index_copy},
+    )
+
+    # Detach all params to get their initial values and make them inputs.
+    # After the translator fix, the runtime params are:
+    #   - model weight parameters (p_* names) → bind as constants
+    #   - KV lifted_tensor_* (c_model_..._lifted_tensor_* names) → keep as inputs
+    mod, params = relax.frontend.detach_params(mod)
+
+    n_user_inputs = 2
+    weight_params = {}
+    kv_param_count = 0
+    for var, val in zip(mod["main"].params[n_user_inputs:], params["main"]):
+        name = var.name_hint
+        if "lifted_tensor" in name:
+            kv_param_count += 1
+            # KV cache slot: leave as runtime input so the host can pass
+            # updated KV cache values on each decode step.
+        else:
+            weight_params[var] = val  # Bind as compile-time constant
+
+    print(
+        f"    Binding {len(weight_params)} weight params, "
+        f"leaving {kv_param_count} KV lifted_tensor inputs"
+    )
+
+    mod = relax.transform.BindParams(  # pyright: ignore[reportArgumentType]
+        func_name="main", params=weight_params
+    )(mod)
+
+    # Add scatter_elements outputs to the function return so the host can read
+    # the updated KV cache after each call.  The scatter ops write new K/V values
+    # into copies of the lifted_tensor_* inputs; we add these copies as extra
+    # outputs so the host can store them and pass them back on the next call.
+    mod, n_kv_outputs = _add_kv_scatter_outputs(mod)
+    if n_kv_outputs:
+        print(f"    Added {n_kv_outputs} KV scatter outputs to return")
+
+    if quantize:
+        print("    Running RewriteDequantize pass ...")
+        mod = relax.transform.RewriteDequantize()(mod)
+        mod = relax.transform.DeadCodeElimination()(mod)
+
+    # TVM compile
+    target_string = "c_static -mcpu=c7x"
+    label_dir = artifacts_dir / label
+    label_dir.mkdir(parents=True, exist_ok=True)
+    print(f"    TVM compile → {label_dir} ...")
+    generated_dir = compile_for_dsp(mod, target_string, output_dir=label_dir)
+
+    # Build dynmod
+    if dsp_mode in ("c7x_dload", "c7x_host"):
+        build_dir = label_dir / "build-dynmod"
+        weights_path = label_dir / "weights.bin"
+
+        if dsp_mode == "c7x_host":
+            # Build host binary for testing
+            host_build = label_dir / "build"
+            exe = build_dsp_c7x_host(generated_dir, build_dir=host_build)
+            print(f"    Built (c7x_host): {exe}")
+        else:
+            module_path = build_dsp_dynmod(
+                generated_dir,
+                build_dir=build_dir,
+                weights_file=weights_path,
+                fp_reassoc_off=fp_reassoc_off,
+            )
+            print(
+                f"    Built ({'--fp_reassoc=off' if fp_reassoc_off else 'default'}): {module_path}"
+            )
+
+    return 0
+
+
+def cmd_compile_chat(args) -> int:
+    """Compile SmolLM prefill + decode models for ARM-local KV cache chat.
+
+    Two fixed-shape models are compiled:
+    - prefill: processes the full prompt (seq_len=--prefill-len)
+    - decode:  processes one new token at a time (seq_len=1)
+
+    The 60 KV cache buffers (key_cache_0..29, value_cache_0..29) remain
+    as runtime inputs/outputs so they can be managed as numpy arrays on
+    the AM67A ARM side.  Both models use --fp-reassoc-off by default.
+
+    Deploy flow:
+        scp <artifacts>/prefill/build-dynmod/lib0.out  root@am67a:/opt/smollm/prefill.out
+        scp <artifacts>/prefill/weights.bin            root@am67a:/opt/smollm/prefill_weights.bin
+        scp <artifacts>/decode/build-dynmod/lib0.out   root@am67a:/opt/smollm/decode.out
+        scp <artifacts>/decode/weights.bin             root@am67a:/opt/smollm/decode_weights.bin
+        scp <artifacts>/tokenizer.json                 root@am67a:/opt/smollm/
+        scp smollm_board.py                            root@am67a:/opt/smollm/
+        ssh root@am67a python3 /opt/smollm/smollm_board.py --model-dir /opt/smollm
+    """
+    quant_label = "INT8" if args.quantize else "FP32"
+    print("=" * 70)
+    print(f"SmolLM-135M  {quant_label}  {args.dsp_mode}  [compile-chat]")
+    print(f"  prefill_len={args.prefill_len}  max_cache_len={args.max_cache_len}")
+    print("=" * 70)
+
+    artifacts_dir = Path(args.output).resolve()
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build shared exportable model
+    print("\n[1/3] Loading and wrapping model ...")
+    exportable = _build_kv_cache_model(
+        model_dir=args.model_dir,
+        quantize=args.quantize,
+        max_cache_len=args.max_cache_len,
+    )
+    num_kv_buffers = len([k for k in dir(exportable) if k.startswith("key_cache_")])
+    print(
+        f"  KV cache: {num_kv_buffers} key + {num_kv_buffers} value buffers, "
+        f"each [1, 3, {args.max_cache_len}, 64] = "
+        f"{num_kv_buffers * 2 * 3 * args.max_cache_len * 64 * 4 / 1024 / 1024:.1f} MB total"
+    )
+
+    fp_off = args.fp_reassoc_off if hasattr(args, "fp_reassoc_off") else True
+
+    # Compile prefill
+    print("\n[2/3] Compiling prefill model ...")
+    rc = _compile_one_kvcache_mode(
+        exportable,
+        args.prefill_len,
+        artifacts_dir,
+        args.dsp_mode,
+        fp_off,
+        args.quantize,
+        "prefill",
+    )
+    if rc != 0:
+        return rc
+
+    # Compile decode
+    print("\n[3/3] Compiling decode model ...")
+    rc = _compile_one_kvcache_mode(
+        exportable,
+        1,
+        artifacts_dir,
+        args.dsp_mode,
+        fp_off,
+        args.quantize,
+        "decode",
+    )
+    if rc != 0:
+        return rc
+
+    # Copy tokenizer.json for board deployment
+    tokenizer_src = args.model_dir / "tokenizer.json"
+    if tokenizer_src.exists():
+        shutil.copy(tokenizer_src, artifacts_dir / "tokenizer.json")
+        print(f"\n  Tokenizer: {artifacts_dir / 'tokenizer.json'}")
+
+    # Save metadata
+    metadata = {
+        "dsp_mode": args.dsp_mode,
+        "quantize": args.quantize,
+        "prefill_len": args.prefill_len,
+        "max_cache_len": args.max_cache_len,
+        "model_dir": str(args.model_dir),
+        "fp_reassoc_off": fp_off,
+        "num_kv_buffers_per_type": num_kv_buffers,
+        # SmolLM-135M constants for smollm_board.py
+        "num_layers": 30,
+        "num_kv_heads": 3,
+        "head_dim": 64,
+        "vocab_size": 49152,
+        "eos_token_id": 0,  # updated below if tokenizer available
+    }
+    # Try to read EOS token id from tokenizer config
+    tok_cfg = args.model_dir / "tokenizer_config.json"
+    if tok_cfg.exists():
+        with open(tok_cfg) as f:
+            tcfg = json.load(f)
+        eos = tcfg.get("eos_token_id") or tcfg.get("eos_token")
+        if isinstance(eos, int):
+            metadata["eos_token_id"] = eos
+
+    meta_path = artifacts_dir / "metadata.json"
+    with open(meta_path, "w") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"  Metadata: {meta_path}")
+
+    print(f"\nChat artifacts saved to: {artifacts_dir}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# deploy subcommand
+# ---------------------------------------------------------------------------
+
+
+def cmd_deploy(args) -> int:
+    """Copy compile-chat artifacts to the AM67A board via SCP.
+
+    Copies only the four files needed by smollm_board.py:
+      prefill.out  (DLOAD module with embedded weights)
+      decode.out
+      tokenizer.json
+      metadata.json
+    Plus smollm_board.py itself.
+
+    The weights.bin files are NOT transferred because they are already
+    embedded inside lib0.out at dynmod build time (--WEIGHTS_FILE flag).
+    """
+    artifacts_dir = Path(args.artifacts).resolve()
+
+    # Validate artifacts
+    meta_path = artifacts_dir / "metadata.json"
+    if not meta_path.exists():
+        print(f"ERROR: metadata.json not found in {artifacts_dir}")
+        return 1
+    with open(meta_path) as f:
+        meta = json.load(f)
+    if meta.get("dsp_mode") != "c7x_dload":
+        print(f"ERROR: artifacts were compiled for {meta.get('dsp_mode')}, not c7x_dload")
+        return 1
+
+    prefill_lib = artifacts_dir / "prefill" / "build-dynmod" / "lib0.out"
+    decode_lib = artifacts_dir / "decode" / "build-dynmod" / "lib0.out"
+    tokenizer = artifacts_dir / "tokenizer.json"
+    board_script = _THIS_DIR / "smollm_board.py"
+
+    for p in (prefill_lib, decode_lib, tokenizer, board_script):
+        if not p.exists():
+            print(f"ERROR: file not found: {p}")
+            return 1
+
+    target = args.target  # e.g. "root@am67a:/opt/smollm"
+    remote, remote_dir = target.rsplit(":", 1)
+
+    import subprocess as _sp
+
+    # Create remote directory
+    print(f"Creating {remote}:{remote_dir} ...")
+    _sp.run(["ssh", remote, f"mkdir -p {remote_dir}"], check=True)
+
+    # Transfer files
+    files = {
+        prefill_lib: f"{remote_dir}/prefill.out",
+        decode_lib: f"{remote_dir}/decode.out",
+        tokenizer: f"{remote_dir}/tokenizer.json",
+        meta_path: f"{remote_dir}/metadata.json",
+        board_script: f"{remote_dir}/smollm_board.py",
+    }
+
+    quant_label = "INT8" if meta.get("quantize") else "FP32"
+    prefill_len = meta.get("prefill_len", "?")
+    max_cache = meta.get("max_cache_len", "?")
+    print(
+        f"Deploying SmolLM-135M {quant_label} "
+        f"(prefill={prefill_len}, cache={max_cache}) to {remote}:{remote_dir}"
+    )
+
+    total_bytes = 0
+    for src, dst in files.items():
+        dst_name = dst.split("/")[-1]
+        size_mb = src.stat().st_size / (1024 * 1024)
+        print(f"  {src.name:30s} → {dst_name}  ({size_mb:.0f} MB)")
+        _sp.run(["scp", "-q", str(src), f"{remote}:{dst}"], check=True)
+        total_bytes += src.stat().st_size
+
+    print(f"\nDeployed {total_bytes / (1024 * 1024):.0f} MB total")
+    print("\nRun on board:")
+    print(f"  ssh {remote} python3 {remote_dir}/smollm_board.py --model-dir {remote_dir}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -637,6 +1111,74 @@ examples:
         help="Compile lib0.c with --fp_reassoc=off (c7x_dload only, see compile --help)",
     )
 
+    # -- compile-chat --
+    p_cc = subparsers.add_parser(
+        "compile-chat",
+        help="Compile prefill + decode models for ARM-local KV cache chat",
+    )
+    p_cc.add_argument(
+        "--model-dir",
+        type=Path,
+        default=_DEFAULT_MODEL_DIR,
+        help="Path to local SmolLM model directory",
+    )
+    p_cc.add_argument(
+        "--quantize",
+        action="store_true",
+        help="Apply per-channel INT8 weight-only quantization",
+    )
+    p_cc.add_argument(
+        "--dsp-mode",
+        choices=["c7x_host", "c7x_dload"],
+        default="c7x_dload",
+        help="DSP execution mode (default: c7x_dload)",
+    )
+    p_cc.add_argument(
+        "--prefill-len",
+        type=int,
+        default=64,
+        help="Fixed sequence length for the prefill model (default: 64). "
+        "Prompts longer than this are chunked automatically.",
+    )
+    p_cc.add_argument(
+        "--max-cache-len",
+        type=int,
+        default=256,
+        help="Maximum KV cache length in tokens (default: 256). "
+        "Sets the size of all 60 KV cache buffers: "
+        "2 × 30 × 3 × max_cache_len × 64 × 4 bytes.",
+    )
+    p_cc.add_argument(
+        "-o",
+        "--output",
+        default="/tmp/smollm_chat",
+        help="Output directory for chat artifacts (default: /tmp/smollm_chat)",
+    )
+    p_cc.add_argument(
+        "--fp-reassoc-off",
+        action="store_true",
+        dest="fp_reassoc_off",
+        default=True,
+        help="Compile with --fp_reassoc=off (default: enabled for LLM accuracy). "
+        "Prevents cl7x -O2 from reordering float accumulations.",
+    )
+
+    # -- deploy --
+    p_dep = subparsers.add_parser(
+        "deploy",
+        help="Deploy compile-chat artifacts to AM67A via SCP",
+    )
+    p_dep.add_argument(
+        "--artifacts",
+        required=True,
+        help="Path to artifacts directory from 'compile-chat'",
+    )
+    p_dep.add_argument(
+        "--target",
+        default="root@am67a:/opt/smollm",
+        help="SSH target and remote path (default: root@am67a:/opt/smollm)",
+    )
+
     args = parser.parse_args()
 
     if args.verbose:
@@ -648,6 +1190,10 @@ examples:
         return cmd_infer(args)
     elif args.command == "test":
         return cmd_test(args)
+    elif args.command == "compile-chat":
+        return cmd_compile_chat(args)
+    elif args.command == "deploy":
+        return cmd_deploy(args)
     else:
         parser.print_help()
         return 1

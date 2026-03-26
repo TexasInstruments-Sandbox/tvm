@@ -46,7 +46,9 @@ extern "C" {
  * This limit is enforced at compile time by c_static backend.
  * Models with more outputs will fail compilation with a clear error.
  */
-#define TVM_DSP_ARRAY_MAX_ELEMENTS 8
+/* Raised from 8 to 128 to support KV cache models that return
+ * (logits + 60 KV scatter outputs) = 61 total tuple elements. */
+#define TVM_DSP_ARRAY_MAX_ELEMENTS 128
 
 /*!
  * \brief Array object structure for holding multiple TVMFFIAny values.

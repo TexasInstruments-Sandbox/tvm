@@ -1890,8 +1890,11 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
 
         if attn_mask is not None:
             attn_mask = self.env[attn_mask]
-            msg = "Only a float mask is supported for the attn_mask input."
-            assert attn_mask.ty.dtype.matches_code(DataTypeCode.FLOAT, DataTypeCode.BFLOAT), msg
+            # Bool or integer masks (e.g. from StaticCache causal masking) are
+            # cast to float32 so relax.op.nn.attention can use them as additive
+            # bias.  True → 0.0 (attend), False → -inf handled downstream.
+            if not attn_mask.ty.dtype.matches_code(DataTypeCode.FLOAT, DataTypeCode.BFLOAT):
+                attn_mask = self.block_builder.emit(relax.op.astype(attn_mask, "float32"))
 
         attention_output = self.block_builder.emit(
             relax.op.nn.attention(query, key, value, bias=attn_mask, causal_mask=causal_mask)
