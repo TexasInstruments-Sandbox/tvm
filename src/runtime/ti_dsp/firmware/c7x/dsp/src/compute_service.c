@@ -27,6 +27,8 @@
 /* TVM DSP Runtime types */
 #include "ffi_types.h"
 #include "ndarray.h"
+#include "container/array.h"  /* TVMDSPArray for tuple output unpacking */
+#include "platform/dsp_platform.h"  /* tvm_dsp_alloc/free, TVM_DSP_MEM_MAIN */
 
 /* TVM runtime cleanup functions (defined in TVM DSP runtime library) */
 extern int TVMDSPRegFileCleanup(void);
@@ -342,7 +344,11 @@ static void handle_model_unload(struct c7x_msg_model_unload *req,
                   sizeof(*resp), srcCore, srcEndpt);
 }
 
+/* Maximum inputs for inline INFER message (fits in 512-byte rpmsg buffer).
+ * For more inputs, use C7X_MSG_INFER_LARGE which stages descriptors in DDR. */
 #define MAX_INFER_INPUTS 4
+/* Maximum inputs for INFER_LARGE (descriptors in DDR, no rpmsg size limit). */
+#define MAX_INFER_LARGE_INPUTS 128
 
 /**
  * build_input_ndarrays - Validate, cache-invalidate and construct NDArrays
@@ -415,29 +421,26 @@ static int32_t build_input_ndarrays(
     return C7X_STATUS_SUCCESS;
 }
 
-/**
- * extract_infer_output - Extract output tensor metadata from TVMFFIAny,
- *                        cache writeback and copy to shared output buffer.
+/*
+ * fill_one_output_tensor - Helper for extract_infer_output.
  *
- * Fills resp->num_outputs and resp->outputs[0].
+ * Writes metadata for a single NDArray output tensor into out_td, performs
+ * cache writeback, and copies data to result_offset within the result buffer.
+ * Returns the number of bytes consumed in the result buffer (0 on failure).
  */
-static void extract_infer_output(TVMFFIAny *output_any,
-                                 struct c7x_msg_infer_resp *resp)
+static uint64_t fill_one_output_tensor(TVMDSPNDArray *out_nd,
+                                       struct c7x_tensor_desc *out_td,
+                                       uint64_t result_offset)
 {
     uint32_t i;
 
-    resp->num_outputs = 0;
-    if (output_any->type_index != kTVMFFITensor || output_any->v_ptr == NULL)
-        return;
+    if (out_nd == NULL || out_nd->data == NULL)
+        return 0;
 
-    TVMDSPNDArray *out_nd = (TVMDSPNDArray *)output_any->v_ptr;
-    struct c7x_tensor_desc *out_td = &resp->outputs[0];
-
-    out_td->data_addr = (uint64_t)(uintptr_t)out_nd->data;
     int32_t out_ndim = out_nd->ndim;
     if (out_ndim < 0) out_ndim = 0;
     if (out_ndim > C7X_TENSOR_MAX_NDIM) out_ndim = C7X_TENSOR_MAX_NDIM;
-    out_td->ndim = out_ndim;
+    out_td->ndim       = out_ndim;
     out_td->dtype_code = out_nd->dtype.code;
     out_td->dtype_bits = out_nd->dtype.bits;
 
@@ -448,28 +451,160 @@ static void extract_infer_output(TVMFFIAny *output_any,
     }
     out_td->data_size = (uint64_t)total_elements * (out_nd->dtype.bits / 8);
 
-    /* Cache writeback output data so host can read it */
-    if (out_nd->data != NULL && out_td->data_size > 0) {
+    /* Cache writeback so host can read it */
+    if (out_td->data_size > 0) {
         uint32_t wb_size = (out_td->data_size > 0xFFFFFFFFU)
                            ? 0xFFFFFFFFU : (uint32_t)out_td->data_size;
         CacheP_wb(out_nd->data, wb_size, CacheP_TYPE_ALL);
     }
 
-    /* Copy output data to shared output buffer if it's not already there */
+    /* Copy into result buffer at the given offset when not already there */
+    uint64_t dst = C7X_RESULT_ADDR + result_offset;
     if ((uint64_t)(uintptr_t)out_nd->data < C7X_RESULT_ADDR ||
         (uint64_t)(uintptr_t)out_nd->data >= C7X_RESULT_ADDR + C7X_RESULT_SIZE) {
-        if (out_td->data_size <= C7X_RESULT_SIZE) {
-            memcpy((void *)(uintptr_t)C7X_RESULT_ADDR,
+        if (result_offset + out_td->data_size <= C7X_RESULT_SIZE) {
+            memcpy((void *)(uintptr_t)dst,
                    out_nd->data, (size_t)out_td->data_size);
-            uint32_t wb_size2 = (out_td->data_size > 0xFFFFFFFFU)
-                                ? 0xFFFFFFFFU : (uint32_t)out_td->data_size;
-            CacheP_wb((void *)(uintptr_t)C7X_RESULT_ADDR,
-                     wb_size2, CacheP_TYPE_ALL);
-            out_td->data_addr = C7X_RESULT_ADDR;
+            uint32_t wb2 = (out_td->data_size > 0xFFFFFFFFU)
+                           ? 0xFFFFFFFFU : (uint32_t)out_td->data_size;
+            CacheP_wb((void *)(uintptr_t)dst, wb2, CacheP_TYPE_ALL);
+            out_td->data_addr = dst;
+        } else {
+            /* Overflow: no room in result buffer */
+            DebugP_log("[COMPUTE] Result buffer overflow at offset %llu\r\n",
+                       (unsigned long long)result_offset);
+            out_td->data_addr = (uint64_t)(uintptr_t)out_nd->data;
         }
+    } else {
+        out_td->data_addr = (uint64_t)(uintptr_t)out_nd->data;
     }
 
-    resp->num_outputs = 1;
+    return out_td->data_size;
+}
+
+/**
+ * extract_infer_output - Extract output tensor(s) from TVMFFIAny.
+ *
+ * Handles two cases:
+ *
+ *  1. Single tensor return (kTVMFFITensor): standard single-output model.
+ *
+ *  2. Tuple/Array return (kTVMFFIArray): multi-output models such as KV
+ *     cache models that return (logits, kv_k_0, kv_v_0, ...).  All tuple
+ *     elements are packed consecutively into the result buffer and their
+ *     metadata is stored in resp->outputs[0..n-1].
+ *
+ * Fills resp->num_outputs and resp->outputs[].
+ */
+static void extract_infer_output(TVMFFIAny *output_any,
+                                 struct c7x_msg_infer_resp *resp)
+{
+    resp->num_outputs = 0;
+    /* Always clear out-of-band descriptor fields.  gSendBuf is a static
+     * buffer that persists across calls; if a previous INFER_LARGE run set
+     * descs_addr != 0, handle_infer (which reuses gSendBuf) would leave
+     * those fields set, causing the host client to misread old descriptors. */
+    resp->descs_addr = 0;
+    resp->descs_size = 0;
+    resp->reserved   = 0;
+
+    if (output_any->v_ptr == NULL)
+        return;
+
+    if (output_any->type_index == kTVMFFITensor) {
+        /* Single tensor output */
+        TVMDSPNDArray *out_nd = (TVMDSPNDArray *)output_any->v_ptr;
+        fill_one_output_tensor(out_nd, &resp->outputs[0], 0);
+        resp->num_outputs = 1;
+        return;
+    }
+
+    if (output_any->type_index == kTVMFFIArray) {
+        /* Tuple output: (logits, kv_k_0, kv_v_0, ...) */
+        TVMDSPArray *arr = (TVMDSPArray *)output_any->v_ptr;
+        int32_t n = arr->size;
+        uint64_t result_offset = 0;
+        int32_t out_idx = 0;
+        int32_t i;
+
+        /* Determine if the descriptor array fits inline in gSendBuf (512 bytes)
+         * or must be placed out-of-band in the result buffer.
+         * sizeof(c7x_msg_infer_resp) header = 56 bytes; each descriptor = 80 bytes.
+         * Inline budget: (512 - 56) / 80 = 5 descriptors. */
+        const uint32_t INFER_RESP_HDR_SIZE = (uint32_t)(
+            sizeof(struct c7x_msg_infer_resp) - sizeof(struct c7x_tensor_desc));
+        const uint32_t MAX_INLINE = (C7X_MAX_MSG_SIZE - INFER_RESP_HDR_SIZE)
+                                    / (uint32_t)sizeof(struct c7x_tensor_desc);
+        int use_ooband = ((uint32_t)n > MAX_INLINE);
+
+        /* When using out-of-band descriptors, place the descriptor array
+         * AFTER all tensor data in the result buffer.  We first measure
+         * total tensor data size to find a safe offset. */
+        uint64_t tensor_data_total = 0;
+        if (use_ooband) {
+            for (i = 0; i < n; i++) {
+                TVMFFIAny *elem = &arr->elements[i];
+                if (elem->type_index != kTVMFFITensor || elem->v_ptr == NULL)
+                    continue;
+                TVMDSPNDArray *nd = (TVMDSPNDArray *)elem->v_ptr;
+                int32_t ndim = nd->ndim; if (ndim < 0) ndim = 0;
+                int64_t elems = 1;
+                int32_t j;
+                for (j = 0; j < ndim && j < C7X_TENSOR_MAX_NDIM; j++)
+                    elems *= nd->shape[j];
+                uint64_t sz = (uint64_t)elems * (nd->dtype.bits / 8);
+                tensor_data_total += (sz + 63ULL) & ~63ULL;
+            }
+        }
+
+        /* Allocate descriptor array: inline resp->outputs[] or out-of-band */
+        struct c7x_tensor_desc *td_arr = NULL;
+        uint8_t *ooband_buf = NULL;
+        if (use_ooband) {
+            uint32_t descs_bytes = (uint32_t)n * sizeof(struct c7x_tensor_desc);
+            uint64_t descs_dsp_addr = C7X_RESULT_ADDR + tensor_data_total;
+            if (tensor_data_total + descs_bytes <= C7X_RESULT_SIZE) {
+                ooband_buf = (uint8_t *)(uintptr_t)descs_dsp_addr;
+                td_arr = (struct c7x_tensor_desc *)ooband_buf;
+                resp->descs_addr = descs_dsp_addr;
+                resp->descs_size = descs_bytes;
+            } else {
+                /* Fall back to inline if somehow too large */
+                use_ooband = 0;
+            }
+        }
+        if (!use_ooband) {
+            td_arr = &resp->outputs[0];
+            resp->descs_addr = 0;
+            resp->descs_size = 0;
+        }
+
+        for (i = 0; i < n; i++) {
+            TVMFFIAny *elem = &arr->elements[i];
+            if (elem->type_index != kTVMFFITensor || elem->v_ptr == NULL)
+                continue;
+
+            TVMDSPNDArray *nd = (TVMDSPNDArray *)elem->v_ptr;
+            struct c7x_tensor_desc *td = &td_arr[out_idx];
+            td->reserved = (int32_t)i;  /* Store original tuple index */
+
+            uint64_t consumed = fill_one_output_tensor(nd, td, result_offset);
+            /* Align next tensor to 64-byte cache line boundary */
+            uint64_t aligned = (consumed + 63ULL) & ~63ULL;
+            result_offset += aligned;
+            out_idx++;
+        }
+        resp->num_outputs = (uint32_t)out_idx;
+
+        /* Write-back out-of-band descriptor array to DDR */
+        if (use_ooband && ooband_buf && resp->descs_size > 0) {
+            CacheP_wb(ooband_buf, resp->descs_size, CacheP_TYPE_ALL);
+        }
+        return;
+    }
+
+    DebugP_log("[COMPUTE] Unknown output type_index: %d\r\n",
+               output_any->type_index);
 }
 
 static void handle_infer(struct c7x_msg_infer *req, uint16_t recvMsgSize,
@@ -641,6 +776,228 @@ done:
                   resp->hdr.len, srcCore, srcEndpt);
 }
 
+/**
+ * handle_infer_large - Handle INFER_LARGE: tensor descriptors staged in DDR.
+ *
+ * For models with many inputs (e.g. KV cache: 62 tensors) the inline
+ * c7x_msg_infer message would overflow the 512-byte rpmsg buffer.
+ * INFER_LARGE instead writes the descriptor array into the staging buffer
+ * at descs_addr and sends a compact 48-byte IPC message.  This handler
+ * reads the descriptors from DDR, then runs inference identically to
+ * handle_infer.
+ */
+static void handle_infer_large(struct c7x_msg_infer_large *req,
+                                uint16_t srcCore, uint32_t srcEndpt)
+{
+    struct c7x_msg_infer_resp *resp = (struct c7x_msg_infer_resp *)gSendBuf;
+    int32_t status;
+    uint64_t start_cycles, end_cycles;
+    uint64_t sym_addr = 0;
+    TVMFFIAny *constants = NULL;
+    int num_constants = 0;
+    int ret;
+    uint32_t i;
+
+    /* Dynamic allocation via DDR (ndarrays/shapes/anys sized to num_inputs) */
+    TVMDSPNDArray *input_ndarrays = NULL;
+    int64_t (*input_shapes)[C7X_TENSOR_MAX_NDIM] = NULL;
+    TVMFFIAny *input_anys = NULL;
+    TVMFFIAny output_any;
+
+    uint32_t num_inputs = req->num_inputs;
+
+    DebugP_log("[COMPUTE] INFER_LARGE module=%u model=%u inputs=%u\r\n",
+               req->module_handle, req->model_id, num_inputs);
+
+    /* Initialise response header */
+    memset(resp, 0, sizeof(struct c7x_msg_infer_resp));
+    resp->hdr.type   = C7X_MSG_INFER_RESP;
+    resp->hdr.seq    = req->hdr.seq;
+    resp->return_value = -1;
+
+    if (req->module_handle == 0) {
+        DebugP_log("[COMPUTE] Invalid module handle\r\n");
+        resp->hdr.status = C7X_STATUS_ERR_HANDLE;
+        goto done;
+    }
+    if (num_inputs == 0 || num_inputs > MAX_INFER_LARGE_INPUTS) {
+        DebugP_log("[COMPUTE] Bad num_inputs: %u\r\n", num_inputs);
+        resp->hdr.status = C7X_STATUS_ERR_TENSOR;
+        goto done;
+    }
+
+    /* Validate descriptor array address */
+    uint64_t descs_addr = req->descs_addr;
+    uint32_t descs_size = req->descs_size;
+    if (!C7X_IS_VALID_STAGING_ADDR(descs_addr, descs_size)) {
+        DebugP_log("[COMPUTE] Descriptor array outside staging buffer\r\n");
+        resp->hdr.status = C7X_STATUS_ERR_ADDR;
+        goto done;
+    }
+
+    /* Cache-invalidate descriptor memory so we see the host's writes */
+    CacheP_inv((void *)(uintptr_t)descs_addr, descs_size, CacheP_TYPE_ALL);
+
+    struct c7x_tensor_desc *descs =
+        (struct c7x_tensor_desc *)(uintptr_t)descs_addr;
+
+    /* Allocate per-inference arrays from DSP heap */
+    input_ndarrays = (TVMDSPNDArray *)tvm_dsp_alloc(
+        num_inputs * sizeof(TVMDSPNDArray), 8, TVM_DSP_MEM_MAIN);
+    input_shapes = (int64_t (*)[C7X_TENSOR_MAX_NDIM])tvm_dsp_alloc(
+        num_inputs * C7X_TENSOR_MAX_NDIM * sizeof(int64_t), 8, TVM_DSP_MEM_MAIN);
+    input_anys = (TVMFFIAny *)tvm_dsp_alloc(
+        num_inputs * sizeof(TVMFFIAny), 8, TVM_DSP_MEM_MAIN);
+
+    if (!input_ndarrays || !input_shapes || !input_anys) {
+        DebugP_log("[COMPUTE] Failed to allocate input arrays\r\n");
+        resp->hdr.status = C7X_STATUS_ERR_NOMEM;
+        goto done;
+    }
+
+    memset(input_ndarrays, 0, num_inputs * sizeof(TVMDSPNDArray));
+    memset(input_shapes, 0, num_inputs * C7X_TENSOR_MAX_NDIM * sizeof(int64_t));
+    memset(input_anys, 0, num_inputs * sizeof(TVMFFIAny));
+
+    /* Validate + cache-invalidate each tensor's data, then build NDArrays */
+    for (i = 0; i < num_inputs; i++) {
+        struct c7x_tensor_desc *td = &descs[i];
+
+        if (td->data_addr != 0 && td->data_size != 0) {
+            if (!C7X_IS_VALID_STAGING_ADDR(td->data_addr, td->data_size)) {
+                DebugP_log("[COMPUTE] Input %u addr outside staging\r\n", i);
+                resp->hdr.status = C7X_STATUS_ERR_TENSOR;
+                goto done;
+            }
+            uint32_t cache_sz = (td->data_size > 0xFFFFFFFFU)
+                                 ? 0xFFFFFFFFU : (uint32_t)td->data_size;
+            CacheP_inv((void *)(uintptr_t)td->data_addr,
+                       cache_sz, CacheP_TYPE_ALL);
+        }
+
+        int32_t ndim = td->ndim;
+        if (ndim < 0) ndim = 0;
+        if (ndim > C7X_TENSOR_MAX_NDIM) ndim = C7X_TENSOR_MAX_NDIM;
+
+        int j;
+        for (j = 0; j < ndim; j++)
+            input_shapes[i][j] = td->shape[j];
+
+        input_ndarrays[i].type_index = kTVMFFITensor;
+        input_ndarrays[i].ref_counter = 1;
+        input_ndarrays[i].deleter = NULL;
+        input_ndarrays[i].data = (void *)(uintptr_t)td->data_addr;
+        input_ndarrays[i].device.device_type = 0;
+        input_ndarrays[i].device.device_id = 0;
+        input_ndarrays[i].ndim = ndim;
+        input_ndarrays[i].dtype.code = (uint8_t)td->dtype_code;
+        input_ndarrays[i].dtype.bits = (uint8_t)td->dtype_bits;
+        input_ndarrays[i].dtype.lanes = 1;
+        input_ndarrays[i].shape = input_shapes[i];
+        input_ndarrays[i].strides = NULL;
+        input_ndarrays[i].byte_offset = 0;
+
+        input_anys[i].type_index = kTVMFFITensor;
+        input_anys[i].zero_padding = 0;
+        input_anys[i].v_ptr = &input_ndarrays[i];
+    }
+
+    /* Resolve entry point */
+    if (g_cg_main_dsp == NULL) {
+        status = dyn_loader_query_symbol(req->module_handle, "cg_main_dsp",
+                                         &sym_addr);
+        if (status != 0 || sym_addr == 0) {
+            DebugP_log("[COMPUTE] cg_main_dsp not found\r\n");
+            resp->hdr.status = C7X_STATUS_ERR_SYMBOL;
+            goto done;
+        }
+        g_cg_main_dsp = (cg_main_dsp_fn)(uintptr_t)sym_addr;
+    }
+
+    /* Load constants — same fallback as handle_infer:
+     * model_id=0 uses the embedded model if one was auto-loaded at
+     * DLOAD time (g_embedded_model_id set by handle_dyn_load). */
+    {
+        uint32_t eff_model_id = req->model_id;
+        if (eff_model_id == 0 && g_embedded_model_id != 0)
+            eff_model_id = g_embedded_model_id;
+        if (eff_model_id != 0) {
+            int32_t rc = tvm_model_get_constants(eff_model_id,
+                                                  &constants, &num_constants);
+            if (rc != 0) {
+                DebugP_log("[COMPUTE] Failed to get constants\r\n");
+                resp->hdr.status = C7X_STATUS_ERR_HANDLE;
+                goto done;
+            }
+        }
+    }
+
+    /* Release objects held in the register file from the previous inference
+     * call (e.g. scatter_elements output tensors from prior decode step).
+     * Do NOT call tvm_dsp_reset_pools() here — that would reset the pool's
+     * bump_ptr back to pool->base (0x108000000), overwriting the DLOAD
+     * text segment that lives there.  The original handle_infer() also
+     * omits the pool reset before calling cg_main_dsp for the same reason.
+     * Pool recycling happens naturally via the free-list between calls. */
+    TVMDSPRegFileCleanup();
+
+    /* Run inference */
+    uint32_t repeat = req->flags & 0xFFFF;
+    if (repeat < 1) repeat = 1;
+
+    start_cycles = __TSC;
+    ret = -1;
+    {
+        uint32_t r;
+        for (r = 0; r < repeat; r++) {
+            memset(&output_any, 0, sizeof(output_any));
+            ret = g_cg_main_dsp(input_anys, (int)num_inputs,
+                                 constants, &output_any);
+        }
+    }
+    end_cycles = __TSC;
+
+    resp->return_value = ret;
+    resp->cycles = end_cycles - start_cycles;
+
+    DebugP_log("[COMPUTE] cg_main_dsp returned %d, %llu cycles\r\n",
+               ret, (unsigned long long)resp->cycles);
+
+    if (ret != 0) {
+        resp->hdr.status = C7X_STATUS_ERR_CALL;
+        resp->num_outputs = 0;
+        gJobsFailed++;
+        goto done;
+    }
+
+    extract_infer_output(&output_any, resp);
+    resp->printf_size = shm_printf_finish();
+    resp->hdr.status = C7X_STATUS_SUCCESS;
+    gJobsCompleted++;
+
+done:
+    if (input_ndarrays) tvm_dsp_free(input_ndarrays);
+    if (input_shapes) tvm_dsp_free(input_shapes);
+    if (input_anys) tvm_dsp_free(input_anys);
+
+    /* Response length: when using out-of-band descriptors (descs_addr != 0),
+     * send only the fixed header + one inline descriptor slot.  The full
+     * descriptor array is already in the result buffer at descs_addr.
+     * For inline (small output count), include all inline descriptors. */
+    if (resp->descs_addr != 0) {
+        resp->hdr.len = (uint32_t)sizeof(struct c7x_msg_infer_resp);
+    } else {
+        resp->hdr.len = (uint32_t)(sizeof(struct c7x_msg_infer_resp) +
+            (resp->num_outputs > 1
+             ? (resp->num_outputs - 1) * sizeof(struct c7x_tensor_desc) : 0));
+    }
+    /* Clamp to gSendBuf size as a safety measure */
+    if (resp->hdr.len > C7X_MAX_MSG_SIZE)
+        resp->hdr.len = C7X_MAX_MSG_SIZE;
+    send_response(C7X_MSG_INFER_RESP, req->hdr.seq,
+                  resp->hdr.len, srcCore, srcEndpt);
+}
+
 /*
  * =============================================================================
  * Service Loop (runs in caller's task context)
@@ -735,6 +1092,16 @@ void compute_service_run(void)
                              srcCore, srcEndpt);
             } else {
                 DebugP_log("[COMPUTE] INFER message too small\r\n");
+                goto send_error;
+            }
+            break;
+
+        case C7X_MSG_INFER_LARGE:
+            if (recvMsgSize >= sizeof(struct c7x_msg_infer_large)) {
+                handle_infer_large((struct c7x_msg_infer_large *)hdr,
+                                   srcCore, srcEndpt);
+            } else {
+                DebugP_log("[COMPUTE] INFER_LARGE message too small\r\n");
                 goto send_error;
             }
             break;

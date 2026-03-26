@@ -71,17 +71,23 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  /* Create NDArray views for all inputs */
-  NDArray inputs[8];
-  for (int i = 0; i < num_inputs && i < 8; i++) {
+  /* Create NDArray views for all inputs.
+   * Size 128 supports KV cache models (e.g. SmolLM: 62 inputs). */
+  NDArray inputs[128];
+  for (int i = 0; i < num_inputs && i < 128; i++) {
     inputs[i] = input_tensors[i]->AsView();
-    char name[32];
-    snprintf(name, sizeof(name), "Input[%d]", i);
-    print_ndarray_info(name, &inputs[i]);
+    if (i < 4 || i >= num_inputs - 2) {  /* Print first 4 and last 2 */
+      char name[32];
+      snprintf(name, sizeof(name), "Input[%d]", i);
+      print_ndarray_info(name, &inputs[i]);
+    }
+  }
+  if (num_inputs > 6) {
+    printf("  ... (%d total inputs)\n", num_inputs);
   }
 
   /* Run inference (multi-input, multi-output) */
-  NDArray* outputs[8];
+  NDArray* outputs[128];
   int num_outputs = 0;
   err = model.InferMulti(inputs, num_inputs, outputs, &num_outputs);
   if (err != ModelError::kSuccess) {

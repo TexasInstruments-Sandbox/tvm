@@ -541,38 +541,92 @@ static int c7x_client_infer_impl(c7x_client_t *client,
     }
     sync_input_to_device(client);
 
-    /* Build request */
-    memset(req_buf, 0, sizeof(req_buf));
-    req->hdr.type = C7X_MSG_INFER;
-    req->hdr.seq = ++client->seq;
-    req->module_handle = module_handle;
-    req->model_id = model_id;
-    req->num_inputs = static_cast<uint32_t>(num_inputs);
-    req->flags = (repeat > 1) ? (repeat & 0xFFFF) : 0;  /* 0 = run once (backward compat) */
-
-    /* Fill tensor descriptors.  DSP addresses start after the ELF
-     * region to match the host-side staging offset (rodata segments
-     * mapped in-place by DLOAD must not be overwritten). */
-    uint64_t cur_addr = C7X_STAGING_ADDR
-                      + client->input_data_offset;
+    /* Build tensor descriptors — same DSP addresses regardless of INFER type.
+     * DSP addresses start after the ELF region (input_data_offset). */
+    uint64_t cur_addr = C7X_STAGING_ADDR + client->input_data_offset;
+    /* Temporary descriptor array (stack, max 128 inputs). */
+    struct c7x_tensor_desc desc_arr[128];
+    if (num_inputs > 128) {
+        fprintf(stderr, "c7x: Too many inputs: %d (max 128)\n", num_inputs);
+        return -EINVAL;
+    }
     for (int i = 0; i < num_inputs; i++) {
-        req->inputs[i].data_addr = cur_addr;
-        req->inputs[i].data_size = inputs[i].data_size;
-        req->inputs[i].ndim = inputs[i].ndim;
-        req->inputs[i].dtype_code = inputs[i].dtype_code;
-        req->inputs[i].dtype_bits = inputs[i].dtype_bits;
-        for (int j = 0; j < inputs[i].ndim && j < C7X_TENSOR_MAX_NDIM; j++) {
-            req->inputs[i].shape[j] = inputs[i].shape[j];
-        }
+        memset(&desc_arr[i], 0, sizeof(desc_arr[i]));
+        desc_arr[i].data_addr  = cur_addr;
+        desc_arr[i].data_size  = inputs[i].data_size;
+        desc_arr[i].ndim       = inputs[i].ndim;
+        desc_arr[i].dtype_code = inputs[i].dtype_code;
+        desc_arr[i].dtype_bits = inputs[i].dtype_bits;
+        for (int j = 0; j < inputs[i].ndim && j < C7X_TENSOR_MAX_NDIM; j++)
+            desc_arr[i].shape[j] = inputs[i].shape[j];
         cur_addr += inputs[i].data_size;
     }
 
-    size_t req_size = sizeof(struct c7x_msg_hdr) + 4 * sizeof(uint32_t) +
-                      num_inputs * sizeof(struct c7x_tensor_desc);
-    req->hdr.len = static_cast<uint32_t>(req_size);
+    /* Choose message type based on whether the inline form fits in the
+     * 512-byte rpmsg buffer.  Inline INFER supports ≤4 tensors; for
+     * larger models (e.g. KV cache with 60+ tensors) use INFER_LARGE
+     * which stages the descriptor array in the staging DDR buffer. */
+    const size_t INLINE_HDR  = sizeof(struct c7x_msg_hdr) + 4 * sizeof(uint32_t);
+    const size_t inline_size = INLINE_HDR + num_inputs * sizeof(struct c7x_tensor_desc);
 
-    /* Send and receive */
-    int ret = send_and_recv(client, req, req_size, resp, sizeof(resp_buf));
+    size_t req_size;
+    int ret;
+
+    if (inline_size <= C7X_MAX_MSG_SIZE) {
+        /* Standard INFER: descriptors inline in IPC message */
+        memset(req_buf, 0, sizeof(req_buf));
+        req->hdr.type = C7X_MSG_INFER;
+        req->hdr.seq = ++client->seq;
+        req->module_handle = module_handle;
+        req->model_id = model_id;
+        req->num_inputs = static_cast<uint32_t>(num_inputs);
+        req->flags = (repeat > 1) ? (repeat & 0xFFFF) : 0;
+        for (int i = 0; i < num_inputs; i++)
+            req->inputs[i] = desc_arr[i];
+        req_size = inline_size;
+        req->hdr.len = static_cast<uint32_t>(req_size);
+        ret = send_and_recv(client, req, req_size, resp, sizeof(resp_buf));
+    } else {
+        /* INFER_LARGE: write descriptor array into staging DDR, send pointer.
+         * Place descriptors at input_data_offset - aligned descriptor size.
+         * The input tensor data was already staged at input_data_offset. */
+        size_t descs_size = static_cast<size_t>(num_inputs) *
+                            sizeof(struct c7x_tensor_desc);
+
+        /* Align descriptor region start to 64 bytes below input_data_offset */
+        size_t descs_align = 64;
+        size_t descs_padded = (descs_size + descs_align - 1) & ~(descs_align - 1);
+        if (client->input_data_offset < descs_padded) {
+            fprintf(stderr, "c7x: Not enough room before input data for "
+                    "descriptor array (%zu bytes)\n", descs_padded);
+            return -EFBIG;
+        }
+        size_t descs_offset = client->input_data_offset - descs_padded;
+        uint64_t descs_dsp_addr = C7X_STAGING_ADDR + descs_offset;
+
+        /* Copy descriptors to staging buffer */
+        memcpy(static_cast<uint8_t *>(client->staging_buf) + descs_offset,
+               desc_arr, descs_size);
+        sync_input_to_device(client);  /* ensure host→DDR is visible to DSP */
+
+        /* Build compact INFER_LARGE message (fits easily in 512 bytes) */
+        uint8_t large_buf[sizeof(struct c7x_msg_infer_large)];
+        memset(large_buf, 0, sizeof(large_buf));
+        auto *lreq = reinterpret_cast<struct c7x_msg_infer_large *>(large_buf);
+        lreq->hdr.type     = C7X_MSG_INFER_LARGE;
+        lreq->hdr.seq      = ++client->seq;
+        lreq->hdr.len      = sizeof(large_buf);
+        lreq->module_handle = module_handle;
+        lreq->model_id     = model_id;
+        lreq->num_inputs   = static_cast<uint32_t>(num_inputs);
+        lreq->flags        = (repeat > 1) ? (repeat & 0xFFFF) : 0;
+        lreq->descs_addr   = descs_dsp_addr;
+        lreq->descs_size   = static_cast<uint32_t>(descs_size);
+
+        ret = send_and_recv(client, lreq, sizeof(large_buf),
+                            resp, sizeof(resp_buf));
+    }
+
     if (ret < 0) return ret;
 
     if (resp->hdr.type != C7X_MSG_INFER_RESP) return -EPROTO;
@@ -585,12 +639,29 @@ static int c7x_client_infer_impl(c7x_client_t *client,
     /* Sync result buffer from DSP before reading */
     sync_output_from_device(client);
 
-    /* Extract output tensor metadata */
+    /* Extract output tensor metadata.
+     * For small output counts: descriptors are inline in resp->outputs[].
+     * For large output counts (KV cache): descriptors are in the result
+     * buffer at resp->descs_addr (out-of-band), already sync'd above. */
     *num_outputs = static_cast<int>(resp->num_outputs);
-    for (int i = 0; i < static_cast<int>(resp->num_outputs)
-                    && i < C7X_TENSOR_MAX_NDIM; i++) {
-        struct c7x_tensor_desc *out_td = &resp->outputs[i];
-        outputs[i].data = client->result_buf; /* points to mmap'd result buffer */
+
+    const struct c7x_tensor_desc *td_base;
+    if (resp->descs_addr != 0) {
+        /* Out-of-band: descriptor array is in the result buffer */
+        uint64_t descs_offset = resp->descs_addr - C7X_RESULT_ADDR;
+        td_base = reinterpret_cast<const struct c7x_tensor_desc *>(
+            static_cast<const uint8_t *>(client->result_buf) + descs_offset);
+    } else {
+        td_base = &resp->outputs[0];
+    }
+
+    for (int i = 0; i < static_cast<int>(resp->num_outputs); i++) {
+        const struct c7x_tensor_desc *out_td = &td_base[i];
+        /* data_addr is a DSP virtual address in the result buffer region;
+         * convert to host userspace pointer via result_buf mmap offset. */
+        uint64_t data_offset = out_td->data_addr - C7X_RESULT_ADDR;
+        outputs[i].data = static_cast<uint8_t *>(client->result_buf)
+                          + data_offset;
         outputs[i].data_size = static_cast<size_t>(out_td->data_size);
         outputs[i].ndim = out_td->ndim;
         outputs[i].dtype_code = out_td->dtype_code;

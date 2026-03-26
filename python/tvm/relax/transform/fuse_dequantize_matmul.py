@@ -257,7 +257,7 @@ class _DequantizeMatmulFuser(PyExprMutator):
             primfunc_name_hint="dequantize_matmul",
         )
 
-        if has_bias and "bias" in roles:
+        if has_bias and "bias" in roles and roles["bias"] in param_to_arg:
             bias = param_to_arg[roles["bias"]]
             result = relax.op.add(result, bias)
 

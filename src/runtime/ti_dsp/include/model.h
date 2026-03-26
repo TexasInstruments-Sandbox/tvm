@@ -328,10 +328,12 @@ class Model {
   Model& operator=(const Model&) = delete;
 
  private:
-  /*! \brief Maximum inputs supported */
-  static constexpr int kMaxInputs = 8;
-  /*! \brief Maximum outputs supported (matches TVM_DSP_ARRAY_MAX_ELEMENTS) */
-  static constexpr int kMaxOutputs = 8;
+  /*! \brief Maximum inputs supported.  Raised to 128 to support KV cache
+   *  models (e.g. SmolLM with 60 KV inputs + 2 user inputs = 62 total). */
+  static constexpr int kMaxInputs = 128;
+  /*! \brief Maximum outputs supported.  Raised to 128 to match kMaxInputs
+   *  (KV cache models return logits + 60 KV scatter outputs = 61 total). */
+  static constexpr int kMaxOutputs = 128;
 
   /* Cleanup helper */
   void Cleanup();

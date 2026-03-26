@@ -86,10 +86,15 @@ extern "C" {
 /* TVM model operations (Host → DSP) */
 #define C7X_MSG_MODEL_LOAD      0x0020  /* Load weights/constants */
 #define C7X_MSG_MODEL_LOAD_RESP 0x1020
-#define C7X_MSG_INFER           0x0021  /* Run inference */
+#define C7X_MSG_INFER           0x0021  /* Run inference (up to 4 inline inputs) */
 #define C7X_MSG_INFER_RESP      0x1021
 #define C7X_MSG_MODEL_UNLOAD      0x0022  /* Unload model weights */
 #define C7X_MSG_MODEL_UNLOAD_RESP 0x1022
+/* INFER_LARGE: run inference with many inputs.  Tensor descriptors are
+ * stored in the staging buffer (descs_addr/descs_size) instead of inline
+ * in the IPC message, avoiding the 512-byte rpmsg size limit.  The response
+ * message type is the same C7X_MSG_INFER_RESP. */
+#define C7X_MSG_INFER_LARGE     0x0023
 
 /*
  * =============================================================================
@@ -285,7 +290,43 @@ struct c7x_msg_infer {
 } __attribute__((packed));
 
 /*
+ * INFER_LARGE request (48 bytes).
+ *
+ * Used when the number of input tensors is too large to fit the tensor
+ * descriptors inline in the 512-byte rpmsg buffer.  The host writes the
+ * full c7x_tensor_desc array into the staging buffer at descs_addr, then
+ * sends this compact message.  The DSP reads the descriptors from staging
+ * DDR before processing.
+ *
+ * Input tensor data is placed in staging DDR immediately after the
+ * descriptors array (i.e. at descs_addr + descs_size, aligned to 64 bytes).
+ * The descs[i].data_addr fields are already set to the correct DDR addresses
+ * by the host before sending this message.
+ */
+struct c7x_msg_infer_large {
+    struct c7x_msg_hdr hdr;         /* type = C7X_MSG_INFER_LARGE */
+    uint32_t module_handle;         /* Loaded module handle */
+    uint32_t model_id;              /* Loaded weights model ID */
+    uint32_t num_inputs;            /* Number of input tensors */
+    uint32_t flags;                 /* Same flags as c7x_msg_infer */
+    uint64_t descs_addr;            /* Staging DDR address of descriptor array */
+    uint32_t descs_size;            /* Size in bytes of descriptor array */
+    uint32_t reserved;
+} __attribute__((packed));
+
+/*
  * INFER response (variable size)
+ */
+/*
+ * INFER response.  Two layouts depending on output count:
+ *
+ * Small (fits in 512-byte rpmsg): tensor descriptors are inline in
+ * outputs[].  descs_addr == 0.
+ *
+ * Large (too many outputs for 512-byte rpmsg, e.g. KV cache models with
+ * 61 outputs): the full c7x_tensor_desc array is written into the result
+ * buffer at descs_addr.  outputs[0] is unused; host reads descriptors
+ * from the result buffer DDR address instead.
  */
 struct c7x_msg_infer_resp {
     struct c7x_msg_hdr hdr;     /* type = C7X_MSG_INFER_RESP */
@@ -293,7 +334,12 @@ struct c7x_msg_infer_resp {
     uint64_t cycles;            /* DSP cycles consumed (64-bit TSC) */
     uint32_t num_outputs;       /* Number of output tensors */
     uint32_t printf_size;       /* Bytes of printf data in SHM buffer */
-    struct c7x_tensor_desc outputs[1]; /* Variable-length array */
+    uint64_t descs_addr;        /* Non-zero: descriptor array is in result
+                                 * buffer at this DSP address (DDR), not
+                                 * inline in outputs[]. */
+    uint32_t descs_size;        /* Byte size of the out-of-band desc array */
+    uint32_t reserved;
+    struct c7x_tensor_desc outputs[1]; /* Inline (descs_addr == 0) */
 } __attribute__((packed));
 
 /*
@@ -314,6 +360,7 @@ union c7x_msg {
     struct c7x_msg_model_unload     model_unload;
     struct c7x_msg_model_unload_resp model_unload_resp;
     struct c7x_msg_infer            infer;
+    struct c7x_msg_infer_large      infer_large;
     struct c7x_msg_infer_resp       infer_resp;
     uint8_t                         raw[C7X_MAX_MSG_SIZE];
 };

@@ -185,8 +185,9 @@ void CodeGenCStatic::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
       ffi::Optional<IntImm> num_outputs_attr = func->GetAttr<IntImm>("tir.num_outputs");
       if (num_outputs_attr.has_value()) {
         it->second.num_outputs = num_outputs_attr.value()->value;
-        // Check DSP output limit (max 8 outputs supported by DSP runtime)
-        constexpr int64_t kDSPMaxOutputs = 8;
+        // Check DSP output limit.  Raised to 128 to support KV cache models
+        // (e.g. SmolLM with 60 KV outputs + 1 logits = 61 outputs total).
+        constexpr int64_t kDSPMaxOutputs = 128;
         if (dsp_.enabled && it->second.num_outputs > kDSPMaxOutputs) {
           LOG(FATAL) << "Function '" << current_function_name_ << "' returns "
                      << it->second.num_outputs << " outputs, but DSP runtime (mcpu="

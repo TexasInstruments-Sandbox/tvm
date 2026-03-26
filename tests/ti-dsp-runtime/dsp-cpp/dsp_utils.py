@@ -901,6 +901,7 @@ def run_dsp_dload(
     embedded_weights: bool = False,
     profile_layers: bool = False,
     profile: bool = False,
+    multi_output: bool = False,
 ) -> tuple:
     """
     Run inference via c7x_compute DLOAD pipeline over SSH.
@@ -927,11 +928,16 @@ def run_dsp_dload(
             This sets repeat=2 in the INFER request so the firmware runs
             inference twice: iteration 1 includes init, iteration 2 is
             steady-state.  Per-layer breakdowns are printed by the DSP.
+        multi_output: If True, return all output tensors as a list.
+            If False (default), return the first output tensor only
+            for backward compatibility with single-output models.
 
     Returns:
-        Tuple of (output_array, stdout_string, cycles) where output_array is
-        a numpy array reconstructed from the DSP output and cycles is the
-        inference cycle count from the DSP's TSC counter (0 if unavailable).
+        Tuple of (output, stdout_string, cycles).
+        When multi_output=False: output is a single np.ndarray (first output).
+        When multi_output=True: output is a list[np.ndarray] of all outputs.
+        cycles is the inference cycle count from the DSP's TSC counter
+        (0 if unavailable).
 
     Raises:
         RuntimeError: If any SSH/SCP command or CLI step fails.
@@ -1083,23 +1089,6 @@ def run_dsp_dload(
     cycles = result.get("cycles", 0)
     logger.info(f"  Inference cycles: {cycles:,}")
 
-    # Extract output metadata from JSON
-    outputs = result.get("outputs", [])
-    if not outputs:
-        raise ValueError("No outputs in c7x_compute run result")
-    out_meta = outputs[0]
-    out_dtype_code = out_meta["dtype_code"]
-    out_dtype_bits = out_meta["dtype_bits"]
-    out_data_size = out_meta["data_size"]
-    out_shape = tuple(out_meta["shape"])
-
-    out_np_dtype = code_bits_to_dtype.get((out_dtype_code, out_dtype_bits))
-    if out_np_dtype is None:
-        raise ValueError(
-            f"Unsupported output dtype: code={out_dtype_code}, "
-            f"bits={out_dtype_bits}"
-        )
-
     # Retrieve output binary
     logger.info("  Retrieving output...")
     with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tmp:
@@ -1111,20 +1100,16 @@ def run_dsp_dload(
     finally:
         local_output.unlink(missing_ok=True)
 
-    if len(raw_data) != out_data_size:
-        raise ValueError(
-            f"Output size mismatch: got {len(raw_data)} bytes, "
-            f"expected {out_data_size} bytes"
-        )
+    # Parse all output tensors from JSON metadata + raw binary
+    output_arrays = _parse_dsp_outputs(result, raw_data, code_bits_to_dtype)
 
-    output_arr = np.frombuffer(raw_data, dtype=out_np_dtype).reshape(out_shape)
-    output_arr = output_arr.copy()  # Make writeable
-
-    logger.info(f"  Output shape: {output_arr.shape}, dtype: {output_arr.dtype}")
+    logger.info(f"  {len(output_arrays)} output tensor(s)")
     stdout_str = f"[run] {out}"
     if dsp_text:
         stdout_str = dsp_text + "\n" + stdout_str
-    return output_arr, stdout_str, cycles
+    if multi_output:
+        return output_arrays, stdout_str, cycles
+    return output_arrays[0], stdout_str, cycles
 
 
 def run_dsp_host(
@@ -1417,6 +1402,186 @@ def compile_and_run_dsp(
             results["c7x_dload_cycles"] = c7x_dload_cycles
 
     return results
+
+
+def _parse_dsp_outputs(
+    result: dict,
+    raw_data: bytes,
+    code_bits_to_dtype: dict,
+) -> List[np.ndarray]:
+    """Extract output tensors from c7x_compute JSON result and raw binary.
+
+    The output binary file contains all output tensors packed back-to-back
+    in index order.  The JSON result contains per-tensor metadata (shape,
+    dtype, data_size) that tells us how to slice the binary.
+
+    Args:
+        result: Parsed JSON dict from c7x_compute stdout.
+        raw_data: Raw bytes read from the output .bin file.
+        code_bits_to_dtype: Mapping from (dtype_code, dtype_bits) to
+            numpy dtype used by the calling function.
+
+    Returns:
+        List of numpy arrays, one per output tensor.
+    """
+    outputs_meta = result.get("outputs", [])
+    if not outputs_meta:
+        raise ValueError("No outputs in c7x_compute run result")
+
+    arrays = []
+    offset = 0
+    for meta in sorted(outputs_meta, key=lambda m: m["index"]):
+        dtype_code = meta["dtype_code"]
+        dtype_bits = meta["dtype_bits"]
+        data_size = meta["data_size"]
+        shape = tuple(meta["shape"])
+
+        np_dtype = code_bits_to_dtype.get((dtype_code, dtype_bits))
+        if np_dtype is None:
+            raise ValueError(
+                f"Unsupported output dtype: code={dtype_code}, bits={dtype_bits}"
+            )
+
+        chunk = raw_data[offset : offset + data_size]
+        if len(chunk) != data_size:
+            raise ValueError(
+                f"Output {meta['index']} size mismatch: "
+                f"got {len(chunk)} bytes, expected {data_size}"
+            )
+        arr = np.frombuffer(chunk, dtype=np_dtype).reshape(shape).copy()
+        arrays.append(arr)
+        offset += data_size
+
+    return arrays
+
+
+def run_dsp_local(
+    module_path: Union[str, Path],
+    weights_path: Union[str, Path],
+    input_tensors: List[np.ndarray],
+    c7x_compute: str = "/usr/local/bin/c7x_compute",
+    work_dir: str = "/tmp/c7x_local",
+    embedded_weights: bool = True,
+    multi_output: bool = False,
+    timeout_s: int = 300,
+) -> Union[np.ndarray, List[np.ndarray]]:
+    """Run c7x_compute as a local subprocess (for use on the AM67A ARM side).
+
+    This is the board-side equivalent of run_dsp_dload: it calls
+    c7x_compute directly via subprocess instead of over SSH/SCP.
+    The KV cache and other large tensors are written to and read from
+    a tmpfs directory (/tmp/c7x_local) at RAM speed (~5 ms for 11 MB),
+    eliminating the SSH transfer bottleneck for interactive chat.
+
+    Args:
+        module_path: Path to lib0.out on the local filesystem.
+        weights_path: Path to weights.bin on the local filesystem.
+        input_tensors: List of numpy arrays to pass as model inputs.
+        c7x_compute: Path to the c7x_compute CLI binary.
+        work_dir: Directory for temporary input/output files (tmpfs).
+        embedded_weights: If True, weights are embedded in lib0.out.
+            Skips the model-load step (firmware auto-detects).
+        multi_output: If True, return all output tensors as a list.
+            If False (default), return the first tensor only.
+        timeout_s: Subprocess timeout in seconds.
+
+    Returns:
+        When multi_output=False: single np.ndarray (first output).
+        When multi_output=True: list[np.ndarray] of all outputs.
+
+    Raises:
+        RuntimeError: If c7x_compute fails or times out.
+        FileNotFoundError: If module_path does not exist.
+    """
+    module_path = Path(module_path).resolve()
+    if not module_path.exists():
+        raise FileNotFoundError(f"DLOAD module not found: {module_path}")
+
+    work = Path(work_dir)
+    work.mkdir(parents=True, exist_ok=True)
+
+    input_bin = work / "input.bin"
+    output_bin = work / "output.bin"
+
+    # Dtype → CLI string (same mapping as run_dsp_dload)
+    dtype_to_str = {
+        np.dtype("float32"): "float32",
+        np.dtype("float16"): "float16",
+        np.dtype("int64"): "int64",
+        np.dtype("int32"): "int32",
+        np.dtype("int8"): "int8",
+        np.dtype("uint8"): "uint8",
+    }
+    code_bits_to_dtype = {
+        (2, 32): np.float32,
+        (2, 16): np.float16,
+        (0, 64): np.int64,
+        (0, 32): np.int32,
+        (0, 8): np.int8,
+        (1, 8): np.uint8,
+    }
+
+    # Build shape/dtype strings for multi-input
+    shape_parts, dtype_parts = [], []
+    for arr in input_tensors:
+        arr = np.ascontiguousarray(arr)
+        shape_parts.append(",".join(str(d) for d in arr.shape))
+        dt = dtype_to_str.get(arr.dtype)
+        if dt is None:
+            raise ValueError(f"Unsupported input dtype: {arr.dtype}")
+        dtype_parts.append(dt)
+
+    # Write all input tensors to a single binary file
+    with open(input_bin, "wb") as f:
+        for arr in input_tensors:
+            f.write(np.ascontiguousarray(arr).tobytes())
+
+    cmd = [
+        c7x_compute, "run",
+        "--module", str(module_path),
+        "--input", str(input_bin),
+        "--output", str(output_bin),
+        "--shape", ";".join(shape_parts),
+        "--dtype", ";".join(dtype_parts),
+    ]
+
+    logger.info(f"run_dsp_local: {module_path.name}, "
+                f"{len(input_tensors)} input(s), work_dir={work_dir}")
+
+    result_proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout_s,
+    )
+
+    if result_proc.returncode != 0:
+        raise RuntimeError(
+            f"c7x_compute failed (rc={result_proc.returncode}):\n"
+            f"stdout: {result_proc.stdout}\nstderr: {result_proc.stderr}"
+        )
+
+    out = result_proc.stdout.strip()
+    json_start = out.find("{")
+    if json_start < 0:
+        raise RuntimeError(f"No JSON in c7x_compute output: {out}")
+
+    result_json = json.loads(out[json_start:])
+    if result_json.get("status") != "ok":
+        raise RuntimeError(
+            f"c7x_compute run error: {result_json.get('error', 'unknown')}"
+        )
+
+    cycles = result_json.get("cycles", 0)
+    logger.info(f"  Cycles: {cycles:,}")
+
+    raw_data = output_bin.read_bytes()
+    output_arrays = _parse_dsp_outputs(result_json, raw_data, code_bits_to_dtype)
+
+    logger.info(f"  {len(output_arrays)} output tensor(s)")
+    if multi_output:
+        return output_arrays, result_proc.stdout, cycles
+    return output_arrays[0], result_proc.stdout, cycles
 
 
 def compare_results(

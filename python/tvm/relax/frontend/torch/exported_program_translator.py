@@ -1703,7 +1703,45 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         # Initialize the block builder with a function and a dataflow block.
         self.block_builder = relax.BlockBuilder()
         func_name = "main"
-        func_attrs = {"num_input": len(user_input_vars)} if keep_params_as_input else {}
+        # Identify KV cache CONSTANT_TENSOR placeholders.
+        #
+        # TorchExportableModuleWithStaticCache represents the KV cache via two
+        # sets of FX graph nodes:
+        #
+        #   b_key_cache_*/b_value_cache_* (BUFFER type):
+        #       Module-level buffer attributes that hold the initial (zero) KV
+        #       tensors.  These appear as BUFFER input specs.  In the FX graph
+        #       they are NOT used by the computation — they are shadowed by the
+        #       lifted_tensor_* constants below.
+        #
+        #   c_model_..._lifted_tensor_* (CONSTANT_TENSOR type):
+        #       The ACTUAL per-layer KV cache slots used in the computation.
+        #       Each one is the first argument of an index_copy_ node (the KV
+        #       write step).  They start as zero tensors.
+        #
+        # To enable KV cache persistence across calls, the lifted_tensor_*
+        # entries that are KV cache slots must be runtime inputs (not
+        # compile-time constants).  The b_key_cache_* buffers are unused and
+        # are bound as zero constants.
+        _kv_lifted_targets: set = set()
+        _placeholder_name_to_target: dict = {}
+        for _spec in exported_program.graph_signature.input_specs:
+            if _spec.kind is torch.export.graph_signature.InputKind.CONSTANT_TENSOR:
+                _placeholder_name_to_target[_spec.arg.name] = _spec.target
+        for _node in exported_program.graph.nodes:
+            if "index_copy" in str(_node.target):
+                _arg0 = _node.args[0]
+                if hasattr(_arg0, "name") and _arg0.name in _placeholder_name_to_target:
+                    _kv_lifted_targets.add(_placeholder_name_to_target[_arg0.name])
+
+        # num_input = user inputs (e.g. input_ids, cache_position) +
+        #             KV lifted_tensor inputs (when keep_params_as_input).
+        n_runtime_inputs = (
+            len(user_input_vars) + len(_kv_lifted_targets)
+            if keep_params_as_input
+            else len(user_input_vars)
+        )
+        func_attrs = {"num_input": n_runtime_inputs} if keep_params_as_input else {}
         if range_constraints:
             func_attrs["tir_var_lower_bound"] = {
                 var_name: lower for var_name, (lower, _) in range_constraints.items()
@@ -1769,9 +1807,33 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             assert output is not None
             self.block_builder.emit_func_output(output)
 
-        to_bind_parameters = ChainMap(
-            OrderedDict(exported_program.named_buffers()), exported_program.constants
+        # When keep_params_as_input=True we keep model parameters as runtime
+        # inputs (bound later by BindParams).  Buffers are bound as constants
+        # by default — UNLESS they appear as non-constant (mutable) buffers
+        # in the exported program, in which case they should stay as inputs.
+        # For example, StaticCache KV buffers are registered as nn.Module
+        # buffers but must be passed at runtime for KV cache management.
+        #
+        # Heuristic: a buffer is "mutable" if it appears in buffers_to_mutate
+        # or if it has the word "cache" in its name (StaticCache convention).
+        # KV lifted tensors: keep as runtime inputs (do not bind as constants).
+        # b_key_cache_*/b_value_cache_* buffers: unused by the computation, so
+        # bind as zero tensors to remove them from the runtime parameter list.
+        mutable_buffer_names = _kv_lifted_targets  # CONSTANT_TENSOR KV slots
+
+        immutable_buffers = OrderedDict(
+            (k, v)
+            for k, v in exported_program.named_buffers()
+            if k not in mutable_buffer_names
         )
+        # ep.constants contains CONSTANT_TENSOR input specs AND buffer initial
+        # values.  Filter out mutable buffer entries so KV cache stays as input.
+        filtered_constants = OrderedDict(
+            (k, v)
+            for k, v in exported_program.constants.items()
+            if k not in mutable_buffer_names
+        )
+        to_bind_parameters = ChainMap(immutable_buffers, filtered_constants)
         if not keep_params_as_input:
             to_bind_parameters = to_bind_parameters.new_child(
                 OrderedDict(exported_program.named_parameters())
@@ -1786,12 +1848,38 @@ class ExportedProgramImporter(BaseFXGraphImporter):
                     break
             binding[bind_name] = self._convert_pytorch_tensor_to_tvm(tensor_value)
 
+        # Also bind any BUFFER-type inputs that are NOT used in the computation
+        # (e.g. b_key_cache_*/b_value_cache_* which are shadowed by lifted_tensor_*).
+        # Binding them as their initial values removes them from the function
+        # parameter list, keeping the runtime parameter list clean.
+        if keep_params_as_input and _kv_lifted_targets:
+            _named_bufs = dict(exported_program.named_buffers())
+            for _spec in exported_program.graph_signature.input_specs:
+                if _spec.kind is torch.export.graph_signature.InputKind.BUFFER:
+                    _buf_name = _spec.arg.name
+                    if _buf_name not in binding and _spec.target in _named_bufs:
+                        binding[_buf_name] = self._convert_pytorch_tensor_to_tvm(
+                            _named_bufs[_spec.target]
+                        )
+
         mod = self.block_builder.get()
         mod = relax.transform.BindParams("main", binding)(mod)
 
         if keep_params_as_input:
+            # Store initial values for runtime params:
+            # - model weight parameters
+            # - KV lifted_tensor_* (initial zeros for the cache slots)
             parameters = dict(exported_program.named_parameters())
-            params = [self._convert_pytorch_tensor_to_tvm(p) for p in parameters.values()]
+            kv_lifted_tensors = {
+                k: v
+                for k, v in exported_program.constants.items()
+                if k in _kv_lifted_targets
+            }
+            all_runtime_tensors = {**parameters, **kv_lifted_tensors}
+            params = [
+                self._convert_pytorch_tensor_to_tvm(p)
+                for p in all_runtime_tensors.values()
+            ]
             mod["main"] = mod["main"].with_attr("params", params)
 
         return mod

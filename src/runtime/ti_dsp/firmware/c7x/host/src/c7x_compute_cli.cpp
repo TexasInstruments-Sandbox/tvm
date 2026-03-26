@@ -347,7 +347,10 @@ static int parse_dtype(const char *str, int32_t *code, int32_t *bits)
     return 0;
 }
 
-static constexpr int kMaxInputs = 8;
+/* Maximum number of input tensors the CLI accepts via --shape / --dtype.
+ * Raised to 128 to support LLM KV cache models (e.g. SmolLM with
+ * 60 KV cache tensors + user inputs = ~62 total). */
+static constexpr int kMaxInputs = 128;
 
 /**
  * Parse multi-input descriptors from semicolon-separated shape/dtype
@@ -363,11 +366,14 @@ static int parse_multi_inputs(const char *shape_str, const char *dtype_str,
                               c7x_tensor_desc_t *inputs)
 {
     /* Split shape_str on ';' to count inputs */
-    char shape_buf[1024];
+    /* Buffers sized for up to 128 inputs with 4D shapes and "float32" dtypes:
+     * shape worst case: 128 × "1,3,256,64;" ≈ 128 × 13 = 1664 bytes
+     * dtype worst case: 128 × "float32;"   ≈ 128 × 9  = 1152 bytes */
+    char shape_buf[4096];
     strncpy(shape_buf, shape_str, sizeof(shape_buf) - 1);
     shape_buf[sizeof(shape_buf) - 1] = '\0';
 
-    char dtype_buf[256];
+    char dtype_buf[2048];
     if (dtype_str)
         strncpy(dtype_buf, dtype_str, sizeof(dtype_buf) - 1);
     else
@@ -375,7 +381,7 @@ static int parse_multi_inputs(const char *shape_str, const char *dtype_str,
     dtype_buf[sizeof(dtype_buf) - 1] = '\0';
 
     /* Collect per-input shape tokens */
-    char *shape_tokens[kMaxInputs];
+    char *shape_tokens[kMaxInputs];  /* kMaxInputs = 128 */
     int num_inputs = 0;
     char *tok = strtok(shape_buf, ";");
     while (tok && num_inputs < kMaxInputs) {
@@ -430,7 +436,10 @@ static int cmd_infer(uint32_t module_handle, uint32_t model_id,
                      const char *input_file, const char *output_file,
                      const char *shape_str, const char *dtype_str)
 {
-    c7x_tensor_desc_t inputs[kMaxInputs], output;
+    c7x_tensor_desc_t inputs[kMaxInputs];
+    /* Output array sized to match kMaxInputs — models may return
+     * as many outputs as inputs (e.g. KV cache models). */
+    c7x_tensor_desc_t outputs_arr[kMaxInputs];
     int num_inputs = 0, num_outputs = 0;
     uint64_t cycles = 0;
 
@@ -475,7 +484,7 @@ static int cmd_infer(uint32_t module_handle, uint32_t model_id,
         num_inputs = 1;
     }
 
-    memset(&output, 0, sizeof(output));
+    memset(outputs_arr, 0, sizeof(outputs_arr));
 
     c7x_client_t *client = c7x_client_open();
     if (!client) {
@@ -483,31 +492,28 @@ static int cmd_infer(uint32_t module_handle, uint32_t model_id,
     }
 
     int ret = c7x_client_infer(client, module_handle, model_id,
-                               inputs, num_inputs, &output, &num_outputs, &cycles);
+                               inputs, num_inputs,
+                               outputs_arr, &num_outputs, &cycles);
 
     if (ret == 0) {
         printf("Inference complete: %llu cycles\n", (unsigned long long)cycles);
         printf("  Outputs: %d\n", num_outputs);
-        if (num_outputs > 0) {
-            printf("  Output[0]: ndim=%d, dtype=%d/%d, size=%zu bytes\n",
-                   output.ndim, output.dtype_code, output.dtype_bits,
-                   output.data_size);
-            printf("  Shape: [");
-            for (int i = 0; i < output.ndim; i++) {
-                printf("%lld%s", static_cast<long long>(output.shape[i]),
-                       (i < output.ndim - 1) ? "," : "");
-            }
-            printf("]\n");
-
-            /* Write output file if requested */
-            if (output_file && output.data && output.data_size > 0) {
-                UniqueFile of(fopen(output_file, "wb"));
-                if (of) {
-                    fwrite(output.data, 1, output.data_size, of.get());
-                    printf("  Written %zu bytes to %s\n", output.data_size, output_file);
-                } else {
-                    fprintf(stderr, "Failed to open output file: %s\n", output_file);
+        /* Write all output tensors concatenated to the output file */
+        if (output_file && num_outputs > 0) {
+            UniqueFile of(fopen(output_file, "wb"));
+            if (of) {
+                size_t total_written = 0;
+                for (int i = 0; i < num_outputs; i++) {
+                    if (outputs_arr[i].data && outputs_arr[i].data_size > 0) {
+                        fwrite(outputs_arr[i].data, 1,
+                               outputs_arr[i].data_size, of.get());
+                        total_written += outputs_arr[i].data_size;
+                    }
                 }
+                printf("  Written %zu bytes (%d tensors) to %s\n",
+                       total_written, num_outputs, output_file);
+            } else {
+                fprintf(stderr, "Failed to open output file: %s\n", output_file);
             }
         }
     } else {
@@ -523,7 +529,8 @@ static int cmd_run(const char *module_file,
                    const char *shape_str, const char *dtype_str,
                    uint32_t repeat = 1)
 {
-    c7x_tensor_desc_t inputs[kMaxInputs], output;
+    c7x_tensor_desc_t inputs[kMaxInputs];
+    c7x_tensor_desc_t outputs_arr[kMaxInputs];  /* sized for KV cache models */
     int num_inputs = 0, num_outputs = 0;
     uint64_t cycles = 0;
     c7x_client_t *client = nullptr;
@@ -576,7 +583,7 @@ static int cmd_run(const char *module_file,
         num_inputs = 1;
     }
 
-    memset(&output, 0, sizeof(output));
+    memset(outputs_arr, 0, sizeof(outputs_arr));
 
     /* Open client connection */
     client = c7x_client_open();
@@ -597,18 +604,25 @@ static int cmd_run(const char *module_file,
     /* INFER — model_id=0 triggers embedded-weights fallback.
      * repeat>1 enables profiling (firmware loops cg_main_dsp N times). */
     ret = c7x_client_infer_repeat(client, handle, 0,
-                                   inputs, num_inputs, &output, &num_outputs,
+                                   inputs, num_inputs,
+                                   outputs_arr, &num_outputs,
                                    &cycles, repeat);
     if (ret != 0) {
         error_stage = "infer";
         goto cleanup;
     }
 
-    /* Write output file if requested */
-    if (output_file && output.data && output.data_size > 0) {
+    /* Write ALL output tensors concatenated to the output file.
+     * smollm_board.py reads this file to extract logits + KV cache updates. */
+    if (output_file && num_outputs > 0) {
         UniqueFile of(fopen(output_file, "wb"));
         if (of) {
-            fwrite(output.data, 1, output.data_size, of.get());
+            for (int i = 0; i < num_outputs; i++) {
+                if (outputs_arr[i].data && outputs_arr[i].data_size > 0) {
+                    fwrite(outputs_arr[i].data, 1,
+                           outputs_arr[i].data_size, of.get());
+                }
+            }
         } else {
             fprintf(stderr, "Failed to open output file: %s\n", output_file);
         }
@@ -631,16 +645,18 @@ cleanup:
     if (ret == 0) {
         printf("{\"status\":\"ok\",\"cycles\":%llu,\"num_outputs\":%d,\"outputs\":[",
                (unsigned long long)cycles, num_outputs);
-        for (int i = 0; i < num_outputs && i < 1; i++) {
+        for (int i = 0; i < num_outputs; i++) {
+            if (i > 0) printf(",");
             printf("{\"index\":%d,\"ndim\":%d,"
                    "\"dtype_code\":%d,\"dtype_bits\":%d,"
                    "\"data_size\":%zu,\"shape\":[",
-                   i, output.ndim,
-                   output.dtype_code, output.dtype_bits,
-                   output.data_size);
-            for (int j = 0; j < output.ndim; j++) {
-                printf("%lld%s", static_cast<long long>(output.shape[j]),
-                       (j < output.ndim - 1) ? "," : "");
+                   i, outputs_arr[i].ndim,
+                   outputs_arr[i].dtype_code, outputs_arr[i].dtype_bits,
+                   outputs_arr[i].data_size);
+            for (int j = 0; j < outputs_arr[i].ndim; j++) {
+                printf("%lld%s",
+                       static_cast<long long>(outputs_arr[i].shape[j]),
+                       (j < outputs_arr[i].ndim - 1) ? "," : "");
             }
             printf("]}");
         }
