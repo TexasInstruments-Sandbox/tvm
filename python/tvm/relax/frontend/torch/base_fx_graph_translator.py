@@ -1572,13 +1572,26 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
 
         if attn_mask is not None:
             attn_mask = self.env[attn_mask]
-            # Bool or integer masks (e.g. from StaticCache causal masking) are
-            # cast to float32 so relax.op.nn.attention can use them as additive
-            # bias.  True → 0.0 (attend), False → -inf handled downstream.
+            # Non-float masks (bool/int from StaticCache causal masking) must
+            # be converted to an additive float bias for relax.op.nn.attention:
+            #   True  (attend)  → 0.0          (no penalty)
+            #   False (mask out) → finfo.min    (effectively -inf after softmax)
+            #
+            # A plain astype(bool, float32) gives 1.0/0.0, which is wrong:
+            # the 1.0 vs 0.0 difference is too small when Q/K values have
+            # quantization noise (INT8), causing attention over masked positions.
+            #
+            # Fix: (1 - float(bool)) * finfo.min
+            #   True  → (1 - 1.0) * min = 0.0
+            #   False → (1 - 0.0) * min = finfo.min ≈ -3.4e38
             if "float" not in attn_mask.struct_info.dtype:
-                attn_mask = self.block_builder.emit(
-                    relax.op.astype(attn_mask, "float32")
-                )
+                import numpy as _np  # noqa: PLC0415
+
+                float_mask = self.block_builder.emit(relax.op.astype(attn_mask, "float32"))
+                one = relax.const(_np.float32(1.0))
+                min_f32 = relax.const(_np.float32(_np.finfo(_np.float32).min))
+                inv_mask = self.block_builder.emit(relax.op.subtract(one, float_mask))
+                attn_mask = self.block_builder.emit(relax.op.multiply(inv_mask, min_f32))
 
         attention_output = self.block_builder.emit(
             relax.op.nn.attention(query, key, value, bias=attn_mask, causal_mask=causal_mask)

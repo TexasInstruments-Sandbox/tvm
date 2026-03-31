@@ -915,12 +915,24 @@ def cmd_compile_chat(args) -> int:
     }
     # Try to read EOS token id from tokenizer config
     tok_cfg = args.model_dir / "tokenizer_config.json"
+    tok_json = args.model_dir / "tokenizer.json"
     if tok_cfg.exists():
         with open(tok_cfg) as f:
             tcfg = json.load(f)
         eos = tcfg.get("eos_token_id") or tcfg.get("eos_token")
         if isinstance(eos, int):
             metadata["eos_token_id"] = eos
+        elif isinstance(eos, str) and tok_json.exists():
+            # Encode the special token string to get its ID
+            try:
+                from tokenizers import Tokenizer as _Tokenizer  # noqa: PLC0415
+
+                _tok = _Tokenizer.from_file(str(tok_json))
+                ids = _tok.encode(eos).ids
+                if len(ids) == 1:
+                    metadata["eos_token_id"] = ids[0]
+            except Exception:
+                pass
 
     meta_path = artifacts_dir / "metadata.json"
     with open(meta_path, "w") as f:
