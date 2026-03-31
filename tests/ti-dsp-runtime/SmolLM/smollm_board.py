@@ -306,7 +306,7 @@ class SmolLMEngine:
 
         self.prefill_len = metadata["prefill_len"]
         self.max_cache_len = metadata["max_cache_len"]
-        self.eos_token_id = metadata.get("eos_token_id", 0)
+        self.eos_token_id = metadata.get("eos_token_id", _IM_END_TOKEN_ID)
         self.vocab_size = metadata.get("vocab_size", 49152)
 
         num_layers = metadata.get("num_layers", 30)
@@ -429,11 +429,11 @@ class SmolLMEngine:
         logits = self.prefill(token_ids)
         next_token = _sample(logits, temperature=temperature, top_k=top_k)
 
+        if next_token == self.eos_token_id:
+            return
         yield self.tokenizer.decode([next_token])
 
         for _ in range(max_new_tokens - 1):
-            if next_token == self.eos_token_id:
-                break
             logits = self.decode_step(next_token)
             next_token = _sample(logits, temperature=temperature, top_k=top_k)
             if next_token == self.eos_token_id:
@@ -481,18 +481,36 @@ def _sample(logits, temperature=1.0, top_k=0):
 # Chat REPL
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = "You are SmolLM, a helpful and honest AI assistant running on a TI AM67A DSP."
+_IM_START = "<|im_start|>"
+_IM_END = "<|im_end|>"
+_IM_END_TOKEN_ID = 2  # Fixed ID in SmolLM tokenizer
+
+_SYSTEM_PROMPT = "You are SmolLM, a helpful AI assistant running on a TI AM67A DSP."
+
+
+def _apply_chat_template(messages, add_generation_prompt=True):
+    """Apply the ChatML template used by SmolLM-135M-Instruct.
+
+    messages: list of {"role": ..., "content": ...}
+    Returns a string ready to tokenize.
+    """
+    text = ""
+    for msg in messages:
+        text += f"{_IM_START}{msg['role']}\n{msg['content']}{_IM_END}\n"
+    if add_generation_prompt:
+        text += f"{_IM_START}assistant\n"
+    return text
 
 
 def chat(engine, max_tokens=200, temperature=1.0, top_k=0):
-    """Interactive chat loop using a simple conversation history."""
+    """Interactive chat loop using ChatML-formatted prompts."""
     print(
         f"SmolLM-135M  |  max_cache={engine.max_cache_len} tokens  |  "
         f"cache={engine.cache.size_mb:.1f} MB"
     )
     print("Type 'quit' or Ctrl-C to exit, 'reset' to start a new conversation.\n")
 
-    history = _SYSTEM_PROMPT
+    history = []  # list of {"role": ..., "content": ...}
     while True:
         try:
             user = input("You: ").strip()
@@ -506,14 +524,14 @@ def chat(engine, max_tokens=200, temperature=1.0, top_k=0):
             print("Bye!")
             break
         if user.lower() == "reset":
-            history = _SYSTEM_PROMPT
+            history = []
             engine.cache.reset()
             engine.cache_pos = 0
             print("[Conversation reset]\n")
             continue
 
-        # Build prompt with conversation history
-        prompt = f"{history}\n\nUser: {user}\n\nAssistant:"
+        history.append({"role": "user", "content": user})
+        prompt = _apply_chat_template(history)
         print("Assistant: ", end="", flush=True)
 
         response_tokens = []
@@ -532,8 +550,7 @@ def chat(engine, max_tokens=200, temperature=1.0, top_k=0):
         response = "".join(response_tokens)
         print()
 
-        # Append turn to history for next round
-        history = f"{prompt}{response}"
+        history.append({"role": "assistant", "content": response})
 
 
 # ---------------------------------------------------------------------------
@@ -603,9 +620,10 @@ examples:
     print(f"Ready.  KV cache: {engine.cache.size_mb:.1f} MB in ARM RAM\n")
 
     if args.prompt:
-        # Single-shot mode
+        # Single-shot mode: apply ChatML template
+        prompt = _apply_chat_template([{"role": "user", "content": args.prompt}])
         for fragment in engine.generate(
-            args.prompt,
+            prompt,
             max_new_tokens=args.max_tokens,
             temperature=args.temperature,
             top_k=args.top_k,
