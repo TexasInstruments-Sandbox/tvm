@@ -28,9 +28,12 @@ Run on board:
 
 import argparse
 import json
+import select
 import struct
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -186,6 +189,178 @@ def _run_local(module_path, input_arrays, work_dir, c7x_compute, timeout_s=600):
 
 
 # ---------------------------------------------------------------------------
+# Persistent session helpers
+# ---------------------------------------------------------------------------
+
+
+def _read_line_timeout(stream, timeout_s):
+    """Read one newline-terminated line from a binary stream with timeout."""
+    deadline = time.monotonic() + timeout_s
+    buf = b""
+    while b"\n" not in buf:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("session-run did not respond in time")
+        ready, _, _ = select.select([stream], [], [], min(remaining, 1.0))
+        if ready:
+            chunk = stream.read(1)
+            if not chunk:
+                raise RuntimeError("session-run process closed unexpectedly")
+            buf += chunk
+    return buf.decode().strip()
+
+
+def _read_json_line(stream, timeout_s):
+    """Read lines until one starts with '{', discarding diagnostic output.
+
+    c7x_compute_client.cpp prints diagnostic lines to stdout (e.g.
+    "c7x: Connected to compute service") before the JSON response.
+    This helper skips those and returns the first JSON-looking line.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("session-run did not respond in time")
+        line = _read_line_timeout(stream, remaining)
+        if line.startswith("{"):
+            return line
+        # Discard diagnostic line (forward to stderr for visibility)
+        print(f"[session] {line}", file=sys.stderr)
+
+
+def _read_exact(stream, n):
+    """Read exactly n bytes from a binary stream."""
+    buf = b""
+    while len(buf) < n:
+        chunk = stream.read(n - len(buf))
+        if not chunk:
+            raise RuntimeError("session-run closed before sending all output bytes")
+        buf += chunk
+    return buf
+
+
+def _parse_session_outputs(output_bytes, outputs_meta):
+    """Parse output arrays from concatenated binary data + metadata list."""
+    _code_bits = {
+        (2, 32): np.float32,
+        (2, 16): np.float16,
+        (0, 64): np.int64,
+        (0, 32): np.int32,
+        (0, 8): np.int8,
+        (1, 8): np.uint8,
+    }
+    arrays = []
+    offset = 0
+    for m in sorted(outputs_meta, key=lambda x: x["index"]):
+        dtype = _code_bits[(m["dtype_code"], m["dtype_bits"])]
+        size = m["data_size"]
+        arr = np.frombuffer(output_bytes[offset : offset + size], dtype=dtype)
+        arrays.append(arr.reshape(m["shape"]).copy())
+        offset += size
+    return arrays
+
+
+class C7xSession:
+    """Persistent c7x_compute session: module loaded once, infer many times.
+
+    Starts `c7x_compute session-run --module <path>` as a subprocess and
+    keeps it alive between decode steps.  The first call takes ~35 s to
+    load the ELF; subsequent calls take only the inference time (~5 s).
+
+    Protocol: JSON header line + raw binary payload per request/response.
+    """
+
+    def __init__(self, module_path, c7x_compute, timeout_load_s=120):
+        cmd = [c7x_compute, "session-run", "--module", str(module_path)]
+        self._proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,  # unbuffered so select.select works on the raw fd
+        )
+        # Background thread: drain session stderr to prevent pipe deadlock.
+        # c7x_compute_client writes many diagnostic lines (OOM fallback
+        # messages, weight-parsing info) to stderr.  Without draining, the
+        # 64 KB stderr pipe fills up and blocks the C++ process mid-inference.
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr, daemon=True
+        )
+        self._stderr_thread.start()
+
+        ready_line = _read_json_line(self._proc.stdout, timeout_load_s)
+        info = json.loads(ready_line)
+        if info.get("status") != "ready":
+            self._proc.kill()
+            raise RuntimeError(f"session-run failed to start: {info}")
+
+    def _drain_stderr(self):
+        """Background thread: read and discard session stderr to prevent pipe deadlock."""
+        try:
+            while True:
+                chunk = self._proc.stderr.read(4096)  # type: ignore[union-attr]
+                if not chunk:
+                    break
+        except Exception:
+            pass
+
+    def infer(self, input_arrays, timeout_s=600):
+        """Send one inference request, return (output_arrays, cycles)."""
+        raw = b"".join(np.ascontiguousarray(a).tobytes() for a in input_arrays)
+        shapes = ";".join(",".join(str(d) for d in a.shape) for a in input_arrays)
+        dtypes = ";".join(_DTYPE_STR[a.dtype] for a in input_arrays)
+        header = json.dumps(
+            {
+                "op": "infer",
+                "num_inputs": len(input_arrays),
+                "input_size": len(raw),
+                "shape": shapes,
+                "dtype": dtypes,
+            },
+            separators=(",", ":"),
+        )
+        self._proc.stdin.write(header.encode() + b"\n")
+        self._proc.stdin.write(raw)
+        self._proc.stdin.flush()
+
+        resp_line = _read_json_line(self._proc.stdout, timeout_s)
+        info = json.loads(resp_line)
+        if info.get("status") != "ok":
+            raise RuntimeError(f"session infer failed: {info.get('error')}")
+
+        output_bytes = _read_exact(self._proc.stdout, info["output_size"])
+        arrays = _parse_session_outputs(output_bytes, info["outputs"])
+        return arrays, info.get("cycles", 0)
+
+    def close(self):
+        """Gracefully shut down the session process."""
+        if self._proc is None:
+            return
+        if self._proc.poll() is None:
+            import os as _os
+            try:
+                self._proc.stdin.write(b'{"op":"exit"}\n')  # type: ignore[union-attr]
+                self._proc.stdin.flush()  # type: ignore[union-attr]
+                self._proc.stdin.close()  # type: ignore[union-attr]
+            except Exception:
+                pass
+            try:
+                self._proc.wait(timeout=10)
+            except Exception:
+                # Fall back to os.kill to avoid signal import issues during
+                # Python interpreter shutdown (when signal module may be unloaded)
+                try:
+                    _os.kill(self._proc.pid, 9)
+                except Exception:
+                    pass
+        self._proc = None
+
+    def __del__(self):
+        self.close()
+
+
+# ---------------------------------------------------------------------------
 # KV cache management
 # ---------------------------------------------------------------------------
 
@@ -297,12 +472,15 @@ class SmolLMEngine:
         metadata,
         c7x_compute="/usr/local/bin/c7x_compute",
         work_dir="/tmp/c7x_smollm",
+        use_session=True,
     ):
         self.prefill_out = Path(prefill_out)
         self.decode_out = Path(decode_out)
         self.tokenizer = tokenizer
         self.c7x_compute = c7x_compute
         self.work_dir = work_dir
+        self._use_session = use_session
+        self._decode_session = None  # created lazily on first decode_step
 
         self.prefill_len = metadata["prefill_len"]
         self.max_cache_len = metadata["max_cache_len"]
@@ -357,6 +535,23 @@ class SmolLMEngine:
             work_dir=work_dir,
         )
 
+    def _get_decode_session(self):
+        """Lazily create and return the persistent decode session."""
+        if self._decode_session is None:
+            print(
+                f"Starting decode session (loading {self.decode_out.name}, ~35s)...",
+                end="",
+                flush=True,
+            )
+            self._decode_session = C7xSession(self.decode_out, self.c7x_compute)
+            print(" ready")
+        return self._decode_session
+
+    def __del__(self):
+        sess = self._decode_session
+        if sess is not None:
+            sess.close()
+
     def _run(self, module_path, user_inputs):
         """Run a model; user_inputs are [input_ids, cache_position].
         KV cache tensors are appended automatically from self.cache."""
@@ -403,8 +598,15 @@ class SmolLMEngine:
             )
         input_ids = np.array([[token_id]], dtype=np.int64)
         cache_pos = np.array([self.cache_pos], dtype=np.int64)
+        all_inputs = [input_ids, cache_pos] + self.cache.as_inputs()
 
-        outputs, cycles = self._run(self.decode_out, [input_ids, cache_pos])
+        if self._use_session:
+            outputs, _cycles = self._get_decode_session().infer(all_inputs)
+        else:
+            outputs, _cycles = _run_local(
+                self.decode_out, all_inputs, self.work_dir, self.c7x_compute
+            )
+
         self.cache.update_from_outputs(outputs)
         self.cache_pos += 1
 
@@ -619,20 +821,29 @@ examples:
     )
     print(f"Ready.  KV cache: {engine.cache.size_mb:.1f} MB in ARM RAM\n")
 
-    if args.prompt:
-        # Single-shot mode: apply ChatML template
-        prompt = _apply_chat_template([{"role": "user", "content": args.prompt}])
-        for fragment in engine.generate(
-            prompt,
-            max_new_tokens=args.max_tokens,
-            temperature=args.temperature,
-            top_k=args.top_k,
-        ):
-            print(fragment, end="", flush=True)
-        print()
-    else:
-        # Interactive chat
-        chat(engine, max_tokens=args.max_tokens, temperature=args.temperature, top_k=args.top_k)
+    try:
+        if args.prompt:
+            # Single-shot mode: apply ChatML template
+            prompt = _apply_chat_template([{"role": "user", "content": args.prompt}])
+            for fragment in engine.generate(
+                prompt,
+                max_new_tokens=args.max_tokens,
+                temperature=args.temperature,
+                top_k=args.top_k,
+            ):
+                print(fragment, end="", flush=True)
+            print()
+        else:
+            # Interactive chat
+            chat(engine, max_tokens=args.max_tokens, temperature=args.temperature, top_k=args.top_k)
+    finally:
+        # Explicitly close the decode session so the DSP module is cleanly
+        # unloaded via c7x_client_dyn_unload before Python shuts down.
+        # Relying on __del__ is unreliable during interpreter teardown.
+        sess = engine._decode_session
+        if sess is not None:
+            sess.close()
+            engine._decode_session = None
 
     return 0
 
