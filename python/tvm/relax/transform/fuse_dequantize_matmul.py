@@ -82,6 +82,19 @@ def _check_pattern(ctx):
     if isinstance(a, relax.Constant):
         return False
 
+    # bias (if present) must be a Constant, NOT a dynamic computation.
+    # In DPL matching the annotated expression is the producing expression
+    # (e.g. a Call), not the DataflowVar itself.  A relax.Call for the
+    # bias means the "bias" is a dynamic activation such as the residual
+    # hidden state in `add(o_proj(norm0), hidden0)`.  Fusing that would
+    # silently drop the residual add because hidden0 is not capturable as
+    # a composite-function parameter.  Only NN bias weights bound as
+    # Constant (via BindParams) should be fused here.
+    if "bias" in ctx.annotated_expr:
+        b = ctx.annotated_expr["bias"]
+        if not isinstance(b, relax.Constant):
+            return False  # dynamic bias (e.g. residual add) - skip bias fusion
+
     # permute_dims must be a standard transpose of the last two dims
     perm = ctx.annotated_expr["w_perm"]
     if isinstance(perm, relax.Call):
