@@ -55,6 +55,7 @@ static void print_usage(const char *prog)
     printf("  unload <handle>                   Unload dynamic module\n");
     printf("  infer <handle> <model_id>         Run TVM inference\n");
     printf("  run                               Load, infer, and unload (JSON output)\n");
+    printf("  session-run                       Load once, infer many (persistent session)\n");
     printf("  profile                           Like 'run' but with repeat=2 for profiling\n");
     printf("  trace                             Monitor DSP trace buffer\n");
     printf("\n");
@@ -671,6 +672,200 @@ cleanup:
     return (ret == 0) ? 0 : 1;
 }
 
+/*
+ * =============================================================================
+ * Session Run Command (persistent load-once, infer-many)
+ * =============================================================================
+ */
+
+/*
+ * Minimal JSON field extractor for the session-run protocol.
+ * Finds "key":value in buf and returns pointer to start of value.
+ * Returns nullptr if key not found.
+ */
+static const char *json_find_value(const char *buf, const char *key)
+{
+    char search[128];
+    snprintf(search, sizeof(search), "\"%s\":", key);
+    const char *p = strstr(buf, search);
+    if (!p) return nullptr;
+    p += strlen(search);
+    while (*p == ' ' || *p == '\t') p++;
+    return p;
+}
+
+static bool json_get_string_val(const char *buf, const char *key,
+                                char *out, size_t max_len)
+{
+    const char *p = json_find_value(buf, key);
+    if (!p || *p != '"') return false;
+    p++;  /* skip opening quote */
+    size_t i = 0;
+    while (*p && *p != '"' && i < max_len - 1)
+        out[i++] = *p++;
+    out[i] = '\0';
+    return true;
+}
+
+static bool json_get_ll(const char *buf, const char *key, long long *out)
+{
+    const char *p = json_find_value(buf, key);
+    if (!p) return false;
+    char *end;
+    *out = strtoll(p, &end, 10);
+    return end != p;
+}
+
+/*
+ * cmd_session_run — persistent session: load ELF once, infer many times.
+ *
+ * Protocol (newline-delimited JSON headers + raw binary payloads):
+ *   startup:  print {"status":"ready","module":"..."}\n
+ *   request:  {"op":"infer","num_inputs":K,"input_size":N,"shape":"...","dtype":"..."}\n
+ *             followed by N bytes of raw input tensor data
+ *   response: {"status":"ok","cycles":C,"num_outputs":M,"output_size":O,"outputs":[...]}\n
+ *             followed by O bytes of raw output tensor data
+ *   exit:     {"op":"exit"}\n  OR  stdin EOF  → unload + exit
+ */
+static int cmd_session_run(const char *module_file)
+{
+    /* Unbuffered stdout so JSON headers + binary data reach the parent
+     * process immediately after each fwrite/printf. */
+    setvbuf(stdout, nullptr, _IONBF, 0);
+
+    /* Open IPC client */
+    c7x_client_t *client = c7x_client_open();
+    if (!client) {
+        printf("{\"status\":\"error\",\"stage\":\"open\","
+               "\"error\":\"Failed to open client\"}\n");
+        return 1;
+    }
+
+    /* Load ELF module (expensive: ~35 s for a 319 MB decode.out) */
+    uint32_t handle = 0;
+    int ret = c7x_client_dyn_load(client, module_file, &handle);
+    if (ret != 0) {
+        printf("{\"status\":\"error\",\"stage\":\"load\","
+               "\"error\":\"%s\"}\n", c7x_strerror(ret));
+        c7x_client_close(client);
+        return 1;
+    }
+
+    /* Signal readiness to the Python parent */
+    printf("{\"status\":\"ready\",\"module\":\"%s\"}\n", module_file);
+
+    /* Event loop: one iteration per inference request */
+    char header_buf[4096];
+    bool clean_exit = false;
+
+    while (fgets(header_buf, sizeof(header_buf), stdin)) {
+        /* Check for exit request */
+        const char *op_p = json_find_value(header_buf, "op");
+        if (op_p && strncmp(op_p, "\"exit\"", 6) == 0) {
+            clean_exit = true;
+            break;
+        }
+
+        /* Parse infer request fields */
+        long long num_inputs_ll = 0, input_size_ll = 0;
+        char shape_str[4096] = {};
+        char dtype_str[2048] = {};
+
+        if (!json_get_ll(header_buf, "num_inputs", &num_inputs_ll) ||
+            !json_get_ll(header_buf, "input_size", &input_size_ll) ||
+            !json_get_string_val(header_buf, "shape", shape_str, sizeof(shape_str)) ||
+            !json_get_string_val(header_buf, "dtype", dtype_str, sizeof(dtype_str))) {
+            printf("{\"status\":\"error\",\"error\":\"Invalid request format\"}\n");
+            continue;
+        }
+
+        size_t input_size = static_cast<size_t>(input_size_ll);
+
+        /* Read exactly input_size bytes of tensor data from stdin */
+        auto input_data = std::make_unique<uint8_t[]>(input_size > 0 ? input_size : 1);
+        size_t total_read = 0;
+        bool truncated = false;
+        while (total_read < input_size) {
+            size_t n = fread(input_data.get() + total_read, 1,
+                             input_size - total_read, stdin);
+            if (n == 0) {
+                truncated = true;
+                break;
+            }
+            total_read += n;
+        }
+        if (truncated) {
+            /* stdin closed mid-message — treat as clean EOF */
+            break;
+        }
+
+        /* Parse tensor descriptors using existing helper */
+        c7x_tensor_desc_t inputs[kMaxInputs];
+        c7x_tensor_desc_t outputs_arr[kMaxInputs];
+        memset(outputs_arr, 0, sizeof(outputs_arr));
+
+        int num_inputs = parse_multi_inputs(shape_str, dtype_str,
+                                            input_data.get(), input_size,
+                                            inputs);
+        if (num_inputs < 0) {
+            printf("{\"status\":\"error\",\"error\":\"Failed to parse inputs\"}\n");
+            continue;
+        }
+
+        /* Run inference (model_id=0 → embedded weights in the ELF) */
+        int num_outputs = 0;
+        uint64_t cycles = 0;
+        ret = c7x_client_infer(client, handle, /*model_id=*/0,
+                               inputs, num_inputs,
+                               outputs_arr, &num_outputs, &cycles);
+        if (ret != 0) {
+            printf("{\"status\":\"error\",\"error\":\"%s\"}\n",
+                   c7x_strerror(ret));
+            continue;
+        }
+
+        /* Compute total output size */
+        size_t output_size = 0;
+        for (int i = 0; i < num_outputs; i++)
+            output_size += outputs_arr[i].data_size;
+
+        /* Write JSON response header (same format as cmd_run) */
+        printf("{\"status\":\"ok\",\"cycles\":%llu,\"num_outputs\":%d,"
+               "\"output_size\":%zu,\"outputs\":[",
+               (unsigned long long)cycles, num_outputs, output_size);
+        for (int i = 0; i < num_outputs; i++) {
+            if (i > 0) printf(",");
+            printf("{\"index\":%d,\"ndim\":%d,"
+                   "\"dtype_code\":%d,\"dtype_bits\":%d,"
+                   "\"data_size\":%zu,\"shape\":[",
+                   i, outputs_arr[i].ndim,
+                   outputs_arr[i].dtype_code, outputs_arr[i].dtype_bits,
+                   outputs_arr[i].data_size);
+            for (int j = 0; j < outputs_arr[i].ndim; j++) {
+                printf("%lld%s",
+                       static_cast<long long>(outputs_arr[i].shape[j]),
+                       (j < outputs_arr[i].ndim - 1) ? "," : "");
+            }
+            printf("]}");
+        }
+        printf("]}\n");
+
+        /* Write concatenated binary output tensors */
+        for (int i = 0; i < num_outputs; i++) {
+            if (outputs_arr[i].data && outputs_arr[i].data_size > 0)
+                fwrite(outputs_arr[i].data, 1, outputs_arr[i].data_size, stdout);
+        }
+        /* stdout is unbuffered, but an explicit flush guards against
+         * any intermediate buffering in the OS pipe layer. */
+        fflush(stdout);
+    }
+
+    /* Cleanup */
+    c7x_client_dyn_unload(client, handle);
+    c7x_client_close(client);
+    return clean_exit ? 0 : 0;  /* always 0 — EOF is a clean shutdown */
+}
+
 int main(int argc, char *argv[])
 {
     const char *command;
@@ -784,6 +979,15 @@ int main(int argc, char *argv[])
     } else if (strcmp(command, "run") == 0) {
         return cmd_run(module_file, input_file, output_file,
                        shape_str, dtype_str, /*repeat=*/1);
+    } else if (strcmp(command, "session-run") == 0) {
+        /* c7x_compute session-run --module <file>
+         * Persistent session: loads ELF once, then loops reading
+         * JSON+binary infer requests from stdin and writing responses. */
+        if (!module_file) {
+            fprintf(stderr, "Error: --module required for session-run\n");
+            return 1;
+        }
+        return cmd_session_run(module_file);
     } else if (strcmp(command, "profile") == 0) {
         return cmd_run(module_file, input_file, output_file,
                        shape_str, dtype_str, /*repeat=*/2);
