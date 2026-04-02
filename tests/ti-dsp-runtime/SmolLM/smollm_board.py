@@ -636,7 +636,17 @@ class SmolLMEngine:
         yield self.tokenizer.decode([next_token])
 
         for _ in range(max_new_tokens - 1):
-            logits = self.decode_step(next_token)
+            try:
+                logits = self.decode_step(next_token)
+            except RuntimeError as e:
+                if "KV cache full" in str(e):
+                    print(
+                        f"\n[Context limit reached ({self.max_cache_len} tokens). "
+                        f"Recompile with a larger --max-cache-len to continue.]",
+                        file=sys.stderr,
+                    )
+                    return
+                raise
             next_token = _sample(logits, temperature=temperature, top_k=top_k)
             if next_token == self.eos_token_id:
                 break
