@@ -34,6 +34,7 @@
 extern int TVMDSPRegFileCleanup(void);
 extern void TVMDSPConstantsCleanup(void);
 extern void tvm_dsp_reset_pools(void);
+extern void TVMDSPSetWeightsData(const void *data, size_t size);
 
 /* cg_main_dsp function pointer type */
 typedef int (*cg_main_dsp_fn)(TVMFFIAny *inputs, int num_inputs,
@@ -201,6 +202,11 @@ static void handle_dyn_load(struct c7x_msg_dyn_load *req,
     /* text_size and data_size are set by DLIF callbacks, we report 0 for now */
     resp->text_size = 0;
     resp->data_size = 0;
+
+    /* Record pool state after DYN_LOAD so each INFER_LARGE can restore
+     * to this watermark, reclaiming per-inference workspace while
+     * preserving the DLOAD code and DYN_LOAD constants below it. */
+    tvm_dsp_save_infer_watermark();
 
     DebugP_log("[COMPUTE] Module loaded: handle=%u\r\n", handle);
 
@@ -841,6 +847,25 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
     struct c7x_tensor_desc *descs =
         (struct c7x_tensor_desc *)(uintptr_t)descs_addr;
 
+    /* Reclaim pool memory from the previous inference.
+     *
+     * 1. TVMDSPRegFileCleanup: drop TVM-level references to the previous
+     *    inference's output tensors so their refcounts reach zero before
+     *    we reset the backing pool below.
+     * 2. tvm_dsp_restore_infer_watermark: reset both pools to the state
+     *    saved right after DYN_LOAD, reclaiming all per-inference workspace
+     *    (constants metadata, K/V tensors, attention workspace) while
+     *    preserving the DLOAD code below the watermark.
+     * 3. TVMDSPSetWeightsData(NULL, 0): reset g_constants_loaded so
+     *    cg_main_dsp re-parses embedded weights into the freshly-reset pool
+     *    rather than dereferencing stale pointers above the old watermark.
+     *
+     * These steps happen BEFORE the input NDArray allocations below so those
+     * allocations start in a clean pool above the watermark. */
+    TVMDSPRegFileCleanup();
+    tvm_dsp_restore_infer_watermark();
+    TVMDSPSetWeightsData(NULL, 0);
+
     /* Allocate per-inference arrays from DSP heap */
     input_ndarrays = (TVMDSPNDArray *)tvm_dsp_alloc(
         num_inputs * sizeof(TVMDSPNDArray), 8, TVM_DSP_MEM_MAIN);
@@ -932,18 +957,8 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
         }
     }
 
-    /* Release objects held in the register file from the previous inference
-     * call (e.g. scatter_elements output tensors from prior decode step).
-     * Do NOT call tvm_dsp_reset_pools() here — that would reset the pool's
-     * bump_ptr back to pool->base (0x108000000), overwriting the DLOAD
-     * text segment that lives there.  Pool recycling happens naturally via
-     * the free-list between calls. */
-    TVMDSPRegFileCleanup();
-
-    /* Reset printf buffer before each inference so accumulated OOM/INFO
-     * messages from prior calls don't fill the 64 KB buffer and block
-     * cg_main_dsp() on its next printf.  handle_infer() does this via
-     * shm_printf_reset(); handle_infer_large must do the same. */
+    /* Reset printf buffer before each inference so accumulated INFO
+     * messages don't fill the 64 KB buffer and block cg_main_dsp(). */
     shm_printf_reset();
 
     /* Run inference */

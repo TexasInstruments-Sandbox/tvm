@@ -149,11 +149,10 @@ void* tvm_dsp_alloc(size_t size, size_t alignment, TVMDSPMemoryPool pool) {
   }
 
   void* result = tvm_dsp_memory_pool_alloc(pool_desc, size, alignment);
-  if (result == NULL && size > 0) {
-    const char* pool_name = (pool == TVM_DSP_MEM_FAST) ? "L2" : "Main";
-    tvm_dsp_log("ERROR: OOM in %s pool: requested %u bytes, "
+  if (result == NULL && size > 0 && pool != TVM_DSP_MEM_FAST) {
+    tvm_dsp_log("ERROR: OOM in Main pool: requested %u bytes, "
                 "free %u / %u bytes\n",
-                pool_name, (unsigned)size,
+                (unsigned)size,
                 (unsigned)tvm_dsp_memory_pool_free_space(pool_desc),
                 (unsigned)pool_desc->size);
   }
@@ -187,8 +186,13 @@ void tvm_dsp_reset_pools(void) {
   tvm_dsp_memory_pool_reset(&g_main_pool);
 }
 
+/* Host emulation: no DLOAD code in pool; watermark = full reset. */
 void tvm_dsp_save_infer_watermark(void) { }
-void tvm_dsp_restore_infer_watermark(void) { }
+void tvm_dsp_restore_infer_watermark(void) {
+  if (!g_platform_initialized) return;
+  tvm_dsp_memory_pool_reset(&g_fast_pool);
+  tvm_dsp_memory_pool_reset(&g_main_pool);
+}
 
 size_t tvm_dsp_get_free_memory(TVMDSPMemoryPool pool) {
   if (!g_platform_initialized) {
