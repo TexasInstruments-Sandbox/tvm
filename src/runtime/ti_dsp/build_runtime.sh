@@ -1,20 +1,39 @@
 #!/bin/bash
-# Build TVM DSP runtime libraries for all C7x targets.
+# Build TVM DSP runtime libraries.
 #
 # Usage:
-#   ./build_runtime.sh              # Build all targets (c7x + c7x_host)
-#   ./build_runtime.sh c7x          # Build C7x cross-compiled only
-#   ./build_runtime.sh c7x_host     # Build C7x host emulation only
-#   ./build_runtime.sh clean        # Remove all build directories
+#   ./build_runtime.sh                  # Build all targets (c7x + c7x_host)
+#   ./build_runtime.sh c66x_host        # Build C66x host emulation only
+#   ./build_runtime.sh c66x             # Build C66x cross-compiled only
+#   ./build_runtime.sh c7x              # Build C7x cross-compiled only
+#   ./build_runtime.sh c7x_host         # Build C7x host emulation only
+#   ./build_runtime.sh clean            # Remove all build directories
 #
 # Environment variables (auto-detected if not set):
-#   TI_CGT_C7000_PATH   - TI C7000 compiler (required for both targets)
+#   TI_CGT_C6000_PATH   - TI C6000 compiler (required for c66x target)
+#   TI_CGT_C7000_PATH   - TI C7000 compiler (required for c7x targets)
 #   MCU_PLUS_SDK_PATH    - MCU+ SDK for J722S (required for c7x DMA)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+
+TARGET="${1:-all}"
+
+# --- Auto-detect TI C6000 compiler ---
+if [ -z "${TI_CGT_C6000_PATH:-}" ]; then
+    for p in \
+        "$HOME/ti/ccs2041/ccs/tools/compiler/ti-cgt-c6000_8.5.0.LTS" \
+        "$HOME/ti/ccs2050/ccs/tools/compiler/ti-cgt-c6000_8.5.0.LTS" \
+        "$HOME/ti/ccs2040/ccs/tools/compiler/ti-cgt-c6000_8.5.0.LTS" \
+        "$HOME/ti/ti-cgt-c6000_8.5.0.LTS"; do
+        if [ -x "$p/bin/cl6x" ]; then
+            export TI_CGT_C6000_PATH="$p"
+            break
+        fi
+    done
+fi
 
 # --- Auto-detect TI C7000 compiler ---
 if [ -z "${TI_CGT_C7000_PATH:-}" ]; then
@@ -28,12 +47,25 @@ if [ -z "${TI_CGT_C7000_PATH:-}" ]; then
         fi
     done
 fi
-if [ -z "${TI_CGT_C7000_PATH:-}" ]; then
-    echo "ERROR: TI_CGT_C7000_PATH not set and compiler not found"
-    echo "  Set TI_CGT_C7000_PATH to the TI C7000 CGT installation path"
-    exit 1
+
+# --- Validate required compilers for chosen target ---
+if [[ "$TARGET" == "c66x" || "$TARGET" == "all" ]]; then
+    if [ -z "${TI_CGT_C6000_PATH:-}" ]; then
+        echo "ERROR: TI_CGT_C6000_PATH not set and compiler not found"
+        echo "  Set TI_CGT_C6000_PATH to the TI C6000 CGT installation path"
+        exit 1
+    fi
+    echo "TI C6000 compiler: $TI_CGT_C6000_PATH"
 fi
-echo "TI C7000 compiler: $TI_CGT_C7000_PATH"
+
+if [[ "$TARGET" == "c7x" || "$TARGET" == "c7x_host" || "$TARGET" == "all" ]]; then
+    if [ -z "${TI_CGT_C7000_PATH:-}" ]; then
+        echo "ERROR: TI_CGT_C7000_PATH not set and compiler not found"
+        echo "  Set TI_CGT_C7000_PATH to the TI C7000 CGT installation path"
+        exit 1
+    fi
+    echo "TI C7000 compiler: $TI_CGT_C7000_PATH"
+fi
 
 # --- Auto-detect MCU+ SDK ---
 if [ -z "${MCU_PLUS_SDK_PATH:-}" ]; then
@@ -54,6 +86,30 @@ else
 fi
 
 # --- Build functions ---
+build_c66x_host() {
+    echo ""
+    echo "=== Building C66x host emulation runtime ==="
+    rm -rf build-c66x-host
+    mkdir build-c66x-host && cd build-c66x-host
+    cmake ..
+    cmake --build .
+    echo "Output: $SCRIPT_DIR/build-c66x-host/libtvm_dsp_runtime_host.a"
+    cd "$SCRIPT_DIR"
+}
+
+build_c66x() {
+    echo ""
+    echo "=== Building C66x cross-compiled runtime ==="
+    rm -rf build-c66x
+    mkdir build-c66x && cd build-c66x
+    cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-awrl6844.cmake \
+          -DTVM_DSP_DEVICE=awrl6844 \
+          ..
+    cmake --build .
+    echo "Output: $SCRIPT_DIR/build-c66x/libtvm_dsp_runtime_c66x.a"
+    cd "$SCRIPT_DIR"
+}
+
 build_c7x() {
     echo ""
     echo "=== Building C7x cross-compiled runtime ==="
@@ -80,19 +136,20 @@ build_c7x_host() {
 
 do_clean() {
     echo "Cleaning build directories..."
-    rm -rf build-c7x build-c7x-host
+    rm -rf build-c66x-host build-c66x build-c7x build-c7x-host
     echo "Done"
 }
 
 # --- Main ---
-TARGET="${1:-all}"
 case "$TARGET" in
+    c66x_host) build_c66x_host ;;
+    c66x)      build_c66x ;;
     c7x)       build_c7x ;;
     c7x_host)  build_c7x_host ;;
     clean)     do_clean ;;
-    all)       build_c7x; build_c7x_host ;;
+    all)       build_c66x; build_c7x; build_c7x_host ;;
     *)
-        echo "Usage: $0 [c7x|c7x_host|clean|all]"
+        echo "Usage: $0 [c66x_host|c66x|c7x|c7x_host|clean|all]"
         exit 1
         ;;
 esac
