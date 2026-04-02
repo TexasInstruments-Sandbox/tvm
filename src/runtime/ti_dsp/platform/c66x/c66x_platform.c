@@ -172,6 +172,14 @@ void tvm_dsp_reset_pools(void) {
   tvm_dsp_memory_pool_reset(&g_main_pool);
 }
 
+/* C66x: no persistent DLOAD session, so watermarks are always pool base. */
+void tvm_dsp_save_infer_watermark(void) { }
+void tvm_dsp_restore_infer_watermark(void) {
+  if (!g_platform_initialized) return;
+  tvm_dsp_memory_pool_reset(&g_fast_pool);
+  tvm_dsp_memory_pool_reset(&g_main_pool);
+}
+
 size_t tvm_dsp_get_free_memory(TVMDSPMemoryPool pool) {
   if (!g_platform_initialized) {
     return 0;

@@ -936,10 +936,15 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
      * call (e.g. scatter_elements output tensors from prior decode step).
      * Do NOT call tvm_dsp_reset_pools() here — that would reset the pool's
      * bump_ptr back to pool->base (0x108000000), overwriting the DLOAD
-     * text segment that lives there.  The original handle_infer() also
-     * omits the pool reset before calling cg_main_dsp for the same reason.
-     * Pool recycling happens naturally via the free-list between calls. */
+     * text segment that lives there.  Pool recycling happens naturally via
+     * the free-list between calls. */
     TVMDSPRegFileCleanup();
+
+    /* Reset printf buffer before each inference so accumulated OOM/INFO
+     * messages from prior calls don't fill the 64 KB buffer and block
+     * cg_main_dsp() on its next printf.  handle_infer() does this via
+     * shm_printf_reset(); handle_infer_large must do the same. */
+    shm_printf_reset();
 
     /* Run inference */
     uint32_t repeat = req->flags & 0xFFFF;

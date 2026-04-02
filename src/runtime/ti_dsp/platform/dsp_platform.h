@@ -119,6 +119,10 @@ void tvm_dsp_free(void* ptr);
  */
 void tvm_dsp_reset_pools(void);
 
+/* Reserved stubs — no-op on all platforms. */
+void tvm_dsp_save_infer_watermark(void);
+void tvm_dsp_restore_infer_watermark(void);
+
 /*!
  * \brief Get free memory available in a pool.
  *
