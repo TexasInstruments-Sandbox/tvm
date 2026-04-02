@@ -356,4 +356,16 @@ class FuseDequantizeMatmul:  # pylint: disable=too-few-public-methods
                 "FuseDequantizeMatmul: fused %d patterns", fuser.count
             )
 
+        # Phase 3: remove the now-unused composite function definitions.
+        # FuseOpsByPattern creates global functions with the "Composite"
+        # attribute.  After Phase 2 has replaced every call to these
+        # functions with call_te, the definitions themselves are
+        # unreferenced.  If left in the module, passes like LegalizeOps
+        # would try to legalize the relax.dequantize inside them, but the
+        # scale/zp are function parameters (not literal constants) so
+        # _try_convert_to_scalar_const cannot reduce them to scalar TE
+        # constants — causing a "0-dim tensor indexed with 1 index" error.
+        if fuser.count > 0:
+            mod = relax.transform.DeadCodeElimination()(mod)
+
         return mod
