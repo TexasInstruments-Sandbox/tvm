@@ -44,7 +44,7 @@ extern "C" {
 #define C7X_SHARED_PHYS_BASE    0x900000000ULL  /* Physical address (host DMA heap) */
 #define C7X_SHARED_SIZE         0x20000000ULL   /* 512 MB total — full DMA heap carveout */
 
-/* Staging buffer: first 504 MB of the shared DDR carveout.
+/* Staging buffer: first 480 MB of the shared DDR carveout.
  * Used for host-to-DSP data transfer: ELF modules (DLOAD), weights
  * (MODEL_LOAD), and inference input tensors (INFER).
  *
@@ -52,11 +52,13 @@ extern "C" {
  *   Physical 0x900000000 -> DSP virtual 0xC0000000
  * The host side uses mmap'd userspace pointers (client->staging_buf). */
 #define C7X_STAGING_ADDR   0xC0000000ULL
-#define C7X_STAGING_SIZE   0x1F800000ULL   /* 504 MB */
+#define C7X_STAGING_SIZE   0x1E000000ULL   /* 480 MB */
 
-/* Result buffer: last 8 MB (DSP-to-host: inference output + printf) */
-#define C7X_RESULT_ADDR  0xDF800000ULL
-#define C7X_RESULT_SIZE  0x00800000ULL   /* 8 MB */
+/* Result buffer: last 32 MB (DSP-to-host: inference output + printf).
+ * Sized for max-cache-len=256: prefill outputs ~15 MB (3 MB logits +
+ * 11.8 MB KV cache) + descriptor array overhead. */
+#define C7X_RESULT_ADDR  0xDE000000ULL
+#define C7X_RESULT_SIZE  0x02000000ULL   /* 32 MB */
 
 /* Printf buffer: last 64 KB of result buffer */
 #define C7X_PRINTF_BUF_SIZE     0x00010000ULL   /* 64 KB */

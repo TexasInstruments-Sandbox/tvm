@@ -134,11 +134,10 @@ void* tvm_dsp_alloc(size_t size, size_t alignment, TVMDSPMemoryPool pool) {
   }
 
   void* result = tvm_dsp_memory_pool_alloc(pool_desc, size, alignment);
-  if (result == NULL && size > 0) {
-    const char* pool_name = (pool == TVM_DSP_MEM_FAST) ? "L2" : "L3";
-    tvm_dsp_log("ERROR: OOM in %s pool: requested %u bytes, "
+  if (result == NULL && size > 0 && pool != TVM_DSP_MEM_FAST) {
+    tvm_dsp_log("ERROR: OOM in L3 pool: requested %u bytes, "
                 "free %u / %u bytes\n",
-                pool_name, (unsigned)size,
+                (unsigned)size,
                 (unsigned)tvm_dsp_memory_pool_free_space(pool_desc),
                 (unsigned)pool_desc->size);
   }

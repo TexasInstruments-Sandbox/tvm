@@ -237,12 +237,18 @@ void* tvm_dsp_alloc(size_t size, size_t alignment, TVMDSPMemoryPool pool) {
 
   void* result = tvm_dsp_memory_pool_alloc(pool_desc, size, alignment);
   if (result == NULL && size > 0) {
-    const char* pool_name = (pool == TVM_DSP_MEM_FAST) ? "L2" : "DDR";
-    tvm_dsp_log("ERROR: OOM in %s pool: requested %u bytes, "
-                "free %u / %u bytes\n",
-                pool_name, (unsigned)size,
-                (unsigned)tvm_dsp_memory_pool_free_space(pool_desc),
-                (unsigned)pool_desc->size);
+    /* Suppress L2 OOM messages: falling back from L2 to DDR is normal for
+     * models with KV caches larger than the 128 KB L2 pool (e.g. 256-token
+     * cache).  Printing one message per failed allocation floods the 64 KB
+     * shared printf buffer and hangs cg_main_dsp() on subsequent printf calls.
+     * DDR OOM is unexpected and still reported. */
+    if (pool != TVM_DSP_MEM_FAST) {
+      tvm_dsp_log("ERROR: OOM in DDR pool: requested %u bytes, "
+                  "free %u / %u bytes\n",
+                  (unsigned)size,
+                  (unsigned)tvm_dsp_memory_pool_free_space(pool_desc),
+                  (unsigned)pool_desc->size);
+    }
   }
   return result;
 }
@@ -274,8 +280,39 @@ void tvm_dsp_reset_pools(void) {
   tvm_dsp_memory_pool_reset(&g_main_pool);
 }
 
-void tvm_dsp_save_infer_watermark(void) { }
-void tvm_dsp_restore_infer_watermark(void) { }
+/* Watermarks for reclaiming per-inference pool memory.
+ * Saved after DYN_LOAD so DLOAD code and DYN_LOAD constants (below
+ * the watermark) are preserved when the pool is restored.
+ * Per-inference allocations (above the watermark) are reclaimed. */
+static void* g_infer_wm_main = NULL;
+static void* g_infer_wm_fast = NULL;
+
+void tvm_dsp_save_infer_watermark(void) {
+  if (!g_platform_initialized) return;
+  g_infer_wm_main = g_main_pool.bump_ptr;
+  g_infer_wm_fast = g_fast_pool.bump_ptr;
+}
+
+void tvm_dsp_restore_infer_watermark(void) {
+  if (!g_platform_initialized) return;
+  /* L2 (fast) pool: DLOAD code is in DDR not L2, so restoring to the
+   * saved post-DLOAD watermark (which is essentially pool base) is safe. */
+  if (g_infer_wm_fast != NULL) {
+    g_fast_pool.bump_ptr  = g_infer_wm_fast;
+    g_fast_pool.allocated = 0;
+    g_fast_pool.num_allocs = 0;
+    g_fast_pool.num_frees  = 0;
+    g_fast_pool.free_list  = NULL;
+  }
+  /* DDR pool: restore to watermark above DLOAD code, not to pool base. */
+  if (g_infer_wm_main != NULL) {
+    g_main_pool.bump_ptr  = g_infer_wm_main;
+    g_main_pool.allocated = 0;
+    g_main_pool.num_allocs = 0;
+    g_main_pool.num_frees  = 0;
+    g_main_pool.free_list  = NULL;
+  }
+}
 
 size_t tvm_dsp_get_free_memory(TVMDSPMemoryPool pool) {
   if (!g_platform_initialized) {
