@@ -286,3 +286,7 @@ void tvm_dsp_log(const char* fmt, ...) {
 }
 
 int tvm_dsp_runtime_is_initialized(void) { return g_platform_initialized; }
+
+/* L2 SRAM getters called by DMA tiling code in generated lib0.c. */
+uint8_t* tvm_dsp_get_l2_base(void) { return g_l2_heap_base; }
+uint32_t tvm_dsp_get_l2_size(void) { return (uint32_t)TVM_DSP_L2_SIZE; }

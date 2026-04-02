@@ -203,7 +203,7 @@ if(TVM_DSP_TARGET STREQUAL "host")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
 
     # DSP runtime library
-    set(DSP_RUNTIME_BUILD_DIR "${DSP_RUNTIME_DIR}/build")
+    set(DSP_RUNTIME_BUILD_DIR "${DSP_RUNTIME_DIR}/build-c66x-host")
     set(DSP_RUNTIME_LIB "${DSP_RUNTIME_BUILD_DIR}/libtvm_dsp_runtime_host.a")
 
     if(NOT EXISTS "${DSP_RUNTIME_LIB}")

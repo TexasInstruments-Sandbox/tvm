@@ -14,11 +14,12 @@ models on resource-constrained embedded DSP environments. Key features:
 
 ## Supported Platforms
 
-| Platform | Device | Memory | Toolchain |
-|----------|--------|--------|-----------|
-| Host | PC | malloc | GCC/Clang |
-| C66x | AWRL6844 | L2 (64KB) + L3 (1MB) | ti-cgt-c6000 v8.5+ |
-| C7x | J722S | L2 (128KB) + DDR (58MB) | ti-cgt-c7000 v5.0+ |
+| Build variant | Device | Output library | Toolchain |
+|---------------|--------|----------------|-----------|
+| `c66x_host` | PC (C66x host emulation) | `libtvm_dsp_runtime_host.a` | GCC/Clang |
+| `c66x` | AWRL6844 C66x DSP | `libtvm_dsp_runtime_c66x.a` | ti-cgt-c6000 v8.5+ |
+| `c7x_host` | PC (C7x host emulation) | `libtvm_dsp_runtime_c7x_host.a` | GCC + TI Host Emu |
+| `c7x` | J722S/AM67A C7x DSP | `libtvm_dsp_runtime_c7x.a` | ti-cgt-c7000 v5.0+ |
 
 ## Quick Start
 
@@ -74,89 +75,90 @@ ti_dsp/
 │   └── WeightEmbedding.cmake     # Binary weight embedding support
 ├── constants/                # weights.bin parser (internal)
 ├── container/                # NDArray, Shape, Array containers (internal)
+├── dma/                      # DMA abstraction (tiling, host stub)
+├── dynmod/                   # C7x DLOAD dynamic module infrastructure
 ├── ffi/                      # FFI types (internal)
-├── io/                       # Tensor file I/O (host testing only)
+├── firmware/                 # C7x remoteproc firmware (J722S/AM67A)
 ├── platform/                 # Platform abstraction (internal)
-│   ├── host/                 # PC emulation backend
+│   ├── host/                 # C66x host emulation backend (GCC)
 │   ├── c66x/                 # TI C66x backend (AWRL6844)
 │   ├── c7x/                  # TI C7x backend (J722S)
 │   │   ├── c7x_platform.c    # Platform init, memory pools
 │   │   └── c7x_cxm.asm       # Security mode detection
 │   └── common/               # Shared memory pool manager
 ├── registry/                 # Function registry (internal)
+├── scripts/                  # JTAG deployment scripts
+│   ├── run_on_c66x.sh        # C66x hardware deployment (AWRL6844)
+│   └── run_on_c75x.sh        # C7x hardware deployment (J722S)
+├── tidl/                     # TIDL offload API (internal)
 ├── vm/                       # VM builtins (internal)
 ├── tests/                    # Unit tests
+├── build_runtime.sh          # Build script for all runtime variants
 └── CMakeLists.txt            # Build configuration
 ```
 
 ## Building
 
+Use `build_runtime.sh` to build any runtime variant. The script
+auto-detects TI compiler installations.
+
+```bash
+cd src/runtime/ti_dsp
+
+bash build_runtime.sh c66x_host   # C66x host emulation (no TI compiler needed)
+bash build_runtime.sh c66x        # C66x cross-compilation (needs TI_CGT_C6000_PATH)
+bash build_runtime.sh c7x_host    # C7x host emulation (needs TI_CGT_C7000_PATH)
+bash build_runtime.sh c7x         # C7x cross-compilation (needs TI_CGT_C7000_PATH)
+bash build_runtime.sh all         # Build c66x + c7x + c7x_host
+bash build_runtime.sh clean       # Remove all build directories
+```
+
 ### Prerequisites
 
-**Host Emulation (PC)**:
+**`c66x_host`** (C66x host emulation on PC):
 - CMake 3.16+
 - C99/C++14 compiler (GCC, Clang)
 
-**C66x Cross-Compilation (AWRL6844)**:
-- TI C6000 Compiler v8.5.0+ (`ti-cgt-c6000`)
-- MMWAVE-L-SDK-6 v6.1.0.05
-- Code Composer Studio 12.0+ (optional, for debugging)
+**`c66x`** (C66x cross-compilation for AWRL6844):
+- TI C6000 Compiler v8.5.0+ (`ti-cgt-c6000`) — set `TI_CGT_C6000_PATH`
+- MMWAVE-L-SDK-6 v6.1.0.05 (auto-detected or set `MMWAVE_SDK_PATH`)
 
-**C7x Cross-Compilation (J722S)**:
-- TI C7000 Compiler v5.0.1+ (`ti-cgt-c7000`)
-- Code Composer Studio 12.0+ with XDS110 debug probe
-- MCU+ SDK 11.01 (optional, for SDK integration)
+**`c7x_host`** (C7x host emulation on PC):
+- TI C7000 Compiler v5.0.1+ (`ti-cgt-c7000`) — set `TI_CGT_C7000_PATH`
+  (provides the Host Emulation library; system GCC is used to compile)
 
-### Host Emulation Build
+**`c7x`** (C7x cross-compilation for J722S/AM67A):
+- TI C7000 Compiler v5.0.1+ (`ti-cgt-c7000`) — set `TI_CGT_C7000_PATH`
+- MCU+ SDK for J722S (auto-detected or set `MCU_PLUS_SDK_PATH`)
 
-```bash
-cd src/runtime/ti_dsp
-mkdir build && cd build
-cmake ..
-cmake --build .
-```
+### Build Outputs
 
-Produces:
-- `libtvm_dsp_runtime_host.a` - Static library
-- `test_*` - Unit test executables
+| Variant | Build directory | Library |
+|---------|-----------------|---------|
+| `c66x_host` | `build-c66x-host/` | `libtvm_dsp_runtime_host.a` |
+| `c66x` | `build-c66x/` | `libtvm_dsp_runtime_c66x.a` |
+| `c7x_host` | `build-c7x-host/` | `libtvm_dsp_runtime_c7x_host.a` |
+| `c7x` | `build-c7x/` | `libtvm_dsp_runtime_c7x.a` |
 
-### C66x Cross-Compilation Build (AWRL6844)
+Each build also produces unit test executables in its build directory.
 
-```bash
-cd src/runtime/ti_dsp
-mkdir build-c66x && cd build-c66x
-cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-awrl6844.cmake ..
-cmake --build .
-```
-
-Produces:
-- `libtvm_dsp_runtime_c66x.a` - Static library for C66x DSP
-
-### C7x Cross-Compilation Build (J722S)
+### Running Unit Tests
 
 ```bash
-cd src/runtime/ti_dsp
-mkdir build-c7x && cd build-c7x
-cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-j722s-c7x.cmake ..
-cmake --build .
-```
-
-Produces:
-- `libtvm_dsp_runtime_c7x.a` - Static library for C7x DSP
-
-### Running Tests
-
-```bash
-# Host tests
-cd build
+# C66x host emulation (runs on PC)
+cd build-c66x-host
 ctest --output-on-failure
 
-# C66x tests (requires AWRL6844 hardware)
+# C7x host emulation (runs on PC)
+cd build-c7x-host
+ctest --output-on-failure
+
+# C66x hardware (requires AWRL6844 + XDS110 probe)
 $TVM_HOME/src/runtime/ti_dsp/scripts/run_on_c66x.sh \
     build-c66x/test_vm_builtins_c66x.out
 
-# C7x tests (requires J722S hardware)
-$TVM_HOME/src/runtime/ti_dsp/scripts/run_on_c7x.sh \
+# C7x hardware (requires J722S/AM67A board)
+$TVM_HOME/src/runtime/ti_dsp/scripts/run_on_c75x.sh \
     build-c7x/test_vm_builtins_c7x.out
 ```
 
@@ -273,8 +275,8 @@ namespace tvm {
 namespace dsp {
 
 enum class MemoryPool {
-  kFast,  // L2 SRAM (64KB on C66x)
-  kMain   // L3/DDR (larger, slower)
+  kFast,  // L2 SRAM (C66x/C7x) or emulated fast pool (host)
+  kMain   // L3/DDR or emulated main pool (host)
 };
 
 struct MemoryStats {
@@ -406,25 +408,28 @@ printf("L3: %zu/%zu bytes (peak: %zu)\n",
 
 ## Memory Configuration
 
-Configure pool sizes in platform headers:
+Pool sizes are defined in the platform headers:
 
-**Host** (`platform/host/host_platform.h`):
+**C66x host emulation** (`platform/host/host_platform.h`):
 ```c
-#define TVM_DSP_HOST_FAST_POOL_SIZE  (4 * 1024 * 1024)   // 4MB
-#define TVM_DSP_HOST_MAIN_POOL_SIZE  (64 * 1024 * 1024)  // 64MB
+#define TVM_DSP_L2_SIZE  (4 * 1024 * 1024)   // 4MB emulated fast pool
+#define TVM_DSP_L3_SIZE  (64 * 1024 * 1024)  // 64MB emulated main pool
 ```
 
-**C66x AWRL6844** (`platform/c66x/awrl6844/awrl6844_config.h`):
+**C66x AWRL6844** (`platform/c66x/c66x_platform.h`):
 ```c
-#define TVM_DSP_L2_HEAP_SIZE   (64 * 1024)   // 64KB L2 SRAM
-#define TVM_DSP_L3_HEAP_SIZE   (1024 * 1024) // 1MB L3 SRAM
+#define TVM_DSP_L2_SIZE  (256 * 1024)  // 256KB L2 SRAM (default)
+#define TVM_DSP_L3_SIZE  (512 * 1024)  // 512KB L3 SRAM (default)
 ```
 
 **C7x J722S** (`platform/c7x/c7x_platform.h`):
 ```c
-#define TVM_DSP_L2_SIZE   (128 * 1024)       // 128KB L2 SRAM
-#define TVM_DSP_DDR_SIZE  (58 * 1024 * 1024) // 58MB DDR
+#define TVM_DSP_L2_SIZE_FALLBACK   (512 * 1024)       // 512KB L2 SRAM fallback
+#define TVM_DSP_DDR_SIZE_FALLBACK  (64 * 1024 * 1024) // 64MB DDR fallback
 ```
+C7x pool sizes are queried at runtime from the firmware via
+`tvm_dsp_get_l2_base()` / `tvm_dsp_get_l2_size()`; the fallback values
+are used only when firmware getters are unavailable.
 
 ## Memory Architecture
 
@@ -436,14 +441,14 @@ All memory is pre-allocated at link time for deterministic behavior.
 **C66x (AWRL6844):**
 | Pool | Size | Use Case | Access Speed |
 |------|------|----------|--------------|
-| L2 (Fast) | 64KB | Storage ≤32KB, hot data | Fastest (L2 SRAM) |
-| L3 (Main) | 1MB | Storage >32KB, constants | Slower (L3 SRAM) |
+| L2 (Fast) | 256KB | Storage ≤32KB, hot data | Fastest (L2 SRAM) |
+| L3 (Main) | 512KB | Storage >32KB, constants | Slower (L3 SRAM) |
 
 **C7x (J722S):**
 | Pool | Size | Use Case | Access Speed |
 |------|------|----------|--------------|
-| L2 (Fast) | 128KB | Storage ≤64KB, hot data | Fastest (L2 SRAM) |
-| DDR (Main) | 58MB | Storage >64KB, constants | Slower (DDR) |
+| L2 (Fast) | 512KB | Storage ≤64KB, hot data | Fastest (L2 SRAM) |
+| DDR (Main) | 64MB | Storage >64KB, constants | Slower (DDR) |
 
 The storage allocation threshold balances L2 utilization against
 capacity. Tensors exceeding this threshold are placed in L3/DDR to avoid
@@ -471,8 +476,8 @@ This design provides:
 
 ```
 SECTIONS {
-    .tvm_l2_heap > L2SRAM_C66x  /* 64KB in L2 SRAM */
-    .tvm_l3_heap > L3_MEM       /* 1MB in L3 memory */
+    .tvm_l2_heap > L2SRAM_C66x  /* 256KB in L2 SRAM */
+    .tvm_l3_heap > L3_MEM       /* 512KB in L3 memory */
 }
 ```
 
@@ -480,8 +485,8 @@ SECTIONS {
 
 ```
 SECTIONS {
-    .tvm_l2_heap > L2_HEAP      /* 128KB in L2 SRAM */
-    .tvm_ddr_heap > DDR_C7X_MAIN /* 58MB in DDR */
+    .tvm_l2_heap > L2_HEAP       /* 512KB in L2 SRAM */
+    .tvm_ddr_heap > DDR_C7X_MAIN /* 64MB in DDR */
 }
 ```
 
