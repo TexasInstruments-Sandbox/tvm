@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-YOLO object detection models — C7x DLOAD tests.
+YOLO object detection models — C7x DLOAD and TIDL offloading tests.
 
 Parameterized test over YOLOv5 (n, s) and YOLOv8 (n, s) models.
 All return a single raw detection tensor; NMS is done in Python.
@@ -8,23 +8,30 @@ All return a single raw detection tensor; NMS is done in Python.
 YOLOv5 models are loaded via torch.hub (ultralytics/yolov5).
 YOLOv8 models require the ultralytics package.
 
-Usage:
+Pure-TVM DSP tests (test_yolo_dsp):
     # Run all YOLO models via DLOAD
     pytest test_yolo_dsp.py -v --dsp-mode=c7x_dload
 
     # Run only YOLOv5 variants
     pytest test_yolo_dsp.py -v --dsp-mode=c7x_dload -k yolov5
 
-    # Run with C66x host emulation
-    pytest test_yolo_dsp.py -v
+TIDL offloading tests (TestYOLOTIDL, n-variants only):
+    # Build-only (no hardware, requires tidl_model_import_relax.so + C7x compiler)
+    pytest test_yolo_dsp.py::TestYOLOTIDL::test_yolo_tidl_build -v
 
-    # Standalone script
+    # Hardware correctness test (requires AM67A with c7x_compute firmware)
+    pytest test_yolo_dsp.py::TestYOLOTIDL::test_yolo_tidl_correctness -v
+
+Standalone script:
     python test_yolo_dsp.py --model yolov5n --dsp-mode c7x_dload
+    python test_yolo_dsp.py --model yolov5n --visualize partitioning.html
 """
 
 import argparse
 import logging
+import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -46,6 +53,29 @@ from dsp_utils import compile_and_run_dsp, compare_results, get_target_string, a
 
 logger = logging.getLogger(__name__)
 
+# -----------------------------------------------------------------------------
+# TIDL paths and dependency helpers
+# -----------------------------------------------------------------------------
+
+C7X_MMA_TIDL_PATH = os.environ.get(
+    "C7X_MMA_TIDL_PATH",
+    os.path.expanduser("~/ml/c7x-mma-tidl"),
+)
+RELAX_SO_PATH = os.path.join(
+    C7X_MMA_TIDL_PATH,
+    "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so",
+)
+TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
+
+
+def _has_import_so():
+    return os.path.isfile(RELAX_SO_PATH)
+
+
+def _has_c7x_compiler():
+    return os.environ.get("TI_CGT_C7000_PATH") is not None
+
+
 INPUT_SHAPE = (1, 3, 320, 320)
 
 # (model_name, version) — version is "v5" or "v8"
@@ -54,6 +84,12 @@ YOLO_MODELS = [
     ("yolov5s", "v5"),
     ("yolov8n", "v8"),
     ("yolov8s", "v8"),
+]
+
+# Subset used for TIDL tests: n-variants only (faster build, ~2-3 min each)
+YOLO_TIDL_MODELS = [
+    ("yolov5n", "v5"),
+    ("yolov8n", "v8"),
 ]
 
 
@@ -113,12 +149,16 @@ def _needs_ultralytics(version: str) -> bool:
 # -----------------------------------------------------------------------------
 
 
-def create_yolo_model(model_name: str, version: str) -> tuple:
+def _create_yolo_model_unbound(model_name: str, version: str) -> tuple:
     """
-    Create a YOLO model for DSP testing.
+    Create a YOLO model with unbound parameters.
+
+    Used by TIDL tests: TIDLOffloadCompiler.build() expects the raw module
+    (params still as function arguments) plus a separate param_dict.
 
     Returns:
-        Tuple of (tvm_mod, wrapped_model, input_data)
+        Tuple of (tvm_mod, param_dict, wrapped_model, input_data)
+        where param_dict maps Var -> tvm.runtime.NDArray.
     """
     if version == "v5":
         raw_model = _load_yolov5(model_name)
@@ -137,14 +177,27 @@ def create_yolo_model(model_name: str, version: str) -> tuple:
         )
 
     mod, params = relax.frontend.detach_params(mod)
-    func_params_dict = dict(zip(mod["main"].params[1:], params["main"]))
-    mod = relax.transform.BindParams(
-        func_name="main", params=func_params_dict
-    )(mod)
+    param_dict = dict(zip(mod["main"].params[1:], params["main"]))
 
     np.random.seed(42)
     input_data = np.random.rand(*INPUT_SHAPE).astype(np.float32)
 
+    return mod, param_dict, wrapped, input_data
+
+
+def create_yolo_model(model_name: str, version: str) -> tuple:
+    """
+    Create a YOLO model for DSP testing.
+
+    Returns:
+        Tuple of (tvm_mod, wrapped_model, input_data)
+    """
+    mod, param_dict, wrapped, input_data = _create_yolo_model_unbound(
+        model_name, version
+    )
+    mod = relax.transform.BindParams(
+        func_name="main", params=param_dict
+    )(mod)
     return mod, wrapped, input_data
 
 
@@ -249,6 +302,180 @@ def test_yolo_dsp(
 
 
 # -----------------------------------------------------------------------------
+# TIDL Offloading Tests
+# -----------------------------------------------------------------------------
+
+
+class TestYOLOTIDL:
+    """YOLO TIDL offloading: build pipeline + hardware validation.
+
+    Covers the n-variants (yolov5n, yolov8n) by default.  All tests require:
+      - tidl_model_import_relax.so   (built from c7x-mma-tidl)
+      - TI_CGT_C7000_PATH            (C7x cross-compiler)
+
+    Hardware tests (test_yolo_tidl_correctness) additionally require:
+      - AM67A board at hostname ``am67a`` with c7x_compute firmware running
+
+    Only the 16 highest-FLOPs subgraphs are offloaded to TIDL (TIDL hardware
+    limit).  Subgraphs that the TIDL optimizer cannot handle are automatically
+    skipped via ``skip_failing_subgraphs=True`` and fall back to the TVM C7x
+    scalar path.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _check_deps(self):
+        if not _has_import_so():
+            pytest.fail(
+                f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}"
+            )
+        if not _has_c7x_compiler():
+            pytest.fail("TI_CGT_C7000_PATH not set")
+
+    @pytest.mark.parametrize(
+        "model_spec",
+        YOLO_TIDL_MODELS,
+        ids=[m[0] for m in YOLO_TIDL_MODELS],
+    )
+    def test_yolo_tidl_build(self, tmp_path, model_spec):
+        """Build YOLO model with TIDL offloading (no hardware needed).
+
+        Validates the full TIDL pipeline: prepare -> partition ->
+        tidl_import -> lower -> c_static codegen -> bridge -> dynmod.
+        Subgraphs that the TIDL optimizer rejects or that have multiple
+        outputs are automatically skipped and compiled by TVM instead.
+        """
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+        model_name, version = model_spec
+        _skip_yolov8_if_no_ultralytics(model_name, version)
+
+        mod, param_dict, _wrapped, _input_data = _create_yolo_model_unbound(
+            model_name, version
+        )
+
+        artifacts_dir = str(tmp_path / "tidl_artifacts")
+        compiler = TIDLOffloadCompiler(
+            config={
+                "artifacts_dir": artifacts_dir,
+                "tidl_tools_path": TIDL_TOOLS_PATH,
+                "tidl_relax_so_path": RELAX_SO_PATH,
+                "num_calibration_frames": 2,
+                "skip_failing_subgraphs": True,
+                "max_subgraphs": 16,
+            }
+        )
+        result = compiler.build(
+            mod,
+            params=param_dict,
+            build_dir=str(tmp_path / "build"),
+        )
+
+        assert result.module_path.exists(), (
+            f"Build failed: {result.module_path}"
+        )
+        # At least some subgraphs should have been offloaded to TIDL
+        assert len(result.artifacts) > 0, "No TIDL artifacts produced"
+
+        size_mb = result.module_path.stat().st_size / (1024 * 1024)
+        print(f"\nTIDL module: {result.module_path} ({size_mb:.1f} MB)")
+        print(f"TIDL artifacts: {len(result.artifacts)} subgraph(s)")
+
+        if not os.environ.get("DSP_KEEP_TEMP"):
+            shutil.rmtree(str(result.gen_dir), ignore_errors=True)
+            shutil.rmtree(str(result.build_dir), ignore_errors=True)
+
+    @pytest.mark.parametrize(
+        "model_spec",
+        YOLO_TIDL_MODELS,
+        ids=[m[0] for m in YOLO_TIDL_MODELS],
+    )
+    def test_yolo_tidl_correctness(self, tmp_path, model_spec):
+        """Deploy TIDL YOLO to AM67A and verify vs PyTorch.
+
+        Requires AM67A hardware with c7x_compute firmware running.
+        Uses cosine similarity (> 0.95) to account for int8 quantization
+        error from partial TIDL offloading with 2 calibration frames.
+        """
+        from dsp_utils import run_dsp_dload
+
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+        model_name, version = model_spec
+        _skip_yolov8_if_no_ultralytics(model_name, version)
+
+        mod, param_dict, wrapped, input_data = _create_yolo_model_unbound(
+            model_name, version
+        )
+
+        # PyTorch reference
+        with torch.no_grad():
+            torch_out = wrapped(torch.from_numpy(input_data)).numpy()
+
+        artifacts_dir = str(tmp_path / "tidl_artifacts")
+        compiler = TIDLOffloadCompiler(
+            config={
+                "artifacts_dir": artifacts_dir,
+                "tidl_tools_path": TIDL_TOOLS_PATH,
+                "tidl_relax_so_path": RELAX_SO_PATH,
+                "num_calibration_frames": 2,
+                "skip_failing_subgraphs": True,
+                "max_subgraphs": 16,
+            }
+        )
+        result = compiler.build(
+            mod,
+            params=param_dict,
+            build_dir=str(tmp_path / "build"),
+        )
+
+        assert result.module_path.exists(), (
+            f"Build failed: {result.module_path}"
+        )
+
+        try:
+            output, stdout, cycles = run_dsp_dload(
+                result.module_path,
+                result.weights_path,
+                [input_data],
+                embedded_weights=True,
+            )
+
+            assert output is not None, "No output from DSP"
+
+            flat_ref = torch_out.flatten()
+            flat_dsp = output.flatten()
+            cos_sim = float(
+                np.dot(flat_ref, flat_dsp)
+                / (
+                    np.linalg.norm(flat_ref) * np.linalg.norm(flat_dsp)
+                    + 1e-10
+                )
+            )
+            print(
+                f"\nTIDL {model_name}: output shape={output.shape}, "
+                f"cos_sim={cos_sim:.6f}"
+            )
+            if cycles:
+                print(
+                    f"TIDL cycles: {cycles:,} ({cycles / 1e6:.2f} ms @ 1 GHz)"
+                )
+            if stdout:
+                print(stdout)
+
+            # Partial TIDL offloading with 2 calibration frames:
+            # expect ~0.96-0.98 cosine similarity.
+            assert cos_sim > 0.95, (
+                f"TIDL vs PyTorch cos_sim {cos_sim:.6f} < 0.95 "
+                f"for {model_name}"
+            )
+
+        finally:
+            if not os.environ.get("DSP_KEEP_TEMP"):
+                shutil.rmtree(str(result.gen_dir), ignore_errors=True)
+                shutil.rmtree(str(result.build_dir), ignore_errors=True)
+
+
+# -----------------------------------------------------------------------------
 # Standalone Script Mode
 # -----------------------------------------------------------------------------
 
@@ -270,6 +497,13 @@ def main():
         help="DSP execution mode",
     )
     parser.add_argument(
+        "--visualize",
+        default=None,
+        metavar="FILE",
+        help="Generate interactive HTML TIDL partitioning visualization "
+        "(defaults to yolov5n if --model not given; no hardware needed)",
+    )
+    parser.add_argument(
         "--profile-layers",
         action="store_true",
         help="Enable per-layer cycle profiling",
@@ -283,6 +517,43 @@ def main():
         logging.basicConfig(
             level=logging.DEBUG, format="%(name)s: %(message)s"
         )
+
+    # --visualize: partition + HTML (no hardware, no .so needed for partition)
+    if args.visualize:
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
+        from tvm.relax.backend.tidl.visualize import visualize_partitioning
+
+        model_name = args.model or "yolov5n"
+        version = next(v for n, v in YOLO_MODELS if n == model_name)
+
+        if version == "v8":
+            try:
+                import ultralytics  # noqa: F401
+            except ImportError:
+                print(f"ERROR: {model_name} requires ultralytics package")
+                return 1
+
+        print(f"Partitioning {model_name} with TIDL...")
+        mod, param_dict, _wrapped, _input_data = _create_yolo_model_unbound(
+            model_name, version
+        )
+        compiler = TIDLOffloadCompiler(
+            config={
+                "artifacts_dir": f"/tmp/tidl_viz_{model_name}",
+                "tidl_tools_path": TIDL_TOOLS_PATH,
+                "tidl_relax_so_path": RELAX_SO_PATH,
+                "num_calibration_frames": 2,
+            }
+        )
+        prepared = compiler.prepare(mod, param_dict)
+        partitioned = compiler.partition(prepared)
+        visualize_partitioning(
+            partitioned,
+            args.visualize,
+            title=f"{model_name} TIDL Offloading",
+        )
+        print(f"Visualization: {args.visualize}")
+        return 0
 
     dsp_mode = args.dsp_mode
     if dsp_mode is None:
