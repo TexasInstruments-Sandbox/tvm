@@ -95,12 +95,14 @@ def _check_conv2d(ctx: PatternCheckContext) -> bool:
     if attrs is None:
         return True
 
-    # kernel size <= 7
-    # First try explicit kernel_size attr, then infer from weight shape
+    # kernel size 1-5 only: TIDL's allowlisting rejects 6×6 kernels at
+    # PostProcessNet time (e.g. YOLOv5's Focus stem conv).  Filter them
+    # here before they waste calibration time and require fallback handling.
     kernel_size = getattr(attrs, "kernel_size", None)
     if kernel_size is not None and len(kernel_size) > 0:
         for k in kernel_size:
-            if int(k) > 7:
+            k_int = int(k)
+            if k_int > 7 or k_int == 6:
                 return False
     else:
         # Infer kernel size from weight tensor shape (OIHW layout)
@@ -109,7 +111,7 @@ def _check_conv2d(ctx: PatternCheckContext) -> bool:
             wshape = _get_shape(weight)
             if wshape is not None and len(wshape) == 4:
                 kh, kw = wshape[2], wshape[3]
-                if kh > 7 or kw > 7:
+                if kh > 7 or kw > 7 or kh == 6 or kw == 6:
                     return False
 
     # strides must be equal
