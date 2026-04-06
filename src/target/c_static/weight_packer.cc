@@ -103,10 +103,19 @@ static void SerializeConstantsAligned(dmlc::Stream* strm,
   strm->Write(static_cast<uint64_t>(constants.size()));
 
   for (const auto& it : constants) {
-    // For Tensor entries, add padding to ensure data alignment
-    if (it.as<runtime::Tensor>()) {
+    // For Tensor entries, add padding to ensure DATA (not entry start) is aligned.
+    // SaveDLTensor writes: type_index(4) + header(40) + shape(ndim*8) before the data.
+    // Pad so that current_pos + header_size lands at an alignment boundary, which
+    // guarantees at least 8-byte alignment for all standard dtypes (int64, float64).
+    if (auto opt_nd = it.as<runtime::Tensor>()) {
+      const DLTensor* t = opt_nd.value().operator->();
+      // Header bytes before data: type_index(4) + SaveDLTensor fixed header(40) + shape
+      int header_size = 4 + 40 + t->ndim * 8;
       size_t current_pos = data_buf->size();
-      size_t padding_needed = (alignment - (current_pos % alignment)) % alignment;
+      size_t padding_needed =
+          (static_cast<size_t>(alignment) -
+           (current_pos + static_cast<size_t>(header_size)) % static_cast<size_t>(alignment)) %
+          static_cast<size_t>(alignment);
       for (size_t i = 0; i < padding_needed; i++) {
         uint8_t zero = 0;
         strm->Write(&zero, 1);

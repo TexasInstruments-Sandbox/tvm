@@ -233,22 +233,18 @@ static int prescan_constants(const void* data, size_t size, TVMDSPConstantsScan*
     size_t pos_before = TVMDSPStreamPosition(&stream);
 
 #if defined(TVM_DSP_ALIGNED_WEIGHTS)
-    /*
-     * TVM's SaveConstantSectionToFileAligned only adds padding before NDArray
-     * entries. Detect padding by peeking - if we see zero byte at non-aligned
-     * position, it's likely padding, so align first before reading type_index.
-     *
-     * Valid type_index values are: 0 (None), 1 (Int), 2 (Bool), 3 (Float),
-     * 5 (DataType), 65 (Str), 71 (Shape), 72 (NDArray).
-     * A zero byte followed by non-zero is almost certainly padding.
-     */
-    if ((pos_before % 4) != 0) {
-      const uint8_t* peek = (const uint8_t*)TVMDSPStreamPeek(&stream, 1);
-      if (peek && *peek == 0) {
-        /* Zero byte at non-aligned position = padding, align first */
-        TVMDSPStreamAlign(&stream, 4);
+    /* Skip alignment padding inserted before each Tensor entry by
+     * SerializeConstantsAligned. Padding aligns the tensor DATA (not the entry
+     * start), so may appear even when pos_before is 4-byte aligned. All valid
+     * serialized type_index values are non-zero, so any zero byte is padding. */
+    {
+      const uint8_t* peek;
+      while ((peek = (const uint8_t*)TVMDSPStreamPeek(&stream, 1)) != NULL &&
+             *peek == 0) {
+        TVMDSPStreamSkip(&stream, 1);
       }
     }
+    (void)pos_before;
 #endif
 
     if (TVMDSPStreamReadI32(&stream, &type_index) != 0) {
@@ -496,30 +492,35 @@ static int parse_ndarray(TVMDSPStream* stream, TVMFFIAny* out) {
 
   /*
    * Handle data pointer alignment.
-   * On C66x, float/int access requires 4-byte alignment. If the embedded
-   * data is unaligned, we must copy to an aligned buffer. This sacrifices
-   * zero-copy but ensures correct data access.
+   * On C66x, LDDW (load doubleword) requires 8-byte alignment for 64-bit types
+   * (int64, float64). Even though SaveDLTensor pads entries to 64-byte boundaries,
+   * the tensor header is 44 bytes, placing data at offset 44 within the 64-byte
+   * block (44 % 8 = 4 -- misaligned for LDDW). Use dtype-appropriate alignment:
+   * 8 bytes for 64-bit dtypes, 4 bytes otherwise.
    */
 #ifdef TVM_DSP_TARGET_C66X
-  if (((uintptr_t)data_ptr % 4) != 0) {
-    /* Unaligned: allocate aligned buffer and copy */
-    void* aligned_data = tvm_dsp_alloc((size_t)data_size, 4, TVM_DSP_MEM_MAIN);
-    if (aligned_data == NULL) {
-      tvm_dsp_log("ERROR: Failed to allocate aligned buffer for NDArray (%lld bytes)\n",
+  {
+    int required_align = (dtype.bits >= 64) ? 8 : 4;
+    if (((uintptr_t)data_ptr % (size_t)required_align) != 0) {
+      /* Unaligned: allocate aligned buffer and copy */
+      void* aligned_data = tvm_dsp_alloc((size_t)data_size, (size_t)required_align, TVM_DSP_MEM_MAIN);
+      if (aligned_data == NULL) {
+        tvm_dsp_log("ERROR: Failed to allocate aligned buffer for NDArray (%lld bytes)\n",
+                    (long long)data_size);
+        return TVM_DSP_CONST_ERR_ALLOC_FAIL;
+      }
+      memcpy(aligned_data, data_ptr, (size_t)data_size);
+      arr->data = aligned_data;
+      /* Track aligned buffer for cleanup */
+      if (g_aligned_buffer_count < TVM_DSP_MAX_ALIGNED_BUFFERS) {
+        g_aligned_buffers[g_aligned_buffer_count++] = aligned_data;
+      }
+      tvm_dsp_log("INFO: Copied unaligned NDArray data to aligned buffer (%lld bytes)\n",
                   (long long)data_size);
-      return TVM_DSP_CONST_ERR_ALLOC_FAIL;
+    } else {
+      /* Already aligned: zero-copy */
+      arr->data = (void*)data_ptr;
     }
-    memcpy(aligned_data, data_ptr, (size_t)data_size);
-    arr->data = aligned_data;
-    /* Track aligned buffer for cleanup */
-    if (g_aligned_buffer_count < TVM_DSP_MAX_ALIGNED_BUFFERS) {
-      g_aligned_buffers[g_aligned_buffer_count++] = aligned_data;
-    }
-    tvm_dsp_log("INFO: Copied unaligned NDArray data to aligned buffer (%lld bytes)\n",
-                (long long)data_size);
-  } else {
-    /* Already aligned: zero-copy */
-    arr->data = (void*)data_ptr;
   }
 #else
   /* Host: zero-copy always works */
