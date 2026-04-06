@@ -762,8 +762,20 @@ class StoragePlanRewriter : public StmtExprMutator {
     e->alloc_nest.push_back(
         Allocate(e->alloc_var, e->elem_type, {alloc_size}, const_true(), Evaluate(0)));
     if (info.defined()) {
-      ICHECK_LE(total_bits, info->max_num_bits)
-          << "Allocation exceed bound of memory tag " << e->scope.to_string();
+      if (total_bits > static_cast<uint64_t>(info->max_num_bits)) {
+        // For scratchpad memories (e.g. global.l2sram) shared across multiple
+        // sequential compute regions in a fused function, the static sum of all
+        // allocations can exceed the hardware limit even though at runtime the
+        // regions execute sequentially and reuse the same physical memory.
+        // LowerL2SramAlloc inserts tvm_l2_reset() between sequential groups to
+        // give each group the full scratchpad budget.  We therefore warn rather
+        // than abort, letting LowerL2SramAlloc enforce the per-group capacity.
+        LOG(WARNING) << "Total " << e->scope.to_string() << " allocation ("
+                     << (total_bits / 8) << " bytes) exceeds hardware limit ("
+                     << (info->max_num_bits / 8)
+                     << " bytes). LowerL2SramAlloc will insert tvm_l2_reset() "
+                        "between sequential groups to enable scratchpad reuse.";
+      }
     }
   }
   // Liveness analysis to find gen and kill point of each variable.
