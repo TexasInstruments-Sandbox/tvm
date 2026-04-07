@@ -177,13 +177,23 @@ def _extract_graph(mod: IRModule, profile_data: Optional[Dict[str, int]] = None)
     edges = []
     nid_counter = 0
 
-    # Var identity -> node id
+    # Var identity -> node id (first/only node for this var)
     var_nodes = []
+    # For Tuple bindings: var -> [field_nid, ...] (all fields, in order)
+    # Used to add edges from ALL source nodes when a Tuple is consumed.
+    tuple_var_fields = []
 
     def find_var_node(var):
         for v, nid in var_nodes:
             if v.same_as(var):
                 return nid
+        return None
+
+    def find_tuple_fields(var):
+        """Return [nid, ...] if var is a tracked multi-field Tuple binding."""
+        for v, nids in tuple_var_fields:
+            if v.same_as(var):
+                return nids
         return None
 
     def add_node(**kwargs):
@@ -281,26 +291,51 @@ def _extract_graph(mod: IRModule, profile_data: Optional[Dict[str, int]] = None)
 
                 for arg in val.args:
                     if isinstance(arg, relax.Var):
-                        src = find_var_node(arg)
-                        if src is not None:
-                            edges.append({"from": src, "to": nid})
+                        # Check if arg is a tracked multi-field Tuple binding
+                        field_nids = find_tuple_fields(arg)
+                        if field_nids:
+                            for src in field_nids:
+                                edges.append({"from": src, "to": nid})
+                        else:
+                            src = find_var_node(arg)
+                            if src is not None:
+                                edges.append({"from": src, "to": nid})
+                    elif isinstance(arg, relax.Tuple):
+                        # Inline tuple expression (e.g. nn.concat((lv9, lv10))):
+                        # add edges from every field so skip connections in
+                        # FPN/PAN necks appear as proper graph edges.
+                        for field in arg.fields:
+                            if isinstance(field, relax.Var):
+                                src = find_var_node(field)
+                                if src is not None:
+                                    edges.append({"from": src, "to": nid})
 
             elif isinstance(val, relax.TupleGetItem):
-                # Pass through: map this var to the same node as the tuple
+                # Map this var to the specific indexed field's source node.
+                # e.g. lv = tuple_var[1] maps to the 2nd field's node.
                 tuple_var = val.tuple_value
                 if isinstance(tuple_var, relax.Var):
-                    src = find_var_node(tuple_var)
-                    if src is not None:
-                        var_nodes.append((bvar, src))
+                    field_nids = find_tuple_fields(tuple_var)
+                    idx = val.index
+                    if field_nids and idx < len(field_nids):
+                        var_nodes.append((bvar, field_nids[idx]))
+                    else:
+                        src = find_var_node(tuple_var)
+                        if src is not None:
+                            var_nodes.append((bvar, src))
 
             elif isinstance(val, relax.Tuple):
-                # Map tuple var to the first element's node for edge continuity
+                # Record ALL field source node IDs so that ops consuming
+                # this tuple (e.g. nn.concat) get edges from every field.
+                field_nids = []
                 for field in val.fields:
                     if isinstance(field, relax.Var):
                         src = find_var_node(field)
                         if src is not None:
-                            var_nodes.append((bvar, src))
-                            break
+                            field_nids.append(src)
+                if field_nids:
+                    var_nodes.append((bvar, field_nids[0]))
+                    tuple_var_fields.append((bvar, field_nids))
 
             elif isinstance(val, relax.Constant):
                 nid = add_node(

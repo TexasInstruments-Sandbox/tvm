@@ -823,7 +823,7 @@ class TIDLOffloadCompiler:
         for sg in subgraphs:
             if sg["output"] is not None:
                 header_lines.append(
-                    f"void {sg['name']}_process(void* inp0, void* out0);")
+                    f"void {sg['name']}_process({_process_fn_sig(sg)});")
         header_lines += [
             "#ifdef __cplusplus",
             "}",
@@ -905,6 +905,10 @@ class TIDLOffloadCompiler:
         if self.config.get("profile_layers", False):
             if "-profile-layers" not in target:
                 target += " -profile-layers"
+        # When TIDL subgraphs are present, enable the codegen to emit
+        # tidl_bridge_init_all() inside cg_main_dsp.
+        if artifacts and "-tidl-runtime" not in target:
+            target += " -tidl-runtime=1"
         tvm_target = tvm.target.Target(target)
         # Use cpu_generic pipeline (FuseOps+FuseTIR for op fusion) and
         # target-aware TIR pipeline (ScheduleC7xDMATiling for loop
@@ -1161,6 +1165,7 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
 
     if not stub and real_subgraphs:
         # Shared includes and externs for real bridge mode (emitted once)
+        lines.append('#include <stdio.h>')
         lines.append('#include "tidl_api.h"')
         lines.append('#include "dlpack/dlpack.h"')
         lines.append("")
@@ -1192,6 +1197,7 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
         lines.append(
             f"void {sg['name']}_process({_process_fn_sig(sg)});")
     lines.append("void tidl_bridge_cleanup(void);")
+    lines.append("int32_t tidl_bridge_init_all(void);")
     lines.append("#ifdef __cplusplus")
     lines.append("}")
     lines.append("#endif")
@@ -1222,20 +1228,23 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
             lines.append("}")
             lines.append("")
         else:
-            # Real TIDL bridge (per-subgraph)
+            # Real TIDL bridge (per-subgraph), cached persistent handle.
+            #
+            # Handles are initialised eagerly by tidl_bridge_init_all(), which
+            # is called once at the start of cg_main_dsp (emitted by the
+            # c_static codegen when the tidl-runtime target attribute is set).
+            # free_tidl_subgraph is called only at module teardown via
+            # tidl_bridge_cleanup().
+            #
+            # Note: keep max_subgraphs at or below the empirical limit for
+            # the target platform (~8 for AM67A) to avoid exhausting the
+            # TIDL DDR pool when all handles are live simultaneously.
             lines.append(f"static void* {name}_instance = NULL;")
             lines.append("")
-
             lines.append(f"void {process_fn}({sig}) {{")
-            lines.append(f"    if ({name}_instance == NULL) {{")
-            lines.append(f"        {name}_instance = init_tidl_subgraph(")
-            lines.append(
-                f"            _binary_tidl_net_{sg_id}_start,"
-                f" _binary_tidl_net_{sg_id}_size,")
-            lines.append(
-                f"            _binary_tidl_io_{sg_id}_start, appUdmaGetObj(),"
-                " 1, 0);")
-            lines.append("    }")
+            # Safety guard: handle must be set by tidl_bridge_init_all().
+            # If it is NULL (init failed or was not called), skip silently.
+            lines.append(f"    if ({name}_instance == NULL) return;")
             lines.append("")
 
             # Build DLTensor for each input
@@ -1288,16 +1297,42 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
             lines.append("}")
             lines.append("")
 
-    # Cleanup function: free all TIDL instances.
-    # The firmware calls this before dyn_loader_unload() so TIDL can
-    # release DMA channels, IALG memory, and MMA state cleanly.
+    # Init: initialise all subgraph handles before inference.
+    # Called from cg_main_dsp (emitted by codegen when tidl-runtime=1).
+    # Returns 0 on success; -1 on the first subgraph that fails to init.
+    if not stub and real_subgraphs:
+        lines.append("int32_t tidl_bridge_init_all(void) {")
+        for sg in real_subgraphs:
+            n = sg["name"]
+            sid = sg.get("sg_id", real_subgraphs.index(sg))
+            lines.append(f"    if ({n}_instance == NULL) {{")
+            lines.append(f"        {n}_instance = init_tidl_subgraph(")
+            lines.append(
+                f"            _binary_tidl_net_{sid}_start,"
+                f" _binary_tidl_net_{sid}_size,")
+            lines.append(
+                f"            _binary_tidl_io_{sid}_start, appUdmaGetObj(),"
+                " 1, 0);")
+            lines.append(f"        if ({n}_instance == NULL) {{")
+            lines.append(
+                f'            printf("[TIDL] init failed for {n}\\n");')
+            lines.append("            return -1;")
+            lines.append("        }")
+            lines.append("    }")
+        lines.append("    return 0;")
+        lines.append("}")
+    else:
+        lines.append("int32_t tidl_bridge_init_all(void) { return 0; }")
+    lines.append("")
+
+    # Cleanup: free all persistent TIDL handles (called at module teardown).
     if not stub and real_subgraphs:
         lines.append("void tidl_bridge_cleanup(void) {")
         for sg in real_subgraphs:
-            name = sg["name"]
-            lines.append(f"    if ({name}_instance != NULL) {{")
-            lines.append(f"        free_tidl_subgraph({name}_instance);")
-            lines.append(f"        {name}_instance = NULL;")
+            n = sg["name"]
+            lines.append(f"    if ({n}_instance != NULL) {{")
+            lines.append(f"        free_tidl_subgraph({n}_instance);")
+            lines.append(f"        {n}_instance = NULL;")
             lines.append("    }")
         lines.append("}")
     else:
@@ -1445,7 +1480,7 @@ def _estimate_subgraph_flops(func: relax.Function) -> float:
 
 
 def _expand_inline_composites(func: relax.Function) -> relax.Function:
-    """Inline anonymous composite Function nodes in a fallback subgraph.
+    """Expand inline composite Function nodes in a fallback subgraph.
 
     After MergeCompositeFunctions, each merged TIDL subgraph function
     contains per-op composites as inline anonymous Functions (i.e. the
@@ -1453,45 +1488,23 @@ def _expand_inline_composites(func: relax.Function) -> relax.Function:
     GlobalVar).  The standard TVM compilation pipeline (VMShapeLower
     etc.) cannot handle these inline lambdas.
 
-    This pass beta-reduces each such call in-place: the inline lambda's
-    body is visited with a substitution mapping params to the call's
-    actual arguments.  The result is a function containing only regular
-    Relax ops that the standard pipeline can compile correctly.
-
-    Unlike applying LambdaLift + InlinePrivateFunctions to the whole
-    module, this mutator is targeted to a single function and never
-    creates temporary global entries.
+    Uses LambdaLift + InlinePrivateFunctions on an isolated single-function
+    IRModule so that all edge cases (closures, nested inline functions, etc.)
+    are handled by TVM's existing passes.  Running on a mini-module rather
+    than the full module avoids polluting the global function namespace or
+    interacting with subsequent FuseOpsByPattern passes.
     """
-
-    @mutator
-    class _InlineLocalComposites(PyExprMutator):
-        """Beta-reduce calls whose operator is an inline relax.Function."""
-
-        def __init__(self, m):
-            super().__init__(m)
-            self._subst: Dict[relax.Var, relax.Expr] = {}
-
-        def visit_var_(self, var):
-            return self._subst.get(var, var)
-
-        def visit_call_(self, call):
-            if isinstance(call.op, relax.Function):
-                # Visit args with the current substitution active first
-                new_args = [self.visit_expr(a) for a in call.args]
-                # Push param→arg substitutions for visiting the body
-                for param, arg in zip(call.op.params, new_args):
-                    self._subst[param] = arg
-                result = self.visit_expr(call.op.body)
-                # Pop substitutions (handles nesting correctly)
-                for param in call.op.params:
-                    self._subst.pop(param, None)
-                return result
-            return super().visit_call_(call)
-
-    tmp_mod = tvm.IRModule({"_f": func})
-    inliner = _InlineLocalComposites(tmp_mod)
-    new_func = inliner.visit_expr(func)
-    return relax.analysis.remove_all_unused(new_func)
+    # Give _f a global_symbol so InlinePrivateFunctions treats it as a
+    # public entry point and does not drop it (functions without a
+    # global_symbol attr are considered private and may be removed).
+    public_func = func.with_attr("global_symbol", "_f")
+    tmp_mod = tvm.IRModule({"_f": public_func})
+    tmp_mod = relax.transform.LambdaLift()(tmp_mod)
+    tmp_mod = relax.transform.InlinePrivateFunctions()(tmp_mod)
+    result = tmp_mod["_f"]
+    # Strip the temporary global_symbol before returning.
+    result = relax.Function(result.params, result.body, result.ret_struct_info, result.is_pure)
+    return relax.analysis.remove_all_unused(result)
 
 
 @mutator
@@ -1637,7 +1650,18 @@ def _lower_tidl_pass(
         elif isinstance(func, tvm.tir.PrimFunc):
             builder.add_func(func, name)
 
-    return builder.finalize()
+    result = builder.finalize()
+
+    # Inline private fallback Relax functions into their callers.
+    # Fallback functions have no global_symbol (private) and are called by
+    # main via regular Relax Call nodes.  Without inlining, relax.build
+    # would lower those calls through the packed API
+    # (tir.anylist_setitem_call_packed) which codegen_c_static cannot emit.
+    # Inlining eliminates the cross-function calls entirely.
+    if fallback_funcs:
+        result = relax.transform.InlinePrivateFunctions()(result)
+
+    return result
 
 
 @tvm.ir.transform.module_pass(opt_level=0, name="LowerTIDLToTIR")

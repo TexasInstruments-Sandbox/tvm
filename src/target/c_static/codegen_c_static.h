@@ -102,7 +102,8 @@ class CodeGenCStatic final : public CodeGenC {
   void Init(bool output_ssa, bool emit_asserts, bool emit_fwd_func_decl,
             const std::string& target_str, const std::unordered_set<std::string>& devices,
             bool profile_layers = false, bool skip_runtime_checks = false,
-            bool use_cpp_api = false, bool debug_alloc = false);
+            bool use_cpp_api = false, bool debug_alloc = false,
+            bool tidl_runtime = false);
 
   void AddFunction(const GlobalVar& gvar, const PrimFunc& f) override;
   void AddFunction(const GlobalVar& gvar, const PrimFunc& f, bool emit_fwd_func_decl);
@@ -267,6 +268,7 @@ class CodeGenCStatic final : public CodeGenC {
     std::string device_name;        // Device identifier for CCXML generation
     bool profile_layers = false;    // Enable per-layer cycle profiling
     bool debug_alloc = false;       // Enable diagnostic allocation tracing
+    bool tidl_runtime = false;      // Emit tidl_bridge_init_all() call in cg_main_dsp
     int layer_call_index = 0;       // Counter for profiled layer calls
     int alloc_storage_index = 0;    // Counter for traced AllocStorage calls
     std::vector<std::string> profiled_layer_names;  // Names of profiled layers
