@@ -102,7 +102,7 @@ void CodeGenCStatic::Init(bool output_ssa, bool emit_asserts, bool emit_fwd_func
                       const std::string& target_str,
                       const std::unordered_set<std::string>& devices,
                       bool profile_layers, bool skip_runtime_checks, bool use_cpp_api,
-                      bool debug_alloc) {
+                      bool debug_alloc, bool tidl_runtime) {
   emit_asserts_ = emit_asserts;
   emit_fwd_func_decl_ = emit_fwd_func_decl;
   skip_runtime_checks_ = skip_runtime_checks;
@@ -133,6 +133,8 @@ void CodeGenCStatic::Init(bool output_ssa, bool emit_asserts, bool emit_fwd_func
   dsp_.profile_layers = profile_layers;
   // Set debug-alloc option (enables allocation tracing)
   dsp_.debug_alloc = debug_alloc;
+  // Set tidl-runtime option (emits tidl_bridge_init_all() call in cg_main_dsp)
+  dsp_.tidl_runtime = tidl_runtime;
 
   decl_stream << "// tvm target: " << target_str << "\n";
 
@@ -1803,7 +1805,7 @@ void CodeGenCStatic::EmitWrapperFunctions() {
   // For TI DSP targets, generate C-compatible wrapper functions
   // These use static arrays instead of std::vector and return error codes instead of exceptions
   if (dsp_.enabled) {
-    WrapperGenerator::EmitDSPWrappers(wrapper_funcs, vm_builtins_used_, stream);
+    WrapperGenerator::EmitDSPWrappers(wrapper_funcs, vm_builtins_used_, dsp_.tidl_runtime, stream);
     return;
   }
 
@@ -1831,8 +1833,9 @@ ffi::Module BuildCStatic(IRModule mod, Target target) {
   bool skip_runtime_checks = target->GetAttr<Integer>("skip-runtime-checks").value_or(0)->value != 0;
   bool use_cpp_api = target->GetAttr<Integer>("use-cpp-api").value_or(0)->value != 0;
   bool debug_alloc = target->GetAttr<Integer>("debug-alloc").value_or(0)->value != 0;
+  bool tidl_runtime = target->GetAttr<Integer>("tidl-runtime").value_or(0)->value != 0;
   cg.Init(output_ssa, emit_asserts, emit_fwd_func_decl, target->str(), devices, profile_layers,
-          skip_runtime_checks, use_cpp_api, debug_alloc);
+          skip_runtime_checks, use_cpp_api, debug_alloc, tidl_runtime);
   cg.SetConstantsByteAlignment(target->GetAttr<Integer>("constants-byte-alignment").value_or(16));
 
   auto is_aot_executor_fn = [](const PrimFunc& func) -> bool {

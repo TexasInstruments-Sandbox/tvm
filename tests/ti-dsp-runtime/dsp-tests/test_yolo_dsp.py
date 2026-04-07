@@ -316,7 +316,7 @@ class TestYOLOTIDL:
     Hardware tests (test_yolo_tidl_correctness) additionally require:
       - AM67A board at hostname ``am67a`` with c7x_compute firmware running
 
-    Only the 16 highest-FLOPs subgraphs are offloaded to TIDL (TIDL hardware
+    Only the 8 highest-FLOPs subgraphs are offloaded to TIDL (empirical limit
     limit).  Subgraphs that the TIDL optimizer cannot handle are automatically
     skipped via ``skip_failing_subgraphs=True`` and fall back to the TVM C7x
     scalar path.
@@ -361,7 +361,7 @@ class TestYOLOTIDL:
                 "tidl_relax_so_path": RELAX_SO_PATH,
                 "num_calibration_frames": 2,
                 "skip_failing_subgraphs": True,
-                "max_subgraphs": 16,
+                "max_subgraphs": 8,
             }
         )
         result = compiler.build(
@@ -419,7 +419,7 @@ class TestYOLOTIDL:
                 "tidl_relax_so_path": RELAX_SO_PATH,
                 "num_calibration_frames": 2,
                 "skip_failing_subgraphs": True,
-                "max_subgraphs": 16,
+                "max_subgraphs": 8,
             }
         )
         result = compiler.build(

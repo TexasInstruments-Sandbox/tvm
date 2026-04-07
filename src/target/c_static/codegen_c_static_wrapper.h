@@ -114,6 +114,7 @@ class WrapperGenerator {
   static void EmitDSPWrappers(
       const std::unordered_map<std::string, FunctionInfo>& functions,
       const std::map<std::string, std::string>& vm_builtins,
+      bool tidl_runtime,
       std::ostream& os);
 
  private:

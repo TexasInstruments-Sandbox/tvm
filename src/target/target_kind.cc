@@ -522,6 +522,8 @@ TVM_REGISTER_TARGET_KIND("c_static", kDLCPU)
     .add_attr_option<bool>("skip-runtime-checks", true)
     // Enable C++ API for VM operations
     .add_attr_option<bool>("use-cpp-api", true)
+    // Emit tidl_bridge_init_all() call in cg_main_dsp (set when TIDL subgraphs are present)
+    .add_attr_option<bool>("tidl-runtime", false)
     .set_default_keys({"c_static", "cpu"})
     .set_target_parser(UpdateCStaticAttrs);
 
