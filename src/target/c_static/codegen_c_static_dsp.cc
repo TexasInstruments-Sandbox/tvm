@@ -35,30 +35,27 @@ namespace codegen {
 void DSPCodeGenExtension::EmitLoopPragmas(const PrimExpr& extent, tir::ForKind loop_kind,
                                           std::ostream& os,
                                           const std::function<void()>& print_indent) {
-  // Emit TI compiler pragmas for loop optimization
-  // Wrapped in preprocessor guards for portability with non-TI compilers
+  // Collect pragmas to emit, then wrap in #ifdef only if non-empty.
+  bool is_dynamic = extent.as<tir::IntImmNode>() == nullptr;
+  bool is_unrolled = (loop_kind == tir::ForKind::kUnrolled) &&
+                     (extent.as<tir::IntImmNode>() != nullptr);
+  if (!is_dynamic && !is_unrolled) return;
+
   print_indent();
   os << "#ifdef __TI_COMPILER_VERSION__\n";
 
-  // MUST_ITERATE pragma - provides trip count hints for software pipelining
-  if (const tir::IntImmNode* extent_imm = extent.as<tir::IntImmNode>()) {
-    // Static bound known at compile time
-    int64_t bound = extent_imm->value;
-    print_indent();
-    os << "#pragma MUST_ITERATE(" << bound << ", " << bound << ", 1)\n";
-  } else {
-    // Dynamic bound - provide minimum of 1 iteration
+  // MUST_ITERATE pragma - provides trip count hints for software pipelining.
+  // Only emit for dynamic bounds; the compiler already knows constant bounds.
+  if (is_dynamic) {
     print_indent();
     os << "#pragma MUST_ITERATE(1, , 1)\n";
   }
 
-  // UNROLL pragma for explicitly unrolled loops
-  if (loop_kind == tir::ForKind::kUnrolled) {
-    if (const tir::IntImmNode* extent_imm = extent.as<tir::IntImmNode>()) {
-      int64_t factor = std::min(extent_imm->value, static_cast<int64_t>(8));
-      print_indent();
-      os << "#pragma UNROLL(" << factor << ")\n";
-    }
+  // UNROLL pragma for explicitly unrolled loops with a known bound.
+  if (is_unrolled) {
+    int64_t factor = std::min(extent.as<tir::IntImmNode>()->value, static_cast<int64_t>(8));
+    print_indent();
+    os << "#pragma UNROLL(" << factor << ")\n";
   }
 
   print_indent();
