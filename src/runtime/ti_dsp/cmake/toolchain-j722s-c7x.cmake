@@ -105,13 +105,13 @@ set(C7X_C_FLAGS "--c99")
 # C flags
 set(CMAKE_C_FLAGS_INIT "${C7X_COMMON_FLAGS} ${C7X_C_FLAGS}")
 set(CMAKE_C_FLAGS_DEBUG_INIT "-g --opt_level=0")
-set(CMAKE_C_FLAGS_RELEASE_INIT "-O2 --auto_inline=500")
+set(CMAKE_C_FLAGS_RELEASE_INIT "-O3 --auto_inline=500")
 set(CMAKE_C_FLAGS_RELWITHDEBINFO_INIT "-g -O2 --symdebug:dwarf")
 
 # C++ flags (no exceptions for bare-metal)
 set(CMAKE_CXX_FLAGS_INIT "${C7X_COMMON_FLAGS} --rtti")
 set(CMAKE_CXX_FLAGS_DEBUG_INIT "-g --opt_level=0")
-set(CMAKE_CXX_FLAGS_RELEASE_INIT "-O2 --auto_inline=500")
+set(CMAKE_CXX_FLAGS_RELEASE_INIT "-O3 --auto_inline=500")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO_INIT "-g -O2 --symdebug:dwarf")
 
 # Assembler
