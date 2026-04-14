@@ -28,6 +28,17 @@ target_include_directories(c7x_arm_runtime PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../common
 )
+
+# DLPack headers — required by c7x_runtime.h.
+# Set TVM_HOME to point to the TVM source tree containing
+# 3rdparty/tvm-ffi/3rdparty/dlpack/include/dlpack/dlpack.h
+if(NOT DEFINED ENV{TVM_HOME})
+    message(FATAL_ERROR "TVM_HOME is not set. "
+        "Export TVM_HOME=<path-to-tvm> before running cmake.")
+endif()
+target_include_directories(c7x_arm_runtime PUBLIC
+    "$ENV{TVM_HOME}/3rdparty/tvm-ffi/3rdparty/dlpack/include"
+)
 target_link_libraries(c7x_arm_runtime PRIVATE pthread)
 set_target_properties(c7x_arm_runtime PROPERTIES SOVERSION 1)
 

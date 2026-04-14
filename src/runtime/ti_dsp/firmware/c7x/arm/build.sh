@@ -52,7 +52,14 @@ case "${1:-}" in
             scp "${BUILD_DIR}/test_c7x_runtime" "${TARGET_HOST}:/usr/local/bin/"
             echo "Deployed test_c7x_runtime"
         fi
-        ssh "${TARGET_HOST}" ldconfig
+        # Ensure /usr/local/lib is in the dynamic linker search path and create
+        # the SONAME symlink (.so.1) that the binary's DT_NEEDED entry requires.
+        ssh "${TARGET_HOST}" \
+            "mkdir -p /etc/ld.so.conf.d && \
+             echo /usr/local/lib > /etc/ld.so.conf.d/c7x_arm_runtime.conf && \
+             ln -sf /usr/local/lib/libc7x_arm_runtime.so \
+                    /usr/local/lib/libc7x_arm_runtime.so.1 && \
+             ldconfig"
         echo "Deployed to ${TARGET_HOST}:"
         echo "  /usr/local/bin/c7x_compute"
         echo "  /usr/local/lib/libc7x_arm_runtime.so"

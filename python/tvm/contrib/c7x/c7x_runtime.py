@@ -392,8 +392,6 @@ class C7xVirtualMachine:
 
         The tensor is valid until ``close()`` is called.
         """
-        import tvm as _tvm  # local import
-
         self._ensure_loaded()
 
         np_dtype = np.dtype(dtype)
@@ -422,8 +420,16 @@ class C7xVirtualMachine:
         self._staging_alloc_offset += nbytes
         self._staging_alloc_offset = (self._staging_alloc_offset + 63) & ~63
 
-        _nd_from_dlpack = _tvm.nd.from_dlpack  # type: ignore[attr-defined]
-        return _nd_from_dlpack(arr.__dlpack__())
+        # Wrap as tvm.nd tensor when TVM is available (dev-PC / on-board with TVM).
+        # Fall back to the raw numpy array when TVM is not installed (AM67A without
+        # TVM Python) — the array is already backed by staging DDR, so it works
+        # directly with run_nocopy() and the C layer's pre-staged detection.
+        try:
+            import tvm as _tvm  # noqa: PLC0415  # lazy — absent on board without TVM
+            _nd_from_dlpack = _tvm.nd.from_dlpack  # type: ignore[attr-defined]
+            return _nd_from_dlpack(arr.__dlpack__())
+        except (ImportError, AttributeError):
+            return arr
 
     # ------------------------------------------------------------------
     # Lifecycle
