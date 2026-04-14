@@ -60,7 +60,7 @@ cmake --build .
 ### Host Application
 
 ```bash
-cd src/runtime/ti_dsp/firmware/c7x/host
+cd src/runtime/ti_dsp/firmware/c7x/arm
 ./build.sh                  # Cross-compile with aarch64-linux-gnu-g++
 ```
 

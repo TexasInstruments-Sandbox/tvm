@@ -363,6 +363,14 @@ if(FP_REASSOC_OFF)
     set(LIB0_EXTRA_FLAGS "--fp_reassoc=off")
     message(STATUS "  FP reassociation disabled for lib0.c (--fp_reassoc=off)")
 endif()
+# User-specified flags appended to lib0.c compilation only.
+# Usage: cmake -DLIB0_USER_FLAGS="-O3 --opt_for_speed=5 -k" ...
+# Useful for testing alternative optimization levels or enabling -k (keep asm).
+if(LIB0_USER_FLAGS)
+    separate_arguments(LIB0_USER_FLAGS_LIST NATIVE_COMMAND "${LIB0_USER_FLAGS}")
+    list(APPEND LIB0_EXTRA_FLAGS ${LIB0_USER_FLAGS_LIST})
+    message(STATUS "  lib0.c user flags: ${LIB0_USER_FLAGS}")
+endif()
 
 # Compile lib0.c -> lib0.obj
 add_custom_command(

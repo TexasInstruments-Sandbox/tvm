@@ -526,40 +526,63 @@ static int c7x_client_infer_impl(c7x_client_t *client,
 
     /* Stage input tensor data AFTER the ELF region in the staging buffer.
      * DLOAD maps rodata segments in-place from the ELF, so we must not
-     * overwrite that region with input tensors. */
+     * overwrite that region with input tensors.
+     *
+     * Zero-copy path: if inputs[i].data already falls within the staging
+     * buffer range, skip the memcpy and compute the DSP address directly
+     * from the pointer offset.  This is used by c7x::Module::CreateInput(). */
     data_offset = client->input_data_offset;
-    for (int i = 0; i < num_inputs; i++) {
-        if (data_offset + inputs[i].data_size > C7X_STAGING_SIZE) {
-            fprintf(stderr, "c7x: Input data exceeds buffer size\n");
-            return -EFBIG;
-        }
-        if (inputs[i].data && inputs[i].data_size > 0) {
-            memcpy(static_cast<uint8_t *>(client->staging_buf) + data_offset,
-                   inputs[i].data, inputs[i].data_size);
-        }
-        data_offset += inputs[i].data_size;
-    }
-    sync_input_to_device(client);
 
-    /* Build tensor descriptors — same DSP addresses regardless of INFER type.
-     * DSP addresses start after the ELF region (input_data_offset). */
-    uint64_t cur_addr = C7X_STAGING_ADDR + client->input_data_offset;
+    const uint8_t *staging_base = static_cast<const uint8_t *>(client->staging_buf);
+    const size_t   staging_size = C7X_STAGING_SIZE;
+
     /* Temporary descriptor array (stack, max 128 inputs). */
     struct c7x_tensor_desc desc_arr[128];
     if (num_inputs > 128) {
         fprintf(stderr, "c7x: Too many inputs: %d (max 128)\n", num_inputs);
         return -EINVAL;
     }
+
+    /* Pass 1: stage non-pre-staged inputs and record DSP data_addr for all. */
+    uint64_t data_addrs[128] = {};
+    for (int i = 0; i < num_inputs; i++) {
+        const uint8_t *input_ptr = static_cast<const uint8_t *>(inputs[i].data);
+        bool prestaged = (input_ptr != nullptr &&
+                          input_ptr >= staging_base &&
+                          input_ptr + inputs[i].data_size <= staging_base + staging_size);
+        if (prestaged) {
+            /* Already in staging DDR — derive DSP virtual address directly. */
+            data_addrs[i] = C7X_STAGING_ADDR +
+                            static_cast<uint64_t>(input_ptr - staging_base);
+        } else {
+            /* Normal path: copy to staging buffer at the current data_offset. */
+            if (data_offset + inputs[i].data_size > staging_size) {
+                fprintf(stderr, "c7x: Input data exceeds buffer size\n");
+                return -EFBIG;
+            }
+            if (input_ptr != nullptr && inputs[i].data_size > 0) {
+                memcpy(const_cast<uint8_t *>(staging_base) + data_offset,
+                       input_ptr, inputs[i].data_size);
+            }
+            data_addrs[i] = C7X_STAGING_ADDR + static_cast<uint64_t>(data_offset);
+            data_offset += inputs[i].data_size;
+        }
+    }
+    /* Flush ARM d-cache so the DSP sees all input data (both newly copied and
+     * pre-staged).  Required even for pre-staged inputs: the ARM's write-back
+     * cache must be flushed before the DSP reads from DDR. */
+    sync_input_to_device(client);
+
+    /* Pass 2: build protocol descriptor array using the resolved addresses. */
     for (int i = 0; i < num_inputs; i++) {
         memset(&desc_arr[i], 0, sizeof(desc_arr[i]));
-        desc_arr[i].data_addr  = cur_addr;
+        desc_arr[i].data_addr  = data_addrs[i];
         desc_arr[i].data_size  = inputs[i].data_size;
         desc_arr[i].ndim       = inputs[i].ndim;
         desc_arr[i].dtype_code = inputs[i].dtype_code;
         desc_arr[i].dtype_bits = inputs[i].dtype_bits;
         for (int j = 0; j < inputs[i].ndim && j < C7X_TENSOR_MAX_NDIM; j++)
             desc_arr[i].shape[j] = inputs[i].shape[j];
-        cur_addr += inputs[i].data_size;
     }
 
     /* Choose message type based on whether the inline form fits in the
@@ -711,6 +734,25 @@ int c7x_client_infer_repeat(c7x_client_t *client,
     return c7x_client_infer_impl(client, module_handle, model_id,
                                   inputs, num_inputs, outputs, num_outputs,
                                   cycles, repeat);
+}
+
+void *c7x_client_get_input_buffer(c7x_client_t *client, size_t *size)
+{
+    if (!client) { if (size) *size = 0; return nullptr; }
+    if (size) *size = C7X_STAGING_SIZE;
+    return client->staging_buf;
+}
+
+size_t c7x_client_get_input_data_offset(c7x_client_t *client)
+{
+    return client ? client->input_data_offset : 0;
+}
+
+void *c7x_client_get_output_buffer(c7x_client_t *client, size_t *size)
+{
+    if (!client) { if (size) *size = 0; return nullptr; }
+    if (size) *size = C7X_RESULT_SIZE;
+    return client->result_buf;
 }
 
 const char *c7x_strerror(int status)
