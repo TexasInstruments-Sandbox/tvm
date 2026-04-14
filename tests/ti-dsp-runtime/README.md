@@ -12,10 +12,19 @@ targets.
 | `dsp-tests/` | Pytest-based DSP model tests (conv2d, resnet, YOLO, etc.) for c66x_host, c7x_host, and c7x_dload modes |
 | `tidl-tests/` | TIDL subgraph offloading tests: partitioning, import, codegen, and end-to-end hardware inference |
 
-## Quick Regression Tests
+## Test Tiers
 
-All quick tests are marked with `@pytest.mark.quick`.  Run them as a
-fast regression check before pushing changes.
+Three depth markers control how much of the suite runs at each stage:
+
+| Marker | Purpose | DSP tests | TIDL tests | Time (host) | Time (board) |
+|--------|---------|-----------|-----------|-------------|-------------|
+| `quick` | PR gate | 6 core models | 25 partition+codegen | ~20 s | ~5 min |
+| `core` | Post-merge | ~38 tests | +1 stub e2e | ~10 min | ~25 min |
+| *(none)* | Nightly | ~80 tests | all | 40+ min | 2–3 h |
+
+`core` is a strict superset of `quick`.
+
+## Jenkins Pipeline Commands
 
 ### Required environment setup
 
@@ -26,86 +35,92 @@ export TI_CGT_C7000_PATH=~/ti/ccs2041/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS
 ```
 
 `TI_CGT_C7000_PATH` is required for all DSP and TIDL e2e tests.
-Tests will **fail** (not skip) if it is missing.
 
-### TIDL quick tests (27 tests, ~90 s)
-
-Partition, codegen, and small-model hardware e2e.  No `--dsp-mode`
-needed.  The 2 hardware e2e tests require the TIDL import .so and
-C7x compiler — they fail with a clear message if either is missing.
-
-```bash
-pytest tests/ti-dsp-runtime/tidl-tests/ -m quick -v
-```
-
-| File | Tests | Time | Dependencies |
-|------|------:|-----:|--------------|
-| `test_tidl_partition.py` | 14 | ~4 s | None (torch optional for ResNet BN tests) |
-| `test_tidl_codegen.py` | 12 | ~4 s | None |
-| `test_tidl_import_e2e.py` | 2 | ~80 s | tidl_model_import_relax.so, TI_CGT_C7000_PATH, AM67A board |
-
-### DSP quick tests (6 tests)
-
-Small models: conv2d, matmul, MLP, CLISTA, conv2d-stack, quantized
-conv2d-stack.  Requires `--dsp-mode` to select the execution backend.
-
-```bash
-# C7x host emulation -- no hardware, ~20 s:
-cd tests/ti-dsp-runtime
-pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_host -v
-
-# C7x DLOAD on AM67A hardware -- ~5 min:
-pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_dload -v
-```
-
-| File | Tests | c7x_host | c7x_dload |
-|------|------:|---------:|----------:|
-| `test_clista_dsp.py` | 1 | ~3 s | ~20 s |
-| `test_conv2d_dsp.py` | 1 | ~2 s | ~8 s |
-| `test_conv2d_stack_dsp.py` | 1 | ~3 s | ~90 s |
-| `test_matmul_dsp.py` | 1 | ~2 s | ~8 s |
-| `test_mlp_dsp.py` | 1 | ~3 s | ~20 s |
-| `test_quantized_conv2d_stack_dsp.py` | 1 | ~15 s | ~3 min |
-
-**Important:** c7x_dload tests must not be run in parallel or in the
-background.  The AM67A board has a single DSP core; concurrent
-sessions cause DMA-BUF exhaustion and firmware hangs.
-
-### All quick tests in one shot
+### c66x host stage (no hardware)
 
 ```bash
 cd $TVM_HOME
-export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
-export TI_CGT_C7000_PATH=~/ti/ccs2041/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS
 
-# 1. TIDL (no --dsp-mode needed):
+# PR gate — codegen unit tests only, ~10 s:
 pytest tests/ti-dsp-runtime/tidl-tests/ -m quick -v
+pytest tests/ti-dsp-runtime/dsp-tests/ -m "quick and not c7x_only" --dsp-mode=c66x_host -v
 
-# 2. DSP host emulation:
-cd tests/ti-dsp-runtime
-pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_host -v
-
-# 3. DSP hardware (only if AM67A is available):
-pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_dload -v
+# Full — all tests valid for c66x, ~35 min:
+pytest tests/ti-dsp-runtime/tidl-tests/ -m "not core or core" -v   # all tidl (same as no filter)
+pytest tests/ti-dsp-runtime/dsp-tests/ -m "not c7x_only" --dsp-mode=c66x_host -v
 ```
 
-Expected total wall time: ~2 min (host-only) or ~8 min (with AM67A).
+### c7x host stage (no hardware, needs TI_CGT_C7000_PATH)
 
-## Full Test Catalog
+```bash
+cd $TVM_HOME
 
-Beyond the quick tests, these suites exercise larger models and
-longer-running hardware flows:
+# PR gate — ~25 s:
+pytest tests/ti-dsp-runtime/tidl-tests/ -m quick -v
+pytest tests/ti-dsp-runtime/dsp-tests/ -m quick --dsp-mode=c7x_host -v
 
-| Suite | Command | Notes |
-|-------|---------|-------|
-| TIDL import tests | `pytest tidl-tests/test_tidl_relax_import.py -v` | Needs .so + TIDL tools, ~60 s |
-| TIDL ResNet-18 build | `pytest tidl-tests/test_tidl_resnet_e2e.py::TestTIDLResNetE2E::test_tidl_resnet18_build -v` | Needs .so + compiler, ~2 min |
-| TIDL ResNet-18 hardware | `pytest tidl-tests/test_tidl_resnet_e2e.py::TestTIDLResNetE2E::test_tidl_resnet18_correctness -v -s` | Needs AM67A, ~5 min |
-| DSP classification | `pytest --rootdir=. dsp-tests/test_classification_dsp.py -v --dsp-mode=c7x_dload` | SqueezeNet/MobileNet on AM67A |
-| DSP ResNet-18 | `pytest --rootdir=. dsp-tests/test_resnet_dsp.py -v --dsp-mode=c7x_dload` | Full ResNet-18 on AM67A |
+# Post-merge gate — ~10 min:
+pytest tests/ti-dsp-runtime/tidl-tests/ -m core -v
+pytest tests/ti-dsp-runtime/dsp-tests/ -m core --dsp-mode=c7x_host -v
+```
 
-See `CLAUDE.md` for full build instructions, environment setup, and
-hardware deployment.
+### c7x board stage (AM67A required; never run in background or in parallel)
+
+```bash
+cd $TVM_HOME
+
+# PR gate — ~5 min:
+pytest tests/ti-dsp-runtime/tidl-tests/ -m quick -v
+pytest tests/ti-dsp-runtime/dsp-tests/ -m quick --dsp-mode=c7x_dload -v
+
+# Post-merge gate — ~25 min:
+pytest tests/ti-dsp-runtime/tidl-tests/ -m core -v
+pytest tests/ti-dsp-runtime/dsp-tests/ -m core --dsp-mode=c7x_dload -v
+
+# Nightly full regression — 2–3 h:
+pytest tests/ti-dsp-runtime/tidl-tests/ -v                          # all TIDL
+pytest tests/ti-dsp-runtime/dsp-tests/ --dsp-mode=c7x_dload -v     # all DSP
+```
+
+> **Important:** c7x_dload tests must not be run in parallel or in the
+> background.  The AM67A board has a single DSP core; concurrent sessions
+> cause DMA-BUF exhaustion and firmware hangs.
+
+## TIDL Tests
+
+TIDL tests are always c7x-only and have a separate dependency axis:
+
+| File | Tier | Dependencies | Time |
+|------|------|-------------|------|
+| `test_tidl_partition.py` (13) | **quick + core** | TVM only | ~4 s |
+| `test_tidl_codegen.py` (12) | **quick + core** | TVM only | ~4 s |
+| `test_tidl_e2e.py` (1) | nightly | TI_CGT_C7000_PATH only | ~30 s |
+| `test_tidl_new_ops.py` (4) | **quick** | tidl_model_import_relax.so + AM67A | ~5 min |
+| `test_tidl_import_e2e.py` (2) | **quick** | .so + TI_CGT + AM67A | ~90 s |
+| `test_tidl_relax_import.py` (8) | nightly | tidl_model_import_relax.so | ~60 s |
+| `test_tidl_resnet_e2e.py` (3) | nightly | .so + TI_CGT + AM67A | 2–10 min |
+
+**Note on TIDL `quick`**: The 31 TIDL `quick` tests split into two groups:
+- **25 dependency-free** (partition + codegen): always pass — these are also `core`
+- **6 hardware e2e** (new_ops + import_e2e): require `.so` + AM67A — skip on host stages but
+  provide the full hardware gate on the c7x_board stage
+
+**ResNet-18 TIDL tests are nightly-only** — they require
+`tidl_model_import_relax.so` (external build artifact), take 2–10 minutes
+each, and two of the three tests need AM67A hardware. Not in `core`.
+
+## DSP Tests
+
+DSP tests require `--dsp-mode` to select the execution backend.  Tests
+are further organised by architecture marker:
+
+| Marker | Meaning | Jenkins filter |
+|--------|---------|---------------|
+| `c7x_only` | Model too large for C66x, or c7x-specific API | `-m "not c7x_only"` on c66x stages |
+| *(none)* | Works on both c66x and c7x | no filter needed |
+
+See `dsp-tests/README.md` for the full test catalogue, per-file timing,
+and standalone script usage.
 
 ## History
 

@@ -37,6 +37,16 @@ def pytest_configure(config):
         "markers",
         "quick: mark test as quick (small model, fast compile and run)",
     )
+    config.addinivalue_line(
+        "markers",
+        "core: post-merge gate — all core ops, classification, accuracy, "
+        "and small detection; excludes large YOLO/segmentation and benchmarks",
+    )
+    config.addinivalue_line(
+        "markers",
+        "c7x_only: test only valid for c7x targets "
+        "(model too large for C66x, or feature is c7x-specific)",
+    )
     # Suppress torch.ao.quantization deprecation warnings.
     # torch 2.10 deprecates these in favor of torchao, but torchao 0.16
     # doesn't ship XNNPACKQuantizer yet.  Suppress until migration.

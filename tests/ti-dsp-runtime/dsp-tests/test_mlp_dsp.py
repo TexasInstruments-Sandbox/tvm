@@ -113,6 +113,7 @@ def _run_mlp_dsp_test(
 
 
 @pytest.mark.quick
+@pytest.mark.core
 def test_mlp_dsp(dsp_mode, dsp_timeout, use_cpp_api):
     """Test MLP model on DSP comparing against PyTorch reference.
 

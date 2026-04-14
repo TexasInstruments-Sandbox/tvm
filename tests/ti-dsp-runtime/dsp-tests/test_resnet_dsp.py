@@ -25,6 +25,8 @@ import argparse
 import logging
 import re
 import sys
+
+import pytest
 from pathlib import Path
 
 import numpy as np
@@ -142,6 +144,7 @@ def _run_resnet_dsp_test(
     }
 
 
+@pytest.mark.core
 def test_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile):
     """Test ResNet-18 model on DSP comparing against PyTorch reference.
 

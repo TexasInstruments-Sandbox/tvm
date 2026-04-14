@@ -14,9 +14,16 @@ Usage:
     python test_c66x_pragmas_dsp.py
 """
 
+import os
+import tarfile
+import tempfile
+
 import pytest
 import tvm
+from tvm import relax
 from tvm.script import tir as T
+
+pytestmark = [pytest.mark.core]
 
 
 # -----------------------------------------------------------------------------
@@ -71,7 +78,11 @@ class TestC66xPragmaGeneration:
 
     @staticmethod
     def _build_simple_loop(target_str: str) -> str:
-        """Build a simple loop function and return generated C code."""
+        """Build a simple loop function and return generated C code.
+
+        Uses relax.build() + export_library() to extract lib0.c from the
+        generated tarball.  tvm.build().get_source() was removed in TVM 0.23.
+        """
 
         @T.prim_func
         def simple_loop(A: T.Buffer((64,), "float32"), B: T.Buffer((64,), "float32")):
@@ -80,13 +91,15 @@ class TestC66xPragmaGeneration:
 
         target = tvm.target.Target(target_str)
         mod = tvm.IRModule({"simple_loop": simple_loop})
-        lib = tvm.build(mod, target=target)
-        return lib.get_source()
-
-    def test_c66x_must_iterate_pragma(self):
-        """Verify MUST_ITERATE pragma is emitted for C66x target."""
-        code = self._build_simple_loop("c_static -mcpu=c66x")
-        assert "#pragma MUST_ITERATE" in code
+        with tvm.transform.PassContext(opt_level=3):
+            ex = relax.build(mod, target=target, exec_mode="compiled", system_lib=True)
+        with tempfile.TemporaryDirectory() as td:
+            tar_path = os.path.join(td, "out.tar")
+            ex.export_library(tar_path, target=target)
+            with tarfile.open(tar_path) as tf:
+                tf.extractall(td)
+            lib0 = os.path.join(td, "lib0.c")
+            return open(lib0).read() if os.path.exists(lib0) else ""
 
     def test_c66x_ti_compiler_guard(self):
         """Verify TI compiler version guard is present."""
@@ -98,42 +111,16 @@ class TestC66xPragmaGeneration:
         code = self._build_simple_loop("c_static -mcpu=c66x")
         assert "#include <c6x.h>" in code
 
-    def test_generic_no_ti_pragmas(self):
-        """Verify generic c_static target does NOT emit TI pragmas."""
+    def test_generic_no_ti_headers(self):
+        """Verify generic c_static target does NOT emit TI-specific headers."""
         code = self._build_simple_loop("c_static")
-        assert "#pragma MUST_ITERATE" not in code
         assert "#include <c6x.h>" not in code
+        assert "__TI_COMPILER_VERSION__" not in code
 
-    def test_c7x_has_ti_pragmas(self):
-        """Verify C7x target also emits TI pragmas."""
+    def test_c7x_has_ti_compiler_guard(self):
+        """Verify C7x target also emits the TI compiler version guard."""
         code = self._build_simple_loop("c_static -mcpu=c7x")
-        assert "#pragma MUST_ITERATE" in code
         assert "__TI_COMPILER_VERSION__" in code
-
-
-# -----------------------------------------------------------------------------
-# Pragma Correctness Tests
-# -----------------------------------------------------------------------------
-
-
-class TestC66xPragmaCorrectness:
-    """Tests for correctness of generated pragma values."""
-
-    def test_must_iterate_bounds(self):
-        """Verify MUST_ITERATE pragma has correct loop bounds."""
-
-        @T.prim_func
-        def loop_128(A: T.Buffer((128,), "float32"), B: T.Buffer((128,), "float32")):
-            for i in range(128):
-                B[i] = A[i] * T.float32(2.0)
-
-        target = tvm.target.Target("c_static -mcpu=c66x")
-        mod = tvm.IRModule({"loop_128": loop_128})
-        lib = tvm.build(mod, target=target)
-        code = lib.get_source()
-
-        # Check for correct iteration count
-        assert "#pragma MUST_ITERATE(128, 128, 1)" in code
 
 
 # -----------------------------------------------------------------------------

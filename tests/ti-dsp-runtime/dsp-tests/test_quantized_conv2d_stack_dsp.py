@@ -119,6 +119,7 @@ def _copy_artifacts(generated_dir: Path, dest_dir: str) -> None:
 
 
 @pytest.mark.quick
+@pytest.mark.core
 def test_quantized_conv2d_stack_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers):
     """Test quantized Conv2D stack model on DSP comparing against PyTorch reference.
 

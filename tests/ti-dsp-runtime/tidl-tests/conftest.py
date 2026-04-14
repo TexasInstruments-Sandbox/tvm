@@ -18,3 +18,8 @@ def pytest_configure(config):
         "markers",
         "quick: mark test as quick (no hardware, no .so, fast execution)",
     )
+    config.addinivalue_line(
+        "markers",
+        "core: post-merge gate — dependency-free tests plus c7x_host stub "
+        "pipeline; excludes tests requiring tidl_model_import_relax.so or AM67A",
+    )

@@ -27,6 +27,8 @@ Usage:
 import argparse
 import logging
 import sys
+
+import pytest
 from pathlib import Path
 
 import torch
@@ -96,6 +98,7 @@ def _run_lenet_dsp_test(
     }
 
 
+@pytest.mark.core
 def test_lenet_dsp(dsp_mode, dsp_timeout, use_cpp_api):
     """Test LeNet-5 model on DSP comparing against PyTorch reference."""
     results = _run_lenet_dsp_test(dsp_mode, dsp_timeout, use_cpp_api=use_cpp_api)

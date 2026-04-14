@@ -31,6 +31,7 @@ sys.path.insert(0, str(_DSP_CPP_DIR))
 
 from dsp_utils import compile_and_run_dsp  # noqa: E402
 
+pytestmark = [pytest.mark.core]
 
 # -----------------------------------------------------------------------------
 # Test Models

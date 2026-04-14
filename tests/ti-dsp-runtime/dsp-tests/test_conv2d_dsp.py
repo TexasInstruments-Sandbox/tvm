@@ -117,6 +117,7 @@ def _copy_artifacts(generated_dir: Path, dest_dir: str) -> None:
 
 
 @pytest.mark.quick
+@pytest.mark.core
 def test_conv2d_dsp(dsp_mode, dsp_timeout, use_cpp_api):
     """Test Conv2D model on DSP comparing against PyTorch reference."""
     results = _run_conv2d_dsp_test(dsp_mode, dsp_timeout, use_cpp_api=use_cpp_api)

@@ -101,6 +101,7 @@ def _run_matmul_dsp_test(
 
 
 @pytest.mark.quick
+@pytest.mark.core
 def test_matmul_dsp(dsp_mode, dsp_timeout, use_cpp_api):
     """Test matmul model on DSP comparing against PyTorch reference."""
     results = _run_matmul_dsp_test(dsp_mode, dsp_timeout, use_cpp_api=use_cpp_api)

@@ -57,6 +57,8 @@ from tvm.contrib.c7x.c7x_runtime import (  # pyright: ignore[reportMissingImport
 )
 from tvm.relax.backend.tidl import TIDLBuildResult  # pyright: ignore[reportMissingImports]
 
+pytestmark = [pytest.mark.c7x_only, pytest.mark.core]
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -159,7 +161,7 @@ requires_firmware = pytest.mark.skipif(
 class TestStructLayout:
     """Verify the ctypes struct matches the C layout exactly."""
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_c7x_tensor_desc_size(self):
         """_C7xTensorDesc must be 80 bytes to match c7x_tensor_desc_t in C."""
         assert ctypes.sizeof(_C7xTensorDesc) == 80, (
@@ -167,7 +169,7 @@ class TestStructLayout:
             "Padding mismatch with c7x_tensor_desc_t in c7x_compute_client.h."
         )
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_c7x_tensor_desc_field_offsets(self):
         """Field offsets must match the C struct layout."""
         # data: offset 0
@@ -185,7 +187,7 @@ class TestStructLayout:
         # shape: offset 32 (8-byte aligned after 4-byte _pad)
         assert _C7xTensorDesc.shape.offset == 32
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_dtype_mapping_coverage(self):
         """_DLTYPE_TO_NUMPY must cover the dtypes used in inference."""
         required = [
@@ -201,7 +203,7 @@ class TestStructLayout:
                 f"Missing dtype ({key[0]}, {key[1]}) in _DLTYPE_TO_NUMPY"
             )
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_dtype_mapping_numpy_types(self):
         """Mapped numpy dtypes must be correct numpy scalar types."""
         assert _DLTYPE_TO_NUMPY[(_DL_FLOAT, 32)] is np.float32
@@ -214,14 +216,14 @@ class TestStructLayout:
 class TestAPIContract:
     """Verify the public API contract without hardware."""
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_init_bad_so_raises(self, tmp_path):
         """C7xVirtualMachine must raise RuntimeError for a missing .so."""
         with pytest.raises(RuntimeError, match="Cannot load"):
             C7xVirtualMachine("/tmp/fake_lib0.out",
                               so_path=str(tmp_path / "nonexistent.so"))
 
-    @pytest.mark.quick
+    @pytest.mark.core
     @requires_lib
     def test_init_bad_module_lazy(self):
         """FileNotFoundError raised on first inference if module path is invalid."""
@@ -229,14 +231,14 @@ class TestAPIContract:
         with pytest.raises(FileNotFoundError):
             vm["main"](np.zeros((1, 64), dtype=np.float32))
 
-    @pytest.mark.quick
+    @pytest.mark.core
     @requires_lib
     def test_is_loaded_before_first_call(self):
         """is_loaded must be False before first inference call."""
         vm = C7xVirtualMachine("/tmp/fake.out")
         assert not vm.is_loaded
 
-    @pytest.mark.quick
+    @pytest.mark.core
     @requires_lib
     def test_close_is_idempotent(self):
         """close() on an unloaded VM must not raise."""
@@ -244,7 +246,7 @@ class TestAPIContract:
         vm.close()
         vm.close()  # second close must be a no-op
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_getitem_returns_callable(self, tmp_path):
         """vm["main"] must return a callable without triggering IO."""
         # We can't call __getitem__ without the .so, but we can verify it's
@@ -257,7 +259,7 @@ class TestAPIContract:
         fn = vm["main"]
         assert callable(fn)
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_context_manager_cleanup(self, tmp_path):
         """Context manager __exit__ must call close without error."""
         try:
@@ -296,7 +298,7 @@ def mlp_cpu_ref(mlp_input):
 class TestC7xVMInference:
     """Integration tests: C7xVirtualMachine running against live firmware."""
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_standard_inference_matches_cpu(self, mlp_lib0, mlp_input, mlp_cpu_ref):
         """vm["main"](tvm.nd.array(x)) result must match CPU reference."""
         vm = C7xVirtualMachine(mlp_lib0)
@@ -308,7 +310,7 @@ class TestC7xVMInference:
         np.testing.assert_allclose(dsp_out, mlp_cpu_ref, rtol=1e-3, atol=1e-3,
                                    err_msg="DSP output diverges from CPU reference")
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_is_loaded_after_inference(self, mlp_lib0, mlp_input):
         """is_loaded must be True after the first successful inference."""
         vm = C7xVirtualMachine(mlp_lib0)
@@ -318,14 +320,14 @@ class TestC7xVMInference:
         vm.close()
         assert not vm.is_loaded
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_last_cycles_positive(self, mlp_lib0, mlp_input):
         """last_cycles must be a positive integer after inference."""
         with C7xVirtualMachine(mlp_lib0) as vm:
             vm["main"](mlp_input)
             assert vm.last_cycles > 0, "Expected positive cycle count from DSP"
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_context_manager_closes_on_exit(self, mlp_lib0, mlp_input):
         """Context manager must unload the module on __exit__."""
         vm_ref = None
@@ -349,7 +351,7 @@ class TestC7xVMInference:
         np.testing.assert_array_equal(results[0], results[1])
         np.testing.assert_array_equal(results[1], results[2])
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_as_vm_factory(self, mlp_lib0, mlp_input, mlp_cpu_ref):
         """TIDLBuildResult.as_vm() must return a working C7xVirtualMachine.
 
@@ -374,14 +376,14 @@ class TestC7xVMInference:
             err_msg="as_vm() inference diverges from CPU reference"
         )
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_numpy_input_accepted(self, mlp_lib0, mlp_input, mlp_cpu_ref):
         """C7xVirtualMachine must accept plain numpy arrays (not just tvm.nd)."""
         with C7xVirtualMachine(mlp_lib0) as vm:
             out = vm["main"](mlp_input)  # plain numpy array
         np.testing.assert_allclose(out.numpy(), mlp_cpu_ref, rtol=1e-3, atol=1e-3)
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_output_is_tvm_ndarray(self, mlp_lib0, mlp_input):
         """vm["main"] must return a tvm.nd.NDArray."""
         with C7xVirtualMachine(mlp_lib0) as vm:
@@ -397,7 +399,7 @@ class TestC7xVMInference:
 class TestRunNocopy:
     """Zero-copy output via run_nocopy()."""
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_run_nocopy_returns_numpy(self, mlp_lib0, mlp_input, mlp_cpu_ref):
         """run_nocopy() must return a numpy array backed by result DDR."""
         with C7xVirtualMachine(mlp_lib0) as vm:
@@ -419,7 +421,7 @@ class TestRunNocopy:
             err_msg="run_nocopy() result differs from standard vm['main'] result"
         )
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_last_nocopy_outputs_list(self, mlp_lib0, mlp_input):
         """_last_nocopy_outputs must be populated after run_nocopy()."""
         with C7xVirtualMachine(mlp_lib0) as vm:
@@ -432,7 +434,7 @@ class TestRunNocopy:
 class TestCreateInput:
     """Zero-copy input via create_input()."""
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_create_input_shape_dtype(self, mlp_lib0):
         """create_input() must return a tensor with the correct shape and dtype."""
         with C7xVirtualMachine(mlp_lib0) as vm:
@@ -440,7 +442,7 @@ class TestCreateInput:
         assert inp.shape == (1, 64)
         assert str(inp.dtype) == "float32"
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_create_input_inference_correct(self, mlp_lib0, mlp_input, mlp_cpu_ref):
         """Inference via pre-staged create_input() tensor must match CPU reference."""
         with C7xVirtualMachine(mlp_lib0) as vm:
@@ -468,7 +470,7 @@ class TestCreateInput:
             err_msg="create_input() and standard path give different results"
         )
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_create_input_registered_in_slots(self, mlp_lib0):
         """create_input() must register the tensor in _input_slots dict."""
         with C7xVirtualMachine(mlp_lib0) as vm:
@@ -488,7 +490,7 @@ class TestCreateInput:
         # 1×64×4 bytes = 256 bytes; advance must be ≥ 256
         assert offset_after >= offset_before + 256
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_staging_offset_from_elf_not_hardcoded(self, mlp_lib0):
         """Staging alloc offset must come from the real ELF size, not 256 MB."""
         with C7xVirtualMachine(mlp_lib0) as vm:
@@ -532,7 +534,7 @@ class TestC7xCpp:
     Build and deploy: cd src/runtime/ti_dsp/firmware/c7x/arm && ./build.sh deploy
     """
 
-    @pytest.mark.quick
+    @pytest.mark.core
     def test_cpp_standard_inference(self, mlp_lib0, mlp_input, mlp_cpu_ref):
         """C++ test binary: standard inference, reference comparison, create_input."""
         binary = _find_c7x_runtime_binary()

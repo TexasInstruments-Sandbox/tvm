@@ -22,6 +22,8 @@ import argparse
 import logging
 import re
 import sys
+
+import pytest
 from pathlib import Path
 
 import numpy as np
@@ -38,6 +40,8 @@ _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
 from dsp_utils import compile_and_run_dsp, compare_results, get_target_string, assert_dsp_comparison  # noqa: E402
+
+pytestmark = [pytest.mark.c7x_only, pytest.mark.core]
 
 # Configure logging
 logger = logging.getLogger(__name__)
