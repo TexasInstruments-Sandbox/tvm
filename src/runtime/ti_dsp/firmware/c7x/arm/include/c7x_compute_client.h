@@ -81,6 +81,20 @@ void *c7x_client_get_input_buffer(c7x_client_t *client, size_t *size);
  */
 void *c7x_client_get_output_buffer(c7x_client_t *client, size_t *size);
 
+/**
+ * Get the staging buffer offset where input tensor data should start.
+ *
+ * After c7x_client_dyn_load(), the loaded ELF's in-place rodata segments
+ * occupy [0, offset).  Input tensor data must be placed at or after this
+ * offset to avoid overwriting the loaded module.  This is the value to use
+ * as the base for CreateInput() allocations.
+ *
+ * @param client  Client handle
+ *
+ * @return Byte offset into the staging buffer (0 if client is NULL)
+ */
+size_t c7x_client_get_input_data_offset(c7x_client_t *client);
+
 /*
  * =============================================================================
  * Dynamic Loading API

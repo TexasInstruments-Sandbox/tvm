@@ -347,6 +347,28 @@ class TIDLBuildResult:
     artifacts: Dict[str, Dict[str, str]] = field(default_factory=dict)
     build_dir: Path = field(default_factory=lambda: Path())
 
+    def as_vm(self, so_path: str = "libc7x_arm_runtime.so"):  # -> C7xVirtualMachine
+        """Return a C7xVirtualMachine wrapping this build result.
+
+        Call this on the AM67A ARM board where ``libc7x_arm_runtime.so`` is
+        installed.  The returned VM has the same interface as
+        ``relax.VirtualMachine``:
+
+        .. code-block:: python
+
+            vm = result.as_vm()
+            out = vm["main"](tvm.nd.array(data))
+
+        Parameters
+        ----------
+        so_path : str
+            Path or name of ``libc7x_arm_runtime.so``.  Defaults to the
+            bare library name so ``LD_LIBRARY_PATH`` / ldconfig can find it.
+        """
+        from tvm.contrib.c7x import C7xVirtualMachine  # noqa: PLC0415
+
+        return C7xVirtualMachine(self.module_path, so_path=so_path)
+
 
 class TIDLOffloadCompiler:
     """Compile Relax modules with TIDL subgraph offloading.

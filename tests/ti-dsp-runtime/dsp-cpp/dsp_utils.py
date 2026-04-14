@@ -666,6 +666,7 @@ def build_dsp_dynmod(
     use_tidl: bool = False,
     tidl_artifacts_dir: Optional[str] = None,
     fp_reassoc_off: bool = False,
+    lib0_cflags: str = "",
 ) -> Path:
     """
     Build TVM-generated lib0.c as a DLOAD-compatible C7x relocatable module.
@@ -689,6 +690,9 @@ def build_dsp_dynmod(
             prevents the compiler from reordering matmul accumulations, which
             causes large numerical divergence in models with ill-conditioned
             weights (e.g. LLMs).  Adds ~27% cycle overhead.
+        lib0_cflags: Extra flags appended to lib0.c compilation only, passed
+            via ``-DLIB0_USER_FLAGS``.  Use for testing alternative optimization
+            levels or enabling ``-k`` (keep assembly output alongside .obj).
 
     Returns:
         Path to the lib0.out relocatable module
@@ -749,6 +753,8 @@ def build_dsp_dynmod(
         cmake_cmd.insert(-1, f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
     if fp_reassoc_off:
         cmake_cmd.insert(-1, "-DFP_REASSOC_OFF=ON")
+    if lib0_cflags:
+        cmake_cmd.insert(-1, f"-DLIB0_USER_FLAGS={lib0_cflags}")
 
     log_path = build_dir / "cmake.log"
     logger.debug(f"Running CMake: {' '.join(cmake_cmd)}")
