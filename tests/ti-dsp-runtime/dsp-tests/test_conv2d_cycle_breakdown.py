@@ -44,6 +44,8 @@ from dsp_utils import (  # noqa: E402  # pyright: ignore
     get_target_string,
 )
 
+pytestmark = [pytest.mark.c7x_only]
+
 # ---------------------------------------------------------------------------
 # Parameters
 # ---------------------------------------------------------------------------

@@ -41,6 +41,8 @@ sys.path.insert(0, str(_DSP_CPP_DIR))
 
 from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
 
+pytestmark = [pytest.mark.c7x_only]
+
 logger = logging.getLogger(__name__)
 
 INPUT_SHAPE = (1, 3, 112, 112)

@@ -91,20 +91,90 @@ pytest test_conv2d_dsp.py -v --dsp-mode=c7x_dload
 pytest test_conv2d_dsp.py test_mlp_dsp.py test_lenet_dsp.py \
     -v --dsp-mode=c66x_host
 
-# Run quick tests only (6 small models, ~2 min on c7x_dload)
+# Run quick tests only — PR gate (~20s host, ~2 min board)
 pytest -v --dsp-mode=c7x_dload -m quick
+
+# Run core tests — post-merge gate (~10 min host, ~25 min board)
+pytest -v --dsp-mode=c7x_dload -m core
+
+# Run all tests valid for c66x — full no-hardware regression
+pytest -v --dsp-mode=c66x_host -m "not c7x_only"
 ```
 
-The `quick` marker covers 6 small-model tests that compile and run fast:
+### Test depth tiers
 
-| Quick Test | Model |
-|------------|-------|
+Three markers control which tests run at each pipeline stage:
+
+| Marker | Tests | When to use |
+|--------|-------|-------------|
+| `quick` | 6 small models | PR gate — fast compile + run |
+| `core` | ~20 tests | Post-merge gate — all ops, classification, detection |
+| *(none)* | ~50 tests | Nightly full regression |
+
+`core` is a superset of `quick`. All `quick` tests are also `core`.
+
+#### `quick` tests (6 tests, both c66x and c7x)
+
+| Test | Model |
+|------|-------|
 | `test_conv2d_dsp` | Single Conv2D |
 | `test_conv2d_stack_dsp` | 4-layer Conv2D + BN + ReLU |
 | `test_clista_dsp` | CLISTA-DoA radar |
 | `test_matmul_dsp` | Matrix multiplication |
 | `test_mlp_dsp` | Multi-layer perceptron |
 | `test_quantized_conv2d_stack_dsp` | INT8 quantized Conv2D stack |
+
+#### `core` tests added beyond `quick` (~14 additional)
+
+| Test | Architecture |
+|------|-------------|
+| `test_c66x_pragmas_dsp` (all) | both |
+| `test_error_messages_dsp` (all) | both |
+| `test_lenet_dsp` | both |
+| `test_resnet_dsp` | both |
+| `test_classification_dsp` (8 models) | both |
+| `test_quantized_resnet_dsp` | c7x only |
+
+#### `c7x_only` tests (excluded from c66x stages)
+
+Tests marked `c7x_only` use models too large for C66x memory or exercise
+c7x-specific features. Jenkins c66x stages filter with `-m "not c7x_only"`:
+
+| File | Reason |
+|------|--------|
+| `test_c7x_vm_dsp.py` | C7xVirtualMachine API |
+| `test_quantized_resnet_dsp.py` | INT8 ResNet-18 (~47 MB) |
+| `test_od_torchvision_dsp.py` | SSDLite320 (c7x_dload only) |
+| `test_rtmdet_dsp.py` | RTMDet (c7x_dload only) |
+| `test_segmentation_dsp.py` | LRASPP / DeepLabV3 |
+| `test_yolo_dsp.py` | YOLOv5/v8 + TIDL |
+| `test_conv2d_cycle_breakdown.py` | Cycle profiling benchmark |
+
+### Jenkins pipeline commands
+
+```bash
+cd tests/ti-dsp-runtime
+
+# ── c66x host (no hardware) ──────────────────────────────────────────────
+# PR gate
+pytest --rootdir=. dsp-tests/ -m quick             --dsp-mode=c66x_host -v
+# Full (no hardware)
+pytest --rootdir=. dsp-tests/ -m "not c7x_only"   --dsp-mode=c66x_host -v
+
+# ── c7x host (no hardware, needs TI_CGT_C7000_PATH) ─────────────────────
+# PR gate
+pytest --rootdir=. dsp-tests/ -m quick             --dsp-mode=c7x_host  -v
+# Post-merge
+pytest --rootdir=. dsp-tests/ -m core              --dsp-mode=c7x_host  -v
+
+# ── c7x board (AM67A, never run in background) ───────────────────────────
+# PR gate
+pytest --rootdir=. dsp-tests/ -m quick             --dsp-mode=c7x_dload -v
+# Post-merge
+pytest --rootdir=. dsp-tests/ -m core              --dsp-mode=c7x_dload -v
+# Nightly
+pytest --rootdir=. dsp-tests/                      --dsp-mode=c7x_dload -v
+```
 
 ### Via standalone script
 

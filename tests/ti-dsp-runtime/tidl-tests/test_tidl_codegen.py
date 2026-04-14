@@ -23,7 +23,7 @@ from tvm.script import ir as I
 from tvm.script import relax as R
 
 # All tests in this file are quick (pure codegen, no hardware, no .so)
-pytestmark = pytest.mark.quick
+pytestmark = [pytest.mark.quick, pytest.mark.core]
 
 # ---------------------------------------------------------------------------
 # Helpers

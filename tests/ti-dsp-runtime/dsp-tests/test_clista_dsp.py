@@ -127,6 +127,7 @@ def _copy_artifacts(generated_dir: Path, dest_dir: str) -> None:
 
 
 @pytest.mark.quick
+@pytest.mark.core
 def test_clista_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers):
     """Test CLISTA-DoA model on DSP comparing against PyTorch reference."""
     results = _run_clista_dsp_test(
