@@ -21,6 +21,7 @@ Markers:
     @pytest.mark.dsp_host_only - Test can only run on host emulation (too large for C66x)
 """
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -46,6 +47,16 @@ def pytest_configure(config):
         "markers",
         "c7x_only: test only valid for c7x targets "
         "(model too large for C66x, or feature is c7x-specific)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "requires_c7x_vm_lib: test requires libc7x_arm_runtime.so "
+        "(installed on AM67A via ./build.sh deploy, or reachable via --board-target)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "requires_c7x_firmware: test requires c7x_compute firmware running "
+        "(on AM67A locally, or reachable via --board-target)",
     )
     # Suppress torch.ao.quantization deprecation warnings.
     # torch 2.10 deprecates these in favor of torchao, but torchao 0.16
@@ -120,6 +131,16 @@ def pytest_addoption(parser):
         default=False,
         help="Enable direct VM builtin calls (bypass FFI dispatch)",
     )
+    parser.addoption(
+        "--board-target",
+        action="store",
+        default=None,
+        metavar="HOST",
+        help="AM67A board hostname for remote c7x_vm tests via SSH "
+             "(e.g. 'am67a').  When set with --dsp-mode=c7x_dload, "
+             "test_c7x_vm_dsp integration tests deploy lib0.out to the "
+             "board and run C7xVirtualMachine assertions there via SSH.",
+    )
 
 
 @pytest.fixture
@@ -171,6 +192,17 @@ def use_cpp_api(request):
 
 
 @pytest.fixture
+def board_target(request):
+    """Hostname of the AM67A board for remote c7x_vm tests.
+
+    None when running locally (on the board itself or without --board-target).
+    Set to e.g. 'am67a' to run C7xVirtualMachine integration tests by SSHing
+    into the board from the dev PC.
+    """
+    return request.config.getoption("--board-target", default=None)
+
+
+@pytest.fixture
 def dsp_config(
     dsp_mode, dsp_timeout, dsp_verbose, save_artifacts,
     profile_layers, profile, use_cpp_api,
@@ -187,9 +219,25 @@ def dsp_config(
     }
 
 
+def _board_ssh_reachable(board: str) -> bool:
+    """True if the board is reachable via SSH and has the required files."""
+    try:
+        rc = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+             f"root@{board}",
+             "test -f /usr/local/lib/libc7x_arm_runtime.so "
+             "&& test -f /usr/local/bin/c7x_compute"],
+            capture_output=True, timeout=10,
+        ).returncode
+        return rc == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def pytest_collection_modifyitems(config, items):
-    """Skip dsp_host_only tests when running on C66x hardware only."""
+    """Manage mode-specific skip conditions."""
     dsp_mode = config.getoption("--dsp-mode")
+    board_target = config.getoption("--board-target", default=None)
 
     if dsp_mode == "c66x":
         skip_host_only = pytest.mark.skip(
@@ -198,3 +246,70 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "dsp_host_only" in item.keywords:
                 item.add_marker(skip_host_only)
+
+    # Apply local skip conditions for c7x_vm custom marks.
+    # requires_c7x_vm_lib: always evaluated locally (tests need local .so).
+    # requires_c7x_firmware: only evaluated when no board_target; with
+    # board_target the marks are removed so tests run remotely via SSH.
+    if True:
+        # Check for local .so and firmware without importing the test module
+        # (importing test_c7x_vm_dsp at collection time would partially init TVM,
+        # breaking tvm.nd in subsequent fixture setups).
+        import ctypes as _ctypes
+        import glob as _glob
+        try:
+            _ctypes.CDLL("libc7x_arm_runtime.so")
+            lib_ok = True
+        except OSError:
+            lib_ok = False
+        fw_ok = lib_ok and any(
+            "7e000000.dsp" in str(Path(p).resolve())
+            for p in _glob.glob("/sys/class/rpmsg/rpmsg_ctrl*/device")
+        )
+
+        skip_no_lib = pytest.mark.skip(
+            reason="libc7x_arm_runtime.so not found — "
+                   "install on AM67A board or pass --board-target=HOST"
+        )
+        skip_no_fw = pytest.mark.skip(
+            reason="c7x_compute firmware not reachable — "
+                   "run on AM67A board or pass --board-target=HOST"
+        )
+        for item in items:
+            # requires_c7x_vm_lib: skip locally when no board_target (the .so
+            # is aarch64-only and won't load on x86).  When board_target is
+            # set, the "board reachable" branch below removes the mark so
+            # tests run via SSH instead.
+            if "requires_c7x_vm_lib" in item.keywords and not lib_ok \
+                    and not board_target:
+                item.add_marker(skip_no_lib)
+            # requires_c7x_firmware: skip locally only when no board_target;
+            # with board_target the marks are removed and tests run via SSH.
+            if "requires_c7x_firmware" in item.keywords and not fw_ok and not board_target:
+                item.add_marker(skip_no_fw)
+
+    # When --board-target is given with c7x_dload, un-skip c7x_vm integration
+    # tests if the board is reachable via SSH.  The tests will run remotely.
+    if board_target and dsp_mode == "c7x_dload":
+        if _board_ssh_reachable(board_target):
+            for item in items:
+                if "test_c7x_vm_dsp" in str(item.fspath):
+                    # Remove both requires_c7x_firmware and requires_c7x_vm_lib:
+                    # all c7x_vm integration and API-contract tests run via the
+                    # board_target SSH path (the board has the .so installed).
+                    item.own_markers = [
+                        m for m in item.own_markers
+                        if m.name not in ("requires_c7x_firmware",
+                                          "requires_c7x_vm_lib")
+                    ]
+        else:
+            # Board specified but unreachable — add a clear failure marker
+            skip_unreachable = pytest.mark.skip(
+                reason=f"--board-target={board_target} is not reachable via SSH "
+                       f"or missing /usr/local/lib/libc7x_arm_runtime.so"
+            )
+            for item in items:
+                if "test_c7x_vm_dsp" in str(item.fspath):
+                    if any(m.name in ("requires_c7x_vm_lib", "requires_c7x_firmware")
+                           for m in item.own_markers):
+                        item.add_marker(skip_unreachable)
