@@ -591,6 +591,20 @@ class ConvMinimumModel(nn.Module):
         return nn.minimum(a, b)
 
 
+class ConvPermuteModel(nn.Module):
+    """Conv + ReLU + permute_dims (NCHW → NHWC)."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        x = self.conv(x)
+        x = nn.relu(x)
+        x = nn.permute_dims(x, axes=[0, 2, 3, 1])  # NCHW → NHWC
+        return x
+
+
 class ConvReluConcatModel(nn.Module):
     """Two conv+relu branches concatenated along channel axis."""
 
@@ -675,6 +689,16 @@ class TestLayerHardware:
         output, n = self._run(ConvMinimumModel, tmp_path)
         assert n >= 1
         # Output should be finite (quantization may produce negatives)
+        assert np.isfinite(output).all()
+
+    def test_permute_dims_hw(self, tmp_path):
+        """permute_dims (NCHW→NHWC transpose) offloaded to TIDL on AM67A."""
+        output, n = self._run(
+            ConvPermuteModel,
+            tmp_path,
+            expected_shape=(1, 16, 16, 8),  # NHWC output
+        )
+        assert n >= 1
         assert np.isfinite(output).all()
 
     def test_concat_hw(self, tmp_path):

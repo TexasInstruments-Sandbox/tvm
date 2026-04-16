@@ -224,7 +224,6 @@ class TestTIDLNewOps:
         # ReLU * ReLU is non-negative
         assert output.min() >= -0.01
 
-    @pytest.mark.skip(reason="TIDL import segfaults — needs TIDL-side debugging")
     def test_permute_dims(self, tmp_path):
         """Permute_dims (transpose) inside TIDL subgraph."""
         input_data = np.random.randn(1, 3, 16, 16).astype("float32")

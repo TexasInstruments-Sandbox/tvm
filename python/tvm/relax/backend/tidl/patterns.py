@@ -702,12 +702,7 @@ def get_tidl_patterns() -> List[FusionPattern]:
             *_concat_pattern(),
         ]
     )
-    # permute_dims: parser is correct but TIDL calibration crashes with FPE
-    # when TransposeLayer appears as the network output layer.  Disabled until
-    # the TIDL library handles TransposeLayer in the PostProcessNet/calibration
-    # phase.  Root cause: PC_dsp_test_dl_algo.out gets SIGFPE during quantstat
-    # collection on transposed activations.
-    # patterns.extend([*_permute_dims_pattern()])
+    patterns.extend([*_permute_dims_pattern()])
 
     return patterns
 
