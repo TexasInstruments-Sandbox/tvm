@@ -404,6 +404,95 @@ def _check_cast(ctx: PatternCheckContext) -> bool:
     return True
 
 
+def _check_reduce_sum(ctx: PatternCheckContext) -> bool:
+    """Validate sum constraints for TIDL.
+
+    ReduceSum is converted to InnerProduct during OptimizeNet, so it
+    can handle any single axis.  Only dtype and single-axis are checked.
+    """
+    root = ctx.annotated_expr.get("root")
+    if root is not None and isinstance(root, tvm.relax.Call):
+        attrs = root.attrs
+        if attrs is not None:
+            axis = getattr(attrs, "axis", None)
+            if axis is not None and len(axis) > 1:
+                return False  # TIDL only supports single-axis reduction
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_reduce_max_min(ctx: PatternCheckContext) -> bool:
+    """Validate reduce_max/reduce_min constraints for TIDL.
+
+    TIDL ReduceLayer only supports single-axis reduction along the HEIGHT
+    dimension (axis=2 in 4D NCHW, which maps to TIDL_DIM_HEIGHT=4).
+    The TIDL allowlisting constraint rejects all other axes.
+    """
+    root = ctx.annotated_expr.get("root")
+    if root is not None and isinstance(root, tvm.relax.Call):
+        attrs = root.attrs
+        if attrs is not None:
+            axis = getattr(attrs, "axis", None)
+            if axis is not None:
+                if len(axis) > 1:
+                    return False  # TIDL only supports single-axis reduction
+                if len(axis) == 1:
+                    ax = int(axis[0])
+                    data = ctx.annotated_expr.get("data")
+                    ndim = 4
+                    if data is not None:
+                        shape = _get_shape(data)
+                        if shape is not None:
+                            ndim = len(shape)
+                    if ax < 0:
+                        ax += ndim
+                    # TIDL ReduceLayer only supports HEIGHT (axis 2 in 4D NCHW)
+                    if ax != 2:
+                        return False
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_argreduce(ctx: PatternCheckContext) -> bool:
+    """Validate argmax/argmin constraints for TIDL.
+
+    TIDL ArgOpLayer only supports:
+    - axis = channel axis (axis=1 in 4D NCHW → TIDL_DIM_NUMCH=3)
+    - keepdims = True
+    """
+    root = ctx.annotated_expr.get("root")
+    if root is not None and isinstance(root, tvm.relax.Call):
+        attrs = root.attrs
+        if attrs is not None:
+            # keepdims must be True
+            keepdims = getattr(attrs, "keepdims", None)
+            if keepdims is not None and not keepdims:
+                return False
+            # axis must be channel axis (1 in 4D NCHW)
+            axis = getattr(attrs, "axis", None)
+            if axis is not None:
+                data = ctx.annotated_expr.get("data")
+                ndim = 4
+                if data is not None:
+                    shape = _get_shape(data)
+                    if shape is not None:
+                        ndim = len(shape)
+                ax = int(axis)
+                if ax < 0:
+                    ax += ndim
+                # TIDL ArgOpLayer only supports channel axis (1 in 4D NCHW)
+                if ax != 1:
+                    return False
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
 def _check_flatten(ctx: PatternCheckContext) -> bool:
     data = ctx.annotated_expr.get("data")
     if data is not None and not _check_dtype(data):
@@ -737,6 +826,46 @@ def _pad_pattern() -> List[FusionPattern]:
     return [FusionPattern("tidl.nn.pad", pat, annotations, _check_pad)]
 
 
+def _sum_pattern() -> List[FusionPattern]:
+    """Sum reduction."""
+    data = wildcard()
+    pat = is_op("relax.sum")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.sum", pat, annotations, _check_reduce_sum)]
+
+
+def _reduce_max_pattern() -> List[FusionPattern]:
+    """Max reduction (HEIGHT axis only per TIDL ReduceLayer constraint)."""
+    data = wildcard()
+    pat = is_op("relax.max")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.reduce_max", pat, annotations, _check_reduce_max_min)]
+
+
+def _reduce_min_pattern() -> List[FusionPattern]:
+    """Min reduction (HEIGHT axis only per TIDL ReduceLayer constraint)."""
+    data = wildcard()
+    pat = is_op("relax.min")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.reduce_min", pat, annotations, _check_reduce_max_min)]
+
+
+def _argmax_pattern() -> List[FusionPattern]:
+    """Argmax (index of maximum value along an axis)."""
+    data = wildcard()
+    pat = is_op("relax.argmax")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.argmax", pat, annotations, _check_argreduce)]
+
+
+def _argmin_pattern() -> List[FusionPattern]:
+    """Argmin (index of minimum value along an axis)."""
+    data = wildcard()
+    pat = is_op("relax.argmin")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.argmin", pat, annotations, _check_argreduce)]
+
+
 def _quantize_pattern() -> List[FusionPattern]:
     data = wildcard()
     scale = wildcard()
@@ -805,6 +934,12 @@ def get_tidl_patterns() -> List[FusionPattern]:
         # dtype
         *_cast_pattern(),
         *_pad_pattern(),
+        # reductions
+        *_sum_pattern(),
+        *_reduce_max_pattern(),
+        *_reduce_min_pattern(),
+        *_argmax_pattern(),
+        *_argmin_pattern(),
         # quantize/dequantize
         *_quantize_pattern(),
         *_dequantize_pattern(),
