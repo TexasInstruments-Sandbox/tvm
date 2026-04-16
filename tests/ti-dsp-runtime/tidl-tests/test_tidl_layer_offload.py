@@ -386,6 +386,84 @@ def _build_cast_model():
     return Model
 
 
+# --- Phase 3: reduction model builders ---
+
+
+def _build_sum_model():
+    """Sum over channel axis (keepdims=True) on (1,8,16,16)."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                y = R.sum(x, axis=[1], keepdims=True)
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_reduce_max_model():
+    """Max over HEIGHT axis (axis=2, the only axis TIDL ReduceLayer supports)."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                y = R.max(x, axis=[2], keepdims=True)
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_reduce_min_model():
+    """Min over HEIGHT axis (axis=2, the only axis TIDL ReduceLayer supports)."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                y = R.min(x, axis=[2], keepdims=True)
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_argmax_model():
+    """Argmax over channel axis (axis=1, keepdims=True — TIDL ArgOpLayer constraint)."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                y = R.argmax(x, axis=1, keepdims=True)
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_argmin_model():
+    """Argmin over channel axis (axis=1, keepdims=True — TIDL ArgOpLayer constraint)."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                y = R.argmin(x, axis=1, keepdims=True)
+                R.output(y)
+            return y
+
+    return Model
+
+
 # ---------------------------------------------------------------------------
 # Level 1: Partition Tests (no .so, no hardware)
 # ---------------------------------------------------------------------------
@@ -525,6 +603,41 @@ class TestLayerPartition:
         assert _has_composite(partitioned, "tidl.cast")
 
     # --- Constraint rejection ---
+
+    # --- Phase 3: reduction ops ---
+
+    @pytest.mark.parametrize(
+        "builder,composite",
+        [
+            (_build_sum_model, "tidl.sum"),
+            (_build_reduce_max_model, "tidl.reduce_max"),
+            (_build_reduce_min_model, "tidl.reduce_min"),
+            (_build_argmax_model, "tidl.argmax"),
+            (_build_argmin_model, "tidl.argmin"),
+        ],
+    )
+    def test_reduction(self, builder, composite):
+        """Reduction op should be partitioned."""
+        mod = builder()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, composite), (
+            f"Expected {composite}. Found: {_find_composites_in_module(partitioned)}"
+        )
+
+    def test_reduce_multi_axis_rejected(self):
+        """Multi-axis reduction should NOT be offloaded (TIDL only supports single axis)."""
+
+        @I.ir_module
+        class MultiAxisSum:
+            @R.function
+            def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+                with R.dataflow():
+                    y = R.sum(x, axis=[2, 3])
+                    R.output(y)
+                return y
+
+        partitioned = partition_for_tidl(MultiAxisSum)
+        assert not _has_composite(partitioned, "tidl.sum"), "Multi-axis sum should not be offloaded"
 
     def test_divide_rejects_rank2(self):
         """Rank-2 divide should NOT be offloaded (rank < 4)."""
@@ -729,6 +842,81 @@ class ConvMinimumModel(nn.Module):
 # --- Phase 2 nn.Module models for hardware tests ---
 
 
+# --- Phase 3 nn.Module models for hardware tests ---
+
+
+class ConvSumModel(nn.Module):
+    """Conv + sum over channel axis (keepdims=True) → (1,1,16,16)."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        x = wrap_nested(_op.sum(x._expr, axis=[1], keepdims=True), "sum")
+        return x
+
+
+class ConvReduceMaxModel(nn.Module):
+    """Conv + max over HEIGHT axis (axis=2, TIDL only supports height)."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        x = wrap_nested(_op.max(x._expr, axis=[2], keepdims=True), "reduce_max")
+        return x
+
+
+class ConvArgmaxModel(nn.Module):
+    """Conv + argmax over channel axis (keepdims=True), cast to int32."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        # ArgMax returns int64; cast to int32 so DSP output is parseable
+        x = wrap_nested(_op.argmax(x._expr, axis=1, keepdims=True), "argmax")
+        x = wrap_nested(_op.astype(x._expr, "int32"), "cast_int32")
+        return x
+
+
+class ConvArgminModel(nn.Module):
+    """Conv + argmin over channel axis (keepdims=True), cast to int32."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        # ArgMin returns int64; cast to int32 so DSP output is parseable
+        x = wrap_nested(_op.argmin(x._expr, axis=1, keepdims=True), "argmin")
+        x = wrap_nested(_op.astype(x._expr, "int32"), "cast_int32")
+        return x
+
+
 class ConvSliceModel(nn.Module):
     """Conv + strided_slice to take first 4 channels."""
 
@@ -848,6 +1036,50 @@ class TestLayerHardware:
         assert n >= 1
         # Output should be finite (quantization may produce negatives)
         assert np.isfinite(output).all()
+
+    # --- Phase 3 hardware tests ---
+
+    def test_sum_hw(self, tmp_path):
+        """Sum over channels offloaded to TIDL on AM67A."""
+        output, n = self._run(
+            ConvSumModel,
+            tmp_path,
+            expected_shape=(1, 1, 16, 16),
+        )
+        assert n >= 1
+        assert np.isfinite(output).all()
+
+    def test_reduce_max_hw(self, tmp_path):
+        """Height-wise max offloaded to TIDL on AM67A (axis=2, NCHW → (1,8,1,16))."""
+        output, n = self._run(
+            ConvReduceMaxModel,
+            tmp_path,
+            expected_shape=(1, 8, 1, 16),
+        )
+        assert n >= 1
+        assert np.isfinite(output).all()
+
+    def test_argmax_hw(self, tmp_path):
+        """Argmax over channel axis (cast int64→int32) on AM67A → (1,1,16,16)."""
+        output, n = self._run(
+            ConvArgmaxModel,
+            tmp_path,
+            expected_shape=(1, 1, 16, 16),
+        )
+        assert n >= 1
+        # Output is int32 channel indices (0–7 for 8 channels)
+        assert output.max() < 8
+
+    def test_argmin_hw(self, tmp_path):
+        """Argmin over channel axis (cast int64→int32) on AM67A → (1,1,16,16)."""
+        output, n = self._run(
+            ConvArgminModel,
+            tmp_path,
+            expected_shape=(1, 1, 16, 16),
+        )
+        assert n >= 1
+        # Output is int32 channel indices (0–7 for 8 channels)
+        assert output.max() < 8
 
     # --- Phase 2 hardware tests ---
 
