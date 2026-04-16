@@ -283,10 +283,23 @@ def _check_softmax(ctx: PatternCheckContext) -> bool:
 
 
 def _check_concat(ctx: PatternCheckContext) -> bool:
-    """Validate concat constraints for TIDL."""
+    """Validate concat constraints for TIDL.
+
+    ``data`` is the Tuple matched by the wildcard — it has TupleStructInfo,
+    not a dtype.  Check dtype on the first Tuple field instead.
+    """
     data = ctx.annotated_expr.get("data")
-    if data is not None and not _check_dtype(data):
-        return False
+    if data is not None:
+        si = data.struct_info
+        # Tuple input: check dtype of the first field
+        if hasattr(si, "fields") and si.fields:
+            first_field = si.fields[0]
+            dtype = getattr(first_field, "dtype", None)
+            if dtype is not None and dtype not in _TIDL_SUPPORTED_DTYPES:
+                return False
+        elif not _check_dtype(data):
+            # Fallback for non-Tuple (shouldn't normally happen)
+            return False
     return True
 
 
@@ -684,14 +697,17 @@ def get_tidl_patterns() -> List[FusionPattern]:
             *_softmax_pattern(),
         ]
     )
-    # permute_dims and concat: parsers work but TIDL algo library
-    # crashes on TransposeLayer during calibration, and concat is
-    # not merged into subgraphs by the import tool.  Disabled until
-    # TIDL runtime fixes are available.
-    # patterns.extend([
-    #     *_permute_dims_pattern(),
-    #     *_concat_pattern(),
-    # ])
+    patterns.extend(
+        [
+            *_concat_pattern(),
+        ]
+    )
+    # permute_dims: parser is correct but TIDL calibration crashes with FPE
+    # when TransposeLayer appears as the network output layer.  Disabled until
+    # the TIDL library handles TransposeLayer in the PostProcessNet/calibration
+    # phase.  Root cause: PC_dsp_test_dl_algo.out gets SIGFPE during quantstat
+    # collection on transposed activations.
+    # patterns.extend([*_permute_dims_pattern()])
 
     return patterns
 

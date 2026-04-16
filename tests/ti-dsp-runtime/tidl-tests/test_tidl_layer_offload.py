@@ -591,6 +591,22 @@ class ConvMinimumModel(nn.Module):
         return nn.minimum(a, b)
 
 
+class ConvReluConcatModel(nn.Module):
+    """Two conv+relu branches concatenated along channel axis."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2D(3, 4, 3, 1, 1, bias=False)
+        self.conv2 = nn.Conv2D(3, 4, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        a = self.conv1(x)
+        a = nn.relu(a)
+        b = self.conv2(x)
+        b = nn.relu(b)
+        return nn.concat([a, b], dim=1)
+
+
 @pytest.mark.skipif(not _has_full_tidl_env(), reason="needs .so + compiler + AM67A")
 class TestLayerHardware:
     """Test new layer ops through full TIDL pipeline on AM67A."""
@@ -659,6 +675,18 @@ class TestLayerHardware:
         output, n = self._run(ConvMinimumModel, tmp_path)
         assert n >= 1
         # Output should be finite (quantization may produce negatives)
+        assert np.isfinite(output).all()
+
+    def test_concat_hw(self, tmp_path):
+        """Concat inside TIDL subgraph on AM67A — 4+4=8 channels."""
+        output, n = self._run(
+            ConvReluConcatModel,
+            tmp_path,
+            expected_shape=(1, 8, 16, 16),
+        )
+        assert n >= 1
+        # Shape must be correct (8 = 4+4 channels after concat)
+        assert output.shape == (1, 8, 16, 16)
         assert np.isfinite(output).all()
 
 
