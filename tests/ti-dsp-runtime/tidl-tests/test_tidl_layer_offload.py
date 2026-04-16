@@ -291,6 +291,101 @@ def _build_eltwise_minimum_model():
     return Model
 
 
+# --- Phase 2 model builders ---
+
+
+def _build_layer_norm_model():
+    """Conv -> layer_norm (transformer normalization)."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 16, 32), "float32")):
+            with R.dataflow():
+                gamma = R.const(np.ones(32, dtype="float32"))
+                beta = R.const(np.zeros(32, dtype="float32"))
+                y = R.nn.layer_norm(x, gamma, beta, axes=[-1])
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_flatten_model():
+    """Conv -> relu -> flatten."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 4, 4), "float32")):
+            with R.dataflow():
+                y = R.flatten(x)
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_squeeze_model():
+    """Squeeze dim 2 from (1, 8, 1, 16)."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 1, 16), "float32")):
+            with R.dataflow():
+                y = R.squeeze(x, axis=[2])
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_expand_dims_model():
+    """Expand dims: insert axis 2 into (1, 8, 16)."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16), "float32")):
+            with R.dataflow():
+                y = R.expand_dims(x, axis=2)
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_strided_slice_model():
+    """Strided slice: take channels 0..3 from (1, 8, 16, 16)."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                y = R.strided_slice(x, axes=[1], begin=[0], end=[4])
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_cast_model():
+    """Cast float32 -> int8."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                y = R.astype(x, "int8")
+                R.output(y)
+            return y
+
+    return Model
+
+
 # ---------------------------------------------------------------------------
 # Level 1: Partition Tests (no .so, no hardware)
 # ---------------------------------------------------------------------------
@@ -388,6 +483,46 @@ class TestLayerPartition:
         assert _has_composite(partitioned, composite), (
             f"Expected {composite}. Found: {_find_composites_in_module(partitioned)}"
         )
+
+    # --- Constraint rejection ---
+
+    # --- Phase 2: shape ops, normalization, cast ---
+
+    def test_layer_norm(self):
+        """Layer norm should be partitioned."""
+        mod = _build_layer_norm_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.nn.layer_norm")
+
+    def test_flatten(self):
+        """Flatten should be partitioned."""
+        mod = _build_flatten_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.flatten")
+
+    def test_squeeze(self):
+        """Squeeze should be partitioned."""
+        mod = _build_squeeze_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.squeeze")
+
+    def test_expand_dims(self):
+        """Expand dims should be partitioned."""
+        mod = _build_expand_dims_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.expand_dims")
+
+    def test_strided_slice(self):
+        """Strided slice should be partitioned."""
+        mod = _build_strided_slice_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.strided_slice")
+
+    def test_cast(self):
+        """Cast (astype) should be partitioned."""
+        mod = _build_cast_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.cast")
 
     # --- Constraint rejection ---
 
@@ -591,6 +726,29 @@ class ConvMinimumModel(nn.Module):
         return nn.minimum(a, b)
 
 
+# --- Phase 2 nn.Module models for hardware tests ---
+
+
+class ConvSliceModel(nn.Module):
+    """Conv + strided_slice to take first 4 channels."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        x = wrap_nested(
+            _op.strided_slice(x._expr, axes=[1], begin=[0], end=[4]),
+            "strided_slice",
+        )
+        return x
+
+
 class ConvPermuteModel(nn.Module):
     """Conv + ReLU + permute_dims (NCHW → NHWC)."""
 
@@ -689,6 +847,18 @@ class TestLayerHardware:
         output, n = self._run(ConvMinimumModel, tmp_path)
         assert n >= 1
         # Output should be finite (quantization may produce negatives)
+        assert np.isfinite(output).all()
+
+    # --- Phase 2 hardware tests ---
+
+    def test_strided_slice_hw(self, tmp_path):
+        """Strided slice (first 4 channels) offloaded to TIDL on AM67A."""
+        output, n = self._run(
+            ConvSliceModel,
+            tmp_path,
+            expected_shape=(1, 4, 16, 16),
+        )
+        assert n >= 1
         assert np.isfinite(output).all()
 
     def test_permute_dims_hw(self, tmp_path):

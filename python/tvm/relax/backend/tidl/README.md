@@ -126,11 +126,30 @@ bridge function (see "Bridge Function" below).
 |---------|-------------------|
 | `tidl.nn.softmax` | `softmax` |
 
-### Shape
+### Shape and Layout
 
 | Pattern | Relax ops matched |
 |---------|-------------------|
 | `tidl.reshape` | `reshape` |
+| `tidl.flatten` | `flatten` |
+| `tidl.squeeze` | `squeeze` |
+| `tidl.expand_dims` | `expand_dims` |
+| `tidl.strided_slice` | `strided_slice` |
+| `tidl.permute_dims` | `permute_dims` (transpose) |
+| `tidl.concat` | `concat` |
+
+### Normalization
+
+| Pattern | Relax ops matched |
+|---------|-------------------|
+| `tidl.nn.layer_norm` | `layer_norm` (gamma/beta from constants) |
+
+### Data Type / Padding
+
+| Pattern | Relax ops matched |
+|---------|-------------------|
+| `tidl.cast` | `astype` |
+| `tidl.nn.pad` | `nn.pad` (constant zero-padding) |
 
 ### Quantization (stubs)
 
@@ -138,13 +157,6 @@ bridge function (see "Bridge Function" below).
 |---------|-------------------|
 | `tidl.quantize` | `quantize` |
 | `tidl.dequantize` | `dequantize` |
-
-### Disabled (known issues)
-
-| Pattern | Reason |
-|---------|--------|
-| `tidl.permute_dims` | TIDL algo library crashes during calibration |
-| `tidl.concat` | TIDL import does not merge concat into subgraph |
 
 ### Constraint checks
 
