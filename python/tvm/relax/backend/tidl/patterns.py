@@ -372,6 +372,52 @@ def _check_eltwise(ctx: PatternCheckContext) -> bool:
     return True
 
 
+def _check_layer_norm(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_squeeze(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_expand_dims(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_strided_slice(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_cast(ctx: PatternCheckContext) -> bool:
+    return True
+
+
+def _check_flatten(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_pad(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
 def _check_quantize(ctx: PatternCheckContext) -> bool:
     return True
 
@@ -629,6 +675,68 @@ def _minimum_pattern() -> List[FusionPattern]:
     return [FusionPattern("tidl.minimum", pat, annotations, _check_eltwise)]
 
 
+def _layer_norm_pattern() -> List[FusionPattern]:
+    """Layer normalization (transformers)."""
+    data = wildcard()
+    gamma = wildcard()
+    beta = wildcard()
+    pat = is_op("relax.nn.layer_norm")(data, gamma, beta)
+    annotations = {"data": data, "gamma": gamma, "beta": beta, "root": pat}
+    return [FusionPattern("tidl.nn.layer_norm", pat, annotations, _check_layer_norm)]
+
+
+def _flatten_pattern() -> List[FusionPattern]:
+    """Flatten (before FC layer)."""
+    data = wildcard()
+    pat = is_op("relax.flatten")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.flatten", pat, annotations, _check_flatten)]
+
+
+def _squeeze_pattern() -> List[FusionPattern]:
+    """Squeeze (remove size-1 dimensions)."""
+    data = wildcard()
+    pat = is_op("relax.squeeze")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.squeeze", pat, annotations, _check_squeeze)]
+
+
+def _expand_dims_pattern() -> List[FusionPattern]:
+    """Expand dims (insert size-1 dimension)."""
+    data = wildcard()
+    pat = is_op("relax.expand_dims")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.expand_dims", pat, annotations, _check_expand_dims)]
+
+
+def _strided_slice_pattern() -> List[FusionPattern]:
+    """Strided slice (tensor slicing).
+
+    relax.strided_slice takes 4 args: (data, begin, end, strides)
+    where begin/end/strides are Tuples of PrimValues.
+    """
+    data = wildcard()
+    pat = is_op("relax.strided_slice")(data, varg_default_wildcard=True)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.strided_slice", pat, annotations, _check_strided_slice)]
+
+
+def _cast_pattern() -> List[FusionPattern]:
+    """Cast (dtype conversion via astype)."""
+    data = wildcard()
+    pat = is_op("relax.astype")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.cast", pat, annotations, _check_cast)]
+
+
+def _pad_pattern() -> List[FusionPattern]:
+    """Pad (spatial padding)."""
+    data = wildcard()
+    pat = is_op("relax.nn.pad")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.nn.pad", pat, annotations, _check_pad)]
+
+
 def _quantize_pattern() -> List[FusionPattern]:
     data = wildcard()
     scale = wildcard()
@@ -684,8 +792,19 @@ def get_tidl_patterns() -> List[FusionPattern]:
         *_subtract_pattern(),
         *_maximum_pattern(),
         *_minimum_pattern(),
-        # reshape (flatten)
+        # shape manipulation
         *_reshape_pattern(),
+        *_flatten_pattern(),
+        *_squeeze_pattern(),
+        *_expand_dims_pattern(),
+        *_strided_slice_pattern(),
+        *_permute_dims_pattern(),
+        *_concat_pattern(),
+        # normalization
+        *_layer_norm_pattern(),
+        # dtype
+        *_cast_pattern(),
+        *_pad_pattern(),
         # quantize/dequantize
         *_quantize_pattern(),
         *_dequantize_pattern(),
@@ -697,12 +816,6 @@ def get_tidl_patterns() -> List[FusionPattern]:
             *_softmax_pattern(),
         ]
     )
-    patterns.extend(
-        [
-            *_concat_pattern(),
-        ]
-    )
-    patterns.extend([*_permute_dims_pattern()])
 
     return patterns
 
