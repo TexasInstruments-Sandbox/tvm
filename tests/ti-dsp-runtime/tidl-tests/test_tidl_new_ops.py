@@ -238,7 +238,6 @@ class TestTIDLNewOps:
         )
         assert n_artifacts >= 1
 
-    @pytest.mark.skip(reason="TIDL concat output wrong — needs TIDL-side debugging")
     def test_concat(self, tmp_path):
         """Concat inside TIDL subgraph."""
         input_data = np.random.randn(1, 3, 16, 16).astype("float32")
