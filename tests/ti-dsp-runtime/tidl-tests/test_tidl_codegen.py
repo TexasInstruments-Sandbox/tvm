@@ -35,9 +35,7 @@ def _export_and_bind(model_cls, input_spec):
     model = model_cls()
     mod, param_spec = model.export_tvm(spec={"main": input_spec})
     device = tvm.cpu()
-    params = [
-        np.random.rand(*param.shape).astype("float32") for _, param in param_spec
-    ]
+    params = [np.random.rand(*param.shape).astype("float32") for _, param in param_spec]
     params = [tvm.runtime.tensor(param, device=device) for param in params]
     func_params_dict = dict(zip(mod["main"].params[1:], params))
     mod = relax.transform.BindParams(func_name="main", params=func_params_dict)(mod)
@@ -79,8 +77,7 @@ class ConvReluModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.conv1 = nn.Conv2D(
-            in_channels=3, out_channels=16, kernel_size=3,
-            stride=1, padding=1, bias=False
+            in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1, bias=False
         )
 
     def main(self, x):
@@ -93,12 +90,10 @@ class TwoConvModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.conv1 = nn.Conv2D(
-            in_channels=3, out_channels=16, kernel_size=3,
-            stride=1, padding=1, bias=False
+            in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1, bias=False
         )
         self.conv2 = nn.Conv2D(
-            in_channels=16, out_channels=32, kernel_size=3,
-            stride=1, padding=1, bias=False
+            in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1, bias=False
         )
 
     def main(self, x):
@@ -155,12 +150,8 @@ class TestLowerTIDLToTIR:
         lowered = _partition_and_lower(mod)
 
         main_script = lowered["main"].script()
-        assert "call_tir" in main_script, (
-            "Expected call_tir in main function"
-        )
-        assert "tidl_subgraph" in main_script, (
-            "Expected tidl_subgraph reference in main function"
-        )
+        assert "call_tir" in main_script, "Expected call_tir in main function"
+        assert "tidl_subgraph" in main_script, "Expected tidl_subgraph reference in main function"
 
     def test_no_tidl_noop(self):
         """LowerTIDLToTIR on a module with no TIDL functions is a no-op."""
@@ -219,19 +210,15 @@ class TestTIDLCodegen:
         source = _build_and_get_source(lowered)
 
         # Should have at least one tidl_subgraph process call
-        assert "tidl_subgraph" in source, (
-            "Expected tidl_subgraph in generated C code"
-        )
-        assert "_process" in source, (
-            "Expected _process extern call in generated C code"
-        )
+        assert "tidl_subgraph" in source, "Expected tidl_subgraph in generated C code"
+        assert "_process" in source, "Expected _process extern call in generated C code"
 
     def test_mixed_model_codegen(self):
         """Model with TIDL ops + unsupported ops should have both
         TIDL extern calls and regular TVM compute in generated code."""
 
         @I.ir_module
-        class ConvSigmoidModel:
+        class ConvGeluModel:
             @R.function
             def main(x: R.Tensor((1, 3, 32, 32), "float32")):
                 R.func_attr({"num_input": 1})
@@ -239,21 +226,17 @@ class TestTIDLCodegen:
                     w = R.const(np.random.randn(16, 3, 3, 3).astype("float32"))
                     y = R.nn.conv2d(x, w, strides=[1, 1], padding=[1, 1, 1, 1])
                     y = R.nn.relu(y)
-                    y = R.sigmoid(y)
+                    y = R.nn.gelu(y)
                     R.output(y)
                 return y
 
-        lowered = _partition_and_lower(ConvSigmoidModel)
+        lowered = _partition_and_lower(ConvGeluModel)
         source = _build_and_get_source(lowered)
 
         # TIDL subgraph for conv+relu
-        assert "tidl_subgraph_0_process" in source, (
-            "Expected TIDL extern call for conv+relu"
-        )
-        # Sigmoid should be lowered as regular TVM compute
-        assert len(source) > 500, (
-            "Expected substantial generated code (sigmoid compute)"
-        )
+        assert "tidl_subgraph_0_process" in source, "Expected TIDL extern call for conv+relu"
+        # GELU should be lowered as regular TVM compute
+        assert len(source) > 500, "Expected substantial generated code (gelu compute)"
 
 
 # ---------------------------------------------------------------------------
@@ -261,10 +244,10 @@ class TestTIDLCodegen:
 # ---------------------------------------------------------------------------
 
 
-class ConvSigmoidConvModel(nn.Module):
+class ConvGeluConvModel(nn.Module):
     """Two TIDL subgraphs separated by an unsupported op.
 
-    conv+relu -> sigmoid (not TIDL) -> conv+relu
+    conv+relu -> gelu (not TIDL) -> conv+relu
     This produces two separate tidl_subgraph TIR stubs.
     """
 
@@ -276,7 +259,7 @@ class ConvSigmoidConvModel(nn.Module):
     def main(self, x):
         x = self.conv1(x)
         x = nn.relu(x)
-        x = nn.sigmoid(x)  # breaks the TIDL subgraph
+        x = nn.gelu(x)  # breaks the TIDL subgraph
         x = self.conv2(x)
         x = nn.relu(x)
         return x
@@ -312,7 +295,7 @@ class TestTIDLBridgeGeneration:
         from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
         mod = _export_and_bind(
-            ConvSigmoidConvModel,
+            ConvGeluConvModel,
             {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
         )
         lowered = _partition_and_lower(mod)
@@ -321,8 +304,7 @@ class TestTIDLBridgeGeneration:
         stubs = [
             gv.name_hint
             for gv, func in lowered.functions.items()
-            if isinstance(func, tvm.tir.PrimFunc)
-            and "tidl_subgraph" in gv.name_hint
+            if isinstance(func, tvm.tir.PrimFunc) and "tidl_subgraph" in gv.name_hint
         ]
         assert len(stubs) == 2, f"Expected 2 TIR stubs, got {len(stubs)}: {stubs}"
 
@@ -347,7 +329,7 @@ class TestTIDLBridgeGeneration:
         from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
         mod = _export_and_bind(
-            ConvSigmoidConvModel,
+            ConvGeluConvModel,
             {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
         )
         lowered = _partition_and_lower(mod)
