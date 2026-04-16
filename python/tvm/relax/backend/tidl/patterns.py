@@ -290,6 +290,75 @@ def _check_concat(ctx: PatternCheckContext) -> bool:
     return True
 
 
+def _check_batch_norm(ctx: PatternCheckContext) -> bool:
+    """Validate batch_norm constraints for TIDL.
+
+    - Supported dtypes
+    - Input rank == 4 (NCHW)
+    """
+    data = ctx.annotated_expr.get("data")
+    if data is not None:
+        if not _check_dtype(data):
+            return False
+        shape = _get_shape(data)
+        if shape is not None and len(shape) != 4:
+            return False
+    return True
+
+
+def _check_sigmoid(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_tanh(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_clip(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_leakyrelu(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_prelu(ctx: PatternCheckContext) -> bool:
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _check_eltwise(ctx: PatternCheckContext) -> bool:
+    """Shared check for element-wise binary ops (divide, subtract, max, min).
+
+    Same constraints as add/multiply: dtype + rank >= 4.
+    """
+    for key in ("lhs", "rhs"):
+        expr = ctx.annotated_expr.get(key)
+        if expr is not None:
+            if not _check_dtype(expr):
+                return False
+            shape = _get_shape(expr)
+            if shape is not None and len(shape) < 4:
+                return False
+            if not _check_rank(expr, 4):
+                return False
+    return True
+
+
 def _check_quantize(ctx: PatternCheckContext) -> bool:
     return True
 
@@ -455,6 +524,98 @@ def _concat_pattern() -> List[FusionPattern]:
     return [FusionPattern("tidl.concat", pat, annotations, _check_concat)]
 
 
+def _batch_norm_pattern() -> List[FusionPattern]:
+    """Batch normalization (standalone, not folded into conv).
+
+    NOTE: batch_norm returns a Tuple; FuseOpsByPattern does not reliably
+    match patterns that terminate with TupleGetItem.  In the normal TIDL
+    pipeline ``prepare()`` folds BN into conv2d weights via
+    ``FoldBatchnormToConv2D`` so this pattern is only needed for rare
+    standalone-BN models.  Currently disabled until FuseOpsByPattern
+    TupleGetItem support is resolved.
+    """
+    # Pattern matching for tuple-returning ops needs framework support.
+    # Return empty list for now — BN folding handles the common case.
+    return []
+
+
+def _sigmoid_pattern() -> List[FusionPattern]:
+    """Sigmoid activation."""
+    data = wildcard()
+    pat = is_op("relax.sigmoid")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.sigmoid", pat, annotations, _check_sigmoid)]
+
+
+def _tanh_pattern() -> List[FusionPattern]:
+    """Tanh activation."""
+    data = wildcard()
+    pat = is_op("relax.tanh")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.tanh", pat, annotations, _check_tanh)]
+
+
+def _clip_pattern() -> List[FusionPattern]:
+    """Standalone clip (e.g. relu6 = clip(x, 0, 6))."""
+    data = wildcard()
+    pat = is_op("relax.clip")(data, wildcard(), wildcard())
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.clip", pat, annotations, _check_clip)]
+
+
+def _leakyrelu_pattern() -> List[FusionPattern]:
+    """Leaky ReLU activation."""
+    data = wildcard()
+    pat = is_op("relax.nn.leakyrelu")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.nn.leakyrelu", pat, annotations, _check_leakyrelu)]
+
+
+def _prelu_pattern() -> List[FusionPattern]:
+    """PReLU activation (parametric ReLU with learnable slope)."""
+    data = wildcard()
+    alpha = wildcard()
+    pat = is_op("relax.nn.prelu")(data, alpha)
+    annotations = {"data": data, "alpha": alpha, "root": pat}
+    return [FusionPattern("tidl.nn.prelu", pat, annotations, _check_prelu)]
+
+
+def _divide_pattern() -> List[FusionPattern]:
+    """Element-wise divide."""
+    lhs = wildcard()
+    rhs = wildcard()
+    pat = is_op("relax.divide")(lhs, rhs)
+    annotations = {"lhs": lhs, "rhs": rhs, "root": pat}
+    return [FusionPattern("tidl.divide", pat, annotations, _check_eltwise)]
+
+
+def _subtract_pattern() -> List[FusionPattern]:
+    """Element-wise subtract."""
+    lhs = wildcard()
+    rhs = wildcard()
+    pat = is_op("relax.subtract")(lhs, rhs)
+    annotations = {"lhs": lhs, "rhs": rhs, "root": pat}
+    return [FusionPattern("tidl.subtract", pat, annotations, _check_eltwise)]
+
+
+def _maximum_pattern() -> List[FusionPattern]:
+    """Element-wise maximum."""
+    lhs = wildcard()
+    rhs = wildcard()
+    pat = is_op("relax.maximum")(lhs, rhs)
+    annotations = {"lhs": lhs, "rhs": rhs, "root": pat}
+    return [FusionPattern("tidl.maximum", pat, annotations, _check_eltwise)]
+
+
+def _minimum_pattern() -> List[FusionPattern]:
+    """Element-wise minimum."""
+    lhs = wildcard()
+    rhs = wildcard()
+    pat = is_op("relax.minimum")(lhs, rhs)
+    annotations = {"lhs": lhs, "rhs": rhs, "root": pat}
+    return [FusionPattern("tidl.minimum", pat, annotations, _check_eltwise)]
+
+
 def _quantize_pattern() -> List[FusionPattern]:
     data = wildcard()
     scale = wildcard()
@@ -489,15 +650,27 @@ def get_tidl_patterns() -> List[FusionPattern]:
         *_conv2d_patterns(),
         # pooling
         *_pool_patterns(),
+        # batch normalization (standalone, not folded into conv)
+        *_batch_norm_pattern(),
         # mean reduction (global avg pool)
         *_mean_pattern(),
-        # standalone activations / element-wise ops (lower priority so they
-        # get absorbed into conv2d composites when possible)
+        # standalone activations — lower priority so they get absorbed
+        # into conv2d composites when possible
         *_relu_pattern(),
+        *_sigmoid_pattern(),
+        *_tanh_pattern(),
+        *_clip_pattern(),
+        *_leakyrelu_pattern(),
+        *_prelu_pattern(),
         # matmul (FC layer) — fused matmul_bias before standalone matmul
         *_matmul_patterns(),
-        # element-wise add (residual connections, rank >= 4 only)
+        # element-wise ops (rank >= 4 only)
         *_add_pattern(),
+        *_multiply_pattern(),
+        *_divide_pattern(),
+        *_subtract_pattern(),
+        *_maximum_pattern(),
+        *_minimum_pattern(),
         # reshape (flatten)
         *_reshape_pattern(),
         # quantize/dequantize
@@ -506,10 +679,11 @@ def get_tidl_patterns() -> List[FusionPattern]:
     ]
 
     # Transformer ops
-    patterns.extend([
-        *_softmax_pattern(),
-        *_multiply_pattern(),
-    ])
+    patterns.extend(
+        [
+            *_softmax_pattern(),
+        ]
+    )
     # permute_dims and concat: parsers work but TIDL algo library
     # crashes on TransposeLayer during calibration, and concat is
     # not merged into subgraphs by the import tool.  Disabled until

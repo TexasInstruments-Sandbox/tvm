@@ -72,6 +72,8 @@ bridge function (see "Bridge Function" below).
 
 ## Supported Operators
 
+### Convolution
+
 | Pattern | Relax ops matched |
 |---------|-------------------|
 | `tidl.nn.conv2d` | `conv2d` |
@@ -80,19 +82,83 @@ bridge function (see "Bridge Function" below).
 | `tidl.nn.conv2d_clip` | `conv2d` + `clip` |
 | `tidl.nn.conv2d_bias_relu` | `conv2d` + `add` + `relu` |
 | `tidl.nn.conv2d_bias_clip` | `conv2d` + `add` + `clip` |
+
+### Pooling and Reduction
+
+| Pattern | Relax ops matched |
+|---------|-------------------|
 | `tidl.nn.max_pool2d` | `max_pool2d` |
 | `tidl.nn.avg_pool2d` | `avg_pool2d` |
-| `tidl.nn.relu` | `relu` |
-| `tidl.add` | `add` (element-wise, 4-D only) |
-| `tidl.quantize` | `quantize` (stub) |
-| `tidl.dequantize` | `dequantize` (stub) |
+| `tidl.mean` | `mean` (spatial axes [2,3] only — global avg pool) |
 
-Constraint checks run during partitioning:
-- Conv2d: kernel <= 7, equal H/W strides
-- Pool: kernel <= 3, input rank == 4
-- Add: input rank must be exactly 4 (NCHW); sub-4D adds like FC
-  bias ``(1, 1000)`` are rejected (causes TIDL algProcess crash)
-- All ops: dtype in {float32, int8, int16, uint8}
+### Activations
+
+| Pattern | Relax ops matched |
+|---------|-------------------|
+| `tidl.nn.relu` | `relu` |
+| `tidl.sigmoid` | `sigmoid` |
+| `tidl.tanh` | `tanh` |
+| `tidl.clip` | `clip` (e.g. relu6 = `clip(x, 0, 6)`) |
+| `tidl.nn.leakyrelu` | `leakyrelu` |
+| `tidl.nn.prelu` | `prelu` (with learnable per-channel slope) |
+
+### Element-wise
+
+| Pattern | Relax ops matched | Constraint |
+|---------|-------------------|------------|
+| `tidl.add` | `add` | 4-D inputs only |
+| `tidl.multiply` | `multiply` | 4-D inputs only |
+| `tidl.subtract` | `subtract` | 4-D inputs only |
+| `tidl.divide` | `divide` | 4-D inputs only |
+| `tidl.maximum` | `maximum` | 4-D inputs only |
+| `tidl.minimum` | `minimum` | 4-D inputs only |
+
+### Linear / Matmul
+
+| Pattern | Relax ops matched |
+|---------|-------------------|
+| `tidl.matmul` | `matmul` |
+| `tidl.matmul_bias` | `matmul` + `add` (FC with bias) |
+
+### Attention / Transformer
+
+| Pattern | Relax ops matched |
+|---------|-------------------|
+| `tidl.nn.softmax` | `softmax` |
+
+### Shape
+
+| Pattern | Relax ops matched |
+|---------|-------------------|
+| `tidl.reshape` | `reshape` |
+
+### Quantization (stubs)
+
+| Pattern | Relax ops matched |
+|---------|-------------------|
+| `tidl.quantize` | `quantize` |
+| `tidl.dequantize` | `dequantize` |
+
+### Disabled (known issues)
+
+| Pattern | Reason |
+|---------|--------|
+| `tidl.permute_dims` | TIDL algo library crashes during calibration |
+| `tidl.concat` | TIDL import does not merge concat into subgraph |
+
+### Constraint checks
+
+Run during partitioning before passing composites to TIDL:
+
+- **All ops:** dtype must be in {float32, int8, int16, uint8}
+- **Conv2d:** kernel size 1–7 (6 excluded by TIDL allowlisting),
+  H and W strides must be equal, input rank ≤ 4
+- **Pool:** kernel ≤ 3, input rank == 4
+- **Mean:** input rank == 4, reduction axes must be exactly [2, 3]
+  (spatial-only; channel/batch mean rejected)
+- **Element-wise (add, multiply, subtract, divide, maximum, minimum):**
+  input rank must be exactly 4; sub-4D uses (e.g. FC bias add `(1,1000)`)
+  are rejected — they cause a crash in TIDL algProcess
 
 **Batch normalization:** `prepare()` runs `FoldBatchnormToConv2D` +
 `FoldConstant` before partitioning, which algebraically folds
@@ -174,6 +240,20 @@ bash build_j722s.sh          # incremental build
 bash build_j722s.sh clean    # clean + full rebuild
 ```
 
+**Important — jump table header dependency:**  The incremental build
+tracks `.cpp` file timestamps but not header dependencies.  When
+`tidl_parse_relax_jumptable.h` is modified (e.g. to add new ops),
+the translation unit that includes it (`tidlParseRelax/tidl_parse_relax.cpp`)
+is **not** automatically recompiled.  After editing the jump table,
+force a recompile:
+
+```bash
+rm ~/ml/c7x-mma-tidl/out/PC/dsp/algo/release/ti_dl/utils/tidlModelImport/tidlParseRelax/tidl_parse_relax.obj
+bash build_j722s.sh
+```
+
+Or use `bash build_j722s.sh clean` for a full rebuild.
+
 See `tests/ti-dsp-runtime/tidl-tests/README.md` for full prerequisites
 and one-time setup steps.
 
@@ -184,8 +264,17 @@ and one-time setup steps.
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_partition.py \
        tests/ti-dsp-runtime/tidl-tests/test_tidl_codegen.py -v
 
+# Per-layer partition tests for new ops (no dependencies):
+pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_layer_offload.py \
+       -k TestLayerPartition -v
+
 # Import tests (needs tidl_model_import_relax.so + c7x-mma-tidl):
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_relax_import.py -v
+
+# Per-layer hardware tests on AM67A (needs .so + TI compiler + board):
+TI_CGT_C7000_PATH=~/ti/.../ti-cgt-c7000_5.0.1.LTS \
+  pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_layer_offload.py \
+         -k TestLayerHardware -v
 
 # All TIDL tests (partition + import + codegen + e2e + hardware):
 TI_CGT_C7000_PATH=~/ti/.../ti-cgt-c7000_5.0.1.LTS \
