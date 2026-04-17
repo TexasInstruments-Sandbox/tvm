@@ -386,6 +386,37 @@ def _build_cast_model():
     return Model
 
 
+# --- Advanced op model builders ---
+
+
+def _build_resize2d_model():
+    """Resize2d nearest upsample 2x."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 8, 8), "float32")):
+            with R.dataflow():
+                y = R.image.resize2d(x, size=(16, 16), method="nearest_neighbor")
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_take_model():
+    """Take (gather) along channel axis."""
+    x_var = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    idx_var = relax.Var("idx", relax.TensorStructInfo((4,), "int32"))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x_var, idx_var]):
+        with bb.dataflow():
+            out = bb.emit(relax.op.take(x_var, idx_var, axis=1))
+            bb.emit_output(out)
+        bb.emit_func_output(out)
+    return bb.get()
+
+
 # --- Math/unary model builders ---
 
 
@@ -718,6 +749,20 @@ class TestLayerPartition:
         assert _has_composite(partitioned, composite), (
             f"Expected {composite}. Found: {_find_composites_in_module(partitioned)}"
         )
+
+    # --- Advanced ops ---
+
+    def test_resize2d(self):
+        """Resize2d (nearest 2x upsample) should be partitioned."""
+        mod = _build_resize2d_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.image.resize2d")
+
+    def test_take(self):
+        """Take (gather along axis) should be partitioned."""
+        mod = _build_take_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.take")
 
     # --- Math/unary ops (parametrized) ---
     # TIDL converts these to TIDL_BatchNormLayer + hardware LUT via
@@ -1114,6 +1159,26 @@ _MATH_UNARY_HW_OPS = [
 ConvExpModel = _make_conv_unary_model("exp")  # kept for direct reference
 
 
+class ConvResizeModel(nn.Module):
+    """Conv + resize nearest 2x upsample → (1,8,32,32)."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        x = wrap_nested(
+            _op.image.resize2d(x._expr, size=(32, 32), method="nearest_neighbor"),
+            "resize2d",
+        )
+        return x
+
+
 class ConvSliceModel(nn.Module):
     """Conv + strided_slice to take first 4 channels."""
 
@@ -1313,6 +1378,18 @@ class TestLayerHardware:
                 return x
 
         output, n = self._run(ConvPowerModel, tmp_path)
+        assert n >= 1
+        assert np.isfinite(output).all()
+
+    # --- Advanced op hardware tests ---
+
+    def test_resize2d_hw(self, tmp_path):
+        """Resize nearest 2x upsample offloaded to TIDL on AM67A."""
+        output, n = self._run(
+            ConvResizeModel,
+            tmp_path,
+            expected_shape=(1, 8, 32, 32),
+        )
         assert n >= 1
         assert np.isfinite(output).all()
 
