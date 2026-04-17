@@ -866,12 +866,49 @@ def _argmin_pattern() -> List[FusionPattern]:
     return [FusionPattern("tidl.argmin", pat, annotations, _check_argreduce)]
 
 
+def _check_resize2d(ctx: PatternCheckContext) -> bool:
+    """Validate resize2d constraints for TIDL."""
+    data = ctx.annotated_expr.get("data")
+    if data is not None:
+        if not _check_dtype(data):
+            return False
+        shape = _get_shape(data)
+        if shape is not None and len(shape) != 4:
+            return False
+    return True
+
+
+def _check_take(ctx: PatternCheckContext) -> bool:
+    """Validate take (gather) constraints for TIDL."""
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
 def _check_unary(ctx: PatternCheckContext) -> bool:
     """Dtype check for parameterless unary math ops."""
     data = ctx.annotated_expr.get("data")
     if data is not None and not _check_dtype(data):
         return False
     return True
+
+
+def _resize2d_pattern() -> List[FusionPattern]:
+    """Image resize (bilinear/nearest upsampling)."""
+    data = wildcard()
+    pat = is_op("relax.image.resize2d")(data, varg_default_wildcard=True)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.image.resize2d", pat, annotations, _check_resize2d)]
+
+
+def _take_pattern() -> List[FusionPattern]:
+    """Take / gather along axis."""
+    data = wildcard()
+    indices = wildcard()
+    pat = is_op("relax.take")(data, indices)
+    annotations = {"data": data, "indices": indices, "root": pat}
+    return [FusionPattern("tidl.take", pat, annotations, _check_take)]
 
 
 def _math_unary_pattern(op_name: str, composite_name: str) -> List[FusionPattern]:
@@ -1029,6 +1066,9 @@ def get_tidl_patterns() -> List[FusionPattern]:
         *_reduce_min_pattern(),
         *_argmax_pattern(),
         *_argmin_pattern(),
+        # advanced ops (resize, gather)
+        *_resize2d_pattern(),
+        *_take_pattern(),
         # math / unary ops
         *_abs_pattern(),
         *_sqrt_pattern(),
