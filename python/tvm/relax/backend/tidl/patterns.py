@@ -866,6 +866,95 @@ def _argmin_pattern() -> List[FusionPattern]:
     return [FusionPattern("tidl.argmin", pat, annotations, _check_argreduce)]
 
 
+def _check_unary(ctx: PatternCheckContext) -> bool:
+    """Dtype check for parameterless unary math ops."""
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _math_unary_pattern(op_name: str, composite_name: str) -> List[FusionPattern]:
+    """Helper: create a pattern for a parameterless unary math op."""
+    data = wildcard()
+    pat = is_op(op_name)(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern(composite_name, pat, annotations, _check_unary)]
+
+
+def _abs_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.abs", "tidl.abs")
+
+
+def _sqrt_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.sqrt", "tidl.sqrt")
+
+
+def _exp_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.exp", "tidl.exp")
+
+
+def _log_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.log", "tidl.log")
+
+
+def _erf_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.erf", "tidl.erf")
+
+
+def _floor_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.floor", "tidl.floor")
+
+
+def _negative_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.negative", "tidl.negative")
+
+
+def _sin_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.sin", "tidl.sin")
+
+
+def _cos_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.cos", "tidl.cos")
+
+
+def _tan_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.tan", "tidl.tan")
+
+
+def _sinh_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.sinh", "tidl.sinh")
+
+
+def _cosh_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.cosh", "tidl.cosh")
+
+
+def _asin_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.asin", "tidl.asin")
+
+
+def _acos_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.acos", "tidl.acos")
+
+
+def _atan_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.atan", "tidl.atan")
+
+
+def _asinh_pattern() -> List[FusionPattern]:
+    return _math_unary_pattern("relax.asinh", "tidl.asinh")
+
+
+def _power_pattern() -> List[FusionPattern]:
+    """Power (x ** scalar_exponent)."""
+    data = wildcard()
+    exp = wildcard()
+    pat = is_op("relax.power")(data, exp)
+    annotations = {"data": data, "exp": exp, "root": pat}
+    return [FusionPattern("tidl.power", pat, annotations, _check_unary)]
+
+
 def _quantize_pattern() -> List[FusionPattern]:
     data = wildcard()
     scale = wildcard()
@@ -940,6 +1029,24 @@ def get_tidl_patterns() -> List[FusionPattern]:
         *_reduce_min_pattern(),
         *_argmax_pattern(),
         *_argmin_pattern(),
+        # math / unary ops
+        *_abs_pattern(),
+        *_sqrt_pattern(),
+        *_power_pattern(),
+        *_exp_pattern(),
+        *_log_pattern(),
+        *_erf_pattern(),
+        *_floor_pattern(),
+        *_negative_pattern(),
+        *_sin_pattern(),
+        *_cos_pattern(),
+        *_tan_pattern(),
+        *_sinh_pattern(),
+        *_cosh_pattern(),
+        *_asin_pattern(),
+        *_acos_pattern(),
+        *_atan_pattern(),
+        *_asinh_pattern(),
         # quantize/dequantize
         *_quantize_pattern(),
         *_dequantize_pattern(),
