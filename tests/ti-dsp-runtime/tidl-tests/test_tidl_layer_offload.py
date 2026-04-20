@@ -417,6 +417,32 @@ def _build_take_model():
     return bb.get()
 
 
+def _build_topk_model():
+    """TopK along HEIGHT axis (k=4 from 8-element axis), both outputs."""
+    x_var = relax.Var("x", relax.TensorStructInfo((1, 8, 8, 8), "float32"))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x_var]):
+        with bb.dataflow():
+            # topk on HEIGHT axis (axis=2); ret_type="both" → Tuple(values,idx)
+            t = bb.emit(relax.op.topk(x_var, k=4, axis=2, ret_type="both"))
+            bb.emit_output(t)
+        bb.emit_func_output(t)
+    return bb.get()
+
+
+def _build_split_model():
+    """Split along channel axis into 4 equal slices."""
+    x_var = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x_var]):
+        with bb.dataflow():
+            t = bb.emit(relax.op.split(x_var, 4, axis=1))
+            # Return all slices as a tuple; partition test checks composite exists
+            bb.emit_output(t)
+        bb.emit_func_output(t)
+    return bb.get()
+
+
 # --- Math/unary model builders ---
 
 
@@ -763,6 +789,18 @@ class TestLayerPartition:
         mod = _build_take_model()
         partitioned = partition_for_tidl(mod)
         assert _has_composite(partitioned, "tidl.take")
+
+    def test_topk(self):
+        """TopK should be partitioned."""
+        mod = _build_topk_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.topk")
+
+    def test_split(self):
+        """Split should be partitioned."""
+        mod = _build_split_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.split")
 
     # --- Math/unary ops (parametrized) ---
     # TIDL converts these to TIDL_BatchNormLayer + hardware LUT via
@@ -1229,6 +1267,49 @@ class ConvReluConcatModel(nn.Module):
         return nn.concat([a, b], dim=1)
 
 
+class ConvTopKModel(nn.Module):
+    """Conv + TopK on HEIGHT axis (k=8 of 16), return values.
+
+    TIDL always produces both values and indices; we extract values [0].
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        # topk on HEIGHT (axis=2): k=8 of 16 rows; ret_type="both" → Tuple
+        t = _op.topk(x._expr, k=8, axis=2, ret_type="both")
+        # Return values (index 0); indices (index 1) discarded
+        x = wrap_nested(t[0], "topk_values")
+        return x
+
+
+class ConvSplitModel(nn.Module):
+    """Conv + split into 4 equal channel slices, return first slice."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        # split 8 channels into 4 slices of 2 channels each along channel axis
+        parts = _op.split(x._expr, 4, axis=1)
+        # Return first slice only (single tensor output)
+        x = wrap_nested(parts[0], "split_first")
+        return x
+
+
 @pytest.mark.skipif(not _has_full_tidl_env(), reason="needs .so + compiler + AM67A")
 class TestLayerHardware:
     """Test new layer ops through full TIDL pipeline on AM67A."""
@@ -1425,6 +1506,26 @@ class TestLayerHardware:
         assert n >= 1
         # Shape must be correct (8 = 4+4 channels after concat)
         assert output.shape == (1, 8, 16, 16)
+        assert np.isfinite(output).all()
+
+    def test_topk_hw(self, tmp_path):
+        """TopK (values, k=8 of 16 HEIGHT rows) offloaded to TIDL on AM67A."""
+        output, n = self._run(
+            ConvTopKModel,
+            tmp_path,
+            expected_shape=(1, 8, 8, 16),  # 8 top rows selected from 16
+        )
+        assert n >= 1
+        assert np.isfinite(output).all()
+
+    def test_split_hw(self, tmp_path):
+        """Split (first of 4 channel slices) offloaded to TIDL on AM67A."""
+        output, n = self._run(
+            ConvSplitModel,
+            tmp_path,
+            expected_shape=(1, 2, 16, 16),  # 2 channels = 8 / 4
+        )
+        assert n >= 1
         assert np.isfinite(output).all()
 
 

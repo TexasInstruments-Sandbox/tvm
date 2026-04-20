@@ -83,13 +83,23 @@ bridge function (see "Bridge Function" below).
 | `tidl.nn.conv2d_bias_relu` | `conv2d` + `add` + `relu` |
 | `tidl.nn.conv2d_bias_clip` | `conv2d` + `add` + `clip` |
 
-### Pooling and Reduction
+### Pooling
 
 | Pattern | Relax ops matched |
 |---------|-------------------|
 | `tidl.nn.max_pool2d` | `max_pool2d` |
 | `tidl.nn.avg_pool2d` | `avg_pool2d` |
-| `tidl.mean` | `mean` (spatial axes [2,3] only — global avg pool) |
+
+### Reduction
+
+| Pattern | Relax ops matched | Constraint |
+|---------|-------------------|------------|
+| `tidl.mean` | `mean` | axes [2,3] only (spatial/global avg pool) |
+| `tidl.sum` | `sum` | single axis only |
+| `tidl.reduce_max` | `max` | axis=2 (HEIGHT in NCHW) only |
+| `tidl.reduce_min` | `min` | axis=2 (HEIGHT in NCHW) only |
+| `tidl.argmax` | `argmax` | axis=1 (C in NCHW), keepdims=True only |
+| `tidl.argmin` | `argmin` | axis=1 (C in NCHW), keepdims=True only |
 
 ### Activations
 
@@ -151,6 +161,47 @@ bridge function (see "Bridge Function" below).
 | `tidl.cast` | `astype` |
 | `tidl.nn.pad` | `nn.pad` (constant zero-padding) |
 
+### Advanced
+
+| Pattern | Relax ops matched | Notes |
+|---------|-------------------|-------|
+| `tidl.image.resize2d` | `image.resize2d` | 4-D input; bilinear or nearest-neighbor |
+| `tidl.take` | `take` | gather along axis |
+| `tidl.topk` | `topk` | axis must be HEIGHT or WIDTH; sorted=True required; TIDL always produces values+indices — use `ret_type="both"` and extract `[0]` |
+| `tidl.split` | `split` | supports equal sections (`split(x, N, axis)`) and explicit indices (`split(x, [i0, i1, ...], axis)`) |
+
+### Math / Unary
+
+Converted to `TIDL_BatchNormLayer` + hardware LUT by
+`tidl_convertRelUToBNLayer` during PostProcessNet.  The LUT is built
+automatically from calibration statistics.
+
+Ops with **bounded output** (`abs`, `sqrt`, `erf`, `sin`, `cos`, `atan`,
+`negative`, `floor`) produce correct output with random calibration data.
+Ops with **unbounded output** (`exp`, `log`, `sinh`, `cosh`, `power`) may
+produce all-zero output when random calibration data causes a very large
+quantisation scale — use domain-specific bounded inputs for those ops.
+
+| Pattern | Relax ops matched |
+|---------|-------------------|
+| `tidl.abs` | `abs` |
+| `tidl.sqrt` | `sqrt` |
+| `tidl.power` | `power` (x \*\* scalar_exp) |
+| `tidl.exp` | `exp` |
+| `tidl.log` | `log` |
+| `tidl.erf` | `erf` |
+| `tidl.floor` | `floor` |
+| `tidl.negative` | `negative` |
+| `tidl.sin` | `sin` |
+| `tidl.cos` | `cos` |
+| `tidl.tan` | `tan` |
+| `tidl.sinh` | `sinh` |
+| `tidl.cosh` | `cosh` |
+| `tidl.asin` | `asin` |
+| `tidl.acos` | `acos` |
+| `tidl.atan` | `atan` |
+| `tidl.asinh` | `asinh` |
+
 ### Quantization (stubs)
 
 | Pattern | Relax ops matched |
@@ -168,9 +219,22 @@ Run during partitioning before passing composites to TIDL:
 - **Pool:** kernel ≤ 3, input rank == 4
 - **Mean:** input rank == 4, reduction axes must be exactly [2, 3]
   (spatial-only; channel/batch mean rejected)
+- **ReduceMax/ReduceMin:** single axis only, must be axis=2 (HEIGHT in 4D
+  NCHW); all other axes rejected by TIDL ReduceLayer
+- **ArgMax/ArgMin:** axis must be 1 (channel, TIDL_DIM_NUMCH), keepdims=True
+  required; other axes or keepdims=False rejected.  Output is int64 — add
+  `astype("int32")` after argmax/argmin to keep both ops in one subgraph
+- **Sum:** single axis only (multi-axis reduction rejected)
 - **Element-wise (add, multiply, subtract, divide, maximum, minimum):**
   input rank must be exactly 4; sub-4D uses (e.g. FC bias add `(1,1000)`)
   are rejected — they cause a crash in TIDL algProcess
+- **TopK:** axis must be HEIGHT (2) or WIDTH (3) in 4D NCHW; sorted must
+  be True (TIDL constraint).  TIDL always produces both values and
+  indices outputs — use `ret_type="both"` and extract `[0]` for values.
+  The C++ parser sets `numConstInputs=1` to satisfy the allowlisting
+  constraint that expects K as an initializer (in Relax, K is an attr).
+- **Split:** any axis; equal sections (`split(x, N)`) and explicit
+  cut-point indices (`split(x, [i0, i1, ...])`) both supported.
 
 **Batch normalization:** `prepare()` runs `FoldBatchnormToConv2D` +
 `FoldConstant` before partitioning, which algebraically folds
@@ -271,27 +335,8 @@ and one-time setup steps.
 
 ## Running Tests
 
-```bash
-# Partition + codegen tests only (no TI compiler or .so needed):
-pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_partition.py \
-       tests/ti-dsp-runtime/tidl-tests/test_tidl_codegen.py -v
-
-# Per-layer partition tests for new ops (no dependencies):
-pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_layer_offload.py \
-       -k TestLayerPartition -v
-
-# Import tests (needs tidl_model_import_relax.so + c7x-mma-tidl):
-pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_relax_import.py -v
-
-# Per-layer hardware tests on AM67A (needs .so + TI compiler + board):
-TI_CGT_C7000_PATH=~/ti/.../ti-cgt-c7000_5.0.1.LTS \
-  pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_layer_offload.py \
-         -k TestLayerHardware -v
-
-# All TIDL tests (partition + import + codegen + e2e + hardware):
-TI_CGT_C7000_PATH=~/ti/.../ti-cgt-c7000_5.0.1.LTS \
-  pytest tests/ti-dsp-runtime/tidl-tests/ -v
-```
+See `tests/ti-dsp-runtime/tidl-tests/README.md` for the full test list,
+run commands, prerequisites, and build instructions.
 
 ---
 
