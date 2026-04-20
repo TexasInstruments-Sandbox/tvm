@@ -1124,14 +1124,14 @@ def _collect_tidl_subgraph_info(mod):
             name = gv.name_hint
             # Extract shapes/dtypes from buffer_map
             inputs = []
-            output = None
+            outputs = []
             for param in func.params:
                 buf = func.buffer_map.get(param)
                 if buf is not None:
                     shape = [int(d) for d in buf.shape]
                     dtype = str(buf.dtype)
                     if param.name.startswith("output"):
-                        output = {"shape": shape, "dtype": dtype}
+                        outputs.append({"shape": shape, "dtype": dtype})
                     else:
                         inputs.append({"shape": shape, "dtype": dtype})
             # Recover original sg_id (set by _make_tidl_tir_stub)
@@ -1140,7 +1140,10 @@ def _collect_tidl_subgraph_info(mod):
             subgraphs.append({
                 "name": name,
                 "inputs": inputs,
-                "output": output,
+                # Keep "output" (singular) for backward compat with single-output,
+                # and add "outputs" (plural) for multi-output subgraphs.
+                "output": outputs[0] if outputs else None,
+                "outputs": outputs,
                 "sg_id": sg_id,
             })
     return subgraphs
@@ -1159,12 +1162,16 @@ def _dtype_sizeof(dtype):
 def _process_fn_sig(sg):
     """Return the argument list string for a TIDL process function.
 
-    e.g. for 2 inputs:  "void* inp0, void* inp1, void* out0"
-    e.g. for 1 input:   "void* inp0, void* out0"
+    e.g. for 2 inputs 1 output:  "void* inp0, void* inp1, void* out0"
+    e.g. for 1 input  2 outputs: "void* inp0, void* out0, void* out1"
     """
     n_in = len(sg.get("inputs", []))
+    n_out = len(sg.get("outputs", sg.get("output") and [sg["output"]] or []))
+    if n_out == 0:
+        n_out = 1
     in_args = ", ".join(f"void* inp{j}" for j in range(n_in))
-    return f"{in_args}, void* out0" if in_args else "void* out0"
+    out_args = ", ".join(f"void* out{k}" for k in range(n_out))
+    return f"{in_args}, {out_args}" if in_args else out_args
 
 
 def _generate_bridge_code(subgraphs, stub, artifacts_dir):
@@ -1240,32 +1247,25 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
             out_bytes *= d
         out_bytes *= _dtype_sizeof(out_dtype)
 
+        all_outputs = sg.get("outputs") or ([output] if output else [])
+        n_out = len(all_outputs)
+
         if stub:
-            # Stub mode: just zero-fill output
+            # Stub mode: zero-fill all outputs
             lines.append(f"/* Stub bridge for {name} */")
-            lines.append(
-                f"/* Output: {out_shape} {out_dtype} = {out_bytes} bytes */")
             lines.append(f"void {process_fn}({sig}) {{")
-            lines.append(f"    memset(out0, 0, {out_bytes});")
+            for k, out_info in enumerate(all_outputs):
+                o_bytes = 1
+                for d in out_info["shape"]:
+                    o_bytes *= d
+                o_bytes *= _dtype_sizeof(out_info.get("dtype", "float32"))
+                lines.append(f"    memset(out{k}, 0, {o_bytes});")
             lines.append("}")
             lines.append("")
         else:
-            # Real TIDL bridge (per-subgraph), cached persistent handle.
-            #
-            # Handles are initialised eagerly by tidl_bridge_init_all(), which
-            # is called once at the start of cg_main_dsp (emitted by the
-            # c_static codegen when the tidl-runtime target attribute is set).
-            # free_tidl_subgraph is called only at module teardown via
-            # tidl_bridge_cleanup().
-            #
-            # Note: keep max_subgraphs at or below the empirical limit for
-            # the target platform (~8 for AM67A) to avoid exhausting the
-            # TIDL DDR pool when all handles are live simultaneously.
             lines.append(f"static void* {name}_instance = NULL;")
             lines.append("")
             lines.append(f"void {process_fn}({sig}) {{")
-            # Safety guard: handle must be set by tidl_bridge_init_all().
-            # If it is NULL (init failed or was not called), skip silently.
             lines.append(f"    if ({name}_instance == NULL) return;")
             lines.append("")
 
@@ -1285,37 +1285,46 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
                 lines.append(f"    in_tensor{j}.dtype.lanes = 1;")
                 lines.append("")
 
-            # Build DLTensor for output
-            lines.append("    DLTensor out_tensor;")
-            lines.append("    memset(&out_tensor, 0, sizeof(out_tensor));")
-            lines.append("    out_tensor.data = out0;")
-            lines.append(f"    out_tensor.ndim = {len(out_shape)};")
-            lines.append(
-                f"    int64_t out_shape[] = {{{', '.join(str(d) for d in out_shape)}}};")
-            lines.append("    out_tensor.shape = out_shape;")
-            lines.append("    out_tensor.dtype.code = kDLFloat;")
-            lines.append("    out_tensor.dtype.bits = 32;")
-            lines.append("    out_tensor.dtype.lanes = 1;")
-            lines.append("")
+            # Build DLTensor for each output
+            for k, out_info in enumerate(all_outputs):
+                o_shape = out_info["shape"]
+                o_dtype = out_info.get("dtype", "float32")
+                o_code = "kDLFloat" if "float" in o_dtype else "kDLInt"
+                o_bits = int("".join(c for c in o_dtype if c.isdigit()) or "32")
+                lines.append(f"    DLTensor out_tensor{k};")
+                lines.append(
+                    f"    memset(&out_tensor{k}, 0, sizeof(out_tensor{k}));")
+                lines.append(f"    out_tensor{k}.data = out{k};")
+                lines.append(f"    out_tensor{k}.ndim = {len(o_shape)};")
+                lines.append(
+                    f"    int64_t out_shape{k}[] = "
+                    f"{{{', '.join(str(d) for d in o_shape)}}};")
+                lines.append(f"    out_tensor{k}.shape = out_shape{k};")
+                lines.append(f"    out_tensor{k}.dtype.code = {o_code};")
+                lines.append(f"    out_tensor{k}.dtype.bits = {o_bits};")
+                lines.append(f"    out_tensor{k}.dtype.lanes = 1;")
+                lines.append("")
 
             in_ptrs = ", ".join(f"&in_tensor{j}" for j in range(len(inputs)))
+            out_ptrs = ", ".join(f"&out_tensor{k}" for k in range(n_out))
             lines.append(f"    DLTensor* in[] = {{ {in_ptrs} }};")
-            lines.append("    DLTensor* out[] = { &out_tensor };")
+            lines.append(f"    DLTensor* out[] = {{ {out_ptrs} }};")
             lines.append("")
-            # Cache flush all inputs before TIDL reads via DMA
             for j, in_info in enumerate(inputs):
-                in_shape = in_info["shape"]
                 in_bytes = 1
-                for d in in_shape:
+                for d in in_info["shape"]:
                     in_bytes *= d
                 in_bytes *= _dtype_sizeof(in_info.get("dtype", "float32"))
                 lines.append(
                     f"    TVM_cacheWbInvRegion(inp{j}, {in_bytes});")
             lines.append(
                 f"    process_tidl_subgraph({name}_instance, in, out);")
-            # Cache invalidate output after TIDL writes via DMA
-            lines.append(
-                f"    TVM_cacheWbInvRegion(out0, {out_bytes});")
+            for k, out_info in enumerate(all_outputs):
+                o_bytes = 1
+                for d in out_info["shape"]:
+                    o_bytes *= d
+                o_bytes *= _dtype_sizeof(out_info.get("dtype", "float32"))
+                lines.append(f"    TVM_cacheWbInvRegion(out{k}, {o_bytes});")
             lines.append("}")
             lines.append("")
 
@@ -1393,15 +1402,25 @@ def _make_tidl_tir_stub(name, input_sinfos, output_sinfo, sg_id=None):
         params.append(handle)
         buffer_map[handle] = buf
 
-    out_shape = [int(d) for d in output_sinfo.shape]
-    out_dtype = str(output_sinfo.dtype)
-    out_handle = tvm.tir.Var("output0", "handle")
-    out_buf = tvm.tir.decl_buffer(out_shape, out_dtype, "out0")
-    params.append(out_handle)
-    buffer_map[out_handle] = out_buf
+    # Collect output buffers (one for tensor, N for tuple)
+    if isinstance(output_sinfo, relax.TupleStructInfo):
+        out_fields = list(output_sinfo.fields)
+    else:
+        out_fields = [output_sinfo]
 
-    extern_args = [buffer_map[h].data for h in params[:-1]]
-    extern_args.append(out_buf.data)
+    out_bufs = []
+    for k, field_si in enumerate(out_fields):
+        out_shape = [int(d) for d in field_si.shape]
+        out_dtype = str(field_si.dtype)
+        out_handle = tvm.tir.Var(f"output{k}", "handle")
+        out_buf = tvm.tir.decl_buffer(out_shape, out_dtype, f"out{k}")
+        params.append(out_handle)
+        buffer_map[out_handle] = out_buf
+        out_bufs.append(out_buf)
+
+    extern_args = [buffer_map[h].data for h in params[:len(input_sinfos)]]
+    for ob in out_bufs:
+        extern_args.append(ob.data)
 
     # Wrap the extern call in a Block → BlockRealize so that Relax
     # analysis passes (e.g., HasReshapePattern) don't crash when
@@ -1552,10 +1571,16 @@ class _TIDLCallReplacer(PyExprMutator):
             if name in self._tir_stubs:
                 _, _, _, output_sinfo = self._tir_stubs[name]
                 tir_gv = self._stub_gvars[name]
+                # call_tir expects a list of TensorStructInfo for multi-output;
+                # passing TupleStructInfo directly raises a type error.
+                if isinstance(output_sinfo, relax.TupleStructInfo):
+                    out_sinfo_arg = list(output_sinfo.fields)
+                else:
+                    out_sinfo_arg = output_sinfo
                 return relax.call_tir(
                     tir_gv,
                     relax.Tuple(list(call.args)),
-                    out_sinfo=output_sinfo,
+                    out_sinfo=out_sinfo_arg,
                 )
             if name in self._fallback_gvars:
                 # Remap old GlobalVar → new GlobalVar in the builder.
@@ -1603,15 +1628,7 @@ def _lower_tidl_pass(
                 input_sinfos = [p.struct_info for p in func.params]
                 output_sinfo = func.ret_struct_info
                 is_failed = gv.name_hint in failed_subgraphs
-                is_multi_output = isinstance(output_sinfo, relax.TupleStructInfo)
-                if is_failed or is_multi_output:
-                    if is_multi_output and gv.name_hint not in failed_subgraphs:
-                        logger.warning(
-                            "Falling back TIDL subgraph '%s': "
-                            "multi-output (TupleStructInfo) not supported "
-                            "by TIDL bridge",
-                            gv.name_hint,
-                        )
+                if is_failed:
                     fallback_funcs[gv.name_hint] = (gv, func)
                 else:
                     success_funcs[gv.name_hint] = (

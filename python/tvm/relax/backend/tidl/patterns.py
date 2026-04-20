@@ -911,6 +911,42 @@ def _take_pattern() -> List[FusionPattern]:
     return [FusionPattern("tidl.take", pat, annotations, _check_take)]
 
 
+def _check_topk(ctx: PatternCheckContext) -> bool:
+    """Validate topk constraints for TIDL.
+
+    The axis and sorted constraints are enforced by TIDL's allowlisting layer
+    (tidl_constraint_topK.h).  We only check that the input dtype is float.
+    """
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _topk_pattern() -> List[FusionPattern]:
+    """TopK: return top-K values and/or indices along an axis."""
+    data = wildcard()
+    pat = is_op("relax.topk")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.topk", pat, annotations, _check_topk)]
+
+
+def _check_split(ctx: PatternCheckContext) -> bool:
+    """Validate split constraints for TIDL."""
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _split_pattern() -> List[FusionPattern]:
+    """Split tensor along axis into N equal or variable slices."""
+    data = wildcard()
+    pat = is_op("relax.split")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.split", pat, annotations, _check_split)]
+
+
 def _math_unary_pattern(op_name: str, composite_name: str) -> List[FusionPattern]:
     """Helper: create a pattern for a parameterless unary math op."""
     data = wildcard()
@@ -1066,9 +1102,11 @@ def get_tidl_patterns() -> List[FusionPattern]:
         *_reduce_min_pattern(),
         *_argmax_pattern(),
         *_argmin_pattern(),
-        # advanced ops (resize, gather)
+        # advanced ops (resize, gather, topk, split)
         *_resize2d_pattern(),
         *_take_pattern(),
+        *_topk_pattern(),
+        *_split_pattern(),
         # math / unary ops
         *_abs_pattern(),
         *_sqrt_pattern(),

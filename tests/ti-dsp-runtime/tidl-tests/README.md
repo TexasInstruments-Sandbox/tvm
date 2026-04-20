@@ -9,7 +9,7 @@ Tests for TIDL subgraph offloading in the TVM/Relax c_static backend.
 | `test_tidl_partition.py` | 10 | Pattern matching, partitioning, constraints | TVM only |
 | `test_tidl_codegen.py` | 12 | Lowering pass, TIR stubs, c_static codegen, bridge generation (single + multi-subgraph, stub + real) | TVM only |
 | `test_tidl_relax_import.py` | 16 | FFI load, init, AllowNode, tidl_import() pipeline | `tidl_model_import_relax.so` + c7x-mma-tidl tree |
-| `test_tidl_layer_offload.py` | 57+ | Per-layer offload validation: pattern matching (Level 1, 40 tests) and hardware inference (Level 4, 31+ tests) covering all 59 supported layer types | Level 1: TVM only; Level 4: `.so` + `TI_CGT_C7000_PATH` + AM67A |
+| `test_tidl_layer_offload.py` | 78 | Per-layer offload validation: pattern matching (Level 1, 44 tests) and hardware inference (Level 4, 34 tests) covering all supported layer types | Level 1: TVM only; Level 4: `.so` + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_new_ops.py` | 4 | Newer composite ops (softmax, multiply, permute_dims, concat) through full build + AM67A pipeline | `.so` + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_e2e.py` | 1 | Full pipeline with stub bridge on c7x_host (no TIDL libs needed) | `TI_CGT_C7000_PATH` |
 | `test_tidl_import_e2e.py` | 2 | `compiler.build()` one-call pipeline -> deploy -> run on AM67A (single-subgraph ConvReluSoftmax + multi-subgraph 2-conv model) | `.so` + `TI_CGT_C7000_PATH` + AM67A |
@@ -21,22 +21,19 @@ Tests for TIDL subgraph offloading in the TVM/Relax c_static backend.
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_partition.py \
        tests/ti-dsp-runtime/tidl-tests/test_tidl_codegen.py -v
 
-# Per-layer partition tests — no .so or hardware (40 tests, ~0.3s):
+# Per-layer partition tests — no .so or hardware (42 tests, ~0.3s):
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_layer_offload.py \
        -k TestLayerPartition -v
 
-# Run import tests (needs tidl_model_import_relax.so):
+# Import tests (needs tidl_model_import_relax.so):
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_relax_import.py -v
 
-# Per-layer hardware tests on AM67A (~10min, includes all 17 math/unary ops):
+# Per-layer hardware tests on AM67A (~10min, all layer types):
 TI_CGT_C7000_PATH=~/ti/.../ti-cgt-c7000_5.0.1.LTS \
   pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_layer_offload.py \
          -k TestLayerHardware -v
 
-# Run import tests (needs tidl_model_import_relax.so):
-pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_relax_import.py -v
-
-# Run hardware e2e tests (needs .so + C7x compiler + AM67A):
+# Hardware e2e tests (needs .so + C7x compiler + AM67A):
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_import_e2e.py -v -s
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_resnet_e2e.py -v -s
 
@@ -53,10 +50,12 @@ python tests/ti-dsp-runtime/tidl-tests/diag_tidl_levels.py 3
 
 ## Per-layer Tests (`test_tidl_layer_offload.py`)
 
-Isolated validation for each of the 59 supported layer types, organized
-into two test classes.
+Isolated validation for each supported layer type, organized into two
+test classes.  For constraint details (axis restrictions, calibration
+behavior for math ops, etc.) see
+`python/tvm/relax/backend/tidl/README.md`.
 
-### Level 1 — Partition (`TestLayerPartition`, 40 tests)
+### Level 1 — Partition (`TestLayerPartition`, 44 tests)
 
 Pure Python pattern-matching tests.  No `.so`, no hardware, no TI
 compiler required.  Runs in under a second.
@@ -68,53 +67,25 @@ Includes **constraint rejection** tests:
 - `test_reduce_multi_axis_rejected` — multi-axis reduction rejected
 - `test_divide_rejects_rank2` — sub-4D element-wise ops rejected
 
-### Level 4 — Hardware (`TestLayerHardware`, 31+ tests)
+### Level 4 — Hardware (`TestLayerHardware`, 34 tests)
 
 End-to-end tests running the full TIDL pipeline on AM67A:
 `partition → tidl_import → lower → codegen → bridge → build → run_dsp_dload`
 
 Requirements: `tidl_model_import_relax.so`, `TI_CGT_C7000_PATH`, AM67A.
 
-| Test group | Tests | Notes |
-|---|---|---|
-| Activations | sigmoid, tanh, clip, leakyrelu | output bounds checked |
-| Element-wise | subtract, maximum, minimum | finite output checked |
-| Reductions | sum, reduce_max, argmax+int32, argmin+int32 | axis constraints apply |
-| Shape/layout | strided_slice, permute_dims, concat | pipeline validation |
-| Math/unary | `test_math_unary_hw[abs/sqrt/exp/...]` ×16 + `test_power_hw` | see note below |
+| Test group | Tests |
+|---|---|
+| Activations | sigmoid, tanh, clip, leakyrelu |
+| Element-wise | subtract, maximum, minimum |
+| Reductions | sum, reduce_max, argmax, argmin |
+| Advanced | resize2d, strided_slice, permute_dims, concat, topk, split |
+| Math/unary | abs, sqrt, exp, log, erf, floor, negative, sin, cos, tan, sinh, cosh, asin, acos, atan, asinh, power |
 
-### Math/unary calibration note
-
-Math ops (`exp`, `log`, `sin`, `cos`, `abs`, `sqrt`, etc.) are converted
-to `TIDL_BatchNormLayer` + hardware LUT by `tidl_convertRelUToBNLayer`
-during PostProcessNet.  Both Relay and Relax parsers only set
-`layerType` + `actType` — the LUT is built automatically from calibration
-stats.
-
-Ops with **bounded output** (`abs`, `sqrt`, `erf`, `sin`, `cos`, `atan`,
-`negative`, `floor`) always produce correct non-zero output.
-
-Ops with **unbounded output** (`exp`, `sinh`, `cosh`, `power`) may
-produce all-zero output with *random* calibration data: large random
-relu activations produce very large exp values, TIDL sets a huge
-quantisation scale, and all "normal" outputs near 1 round to zero.
-This is a calibration data quality issue, not a hardware limitation.
-With domain-specific bounded calibration data these ops produce correct
-output.  The tests use `np.isfinite(output).all()` which passes
-regardless — they validate the import/codegen pipeline, not calibration.
-
-### TIDL axis constraints for reduction and argop layers
-
-| Op | Valid axis | Notes |
-|----|-----------|-------|
-| ReduceMax/Min | axis=2 (H in 4D NCHW) | `TIDL_DIM_HEIGHT` |
-| ArgMax/ArgMin | axis=1 (C in 4D NCHW), keepdims=True | `TIDL_DIM_NUMCH` |
-| ReduceSum | any single axis | converted to InnerProduct |
-| ReduceMean | any single axis | converted to InnerProduct |
-
-ArgMax/ArgMin output is int64 in Relax; test models add
-`astype("int32")` so both ops offload together as one subgraph and the
-int32 output is parseable by `run_dsp_dload`.
+All hardware tests assert `np.isfinite(output).all()`.  Math/unary ops
+with unbounded output range (`exp`, `sinh`, `cosh`, `power`) may produce
+all-zero output with random calibration data — this validates the
+import/codegen pipeline without depending on calibration quality.
 
 ## TIDL Artifacts
 
