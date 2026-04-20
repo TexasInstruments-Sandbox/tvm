@@ -1047,6 +1047,198 @@ def _dequantize_pattern() -> List[FusionPattern]:
 
 
 # ---------------------------------------------------------------------------
+# Composite activation patterns (multi-op, no native Relax op)
+# ---------------------------------------------------------------------------
+
+
+def _elu_pattern() -> List[FusionPattern]:
+    """ELU: add(multiply(-alpha, relu(1 - exp(x))), relu(x))."""
+    data = wildcard()
+    relu_x = is_op("relax.nn.relu")(data)
+    exp_x = is_op("relax.exp")(data)
+    sub = is_op("relax.subtract")(wildcard(), exp_x)
+    relu_neg = is_op("relax.nn.relu")(sub)
+    mul = is_op("relax.multiply")(wildcard(), relu_neg)
+    pat = is_op("relax.add")(mul, relu_x)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.elu", pat, annotations, _check_unary)]
+
+
+def _hard_sigmoid_pattern() -> List[FusionPattern]:
+    """HardSigmoid: clip(x + 3, 0, 6) / 6."""
+    data = wildcard()
+    add_3 = is_op("relax.add")(data, wildcard())
+    clipped = is_op("relax.clip")(add_3, wildcard(), wildcard())
+    pat = is_op("relax.divide")(clipped, wildcard())
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.hard_sigmoid", pat, annotations, _check_unary)]
+
+
+def _hard_swish_pattern() -> List[FusionPattern]:
+    """HardSwish: x * clip(x + 3, 0, 6) / 6."""
+    data = wildcard()
+    add_3 = is_op("relax.add")(data, wildcard())
+    clipped = is_op("relax.clip")(add_3, wildcard(), wildcard())
+    div_6 = is_op("relax.divide")(clipped, wildcard())
+    pat = is_op("relax.multiply")(data, div_6)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.hard_swish", pat, annotations, _check_unary)]
+
+
+def _mish_pattern() -> List[FusionPattern]:
+    """Mish: x * tanh(log(1 + exp(x)))."""
+    data = wildcard()
+    exp_x = is_op("relax.exp")(data)
+    add_1 = is_op("relax.add")(wildcard(), exp_x)
+    log_sp = is_op("relax.log")(add_1)
+    tanh_sp = is_op("relax.tanh")(log_sp)
+    pat = is_op("relax.multiply")(data, tanh_sp)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.mish", pat, annotations, _check_unary)]
+
+
+# ---------------------------------------------------------------------------
+# Additional native-op patterns
+# ---------------------------------------------------------------------------
+
+
+def _check_depth_to_space(ctx: PatternCheckContext) -> bool:
+    """Validate depth_to_space constraints for TIDL."""
+    data = ctx.annotated_expr.get("data")
+    if data is not None:
+        if not _check_dtype(data):
+            return False
+        shape = _get_shape(data)
+        if shape is not None and len(shape) != 4:
+            return False
+    return True
+
+
+def _depth_to_space_pattern() -> List[FusionPattern]:
+    """Depth-to-space (pixel shuffle)."""
+    data = wildcard()
+    pat = is_op("relax.nn.pixel_shuffle")(data)
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.nn.depth_to_space", pat, annotations, _check_depth_to_space)]
+
+
+def _expand_pattern() -> List[FusionPattern]:
+    """Expand (broadcast_to)."""
+    data = wildcard()
+    pat = is_op("relax.broadcast_to")(data, wildcard())
+    annotations = {"data": data, "root": pat}
+    return [FusionPattern("tidl.expand", pat, annotations, _check_unary)]
+
+
+def _check_instance_norm(ctx: PatternCheckContext) -> bool:
+    """Validate instance_norm constraints for TIDL."""
+    data = ctx.annotated_expr.get("data")
+    if data is not None:
+        if not _check_dtype(data):
+            return False
+        shape = _get_shape(data)
+        if shape is not None and len(shape) != 4:
+            return False
+    return True
+
+
+def _instance_norm_pattern() -> List[FusionPattern]:
+    """Instance normalization."""
+    data = wildcard()
+    gamma = wildcard()
+    beta = wildcard()
+    pat = is_op("relax.nn.instance_norm")(data, gamma, beta)
+    annotations = {"data": data, "gamma": gamma, "beta": beta, "root": pat}
+    return [FusionPattern("tidl.nn.instance_norm", pat, annotations, _check_instance_norm)]
+
+
+def _scatter_elements_pattern() -> List[FusionPattern]:
+    """Scatter elements (ONNX-style scatter with axis)."""
+    data = wildcard()
+    indices = wildcard()
+    updates = wildcard()
+    pat = is_op("relax.scatter_elements")(data, indices, updates)
+    annotations = {"data": data, "indices": indices, "updates": updates, "root": pat}
+    return [FusionPattern("tidl.scatter_elements", pat, annotations, _check_unary)]
+
+
+def _check_scatter_nd(ctx: PatternCheckContext) -> bool:
+    """Reject scalar inputs for scatter_nd (TIDL limitation)."""
+    for key in ("data", "indices", "updates"):
+        expr = ctx.annotated_expr.get(key)
+        if expr is not None:
+            shape = _get_shape(expr)
+            if shape is not None and len(shape) == 0:
+                return False
+    data = ctx.annotated_expr.get("data")
+    if data is not None and not _check_dtype(data):
+        return False
+    return True
+
+
+def _scatter_nd_pattern() -> List[FusionPattern]:
+    """Scatter ND."""
+    data = wildcard()
+    indices = wildcard()
+    updates = wildcard()
+    pat = is_op("relax.scatter_nd")(data, indices, updates)
+    annotations = {"data": data, "indices": indices, "updates": updates, "root": pat}
+    return [FusionPattern("tidl.scatter_nd", pat, annotations, _check_scatter_nd)]
+
+
+def _check_grid_sample(ctx: PatternCheckContext) -> bool:
+    """Validate grid_sample constraints for TIDL."""
+    data = ctx.annotated_expr.get("data")
+    if data is not None:
+        if not _check_dtype(data):
+            return False
+        shape = _get_shape(data)
+        if shape is not None and len(shape) != 4:
+            return False
+    return True
+
+
+def _grid_sample_pattern() -> List[FusionPattern]:
+    """Grid sample (image warping)."""
+    data = wildcard()
+    grid = wildcard()
+    pat = is_op("relax.image.grid_sample")(data, grid)
+    annotations = {"data": data, "grid": grid, "root": pat}
+    return [FusionPattern("tidl.image.grid_sample", pat, annotations, _check_grid_sample)]
+
+
+def _check_conv2d_transpose(ctx: PatternCheckContext) -> bool:
+    """Validate conv2d_transpose constraints for TIDL."""
+    inp = ctx.annotated_expr.get("input")
+    if inp is not None:
+        if not _check_dtype(inp):
+            return False
+        shape = _get_shape(inp)
+        if shape is not None and len(shape) != 4:
+            return False
+    return True
+
+
+def _conv2d_transpose_patterns() -> List[FusionPattern]:
+    """Conv2d transpose with optional bias."""
+    patterns = []
+    for with_bias in [True, False]:
+        inp = wildcard()
+        weight = wildcard()
+        annotations: Dict[str, DFPattern] = {"input": inp, "weight": weight}
+        out = is_op("relax.nn.conv2d_transpose")(inp, weight)
+        annotations["root"] = out
+        if with_bias:
+            bias = wildcard()
+            annotations["bias"] = bias
+            out = is_op("relax.add")(out, bias)
+        suffix = "_bias" if with_bias else ""
+        name = f"tidl.nn.conv2d_transpose{suffix}"
+        patterns.append(FusionPattern(name, out, annotations, _check_conv2d_transpose))
+    return patterns
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -1058,8 +1250,20 @@ def get_tidl_patterns() -> List[FusionPattern]:
     ``FuseOpsByPattern`` greedily matches the largest possible fused op.
     """
     patterns = [
+        # Composite activations FIRST — they require specific multi-op
+        # connectivity (e.g. ELU needs relu+exp on same data).  If
+        # conv2d_relu matches first, it claims the relu and breaks
+        # these patterns.  Safe because each requires a unique op
+        # structure (exp+relu for ELU, add+clip+divide for HardSigmoid)
+        # that a simple conv2d+relu model does not have.
+        *_hard_swish_pattern(),       # contains hard_sigmoid subpattern
+        *_hard_sigmoid_pattern(),     # contains add, clip, divide
+        *_mish_pattern(),             # contains exp, add, log, tanh, multiply
+        *_elu_pattern(),              # contains exp, subtract, relu, multiply, add
         # conv2d variants — most specific first
         *_conv2d_patterns(),
+        # conv2d_transpose with optional bias
+        *_conv2d_transpose_patterns(),
         # pooling
         *_pool_patterns(),
         # batch normalization (standalone, not folded into conv)
@@ -1093,6 +1297,7 @@ def get_tidl_patterns() -> List[FusionPattern]:
         *_concat_pattern(),
         # normalization
         *_layer_norm_pattern(),
+        *_instance_norm_pattern(),
         # dtype
         *_cast_pattern(),
         *_pad_pattern(),
@@ -1102,11 +1307,16 @@ def get_tidl_patterns() -> List[FusionPattern]:
         *_reduce_min_pattern(),
         *_argmax_pattern(),
         *_argmin_pattern(),
-        # advanced ops (resize, gather, topk, split)
+        # advanced ops
         *_resize2d_pattern(),
         *_take_pattern(),
         *_topk_pattern(),
         *_split_pattern(),
+        *_depth_to_space_pattern(),
+        *_expand_pattern(),
+        *_scatter_elements_pattern(),
+        *_scatter_nd_pattern(),
+        *_grid_sample_pattern(),
         # math / unary ops
         *_abs_pattern(),
         *_sqrt_pattern(),

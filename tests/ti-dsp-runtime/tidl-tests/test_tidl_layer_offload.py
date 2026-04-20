@@ -443,6 +443,191 @@ def _build_split_model():
     return bb.get()
 
 
+def _build_elu_model():
+    """ELU decomposed: add(multiply(-1, relu(1-exp(x))), relu(x))."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                exp_x = R.exp(x)
+                one = R.const(np.ones((1,), dtype="float32"))
+                sub = R.subtract(one, exp_x)
+                relu_neg = R.nn.relu(sub)
+                neg_alpha = R.const(np.full((1,), -1.0, dtype="float32"))
+                mul = R.multiply(neg_alpha, relu_neg)
+                relu_x = R.nn.relu(x)
+                y = R.add(mul, relu_x)
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_hard_sigmoid_model():
+    """HardSigmoid: clip(x+3, 0, 6) / 6."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                three = R.const(np.full((1,), 3.0, dtype="float32"))
+                added = R.add(x, three)
+                clipped = R.clip(added, 0.0, 6.0)
+                six = R.const(np.full((1,), 6.0, dtype="float32"))
+                y = R.divide(clipped, six)
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_hard_swish_model():
+    """HardSwish: x * clip(x+3, 0, 6) / 6."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                three = R.const(np.full((1,), 3.0, dtype="float32"))
+                added = R.add(x, three)
+                clipped = R.clip(added, 0.0, 6.0)
+                six = R.const(np.full((1,), 6.0, dtype="float32"))
+                hs = R.divide(clipped, six)
+                y = R.multiply(x, hs)
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_mish_model():
+    """Mish: x * tanh(log(1 + exp(x)))."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
+            with R.dataflow():
+                exp_x = R.exp(x)
+                one = R.const(np.full((1,), 1.0, dtype="float32"))
+                sp = R.add(one, exp_x)
+                log_sp = R.log(sp)
+                tanh_sp = R.tanh(log_sp)
+                y = R.multiply(x, tanh_sp)
+                R.output(y)
+            return y
+
+    return Model
+
+
+def _build_depth_to_space_model():
+    """Depth-to-space (pixel shuffle) with upscale_factor=2."""
+    x_var = relax.Var("x", relax.TensorStructInfo((1, 16, 8, 8), "float32"))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x_var]):
+        with bb.dataflow():
+            out = bb.emit(relax.op.nn.pixel_shuffle(x_var, upscale_factor=2))
+            bb.emit_output(out)
+        bb.emit_func_output(out)
+    return bb.get()
+
+
+def _build_expand_model():
+    """Expand (broadcast_to) from (1,1,1,16) to (1,8,16,16)."""
+    x_var = relax.Var("x", relax.TensorStructInfo((1, 1, 1, 16), "float32"))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x_var]):
+        with bb.dataflow():
+            out = bb.emit(relax.op.broadcast_to(x_var, (1, 8, 16, 16)))
+            bb.emit_output(out)
+        bb.emit_func_output(out)
+    return bb.get()
+
+
+def _build_instance_norm_model():
+    """Instance normalization on 4D NCHW input."""
+    x_var = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    gamma_var = relax.Var("gamma", relax.TensorStructInfo((8,), "float32"))
+    beta_var = relax.Var("beta", relax.TensorStructInfo((8,), "float32"))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x_var, gamma_var, beta_var]):
+        with bb.dataflow():
+            out = bb.emit(
+                relax.op.nn.instance_norm(
+                    x_var, gamma_var, beta_var,
+                    channel_axis=1, axes=[2, 3],
+                )
+            )
+            bb.emit_output(out)
+        bb.emit_func_output(out)
+    return bb.get()
+
+
+def _build_scatter_elements_model():
+    """Scatter elements along axis 1."""
+    data = relax.Var("data", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    indices = relax.Var("indices", relax.TensorStructInfo((1, 2, 16, 16), "int32"))
+    updates = relax.Var("updates", relax.TensorStructInfo((1, 2, 16, 16), "float32"))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [data, indices, updates]):
+        with bb.dataflow():
+            out = bb.emit(relax.op.scatter_elements(data, indices, updates, axis=1))
+            bb.emit_output(out)
+        bb.emit_func_output(out)
+    return bb.get()
+
+
+def _build_scatter_nd_model():
+    """Scatter ND."""
+    data = relax.Var("data", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    indices = relax.Var("indices", relax.TensorStructInfo((2, 1), "int32"))
+    updates = relax.Var("updates", relax.TensorStructInfo((2, 8, 16, 16), "float32"))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [data, indices, updates]):
+        with bb.dataflow():
+            out = bb.emit(relax.op.scatter_nd(data, indices, updates))
+            bb.emit_output(out)
+        bb.emit_func_output(out)
+    return bb.get()
+
+
+def _build_grid_sample_model():
+    """Grid sample with bilinear interpolation."""
+    data = relax.Var("data", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    grid = relax.Var("grid", relax.TensorStructInfo((1, 16, 16, 2), "float32"))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [data, grid]):
+        with bb.dataflow():
+            out = bb.emit(
+                relax.op.image.grid_sample(data, grid, method="bilinear")
+            )
+            bb.emit_output(out)
+        bb.emit_func_output(out)
+    return bb.get()
+
+
+def _build_conv2d_transpose_model():
+    """Conv2d transpose (deconvolution)."""
+
+    @I.ir_module
+    class Model:
+        @R.function
+        def main(
+            x: R.Tensor((1, 8, 16, 16), "float32"),
+            w: R.Tensor((8, 4, 3, 3), "float32"),
+        ):
+            with R.dataflow():
+                y = R.nn.conv2d_transpose(x, w, strides=(1, 1), padding=(1, 1))
+                R.output(y)
+            return y
+
+    return Model
+
+
 # --- Math/unary model builders ---
 
 
@@ -801,6 +986,76 @@ class TestLayerPartition:
         mod = _build_split_model()
         partitioned = partition_for_tidl(mod)
         assert _has_composite(partitioned, "tidl.split")
+
+    # --- Composite activations ---
+
+    def test_elu(self):
+        """ELU (decomposed) should be partitioned."""
+        mod = _build_elu_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.elu")
+
+    def test_hard_sigmoid(self):
+        """HardSigmoid (decomposed) should be partitioned."""
+        mod = _build_hard_sigmoid_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.hard_sigmoid")
+
+    def test_hard_swish(self):
+        """HardSwish (decomposed) should be partitioned."""
+        mod = _build_hard_swish_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.hard_swish")
+
+    def test_mish(self):
+        """Mish (decomposed) should be partitioned."""
+        mod = _build_mish_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.mish")
+
+    # --- Additional native-op patterns ---
+
+    def test_depth_to_space(self):
+        """Depth-to-space (pixel shuffle) should be partitioned."""
+        mod = _build_depth_to_space_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.nn.depth_to_space")
+
+    def test_expand(self):
+        """Expand (broadcast_to) should be partitioned."""
+        mod = _build_expand_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.expand")
+
+    def test_instance_norm(self):
+        """Instance normalization should be partitioned."""
+        mod = _build_instance_norm_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.nn.instance_norm")
+
+    def test_scatter_elements(self):
+        """Scatter elements should be partitioned."""
+        mod = _build_scatter_elements_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.scatter_elements")
+
+    def test_scatter_nd(self):
+        """Scatter ND should be partitioned."""
+        mod = _build_scatter_nd_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.scatter_nd")
+
+    def test_grid_sample(self):
+        """Grid sample should be partitioned."""
+        mod = _build_grid_sample_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.image.grid_sample")
+
+    def test_conv2d_transpose(self):
+        """Conv2d transpose should be partitioned."""
+        mod = _build_conv2d_transpose_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.nn.conv2d_transpose")
 
     # --- Math/unary ops (parametrized) ---
     # TIDL converts these to TIDL_BatchNormLayer + hardware LUT via
@@ -1310,6 +1565,111 @@ class ConvSplitModel(nn.Module):
         return x
 
 
+class ConvEluModel(nn.Module):
+    """Conv + ELU decomposition: -1*relu(1-exp(x)) + relu(x)."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        e = x._expr
+        exp_x = _op.exp(e)
+        one = relax.const(np.ones((1,), dtype="float32"))
+        sub = _op.subtract(one, exp_x)
+        relu_neg = _op.nn.relu(sub)
+        neg_alpha = relax.const(np.full((1,), -1.0, dtype="float32"))
+        mul = _op.multiply(neg_alpha, relu_neg)
+        relu_x = _op.nn.relu(e)
+        y = _op.add(mul, relu_x)
+        return wrap_nested(y, "elu")
+
+
+class ConvHardSigmoidModel(nn.Module):
+    """Conv + HardSigmoid: clip(x+3, 0, 6) / 6."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        e = x._expr
+        three = relax.const(np.full((1,), 3.0, dtype="float32"))
+        added = _op.add(e, three)
+        clipped = _op.clip(added, 0.0, 6.0)
+        six = relax.const(np.full((1,), 6.0, dtype="float32"))
+        y = _op.divide(clipped, six)
+        return wrap_nested(y, "hard_sigmoid")
+
+
+class ConvHardSwishModel(nn.Module):
+    """Conv + HardSwish: x * clip(x+3, 0, 6) / 6."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        e = x._expr
+        three = relax.const(np.full((1,), 3.0, dtype="float32"))
+        added = _op.add(e, three)
+        clipped = _op.clip(added, 0.0, 6.0)
+        six = relax.const(np.full((1,), 6.0, dtype="float32"))
+        hs = _op.divide(clipped, six)
+        y = _op.multiply(e, hs)
+        return wrap_nested(y, "hard_swish")
+
+
+class ConvMishModel(nn.Module):
+    """Conv + Mish: x * tanh(log(1 + exp(x)))."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        e = x._expr
+        exp_x = _op.exp(e)
+        one = relax.const(np.full((1,), 1.0, dtype="float32"))
+        sp = _op.add(one, exp_x)
+        log_sp = _op.log(sp)
+        tanh_sp = _op.tanh(log_sp)
+        y = _op.multiply(e, tanh_sp)
+        return wrap_nested(y, "mish")
+
+
+class ConvDepthToSpaceModel(nn.Module):
+    """Conv producing 32 channels then depth_to_space with factor=2."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 32, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        y = _op.nn.pixel_shuffle(x._expr, upscale_factor=2)
+        return wrap_nested(y, "depth_to_space")
+
+
 @pytest.mark.skipif(not _has_full_tidl_env(), reason="needs .so + compiler + AM67A")
 class TestLayerHardware:
     """Test new layer ops through full TIDL pipeline on AM67A."""
@@ -1524,6 +1884,44 @@ class TestLayerHardware:
             ConvSplitModel,
             tmp_path,
             expected_shape=(1, 2, 16, 16),  # 2 channels = 8 / 4
+        )
+        assert n >= 1
+        assert np.isfinite(output).all()
+
+    # --- Composite activation hardware tests ---
+
+    def test_elu_hw(self, tmp_path):
+        """ELU (decomposed) offloaded to TIDL on AM67A."""
+        output, n = self._run(ConvEluModel, tmp_path)
+        assert n >= 1
+        assert np.isfinite(output).all()
+
+    def test_hard_sigmoid_hw(self, tmp_path):
+        """HardSigmoid (decomposed) offloaded to TIDL on AM67A."""
+        output, n = self._run(ConvHardSigmoidModel, tmp_path)
+        assert n >= 1
+        assert output.min() >= -0.01
+        assert output.max() <= 1.01
+
+    def test_hard_swish_hw(self, tmp_path):
+        """HardSwish (decomposed) offloaded to TIDL on AM67A."""
+        output, n = self._run(ConvHardSwishModel, tmp_path)
+        assert n >= 1
+        assert np.isfinite(output).all()
+
+    def test_mish_hw(self, tmp_path):
+        """Mish (decomposed) offloaded to TIDL on AM67A."""
+        output, n = self._run(ConvMishModel, tmp_path)
+        assert n >= 1
+        assert np.isfinite(output).all()
+
+    @pytest.mark.skip(reason="pixel_shuffle has no TOPI lowering for c_static")
+    def test_depth_to_space_hw(self, tmp_path):
+        """Depth-to-space (pixel shuffle factor=2) offloaded to TIDL on AM67A."""
+        output, n = self._run(
+            ConvDepthToSpaceModel,
+            tmp_path,
+            expected_shape=(1, 8, 32, 32),  # 32ch -> 8ch, 16x16 -> 32x32
         )
         assert n >= 1
         assert np.isfinite(output).all()
