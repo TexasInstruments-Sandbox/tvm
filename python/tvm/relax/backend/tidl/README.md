@@ -111,6 +111,10 @@ bridge function (see "Bridge Function" below).
 | `tidl.clip` | `clip` (e.g. relu6 = `clip(x, 0, 6)`) |
 | `tidl.nn.leakyrelu` | `leakyrelu` |
 | `tidl.nn.prelu` | `prelu` (with learnable per-channel slope) |
+| `tidl.elu` | `exp` + `subtract` + `relu` + `multiply` + `add` (ELU composite) |
+| `tidl.hard_sigmoid` | `add` + `clip` + `divide` (HardSigmoid: clip(x+3,0,6)/6) |
+| `tidl.hard_swish` | `add` + `clip` + `divide` + `multiply` (HardSwish: x * hard_sigmoid(x)) |
+| `tidl.mish` | `exp` + `add` + `log` + `tanh` + `multiply` (Mish: x * tanh(softplus(x))) |
 
 ### Element-wise
 
@@ -153,6 +157,7 @@ bridge function (see "Bridge Function" below).
 | Pattern | Relax ops matched |
 |---------|-------------------|
 | `tidl.nn.layer_norm` | `layer_norm` (gamma/beta from constants) |
+| `tidl.nn.instance_norm` | `instance_norm` (gamma/beta from constants) |
 
 ### Data Type / Padding
 
@@ -169,6 +174,12 @@ bridge function (see "Bridge Function" below).
 | `tidl.take` | `take` | gather along axis |
 | `tidl.topk` | `topk` | axis must be HEIGHT or WIDTH; sorted=True required; TIDL always produces values+indices — use `ret_type="both"` and extract `[0]` |
 | `tidl.split` | `split` | supports equal sections (`split(x, N, axis)`) and explicit indices (`split(x, [i0, i1, ...], axis)`) |
+| `tidl.nn.depth_to_space` | `nn.pixel_shuffle` | DCR mode (depth-column-row); upscale_factor from PixelShuffleAttrs |
+| `tidl.expand` | `broadcast_to` | target shape from output struct_info |
+| `tidl.scatter_elements` | `scatter_elements` | axis + reduction (update/add/max/min) |
+| `tidl.scatter_nd` | `scatter_nd` | N-D indices; reduction (update/add/max/min) |
+| `tidl.image.grid_sample` | `image.grid_sample` | bilinear/nearest; zeros padding; 4-D input |
+| `tidl.nn.conv2d_transpose` | `nn.conv2d_transpose` | transposed convolution (deconv); optional bias fused |
 
 ### Math / Unary
 
