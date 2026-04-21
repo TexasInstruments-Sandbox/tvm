@@ -10,10 +10,29 @@ cmake_minimum_required(VERSION 3.16)
 #
 # Tool paths - update these if your installation differs
 #
-set(TI_SYSCONFIG_ROOT "$ENV{HOME}/ti/ccs2041/ccs/utils/sysconfig_1.26.0")
-set(TI_CGT_ROOT "$ENV{HOME}/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
+# Tool paths: prefer environment variables, fall back to developer defaults
+if(DEFINED ENV{TI_SYSCONFIG_ROOT})
+    set(TI_SYSCONFIG_ROOT "$ENV{TI_SYSCONFIG_ROOT}")
+else()
+    set(TI_SYSCONFIG_ROOT "$ENV{HOME}/ti/ccs2041/ccs/utils/sysconfig_1.26.0")
+endif()
+
+if(DEFINED ENV{TI_CGT_C7000_PATH})
+    set(TI_CGT_ROOT "$ENV{TI_CGT_C7000_PATH}")
+elseif(DEFINED ENV{TI_CGT_ROOT})
+    set(TI_CGT_ROOT "$ENV{TI_CGT_ROOT}")
+else()
+    set(TI_CGT_ROOT "$ENV{HOME}/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
+endif()
+
 # Use clean SDK (11_00_00_06) which enables MMU without TLB_INV issues
-set(MCUPSDK_ROOT "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mcu_plus_sdk_j722s_11_00_00_12")
+if(DEFINED ENV{MCU_PLUS_SDK_PATH})
+    set(MCUPSDK_ROOT "$ENV{MCU_PLUS_SDK_PATH}")
+elseif(DEFINED ENV{PSDK_INSTALL_PATH})
+    set(MCUPSDK_ROOT "$ENV{PSDK_INSTALL_PATH}/mcu_plus_sdk_j722s_11_00_00_12")
+else()
+    set(MCUPSDK_ROOT "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mcu_plus_sdk_j722s_11_00_00_12")
+endif()
 
 # Device and core settings
 set(DEVICE "j722s")
@@ -255,15 +274,27 @@ target_link_directories(${PROJECT_NAME}.out PRIVATE
 option(USE_TIDL_RUNTIME "Link TIDL algo libs into firmware" OFF)
 set(TIDL_RUNTIME_LIBS "")
 if(USE_TIDL_RUNTIME)
-    set(PSDK_PATH "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
-        CACHE PATH "TI Processor SDK root")
-    set(TIDL_LIB_PATH "${PSDK_PATH}/c7x-mma-tidl/ti_dl/lib/J722S/dsp/algo/release")
-    # MMALIB: try versioned name first
-    file(GLOB _MMALIB_DIRS "${PSDK_PATH}/mmalib*/lib/C7524/release")
-    if(_MMALIB_DIRS)
-        list(GET _MMALIB_DIRS 0 MMALIB_LIB_PATH)
+    if(DEFINED ENV{PSDK_INSTALL_PATH})
+        set(PSDK_PATH "$ENV{PSDK_INSTALL_PATH}" CACHE PATH "TI Processor SDK root")
     else()
-        set(MMALIB_LIB_PATH "${PSDK_PATH}/mmalib/lib/C7524/release")
+        set(PSDK_PATH "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
+            CACHE PATH "TI Processor SDK root")
+    endif()
+    if(DEFINED ENV{C7X_MMA_TIDL_PATH})
+        set(TIDL_LIB_PATH "$ENV{C7X_MMA_TIDL_PATH}/ti_dl/lib/J722S/dsp/algo/release")
+    else()
+        set(TIDL_LIB_PATH "${PSDK_PATH}/c7x-mma-tidl/ti_dl/lib/J722S/dsp/algo/release")
+    endif()
+    # MMALIB: prefer env var, then try versioned name under PSDK
+    if(DEFINED ENV{MMALIB_PATH})
+        set(MMALIB_LIB_PATH "$ENV{MMALIB_PATH}/lib/C7524/release")
+    else()
+        file(GLOB _MMALIB_DIRS "${PSDK_PATH}/mmalib*/lib/C7524/release")
+        if(_MMALIB_DIRS)
+            list(GET _MMALIB_DIRS 0 MMALIB_LIB_PATH)
+        else()
+            set(MMALIB_LIB_PATH "${PSDK_PATH}/mmalib/lib/C7524/release")
+        endif()
     endif()
 
     if(NOT EXISTS "${TIDL_LIB_PATH}/tidl_algo.lib")

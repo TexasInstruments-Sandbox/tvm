@@ -598,11 +598,11 @@ void CodeGenCStatic::EmitVMBuiltinInitFunction() {
     const std::string& func_name = pair.first;
     const std::string& packed_func_name = pair.second;
 
-    // When skip_runtime_checks_ is enabled, skip registering validation functions
-    // (their calls are already elided in PrintCallPacked)
+    // When skip_runtime_checks_ is enabled, skip registering validation-only
+    // functions. match_shape is NOT skipped because its StoreToHeap operations
+    // are essential for dynamic shapes.
     if (skip_runtime_checks_ &&
-        (func_name == "vm.builtin.check_tensor_info" ||
-         func_name == "vm.builtin.match_shape")) {
+        func_name == "vm.builtin.check_tensor_info") {
       continue;  // Skip - not used
     }
 
@@ -628,9 +628,11 @@ void CodeGenCStatic::PrintCallPacked(const CallNode* op) {
   // compile time - the runtime checks are redundant safety nets.
   // Skipping them saves ~40-50k cycles per inference on C66x
   // Check this BEFORE calling GetPackedName to avoid declaring unused variables
+  // match_shape is NOT skipped even with skip_runtime_checks, because its
+  // StoreToHeap operations populate the shape heap with runtime dimension
+  // values needed by make_shape and alloc_tensor for dynamic shapes.
   if (skip_runtime_checks_ &&
-      (func_name->value == "vm.builtin.check_tensor_info" ||
-       func_name->value == "vm.builtin.match_shape")) {
+      func_name->value == "vm.builtin.check_tensor_info") {
     this->PrintIndent();
     this->stream << "// [Compile-time validated] " << func_name->value
                  << " - shapes verified by TVM type inference\n";
@@ -664,6 +666,50 @@ void CodeGenCStatic::PrintCallPacked(const CallNode* op) {
   if (func_name->value == "vm.builtin.null_value") {
     this->PrintIndent();
     this->stream << "// [Optimized] null_value skipped - return slot already None\n";
+    return;
+  }
+
+  // Optimize vm.builtin.read_if_cond: read scalar bool directly from the
+  // NDArray data pointer, bypassing FFI dispatch entirely.  This is the
+  // condition reader for Relax If expressions.  The condition tensor is always
+  // a 0-d bool produced by astype(..., "bool"); reading as int8_t handles
+  // both kDLBool (bits=1) and kDLUInt/kDLInt (bits=8).
+  if (func_name->value == "vm.builtin.read_if_cond") {
+    int64_t begin = op->args[2].as<IntImmNode>()->value;
+    int64_t end = op->args[3].as<IntImmNode>()->value;
+    int64_t num_args = end - begin;
+    std::string args_stack = PrintExpr(op->args[1]);
+    this->PrintIndent();
+    this->stream << "// [Direct] vm.builtin.read_if_cond\n";
+    this->PrintIndent();
+    this->stream << this->stack_name_ << "[" << num_args << "].v_int64 = "
+                 << "((int8_t*)((DLTensor*)UnwrapObjectRefArg(" << args_stack
+                 << "[" << begin << "]))->data)[0] != 0;\n";
+    return;
+  }
+
+  // Optimize vm.builtin.match_shape: call TVMDSPBuiltinMatchShapePacked directly,
+  // bypassing FFI registry lookup and function pointer dispatch.  The function is
+  // declared in vm/vm_builtins.h (already included in generated code).  The args are
+  // already packed in the stack by preceding SetFFIAny statements.
+  if (func_name->value == "vm.builtin.match_shape") {
+    int64_t begin = op->args[2].as<IntImmNode>()->value;
+    int64_t end = op->args[3].as<IntImmNode>()->value;
+    int64_t num_args = end - begin;
+    std::string args_stack = PrintExpr(op->args[1]);
+    this->PrintIndent();
+    this->stream << "// [Direct] vm.builtin.match_shape\n";
+    this->PrintIndent();
+    this->stream << "if (TVMDSPBuiltinMatchShapePacked("
+                 << args_stack << " + " << begin << ", " << num_args
+                 << ", &" << this->stack_name_ << "[" << num_args << "]) != 0) {\n";
+    {
+      ScopeGuard scope(this);
+      this->PrintIndent();
+      this->stream << "return -1;\n";
+    }
+    this->PrintIndent();
+    this->stream << "}\n";
     return;
   }
 
@@ -825,6 +871,22 @@ void CodeGenCStatic::VisitExpr_(const CallNode* op, std::ostream& os) {  // NOLI
     os << this->stack_name_;
   } else if (op->op.same_as(builtin::tvm_call_packed_lowered())) {
     this->PrintCallPacked(op);
+    // vm.builtin.read_if_cond is the only packed call used as an expression
+    // (as the condition of a Relax If node in codegen_vm_tir.cc).
+    // PrintCallPacked emits the FFI call as a statement to this->stream but
+    // writes nothing to os, leaving the if-condition empty: if () {
+    // Fix: write the result slot accessor so the caller gets a valid condition.
+    // The result is stored at stack_name_[num_args].v_int64 (bool stored as int64).
+    {
+      const auto* fn = op->args[0].as<StringImmNode>();
+      if (fn && fn->value == "vm.builtin.read_if_cond") {
+        const auto* end_imm = op->args[3].as<IntImmNode>();
+        const auto* begin_imm = op->args[2].as<IntImmNode>();
+        if (end_imm && begin_imm) {
+          os << this->stack_name_ << "[" << (end_imm->value - begin_imm->value) << "].v_int64";
+        }
+      }
+    }
   } else if (op->op.same_as(builtin::tvm_call_cpacked_lowered())) {
     this->PrintCallPacked(op);
   } else if (op->op.same_as(builtin::tvm_throw_last_error())) {
@@ -1365,11 +1427,68 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCallClean(const FFICallPattern& pattern)
     return true;
   }
 
-  // vm.builtin.match_shape: runtime assertion, skip when checks are disabled
-  if (name == "vm.builtin.match_shape") {
-    this->PrintIndent();
-    this->stream << "// [Skipped] " << name << "\n";
-    return true;
+  // vm.builtin.match_shape: not handled here (goes through PrintCallPacked FFI path)
+  // Do NOT skip — StoreToHeap operations are essential for dynamic shapes.
+
+  // vm.builtin.alloc_shape_heap: (ctx, size) -> NDArray of int64
+  // Allocates the shape heap used to store runtime dimension values.
+  // Args: [0]=ctx (ignored), [1]=size (PrimValue int64)
+  if (name == "vm.builtin.alloc_shape_heap") {
+    if (pattern.num_args >= 2 && pattern.args.size() >= 2) {
+      this->PrintIndent();
+      this->stream << "// [Direct] " << name << "\n";
+      this->PrintIndent();
+      this->stream << "_" << pattern.result_array << ".SetNDArray(" << pattern.result_slot
+                   << ", tvm::dsp::vm::AllocShapeHeap("
+                   << GetSourceAccess(1, "GetInt") << "));\n";
+      return true;
+    }
+    return false;
+  }
+
+  // vm.builtin.make_shape: (heap, ndim, code0, val0, code1, val1, ...) -> Shape
+  // Constructs a shape object from heap values (dynamic dims) and immediates (static dims).
+  // Codes: 0=UseImm (val is the dimension), 1=LoadFromHeap (val is heap index).
+  if (name == "vm.builtin.make_shape") {
+    if (pattern.num_args >= 2 && pattern.args.size() >= 2 &&
+        pattern.args[1].type == PackedArgInfo::kLiteral) {
+      int64_t ndim = pattern.args[1].literal_value;
+      size_t expected = static_cast<size_t>(2 + ndim * 2);
+      if (ndim > 0 && pattern.args.size() >= expected) {
+        this->PrintIndent();
+        this->stream << "// [Direct] " << name << " (ndim=" << ndim << ")\n";
+        this->PrintIndent();
+        this->stream << "{\n";
+        {
+          ScopeGuard scope(this);
+          // Emit compile-time constant codes and values arrays
+          this->PrintIndent();
+          this->stream << "static const int32_t _ms_codes_" << pattern.result_slot << "[] = {";
+          for (int64_t i = 0; i < ndim; i++) {
+            if (i > 0) this->stream << ", ";
+            this->stream << pattern.args[2 + i * 2].literal_value;
+          }
+          this->stream << "};\n";
+          this->PrintIndent();
+          this->stream << "static const int64_t _ms_vals_" << pattern.result_slot << "[] = {";
+          for (int64_t i = 0; i < ndim; i++) {
+            if (i > 0) this->stream << ", ";
+            this->stream << pattern.args[2 + i * 2 + 1].literal_value;
+          }
+          this->stream << "};\n";
+          this->PrintIndent();
+          this->stream << "_" << pattern.result_array << ".SetShape(" << pattern.result_slot
+                       << ", tvm::dsp::vm::MakeShape("
+                       << GetSourceAccess(0, "GetNDArray") << ", "
+                       << ndim << ", _ms_codes_" << pattern.result_slot
+                       << ", _ms_vals_" << pattern.result_slot << "));\n";
+        }
+        this->PrintIndent();
+        this->stream << "}\n";
+        return true;
+      }
+    }
+    return false;
   }
 
   return false;
