@@ -600,6 +600,26 @@ int TVMDSPBuiltinCopyPacked(const TVMFFIAny* args, int32_t num_args,
   return 0;
 }
 
+int TVMDSPBuiltinReadIfCondPacked(const TVMFFIAny* args, int32_t num_args,
+                                  TVMFFIAny* ret) {
+  /* Mirrors TVM's ReadIfCond (src/runtime/vm/builtin.cc):
+   * extract a scalar bool/int from an NDArray and return as bool.
+   * DSP is always CPU so no device copy is needed. */
+  (void)num_args;
+  TVMDSPNDArray* arr = (TVMDSPNDArray*)args[0].v_obj;
+  int64_t result;
+  switch (arr->dtype.bits) {
+    case 1:  /* kDLBool, bits=1 */
+    case 8:  result = ((int8_t*)arr->data)[0]; break;
+    case 16: result = ((int16_t*)arr->data)[0]; break;
+    case 32: result = ((int32_t*)arr->data)[0]; break;
+    case 64: result = ((int64_t*)arr->data)[0]; break;
+    default: return -1;
+  }
+  TVMFFIAnySetBool(ret, result != 0);
+  return 0;
+}
+
 int TVMDSPBuiltinMakeTuplePacked(const TVMFFIAny* args, int32_t num_args,
                                   TVMFFIAny* ret) {
   /* Validate element count */
@@ -796,6 +816,8 @@ int TVMDSPRegisterVMBuiltins(void) {
                              TVMDSPBuiltinMakeTuplePacked);
   ret |= TVMRegistryRegister("vm.builtin.reshape",
                              TVMDSPBuiltinReshapePacked);
+  ret |= TVMRegistryRegister("vm.builtin.read_if_cond",
+                             TVMDSPBuiltinReadIfCondPacked);
 
   return ret;
 }

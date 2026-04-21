@@ -215,6 +215,22 @@ inline TVMDSPShape* CreateShape(const int64_t* shape_data, int32_t ndim) {
   return TVMDSPShapeCreate(shape_data, ndim);
 }
 
+/*!
+ * \brief Create shape from code/value protocol (heap-based lookups)
+ * \param heap Shape heap NDArray containing runtime dimension values
+ * \param ndim Number of dimensions
+ * \param codes Array of codes: 0=UseImm, 1=LoadFromHeap
+ * \param values Array of values: immediate value or heap index
+ * \return New shape object (ref_count=1), or nullptr on failure
+ *
+ * Direct replacement for vm.builtin.make_shape FFI call.
+ * Supports both immediate values and heap-loaded dynamic dimensions.
+ */
+inline TVMDSPShape* MakeShape(TVMDSPNDArray* heap, int32_t ndim,
+                               const int32_t* codes, const int64_t* values) {
+  return TVMDSPBuiltinMakeShape(heap, ndim, codes, values);
+}
+
 /*-----------------------------------------------------------------------------
  * Tuple Builtins
  *-----------------------------------------------------------------------------*/
