@@ -99,10 +99,17 @@ def _load_tidl_relax_so(path=None):
     """Load tidl_model_import_relax.so and verify FFI functions.
 
     Resolution order: *path* arg > ``TIDL_RELAX_SO_PATH`` env >
-    ``$C7X_MMA_TIDL_PATH/.../tidl_model_import_relax.so``.
+    bundled package > ``$C7X_MMA_TIDL_PATH/.../tidl_model_import_relax.so``.
     """
     if path is None:
         path = os.environ.get("TIDL_RELAX_SO_PATH")
+    if path is None:
+        try:
+            from tvm.data.ti_dsp.paths import find_tidl_relax_so
+
+            path = find_tidl_relax_so()
+        except ImportError:
+            pass
     if path is None:
         c7x = os.environ.get(
             "C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl")
@@ -1035,8 +1042,18 @@ def _build_dynmod(
     Path
         Path to the built lib0.out module.
     """
-    tvm_home = Path(__file__).resolve().parents[5]  # python/tvm/relax/backend/tidl -> tvm
-    dsp_runtime_dir = tvm_home / "src" / "runtime" / "ti_dsp"
+    # Resolve DSP build infrastructure: bundled package first, source tree fallback
+    try:
+        from tvm.data.ti_dsp.paths import find_dsp_runtime_dir
+
+        dsp_runtime_dir = find_dsp_runtime_dir()
+    except ImportError:
+        dsp_runtime_dir = None
+
+    if dsp_runtime_dir is None:
+        tvm_home = Path(__file__).resolve().parents[5]
+        dsp_runtime_dir = tvm_home / "src" / "runtime" / "ti_dsp"
+
     dynmod_cmake = dsp_runtime_dir / "dynmod"
     toolchain_file = dsp_runtime_dir / "cmake" / "toolchain-j722s-c7x.cmake"
 

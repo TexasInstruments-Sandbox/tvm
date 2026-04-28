@@ -139,11 +139,20 @@ _lib_cache: dict = {}
 
 def _load_runtime_lib(so_path: str) -> ctypes.CDLL:
     """Load libc7x_arm_runtime.so and configure argtypes/restypes."""
-    # Search order: explicit path → LD_LIBRARY_PATH → system lib dirs
+    # Search order: explicit path → bundled package → system lib dirs
     if not os.path.isabs(so_path) and not so_path.startswith("./"):
-        found = ctypes.util.find_library("c7x_arm_runtime")
-        if found:
-            so_path = found
+        try:
+            from tvm.data.ti_dsp.paths import find_c7x_arm_runtime_so
+
+            bundled = find_c7x_arm_runtime_so()
+            if bundled:
+                so_path = bundled
+        except ImportError:
+            pass
+        if not os.path.isfile(so_path):
+            found = ctypes.util.find_library("c7x_arm_runtime")
+            if found:
+                so_path = found
 
     if so_path in _lib_cache:
         return _lib_cache[so_path]
