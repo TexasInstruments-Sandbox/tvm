@@ -57,7 +57,7 @@ from tvm.contrib.c7x.c7x_runtime import (  # pyright: ignore[reportMissingImport
 )
 from tvm.relax.backend.tidl import TIDLBuildResult  # pyright: ignore[reportMissingImports]
 
-pytestmark = [pytest.mark.c7x_only, pytest.mark.core]
+pytestmark = [pytest.mark.c7x_only, pytest.mark.core, pytest.mark.quick]
 
 # ---------------------------------------------------------------------------
 # Helpers
