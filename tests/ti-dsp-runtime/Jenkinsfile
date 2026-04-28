@@ -17,6 +17,31 @@
 //      libbacktrace) on github.com.  The Jenkins Git plugin injects the
 //      proxy for direct submodules but not for recursive (nested) ones,
 //      so git must be configured to proxy HTTPS requests globally.
+//   6. Pre-cache torchvision model weights on the Jenkins node.
+//      Several DSP tests load pretrained models (squeezenet, resnet, etc.)
+//      which torchvision downloads from download.pytorch.org on first use.
+//      The Jenkins node cannot reach this URL through the corporate proxy,
+//      so the weights must be cached ahead of time:
+//        # On a machine with internet access, run:
+//        python -c "
+//        from torchvision import models
+//        for m in ['squeezenet1_1', 'shufflenet_v2_x1_0', 'mobilenet_v2',
+//                  'mobilenet_v3_small', 'mobilenet_v3_large',
+//                  'efficientnet_b0', 'densenet121', 'resnet34', 'resnet18']:
+//            getattr(models, m)(weights='DEFAULT')
+//        import torch
+//        torch.hub.load('ultralytics/yolov5', 'yolov5n', pretrained=True)
+//        torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+//        "
+//        This caches: torchvision weights (~500 MB), yolov5 repo + .pt
+//        weights under ~/.cache/torch/hub/.  YOLOv5 models require
+//        the ultralytics/yolov5 repo on sys.path (torch.hub clones it
+//        on first use) AND the pretrained .pt weights at
+//        ~/.cache/torch/hub/checkpoints/yolov5{n,s}.pt.  Without
+//        cached copies the Jenkins node cannot reach github.com.
+//
+//        # Then copy the entire cache to the Jenkins node:
+//        scp -r ~/.cache/torch sdomcbuild@<node>:~/.cache/torch
 
 pipeline {
     agent { label 'relax-c7x' }
@@ -59,11 +84,32 @@ pipeline {
             defaultValue: false,
             description: 'Skip all TIDL tests (host and hardware)'
         )
+        booleanParam(
+            name: 'CLEAN_WORKSPACE',
+            defaultValue: false,
+            description: 'Wipe the workspace before building (full clean rebuild)'
+        )
+        booleanParam(
+            name: 'KEEP_TEMP_DIRS',
+            defaultValue: false,
+            description: 'Retain /tmp/dsp_build_* directories for post-mortem debugging'
+        )
+        booleanParam(
+            name: 'SKIP_WHEEL_TESTS',
+            defaultValue: false,
+            description: 'Skip wheel packaging tests (compile + inference e2e on board)'
+        )
     }
 
     environment {
         TVM_HOME                       = "${WORKSPACE}"
-        PYTHONPATH                     = "${WORKSPACE}/python"
+        // Pre-cached model weights at ~/.cache/torch/hub/checkpoints/
+        // avoid network downloads during tests (see CLAUDE.md setup).
+        TORCH_HOME                     = "${HOME}/.cache/torch"
+        // Disable upstream TVM CI request hook (conftest.py loads it
+        // when CI=true).  Our DSP tests are not upstream CI and the
+        // hook blocks legitimate model downloads.
+        CI                             = 'false'
         VIRTUAL_ENV                    = "${WORKSPACE}/.venv"
         PATH                           = "${WORKSPACE}/.venv/bin:${PATH}"
         http_proxy                     = 'http://webproxy.ext.ti.com:80'
@@ -80,6 +126,22 @@ pipeline {
 
     stages {
 
+        // Set DSP_KEEP_TEMP from the KEEP_TEMP_DIRS parameter so that
+        // dsp_utils.py preserves /tmp/dsp_build_* dirs on test failure.
+        // Cannot use params in the environment block directly, so we
+        // set it here as a pipeline-wide env var.
+        stage('Init') {
+            steps {
+                // Clear stale test results so JUnit only sees this run's XMLs
+                sh 'rm -rf results && mkdir -p results'
+                script {
+                    if (params.KEEP_TEMP_DIRS) {
+                        env.DSP_KEEP_TEMP = '1'
+                    }
+                }
+            }
+        }
+
         // ----------------------------------------------------------------
         // BUILD
         // ----------------------------------------------------------------
@@ -88,12 +150,42 @@ pipeline {
                 timeout(time: 30, unit: 'MINUTES')
             }
             stages {
+                stage('Clean Workspace') {
+                    when {
+                        expression { return params.CLEAN_WORKSPACE }
+                    }
+                    steps {
+                        // Removes build dirs, venv, and cached artifacts.
+                        // The SCM checkout is re-done by Jenkins before
+                        // this stage runs, so source files are intact.
+                        sh '''
+                            rm -rf build .venv artifacts packaging/ti_dsp/staging
+                            rm -rf src/runtime/ti_dsp/build-*
+                            rm -rf src/runtime/ti_dsp/firmware/c7x/dsp/build
+                            rm -rf src/runtime/ti_dsp/firmware/c7x/arm/build
+                            rm -rf c7x-mma-tidl
+                        '''
+                    }
+                }
+
                 stage('Python Setup') {
                     steps {
                         sh '''
+                            if [ ! -d "${TORCH_HOME}/hub/checkpoints" ]; then
+                                echo "ERROR: Torchvision model cache not found at ${TORCH_HOME}/hub/checkpoints"
+                                echo ""
+                                echo "DSP tests require pre-cached pretrained model weights because the"
+                                echo "Jenkins node cannot download them from download.pytorch.org."
+                                echo ""
+                                echo "Fix: on a machine with internet access, run:"
+                                echo "  python -c \\"from torchvision import models; [getattr(models, m)(weights='DEFAULT') for m in ['squeezenet1_1','shufflenet_v2_x1_0','mobilenet_v2','mobilenet_v3_small','mobilenet_v3_large','efficientnet_b0','densenet121','resnet34','resnet18']]\\""
+                                echo "  scp -r ~/.cache/torch ${USER}@$(hostname):${TORCH_HOME}"
+                                exit 1
+                            fi
                             test -d .venv || uv venv .venv
-                            uv pip install numpy pytest scipy psutil ml_dtypes
-                            uv pip install --upgrade "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --index-url https://download.pytorch.org/whl/cpu
+                            uv pip install numpy pytest scipy psutil ml_dtypes build
+                            uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --extra-index-url https://download.pytorch.org/whl/cpu
+                            uv pip install ultralytics
                             uv pip install -e 3rdparty/tvm-ffi
                         '''
                     }
@@ -103,17 +195,10 @@ pipeline {
                     steps {
                         sh '''
                             mkdir -p build
+                            cp cmake/config.cmake build/
                             cd build
                             cmake -G Ninja ..
                             ninja
-                        '''
-                    }
-                }
-
-                stage('Python Extensions') {
-                    steps {
-                        sh '''
-                            uv pip install -e python/
                         '''
                     }
                 }
@@ -175,6 +260,17 @@ pipeline {
                     }
                 }
 
+                stage('Build & Install Wheels') {
+                    steps {
+                        sh '''
+                            bash packaging/ti_dsp/build_wheel.sh --target x86
+                            bash packaging/ti_dsp/build_wheel.sh --target arm64
+                            uv pip install --force-reinstall --no-deps \
+                                packaging/ti_dsp/staging-x86/dist/tvm_ti_c7x_compile-*.whl
+                        '''
+                    }
+                }
+
                 stage('Deploy to AM67A') {
                     when {
                         expression { return !params.SKIP_DEPLOY }
@@ -194,16 +290,10 @@ pipeline {
                 stage('Archive Build Artifacts') {
                     steps {
                         sh '''
+                            rm -rf artifacts
                             mkdir -p artifacts
-                            cp build/libtvm.so                                          artifacts/ || true
-                            cp build/libtvm_runtime.so                                  artifacts/ || true
-                            cp src/runtime/ti_dsp/build-c7x-host/libtvm_dsp_runtime_c7x_host.a  artifacts/
-                            cp src/runtime/ti_dsp/build-c7x/libtvm_dsp_runtime_c7x.a            artifacts/
-                            cp src/runtime/ti_dsp/firmware/c7x/dsp/build/c7x_compute.out        artifacts/
-                            cp src/runtime/ti_dsp/firmware/c7x/arm/build/c7x_compute            artifacts/
-                            cp src/runtime/ti_dsp/firmware/c7x/arm/build/libc7x_arm_runtime.so  artifacts/
-                            cp ${C7X_MMA_TIDL_PATH}/ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so \
-                                                                                                artifacts/
+                            cp packaging/ti_dsp/staging-x86/dist/tvm_ti_c7x_compile-*.whl    artifacts/
+                            cp packaging/ti_dsp/staging-arm64/dist/tvm_ti_c7x_inference-*.whl artifacts/
                         '''
                         archiveArtifacts artifacts: 'artifacts/**', fingerprint: true
                     }
@@ -226,7 +316,7 @@ pipeline {
                             mkdir -p results
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. dsp-tests/ \
-                                -m quick \
+                                -m "quick and not c66x_only and not c7x_only" \
                                 --dsp-mode=c7x_host \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/c7x_host_quick.xml
@@ -243,6 +333,7 @@ pipeline {
                             mkdir -p results
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. dsp-tests/ \
+                                -m "not c66x_only and not c7x_only and not quick" \
                                 --dsp-mode=c7x_host \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/c7x_host_full.xml
@@ -305,7 +396,8 @@ pipeline {
             when {
                 expression { return !params.BUILD_ONLY && !params.SKIP_HW_VALIDATION }
             }
-            // TODO: Re-enable once Lockable Resources plugin is installed:
+            // Uncomment after creating lockable resource "am67a-dsp-board"
+            // in Manage Jenkins > Lockable Resources:
             // options {
             //     lock(resource: 'am67a-dsp-board')
             // }
@@ -316,7 +408,7 @@ pipeline {
                             ssh -o ConnectTimeout=10 \
                                 -o StrictHostKeyChecking=no \
                                 root@${AM67A_TARGET} \
-                                "c7x_compute status" \
+                                "/usr/local/bin/c7x_compute status" \
                             || {
                                 echo "Board unresponsive -- attempting recovery"
                                 cd src/runtime/ti_dsp/firmware/c7x
@@ -326,8 +418,24 @@ pipeline {
                                 sleep 3
                                 ssh -o ConnectTimeout=10 \
                                     root@${AM67A_TARGET} \
-                                    "c7x_compute status"
+                                    "/usr/local/bin/c7x_compute status"
                             }
+                        '''
+                    }
+                }
+
+                stage('Wheel Tests') {
+                    when {
+                        expression { return !params.SKIP_WHEEL_TESTS }
+                    }
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/ti-dsp-runtime
+                            pytest -p no:tvm.testing.plugin --rootdir=. wheel-tests/ \
+                                -m quick \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/wheel_tests.xml
                         '''
                     }
                 }
@@ -338,7 +446,7 @@ pipeline {
                             mkdir -p results
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. dsp-tests/ \
-                                -m quick \
+                                -m "quick and not c66x_only" \
                                 --dsp-mode=c7x_dload \
                                 --board-target=${AM67A_TARGET} \
                                 -v \
@@ -359,6 +467,7 @@ pipeline {
                             mkdir -p results
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. dsp-tests/ \
+                                -m "not c66x_only and not quick" \
                                 --dsp-mode=c7x_dload \
                                 --board-target=${AM67A_TARGET} \
                                 -v \
@@ -425,7 +534,13 @@ pipeline {
             archiveArtifacts artifacts: 'results/**', allowEmptyArchive: true
         }
         cleanup {
-            sh 'rm -rf /tmp/dsp_build_* || true'
+            script {
+                if (!params.KEEP_TEMP_DIRS) {
+                    // Clean up temp build dirs from DSP test runs, but only
+                    // those owned by the Jenkins user.
+                    sh 'find /tmp -maxdepth 1 -name "dsp_build_*" -user "$(id -un)" -exec rm -rf {} + 2>/dev/null || true'
+                }
+            }
         }
     }
 }

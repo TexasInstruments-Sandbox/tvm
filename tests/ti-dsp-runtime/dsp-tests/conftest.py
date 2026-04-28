@@ -45,6 +45,11 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
+        "c66x_only: test only valid for c66x targets "
+        "(e.g. c66x pragma generation, c66x-specific codegen)",
+    )
+    config.addinivalue_line(
+        "markers",
         "c7x_only: test only valid for c7x targets "
         "(model too large for C66x, or feature is c7x-specific)",
     )
