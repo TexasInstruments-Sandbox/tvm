@@ -51,7 +51,12 @@ elseif(UNIX)
     set(TVM_HOME "$ENV{HOME}/ml/tvm" CACHE PATH "Path to TVM")
 endif()
 
-set(DSP_RUNTIME_DIR "${TVM_HOME}/src/runtime/ti_dsp")
+# DSP_RUNTIME_DIR can be set explicitly for pip-installed packages
+# where the source tree is not available and build infrastructure
+# is bundled under tvm/data/ti_dsp/.
+if(NOT DSP_RUNTIME_DIR)
+    set(DSP_RUNTIME_DIR "${TVM_HOME}/src/runtime/ti_dsp" CACHE PATH "DSP runtime dir")
+endif()
 set(TIDL_API_DIR "${DSP_RUNTIME_DIR}/tidl")
 
 # Generated code directory (must contain lib0.c)
@@ -204,6 +209,9 @@ if(DSP_RUNTIME_DIR AND EXISTS "${DSP_RUNTIME_DIR}")
 endif()
 if(TVM_HOME AND EXISTS "${TVM_HOME}/3rdparty/tvm-ffi/3rdparty/dlpack/include")
     list(APPEND DYNMOD_INCLUDES -I${TVM_HOME}/3rdparty/tvm-ffi/3rdparty/dlpack/include)
+elseif(DSP_RUNTIME_DIR AND EXISTS "${DSP_RUNTIME_DIR}/include/dlpack")
+    # Bundled dlpack headers in pip-installed package
+    list(APPEND DYNMOD_INCLUDES -I${DSP_RUNTIME_DIR}/include)
 endif()
 set(DYNMOD_DEFINES -DTVM_DSP_TARGET_C7X -DSOC_J722S -DTIDL_MAX_NUM_CORES=4 -DRPROC_TRACE=0)
 
