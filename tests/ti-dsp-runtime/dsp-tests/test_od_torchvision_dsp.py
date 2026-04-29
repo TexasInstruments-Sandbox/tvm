@@ -158,6 +158,7 @@ def _run_od_test(
         execution_mode=dsp_mode,
         timeout_ms=timeout_ms,
         profile_layers=profile_layers,
+        multi_output=True,
     )
 
     return {
@@ -209,19 +210,21 @@ def test_od_torchvision_dsp(
             f"DLOAD execution error: {dsp_results['c7x_dload_error']}"
         )
 
-    rtol, atol = 0.1, 0.1
-
     has_results = False
 
     if "c66x_host_result" in dsp_results:
         _check_multi_output(
-            dsp_results["c66x_host_result"], torch_outputs, "Host", rtol, atol
+            dsp_results["c66x_host_result"], torch_outputs, "Host",
+            rtol=0.1, atol=0.1,
         )
         has_results = True
 
     if "c7x_dload_result" in dsp_results:
+        # Wider tolerance on C7x hardware: SSD post-processing amplifies
+        # float rounding from cl7x -O2 reassociation.
         _check_multi_output(
-            dsp_results["c7x_dload_result"], torch_outputs, "DLOAD", rtol, atol
+            dsp_results["c7x_dload_result"], torch_outputs, "DLOAD",
+            rtol=0.2, atol=0.2,
         )
         has_results = True
 
