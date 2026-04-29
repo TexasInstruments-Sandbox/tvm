@@ -1274,6 +1274,7 @@ def compile_and_run_dsp(
     profile: bool = False,
     relax_pipeline=None,
     fp_reassoc_off: bool = False,
+    multi_output: bool = False,
 ) -> dict:
     """
     End-to-end: compile, build, run, and return results.
@@ -1402,6 +1403,7 @@ def compile_and_run_dsp(
                 embedded_weights=True,
                 profile_layers=profile_layers,
                 profile=profile,
+                multi_output=multi_output,
             )
             results["c7x_dload_result"] = c7x_dload_output
             results["c7x_dload_stdout"] = c7x_dload_stdout

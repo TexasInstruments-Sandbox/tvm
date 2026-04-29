@@ -183,7 +183,7 @@ pipeline {
                                 exit 1
                             fi
                             test -d .venv || uv venv .venv
-                            uv pip install numpy pytest scipy psutil ml_dtypes build
+                            uv pip install numpy pytest scipy psutil ml_dtypes build pandas tqdm
                             uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --extra-index-url https://download.pytorch.org/whl/cpu
                             uv pip install ultralytics
                             uv pip install -e 3rdparty/tvm-ffi

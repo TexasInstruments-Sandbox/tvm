@@ -159,6 +159,7 @@ def _run_multi_output_test(
         target_string=target_string,
         execution_mode=dsp_mode,
         timeout_ms=timeout_ms,
+        multi_output=True,
     )
 
     return {
@@ -351,6 +352,7 @@ def main():
         input_data=input_data,
         target_string=target_string,
         execution_mode=execution_mode,
+        multi_output=True,
     )
 
     # Print and compare results
