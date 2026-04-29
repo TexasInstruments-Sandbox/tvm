@@ -688,11 +688,10 @@ void CodeGenCStatic::PrintCallPacked(const CallNode* op) {
     return;
   }
 
-  // Optimize vm.builtin.match_shape: call TVMDSPBuiltinMatchShapePacked directly,
-  // bypassing FFI registry lookup and function pointer dispatch.  The function is
-  // declared in vm/vm_builtins.h (already included in generated code).  The args are
-  // already packed in the stack by preceding SetFFIAny statements.
-  if (func_name->value == "vm.builtin.match_shape") {
+  // Optimize vm.builtin.match_shape: on DSP targets, call
+  // TVMDSPBuiltinMatchShapePacked directly, bypassing FFI registry lookup.
+  // On non-DSP targets, fall through to the generic FFI dispatch path.
+  if (func_name->value == "vm.builtin.match_shape" && dsp_.enabled) {
     int64_t begin = op->args[2].as<IntImmNode>()->value;
     int64_t end = op->args[3].as<IntImmNode>()->value;
     int64_t num_args = end - begin;
