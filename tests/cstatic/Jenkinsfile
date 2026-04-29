@@ -1,0 +1,325 @@
+// TVM C Static Backend Validation Pipeline
+//
+// Builds TVM (2-pass: shared + static runtime) and runs the c_static
+// backend unit test suite.  All tests run on x86 -- no hardware board
+// required.
+//
+// Jenkins setup:
+//   1. Pipeline job: SCM, script path "tests/cstatic/Jenkinsfile"
+//   2. Label the build node "relax-c7x" (or any x86 node with cmake,
+//      ninja, g++, Python 3.8+)
+//   3. Configure git HTTP proxy on the Jenkins node (as the jenkins user):
+//        git config --global http.proxy http://webproxy.ext.ti.com:80
+//        git config --global https.proxy http://webproxy.ext.ti.com:80
+//   4. Pre-cache torchvision model weights on the Jenkins node.
+//      The c_static tests load pretrained models (resnet18, vit_b_16,
+//      etc.) which torchvision downloads from download.pytorch.org on
+//      first use.  The Jenkins node cannot reach this URL through the
+//      corporate proxy, so cache ahead of time:
+//        python -c "
+//        from torchvision import models
+//        for m in ['resnet18', 'vit_b_16', 'fcn_resnet50',
+//                  'shufflenet_v2_x1_0', 'mobilenet_v2']:
+//            getattr(models, m)(weights='DEFAULT')
+//        "
+//        scp -r ~/.cache/torch sdomcbuild@<node>:~/.cache/torch
+
+pipeline {
+    agent { label 'relax-c7x' }
+
+    triggers {
+        cron('H 22 * * *')
+    }
+
+    options {
+        timestamps()
+        timeout(time: 3, unit: 'HOURS')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        disableConcurrentBuilds()
+    }
+
+    parameters {
+        booleanParam(
+            name: 'SKIP_UNIT_TESTS',
+            defaultValue: false,
+            description: 'Skip unit tests (quick and slow)'
+        )
+        booleanParam(
+            name: 'SKIP_SLOW_TESTS',
+            defaultValue: false,
+            description: 'Skip slow tests (ViT-B/16, segmentation)'
+        )
+        booleanParam(
+            name: 'BUILD_ONLY',
+            defaultValue: false,
+            description: 'Only run the build stage, skip all validation'
+        )
+        booleanParam(
+            name: 'CLEAN_WORKSPACE',
+            defaultValue: false,
+            description: 'Wipe build dirs before building (full clean rebuild)'
+        )
+        booleanParam(
+            name: 'KEEP_TEMP_DIRS',
+            defaultValue: false,
+            description: 'Retain /tmp/cpp_cstatic_* directories for debugging'
+        )
+        booleanParam(
+            name: 'SKIP_MODEL_ZOO',
+            defaultValue: false,
+            description: 'Skip all model zoo stages (classification, detection, segmentation)'
+        )
+        booleanParam(
+            name: 'SKIP_CLASSIFICATION',
+            defaultValue: false,
+            description: 'Skip TorchVision classification model tests'
+        )
+        booleanParam(
+            name: 'SKIP_DETECTION',
+            defaultValue: false,
+            description: 'Skip TorchVision object detection model tests'
+        )
+        booleanParam(
+            name: 'SKIP_SEGMENTATION',
+            defaultValue: false,
+            description: 'Skip TorchVision segmentation model tests'
+        )
+        booleanParam(
+            name: 'SKIP_YOLO',
+            defaultValue: false,
+            description: 'Skip YOLO detection model tests'
+        )
+    }
+
+    environment {
+        TVM_HOME    = "${WORKSPACE}"
+        TORCH_HOME  = "${HOME}/.cache/torch"
+        CI          = 'false'
+        VIRTUAL_ENV = "${WORKSPACE}/.venv"
+        PATH        = "${WORKSPACE}/.venv/bin:${PATH}"
+        PYTHONPATH  = "${WORKSPACE}/python:${WORKSPACE}/build"
+        http_proxy  = 'http://webproxy.ext.ti.com:80'
+        https_proxy = 'http://webproxy.ext.ti.com:80'
+        no_proxy    = 'ti.com,.ti.com,localhost,127.0.0.1'
+    }
+
+    stages {
+
+        stage('Init') {
+            steps {
+                sh 'rm -rf results && mkdir -p results'
+                script {
+                    if (params.KEEP_TEMP_DIRS) {
+                        env.CSTATIC_KEEP_TEMP = '1'
+                    }
+                }
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // BUILD
+        // ----------------------------------------------------------------
+        stage('Build') {
+            options {
+                timeout(time: 30, unit: 'MINUTES')
+            }
+            stages {
+                stage('Clean Workspace') {
+                    when {
+                        expression { return params.CLEAN_WORKSPACE }
+                    }
+                    steps {
+                        sh 'rm -rf build .venv 3rdparty/cnpy/build'
+                    }
+                }
+
+                stage('Python Setup') {
+                    steps {
+                        sh '''
+                            test -d .venv || uv venv .venv
+                            uv pip install numpy pytest pytest-xdist scipy psutil tqdm pandas PyYAML
+                            uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" \
+                                --extra-index-url https://download.pytorch.org/whl/cpu
+                            uv pip install onnx Pillow opencv-python requests ultralytics seaborn matplotlib
+                            uv pip install -e 3rdparty/tvm-ffi
+                        '''
+                    }
+                }
+
+                stage('TVM Core (Pass 1: shared)') {
+                    steps {
+                        sh '''
+                            mkdir -p build
+                            cp cmake/config.cmake build/
+                            cd build
+                            cmake -G Ninja ..
+                            ninja
+                        '''
+                    }
+                }
+
+                stage('TVM Core (Pass 2: static runtime)') {
+                    steps {
+                        // config.cmake uses set() (not cache), which overrides
+                        // -D flags.  Must edit the file directly to enable the
+                        // static runtime archive (libtvm_runtime.a).
+                        sh '''
+                            cd build
+                            sed -i 's/set(BUILD_STATIC_RUNTIME OFF)/set(BUILD_STATIC_RUNTIME ON)/' config.cmake
+                            cmake -G Ninja ..
+                            ninja tvm_runtime
+                        '''
+                    }
+                }
+
+                stage('cnpy') {
+                    steps {
+                        sh '''
+                            cd 3rdparty/cnpy
+                            mkdir -p build && cd build
+                            cmake ..
+                            make -j$(nproc)
+                        '''
+                    }
+                }
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // VALIDATE
+        // ----------------------------------------------------------------
+        stage('Validate') {
+            when {
+                expression { return !params.BUILD_ONLY && !params.SKIP_UNIT_TESTS }
+            }
+            parallel {
+                stage('Quick Tests') {
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/cstatic
+                            pytest -p no:tvm.testing.plugin --rootdir=. \
+                                unit-tests/ \
+                                -m "not slow and not model_zoo" \
+                                -n auto \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/cstatic_quick.xml
+                        '''
+                    }
+                }
+
+                stage('Slow Tests') {
+                    when {
+                        expression { return !params.SKIP_SLOW_TESTS }
+                    }
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/cstatic
+                            pytest -p no:tvm.testing.plugin --rootdir=. \
+                                unit-tests/ \
+                                -m "slow and not model_zoo" \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/cstatic_slow.xml
+                        '''
+                    }
+                }
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // MODEL ZOO
+        // ----------------------------------------------------------------
+        stage('Model Zoo') {
+            when {
+                expression { return !params.BUILD_ONLY && !params.SKIP_MODEL_ZOO }
+            }
+            stages {
+                stage('Classification') {
+                    when {
+                        expression { return !params.SKIP_CLASSIFICATION }
+                    }
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/cstatic
+                            pytest -p no:tvm.testing.plugin --rootdir=. \
+                                unit-tests/test_model_zoo.py \
+                                -k "test_classification" \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/model_zoo_classification.xml
+                        '''
+                    }
+                }
+
+                stage('Detection') {
+                    when {
+                        expression { return !params.SKIP_DETECTION }
+                    }
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/cstatic
+                            pytest -p no:tvm.testing.plugin --rootdir=. \
+                                unit-tests/test_model_zoo.py \
+                                -k "test_detection" \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/model_zoo_detection.xml
+                        '''
+                    }
+                }
+
+                stage('Segmentation') {
+                    when {
+                        expression { return !params.SKIP_SEGMENTATION }
+                    }
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/cstatic
+                            pytest -p no:tvm.testing.plugin --rootdir=. \
+                                unit-tests/test_model_zoo.py \
+                                -k "test_segmentation" \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/model_zoo_segmentation.xml
+                        '''
+                    }
+                }
+
+                stage('YOLO') {
+                    when {
+                        expression { return !params.SKIP_YOLO }
+                    }
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/cstatic
+                            pytest -p no:tvm.testing.plugin --rootdir=. \
+                                unit-tests/test_model_zoo.py \
+                                -k "test_yolo" \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/model_zoo_yolo.xml
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // POST: collect results and clean up
+    // ----------------------------------------------------------------
+    post {
+        always {
+            junit testResults: 'results/*.xml', allowEmptyResults: true
+            archiveArtifacts artifacts: 'results/**', allowEmptyArchive: true
+        }
+        cleanup {
+            script {
+                if (!params.KEEP_TEMP_DIRS) {
+                    sh 'find /tmp -maxdepth 1 -name "cpp_cstatic_*" -user "$(id -un)" -exec rm -rf {} + 2>/dev/null || true'
+                }
+            }
+        }
+    }
+}
