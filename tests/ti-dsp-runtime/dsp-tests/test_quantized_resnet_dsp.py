@@ -184,7 +184,7 @@ def _run_quantized_resnet_dsp_test(
     }
 
 
-def test_quantized_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile):
+def test_quantized_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile, record_cycles):
     """Test quantized ResNet-18 model on DSP comparing against PyTorch reference.
 
     Uses PT2E static quantization (INT8 QDQ graph).
@@ -198,7 +198,7 @@ def test_quantized_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers
         profile_layers=profile_layers,
         profile=profile,
     )
-
+    record_cycles("resnet18_int8", results["dsp_results"].get("c7x_dload_cycles", 0))
     assert_dsp_comparison(results["dsp_results"], results["comparison"])
 
 

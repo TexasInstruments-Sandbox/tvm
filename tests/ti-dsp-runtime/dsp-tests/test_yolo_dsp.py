@@ -300,7 +300,7 @@ def _skip_yolo_if_no_ultralytics(model_name):
     ids=[m[0] for m in YOLO_MODELS],
 )
 def test_yolo_dsp(
-    model_spec, dsp_mode, dsp_timeout, use_cpp_api, profile_layers
+    model_spec, dsp_mode, dsp_timeout, use_cpp_api, profile_layers, record_cycles
 ):
     """Test YOLO model on DSP comparing against PyTorch reference."""
     model_name, version = model_spec
@@ -315,7 +315,7 @@ def test_yolo_dsp(
         use_cpp_api=use_cpp_api,
         profile_layers=profile_layers,
     )
-
+    record_cycles(model_name, results["dsp_results"].get("c7x_dload_cycles", 0))
     assert_dsp_comparison(results["dsp_results"], results["comparison"])
 
 

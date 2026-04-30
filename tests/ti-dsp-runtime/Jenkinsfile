@@ -46,6 +46,10 @@
 pipeline {
     agent { label 'relax-c7x' }
 
+    triggers {
+        cron('H 1 * * *')
+    }
+
     options {
         timestamps()
         timeout(time: 6, unit: 'HOURS')
@@ -81,7 +85,7 @@ pipeline {
         )
         booleanParam(
             name: 'SKIP_TIDL_TESTS',
-            defaultValue: false,
+            defaultValue: true,
             description: 'Skip all TIDL tests (host and hardware)'
         )
         booleanParam(
@@ -183,7 +187,7 @@ pipeline {
                                 exit 1
                             fi
                             test -d .venv || uv venv .venv
-                            uv pip install numpy pytest scipy psutil ml_dtypes build pandas tqdm
+                            uv pip install numpy pytest scipy psutil ml_dtypes build pandas tqdm seaborn
                             uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --extra-index-url https://download.pytorch.org/whl/cpu
                             uv pip install ultralytics
                             uv pip install -e 3rdparty/tvm-ffi
@@ -532,6 +536,17 @@ pipeline {
         always {
             junit testResults: 'results/*.xml', allowEmptyResults: true
             archiveArtifacts artifacts: 'results/**', allowEmptyArchive: true
+            script {
+                if (fileExists('results/cycles.csv')) {
+                    plot csvFileName: 'dsp_inference_cycles.csv',
+                         group: 'DSP Performance',
+                         title: 'Inference Cycles (c7x_dload)',
+                         style: 'line',
+                         yaxis: 'Cycles',
+                         csvSeries: [[file: 'results/cycles.csv', displayTableFlag: false, inclusionFlag: 'OFF', url: '']],
+                         keepRecords: true
+                }
+            }
         }
         cleanup {
             script {

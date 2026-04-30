@@ -114,7 +114,7 @@ def _run_mlp_dsp_test(
 
 @pytest.mark.quick
 @pytest.mark.core
-def test_mlp_dsp(dsp_mode, dsp_timeout, use_cpp_api):
+def test_mlp_dsp(dsp_mode, dsp_timeout, use_cpp_api, record_cycles):
     """Test MLP model on DSP comparing against PyTorch reference.
 
     Uses smaller dimensions to fit in C66x L2 memory (~320KB).
@@ -128,6 +128,7 @@ def test_mlp_dsp(dsp_mode, dsp_timeout, use_cpp_api):
         hidden_size=32,
         output_size=10,
     )
+    record_cycles("mlp", results["dsp_results"].get("c7x_dload_cycles", 0))
     assert_dsp_comparison(results["dsp_results"], results["comparison"])
 
 

@@ -229,11 +229,12 @@ def test_multi_output_shapes(dsp_mode, dsp_timeout, use_cpp_api):
         pytest.fail(f"No DSP {result_key} results available")
 
 
-def test_multi_output_correctness(dsp_mode, dsp_timeout, use_cpp_api):
+def test_multi_output_correctness(dsp_mode, dsp_timeout, use_cpp_api, record_cycles):
     """Test multi-output model correctness against PyTorch reference."""
     results = _run_multi_output_test(dsp_mode, dsp_timeout, use_cpp_api)
     torch_outputs = results["torch_outputs"]
     dsp_results = results["dsp_results"]
+    record_cycles("rtmdet", dsp_results.get("c7x_dload_cycles", 0))
 
     # Check for execution errors
     if "c66x_host_error" in dsp_results:

@@ -279,3 +279,5 @@ tvm-site/
 .lesshst
 
 docs/dsp/pptx-workspace/
+
+*.pt
