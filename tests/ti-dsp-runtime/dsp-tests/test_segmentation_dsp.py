@@ -191,7 +191,7 @@ def _check_main_output(dsp_result, torch_outputs, label, rtol, atol):
 
 @pytest.mark.parametrize("model_name", SEGMENTATION_MODELS)
 def test_segmentation_dsp(
-    model_name, dsp_mode, dsp_timeout, use_cpp_api, profile_layers
+    model_name, dsp_mode, dsp_timeout, use_cpp_api, profile_layers, record_cycles
 ):
     """Test segmentation model on DSP comparing main output vs PyTorch."""
     results = _run_segmentation_test(
@@ -203,6 +203,7 @@ def test_segmentation_dsp(
     )
 
     dsp_results = results["dsp_results"]
+    record_cycles(model_name, dsp_results.get("c7x_dload_cycles", 0))
     torch_outputs = results["torch_outputs"]
 
     if "c66x_host_error" in dsp_results:

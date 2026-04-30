@@ -145,7 +145,7 @@ def _run_resnet_dsp_test(
 
 
 @pytest.mark.core
-def test_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile):
+def test_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile, record_cycles):
     """Test ResNet-18 model on DSP comparing against PyTorch reference.
 
     Supports host emulation and DLOAD (dynamic loading on C7x hardware).
@@ -158,6 +158,7 @@ def test_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile)
         profile_layers=profile_layers,
         profile=profile,
     )
+    record_cycles("resnet18_accuracy", results["dsp_results"].get("c7x_dload_cycles", 0))
     assert_dsp_comparison(results["dsp_results"], results["comparison"])
 
 

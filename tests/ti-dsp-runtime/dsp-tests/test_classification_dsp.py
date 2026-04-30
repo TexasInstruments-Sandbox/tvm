@@ -173,7 +173,7 @@ def _run_classification_test(
 @pytest.mark.core
 @pytest.mark.parametrize("model_name", CLASSIFICATION_MODELS)
 def test_classification_dsp(
-    model_name, dsp_mode, dsp_timeout, use_cpp_api, profile_layers
+    model_name, dsp_mode, dsp_timeout, use_cpp_api, profile_layers, record_cycles
 ):
     """Test classification model on DSP comparing against PyTorch reference."""
     results = _run_classification_test(
@@ -185,6 +185,7 @@ def test_classification_dsp(
     )
     comparison = results["comparison"]
     dsp_results = results["dsp_results"]
+    record_cycles(model_name, dsp_results.get("c7x_dload_cycles", 0))
 
     # Primary assertion: top-1 class must match PyTorch reference.
     # Models with depthwise convolutions (MobileNet, EfficientNet, ShuffleNet)

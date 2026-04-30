@@ -188,7 +188,7 @@ def _check_multi_output(dsp_result, torch_outputs, label, rtol, atol):
 
 
 def test_od_torchvision_dsp(
-    dsp_mode, dsp_timeout, use_cpp_api, profile_layers
+    dsp_mode, dsp_timeout, use_cpp_api, profile_layers, record_cycles
 ):
     """Test SSDLite320 MobileNetV3 on DSP vs PyTorch reference."""
     results = _run_od_test(
@@ -199,6 +199,7 @@ def test_od_torchvision_dsp(
     )
 
     dsp_results = results["dsp_results"]
+    record_cycles("ssdlite320_mobilenetv3", dsp_results.get("c7x_dload_cycles", 0))
     torch_outputs = results["torch_outputs"]
 
     if "c66x_host_error" in dsp_results:

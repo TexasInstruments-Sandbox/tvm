@@ -28,12 +28,12 @@ pipeline {
     agent { label 'relax-c7x' }
 
     triggers {
-        cron('H 22 * * *')
+        cron('H 21 * * *')
     }
 
     options {
         timestamps()
-        timeout(time: 3, unit: 'HOURS')
+        timeout(time: 4, unit: 'HOURS')
         buildDiscarder(logRotator(numToKeepStr: '20'))
         disableConcurrentBuilds()
     }
