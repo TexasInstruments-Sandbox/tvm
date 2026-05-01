@@ -132,6 +132,7 @@ def _run_quantized_resnet_dsp_test(
     use_cpp_api: bool = False,
     profile_layers: bool = False,
     profile: bool = False,
+    mmalib: bool = False,
 ) -> dict:
     """
     Run quantized ResNet-18 model on DSP and compare with PyTorch reference.
@@ -159,6 +160,8 @@ def _run_quantized_resnet_dsp_test(
         profile_layers=profile_layers,
         use_cpp_api=use_cpp_api,
     )
+    if mmalib:
+        target_string += " -mmalib=1"
 
     # Run on DSP
     dsp_results = compile_and_run_dsp(
@@ -171,11 +174,16 @@ def _run_quantized_resnet_dsp_test(
         profile=profile,
     )
 
-    # Compare results — after EliminateQDQRoundTrip, TVM keeps full float32
-    # precision at residual-add boundaries while PyTorch's quantized model
-    # still rounds to int8.  This creates up to ~0.3 max diff on deep
-    # networks like ResNet-18 (20 layers with residual connections).
-    comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=3e-1)
+    # Compare results.  Tolerance depends on path:
+    # - Without MMALIB: EliminateQDQRoundTrip keeps float32 precision between
+    #   layers, so max diff vs PyTorch int8 is ~0.3.
+    # - With MMALIB: true int8 requantization at every layer boundary using
+    #   uint8 scale/shift approximation. Error accumulates across 20 layers,
+    #   giving max diff ~8 on the 1000-class logit output.
+    if mmalib:
+        comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=5e-1, atol=10.0)
+    else:
+        comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=3e-1)
 
     return {
         "torch_result": torch_result,
@@ -184,12 +192,13 @@ def _run_quantized_resnet_dsp_test(
     }
 
 
-def test_quantized_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile, record_cycles):
+def test_quantized_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile, mmalib, record_cycles):
     """Test quantized ResNet-18 model on DSP comparing against PyTorch reference.
 
     Uses PT2E static quantization (INT8 QDQ graph).
     Supports host emulation and DLOAD (dynamic loading on C7x hardware).
     DLOAD requires --use-cpp-api for multi-element make_tuple support.
+    Pass --mmalib to offload eligible conv2d layers to MMALIB.
     """
     results = _run_quantized_resnet_dsp_test(
         dsp_mode=dsp_mode,
@@ -197,6 +206,7 @@ def test_quantized_resnet_dsp(dsp_mode, dsp_timeout, use_cpp_api, profile_layers
         use_cpp_api=use_cpp_api,
         profile_layers=profile_layers,
         profile=profile,
+        mmalib=mmalib,
     )
     record_cycles("resnet18_int8", results["dsp_results"].get("c7x_dload_cycles", 0))
     assert_dsp_comparison(results["dsp_results"], results["comparison"])

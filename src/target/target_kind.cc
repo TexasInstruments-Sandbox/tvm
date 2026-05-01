@@ -524,6 +524,8 @@ TVM_REGISTER_TARGET_KIND("c_static", kDLCPU)
     .add_attr_option<bool>("use-cpp-api", true)
     // Emit tidl_bridge_init_all() call in cg_main_dsp (set when TIDL subgraphs are present)
     .add_attr_option<bool>("tidl-runtime", false)
+    // Use MMALIB for eligible matmul/conv2d ops (requires mcpu=c7x)
+    .add_attr_option<bool>("mmalib", false)
     .set_default_keys({"c_static", "cpu"})
     .set_target_parser(UpdateCStaticAttrs);
 

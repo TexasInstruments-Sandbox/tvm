@@ -964,6 +964,7 @@ def run_dsp_dload(
         np.dtype("float16"): "float16",
         np.dtype("int64"): "int64",
         np.dtype("int32"): "int32",
+        np.dtype("int16"): "int16",
         np.dtype("int8"): "int8",
         np.dtype("uint8"): "uint8",
     }
@@ -1324,7 +1325,7 @@ def compile_and_run_dsp(
 
     # Step 1: Compile
     # c7x_host mode always uses C7x code generation
-    if execution_mode == "c7x_host":
+    if execution_mode == "c7x_host" and "mcpu=c7x" not in target_string:
         target_string = "c_static -mcpu=c7x"
     generated_dir = compile_for_dsp(mod, target_string, relax_pipeline=relax_pipeline)
     results["generated_dir"] = generated_dir
@@ -1517,6 +1518,7 @@ def run_dsp_local(
         np.dtype("float16"): "float16",
         np.dtype("int64"): "int64",
         np.dtype("int32"): "int32",
+        np.dtype("int16"): "int16",
         np.dtype("int8"): "int8",
         np.dtype("uint8"): "uint8",
     }

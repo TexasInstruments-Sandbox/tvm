@@ -51,9 +51,7 @@ class _ConvertLayoutNHWC:
             return mod
 
         try:
-            mod = tvm.relax.transform.ConvertLayout(
-                {"relax.nn.conv2d": ["NHWC", "HWIO"]}
-            )(mod)
+            mod = tvm.relax.transform.ConvertLayout({"relax.nn.conv2d": ["NHWC", "HWIO"]})(mod)
             mod = tvm.relax.transform.OptimizeLayoutTransform()(mod)
         except Exception:
             # ConvertLayout can fail on models with mixed-dimension
@@ -74,24 +72,49 @@ def library_dispatch_passes(target: tvm.target.Target):  # pylint: disable=unuse
 
 def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
     """The default legalization passes for CPU backend."""
-    passes = [
+    is_c7x = target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x"
+    passes = []
+
+    # MMALIB QDQ fusion runs FIRST — matches the original PT2E QDQ pattern
+    # (dequant→conv→quantize) before FuseQDQToInt8Conv2D rewrites it.
+    if is_c7x and target.attrs.get("mmalib", False):
+        passes.append(tvm.relax.transform.FuseMMALIBQDQConv2d())
+
+    # QDQ passes handle remaining (non-MMALIB) quantized conv2d ops
+    passes += [
         tvm.relax.transform.FuseQDQToInt8Conv2D(),
         tvm.relax.transform.EliminateQDQRoundTrip(),
         tvm.relax.transform.FuseDequantizeMatmul(),
     ]
-    # C7x NHWC layout: convert conv2d from NCHW to NHWC before legalization.
-    # Uses _ConvertLayoutNHWC which guards against models without conv2d.
-    if target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x":
-        passes.append(_ConvertLayoutNHWC())
+
+    # MMALIB path: skip NHWC, custom int16 legalization.
+    # Non-MMALIB path: convert to NHWC, default legalization.
+    if is_c7x and target.attrs.get("mmalib", False):
+        from tvm.relax.transform.ti_mmalib_legalize import (
+            _mmalib_conv2d_legalize,
+            _mmalib_matmul_legalize,
+        )
+
+        passes.append(
+            tvm.relax.transform.LegalizeOps(
+                customize_legalize_map={
+                    "relax.matmul": _mmalib_matmul_legalize,
+                    "relax.nn.conv2d": _mmalib_conv2d_legalize,
+                }
+            )
+        )
+    else:
+        if is_c7x:
+            passes.append(_ConvertLayoutNHWC())
+        passes.append(tvm.relax.transform.LegalizeOps())
     passes += [
-        tvm.relax.transform.LegalizeOps(),
         tvm.relax.transform.AnnotateTIROpPattern(),
         tvm.relax.transform.FoldConstant(),
         tvm.relax.transform.FuseOps(),
         tvm.relax.transform.FuseTIR(),
     ]
     # C7x DMA tiling: schedule conv2d PrimFuncs for L2 SRAM after fusion
-    if target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x":
+    if is_c7x:
         l2_budget = int(target.attrs.get("l2-sram-size", 393216))
         passes.append(tvm.relax.transform.ScheduleC7xDMATiling(l2_budget))
     return passes

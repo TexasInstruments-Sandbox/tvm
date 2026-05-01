@@ -230,6 +230,11 @@ if(TIDL_BRIDGE_SOURCES)
     endif()
 endif()
 
+# MMALIB function declarations (symbols resolved at DLOAD time from firmware)
+if(EXISTS "${DSP_RUNTIME_DIR}/mmalib/mmalib_wrappers.h")
+    list(APPEND DYNMOD_LANG_FLAGS --preinclude=${DSP_RUNTIME_DIR}/mmalib/mmalib_wrappers.h)
+endif()
+
 # --- TIDL integration (optional) ---
 set(TIDL_OBJ_FILES "")
 set(TIDL_LIB_FLAGS "")

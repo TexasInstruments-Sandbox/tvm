@@ -316,6 +316,22 @@ if(USE_TIDL_RUNTIME)
     # nothing in the firmware calls them directly.
     target_link_options(${PROJECT_NAME}.out PRIVATE
         --retain=TIDL_VISION_FXNS
+        --retain=mmalib_conv2d_i8
+        --retain=mmalib_conv2d_i16
+        --retain=mmalib_matmul_i8
+        --retain=mmalib_matmul_i16
+    )
+
+    # MMALIB wrappers: compiled into firmware, exported to DLOAD modules.
+    # Resolve MMALIB include path from MMALIB_LIB_PATH (go up to root).
+    get_filename_component(_MMALIB_ROOT "${MMALIB_LIB_PATH}/../../../" ABSOLUTE)
+    target_sources(${PROJECT_NAME}.out PRIVATE
+        ${TVM_DSP_RUNTIME_DIR}/mmalib/mmalib_wrappers.cpp
+    )
+    target_include_directories(${PROJECT_NAME}.out PRIVATE
+        ${TVM_DSP_RUNTIME_DIR}/mmalib
+        ${_MMALIB_ROOT}/ti/mmalib/src
+        ${_MMALIB_ROOT}/ti/mmalib/src/common
     )
 
     message(STATUS "TIDL Runtime: ENABLED")

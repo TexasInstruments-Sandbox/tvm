@@ -196,6 +196,12 @@ SECTIONS
 --import=dsp_trace_msg
 --import=memalign
 
+/* MMALIB wrappers */
+--import=mmalib_conv2d_i8
+--import=mmalib_conv2d_i16
+--import=mmalib_matmul_i8
+--import=mmalib_matmul_i16
+
 /* ========================================================================
  * Prevent RTS library from pulling in standard C implementations.
  * These symbols are resolved at load time from the firmware, not from

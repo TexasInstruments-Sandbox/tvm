@@ -168,3 +168,11 @@ __declspec(dllexport) void TVM_unlockInterrupts() {}
 __declspec(dllexport) void TVM_cacheWbInv() {}
 __declspec(dllexport) int TVM_cacheWbInvRegion(void *addr, unsigned int size) { return 0; }
 __declspec(dllexport) void dsp_trace_msg(const char *msg) {}
+
+/* ========================================================================
+ * MMALIB wrappers (int8/int16 matmul and conv2d)
+ * ======================================================================== */
+__declspec(dllexport) int32_t mmalib_conv2d_i8() { return 0; }
+__declspec(dllexport) int32_t mmalib_conv2d_i16() { return 0; }
+__declspec(dllexport) int32_t mmalib_matmul_i8() { return 0; }
+__declspec(dllexport) int32_t mmalib_matmul_i16() { return 0; }

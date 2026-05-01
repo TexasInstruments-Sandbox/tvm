@@ -138,6 +138,12 @@ def pytest_addoption(parser):
         help="Enable direct VM builtin calls (bypass FFI dispatch)",
     )
     parser.addoption(
+        "--mmalib",
+        action="store_true",
+        default=False,
+        help="Enable MMALIB acceleration for eligible conv2d/matmul ops",
+    )
+    parser.addoption(
         "--board-target",
         action="store",
         default=None,
@@ -195,6 +201,12 @@ def profile_layers(request):
 def use_cpp_api(request):
     """Fixture providing direct VM calls flag."""
     return request.config.getoption("--use-cpp-api")
+
+
+@pytest.fixture
+def mmalib(request):
+    """Fixture providing MMALIB acceleration flag."""
+    return request.config.getoption("--mmalib")
 
 
 @pytest.fixture
