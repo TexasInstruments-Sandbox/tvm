@@ -454,6 +454,29 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
     # DMA runtime (host emulation stub: memcpy)
     list(APPEND DSP_SOURCES ${DSP_RUNTIME_DIR}/dma/tvm_dsp_dma_host.c)
 
+    # MMALIB integration (optional)
+    set(MMALIB_ROOT "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mmalib_11_02_00_06")
+    if(DEFINED ENV{MMALIB_PATH})
+        set(MMALIB_ROOT "$ENV{MMALIB_PATH}")
+    endif()
+    if(EXISTS "${MMALIB_ROOT}/ti/mmalib/src/mmalib.h")
+        message(STATUS "  MMALIB: ${MMALIB_ROOT}")
+        list(APPEND INCLUDE_DIRS "${MMALIB_ROOT}/ti/mmalib/src")
+        list(APPEND INCLUDE_DIRS "${MMALIB_ROOT}/ti/mmalib/src/common")
+        list(APPEND INCLUDE_DIRS "${DSP_RUNTIME_DIR}/mmalib")
+        list(APPEND DSP_SOURCES "${DSP_RUNTIME_DIR}/mmalib/mmalib_wrappers.cpp")
+        set(MMALIB_LIBS
+            "${MMALIB_ROOT}/lib/C7524/release/libmmalib_x86_64.a"
+            "${MMALIB_ROOT}/lib/C7524/release/libmmalib_cn_x86_64.a"
+            "${MMALIB_ROOT}/lib/C7524/release/libcommon_x86_64.a"
+        )
+        add_compile_definitions(_HOST_BUILD __C7524__ __C7X_MMA_2_256__)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include mmalib_wrappers.h")
+    else()
+        message(STATUS "  MMALIB: not found (skipping)")
+        set(MMALIB_LIBS "")
+    endif()
+
     # Create executable
     add_executable(cg_dsp ${DSP_SOURCES} ${GENERATED_SOURCES})
 
@@ -461,7 +484,8 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
     set_source_files_properties(${GENERATED_SOURCES} PROPERTIES LANGUAGE CXX)
 
     target_include_directories(cg_dsp PRIVATE ${INCLUDE_DIRS})
-    target_link_libraries(cg_dsp PRIVATE ${DSP_RUNTIME_LIB} ${C7X_HOST_EMU_LIB})
+    target_link_libraries(cg_dsp PRIVATE ${DSP_RUNTIME_LIB} ${MMALIB_LIBS} ${C7X_HOST_EMU_LIB})
+    target_link_libraries(cg_dsp PRIVATE pthread)
 
     # Configure weights loading - use filesystem
     if(EXISTS "${WEIGHTS_FILE}")
@@ -477,6 +501,9 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
     message(STATUS "  Executable: cg_dsp")
     message(STATUS "  Runtime: ${DSP_RUNTIME_LIB}")
     message(STATUS "  Host Emulation: ${C7X_HOST_EMU_LIB}")
+    if(MMALIB_LIBS)
+        message(STATUS "  MMALIB: linked")
+    endif()
 
 elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
     # =========================================
@@ -627,6 +654,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
     )
     if(DSP_RUNTIME_DIR AND EXISTS "${DSP_RUNTIME_DIR}")
         list(APPEND DYNMOD_INCLUDES -I${DSP_RUNTIME_DIR})
+        list(APPEND DYNMOD_INCLUDES -I${DSP_RUNTIME_DIR}/mmalib)
     endif()
     if(TVM_HOME AND EXISTS "${TVM_HOME}/3rdparty/tvm-ffi/3rdparty/dlpack/include")
         list(APPEND DYNMOD_INCLUDES -I${TVM_HOME}/3rdparty/tvm-ffi/3rdparty/dlpack/include)

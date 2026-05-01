@@ -217,6 +217,9 @@ extern void dsp_trace_msg(const char *msg);
  * Must be exported so DLOAD modules can call into TIDL. */
 extern char TIDL_VISION_FXNS[];
 
+/* MMALIB wrappers: compiled into firmware, exported to DLOAD modules. */
+#include "mmalib_wrappers.h"
+
 /*
  * DebugP_log is a macro in MCU+ SDK, so we can't take its address.
  * Provide a callable wrapper for dynamically loaded modules.
@@ -349,6 +352,12 @@ static const DspSymEntry dsp_syms[] = {
     SYM(TVM_cacheWbInvRegion),
     SYM(dsp_trace_msg),
     SYM(TIDL_VISION_FXNS),
+
+    /* MMALIB wrappers (int8/int16 matmul and conv2d) */
+    SYM(mmalib_conv2d_i8),
+    SYM(mmalib_conv2d_i16),
+    SYM(mmalib_matmul_i8),
+    SYM(mmalib_matmul_i16),
 };
 
 #define NUM_DSP_SYMS (sizeof(dsp_syms) / sizeof(dsp_syms[0]))
