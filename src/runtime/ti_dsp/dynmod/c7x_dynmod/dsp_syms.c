@@ -125,6 +125,7 @@ __declspec(dllexport) void TVMDSPGetAllConstants() {}
  * ======================================================================== */
 __declspec(dllexport) void tvm_dsp_dma_copy() {}
 __declspec(dllexport) void tvm_dsp_dma_wait() {}
+__declspec(dllexport) void tvm_int8_residual_add_relu() {}
 
 /* ========================================================================
  * MCU+ SDK cache operations

@@ -70,6 +70,7 @@ constexpr const char* kDSPHeaders = R"(
 #include "cpp/vm_array.h"
 #include "cpp/vm_builtins.h"
 #include "dma/tvm_dsp_dma.h"
+#include "kernels/tvm_int8_residual_add.h"
 #include <cstdint>
 #include <cstring>
 #include <cmath>

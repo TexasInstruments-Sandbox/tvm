@@ -146,6 +146,8 @@ SECTIONS
 /* TVM DMA runtime */
 --import=tvm_dsp_dma_copy
 --import=tvm_dsp_dma_wait
+/* TVM kernels */
+--import=tvm_int8_residual_add_relu
 
 /* TVM platform */
 --import=tvm_dsp_alloc
