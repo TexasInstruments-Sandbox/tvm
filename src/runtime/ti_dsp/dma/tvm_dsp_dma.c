@@ -37,6 +37,16 @@
 #include "dsp_platform.h"
 
 #include <string.h>
+
+/* Debug trace — DebugP_log writes to remoteproc trace buffer,
+ * readable via /sys/kernel/debug/remoteproc/remoteproc0/trace0
+ * even when the firmware hangs. */
+#ifdef TVM_DMA_DEBUG
+#include <kernel/dpl/DebugP.h>
+#define DMA_TRACE(...) DebugP_log(__VA_ARGS__)
+#else
+#define DMA_TRACE(...) ((void)0)
+#endif
 #include <stdint.h>
 
 #include <dmautils_autoincrement_3d.h>
@@ -70,6 +80,7 @@ static uint8_t g_dma_tr_buf[MAX_DMA_CHANNELS][DMA_TR_BUF_SIZE]
 /*
  * The DRU accesses memory via the system bus using physical addresses.
  * The C7x MMU maps some regions with non-identity translations:
+ *   Region 9 (Cached):  vAddr 0xC0000000  -> pAddr 0x900000000 (512 MB)
  *   Region 12 (NC):     vAddr 0x100000000 -> pAddr 0x880000000 (32 MB)
  *   Region 13 (Cached): vAddr 0x102000000 -> pAddr 0x882000000 (224 MB)
  * Other regions (L2 SRAM, DDR_C7x_1, IPC) use identity mapping.
@@ -77,6 +88,10 @@ static uint8_t g_dma_tr_buf[MAX_DMA_CHANNELS][DMA_TR_BUF_SIZE]
 static uint64_t virt_to_phys(const void *vaddr) {
     uint64_t va = (uint64_t)(uintptr_t)vaddr;
 
+    /* Region 9: DDR shared memory / host staging buffer (512 MB) */
+    if (va >= 0xC0000000ULL && va < 0xE0000000ULL) {
+        return va - 0xC0000000ULL + 0x900000000ULL;
+    }
     /* Region 13: DDR cacheable heap (0x102000000 - 0x110000000) */
     if (va >= 0x102000000ULL && va < 0x110000000ULL) {
         return va - 0x102000000ULL + 0x882000000ULL;
@@ -219,20 +234,28 @@ int tvm_dsp_dma_copy(int queue_id, void *dst, const void *src,
     (void)bypass_cache;
 
     if (!g_initialized) {
+        DMA_TRACE("[DMA] ERROR: not initialized\r\n");
         return -1;  /* firmware must call tvm_dsp_dma_init() first */
     }
 
+    DMA_TRACE("[DMA] copy: dst=%p src=%p size=%d q=%d\r\n", dst, src, size, queue_id);
+    DMA_TRACE("[DMA]   dst_phys=0x%llx src_phys=0x%llx\r\n",
+              virt_to_phys(dst), virt_to_phys(src));
+
     if (queue_id < 0 || queue_id >= g_num_channels) {
+        DMA_TRACE("[DMA] ERROR: bad queue_id %d\r\n", queue_id);
         return -1;
     }
 
     /* Drain any pending transfer on this channel before reuse. */
     if (g_pending[queue_id]) {
+        DMA_TRACE("[DMA]   draining pending on q=%d\r\n", queue_id);
         DmaUtilsAutoInc3d_wait(g_dma_context, queue_id);
         CacheP_inv(g_dst[queue_id], g_dst_size[queue_id], CacheP_TYPE_ALLD);
         DmaUtilsAutoInc3d_deconfigure(g_dma_context, queue_id,
                                       g_tr_mem[queue_id], 1);
         g_pending[queue_id] = 0;
+        DMA_TRACE("[DMA]   drained\r\n");
     }
 
     /* 2D decomposition: split size into block_size * num_blocks.
@@ -274,6 +297,7 @@ int tvm_dsp_dma_copy(int queue_id, void *dst, const void *src,
     trPrep.numTRs    = 1;
     trPrep.channelId = queue_id;
 
+    DMA_TRACE("[DMA]   prepareTr (blk=%u x %u)\r\n", block_size, num_blocks);
     DmaUtilsAutoInc3d_prepareTr(&trPrep, &xferProp);
 
     /* Convert virtual addresses in TR to 64-bit physical addresses
@@ -282,15 +306,20 @@ int tvm_dsp_dma_copy(int queue_id, void *dst, const void *src,
         g_dma_context, &trPrep,
         DMAUTILSAUTOINC3D_ADDRCONVERTMASK_SRCADDR |
         DMAUTILSAUTOINC3D_ADDRCONVERTMASK_DSTADDR);
+    DMA_TRACE("[DMA]   convertAddr done\r\n");
 
     /* Write-back source data from cache to physical memory so DRU
      * reads current values via the system bus. */
+    DMA_TRACE("[DMA]   CacheP_wb src=%p size=%d\r\n", src, size);
     CacheP_wb((void *)src, (uint32_t)size, CacheP_TYPE_ALLD);
+    DMA_TRACE("[DMA]   CacheP_wb done\r\n");
 
     /* Configure channel and trigger the DMA transfer. */
+    DMA_TRACE("[DMA]   configure+trigger\r\n");
     DmaUtilsAutoInc3d_configure(g_dma_context, queue_id,
                                 g_tr_mem[queue_id], 1);
     DmaUtilsAutoInc3d_trigger(g_dma_context, queue_id);
+    DMA_TRACE("[DMA]   triggered\r\n");
 
     /* Record destination for post-wait cache invalidation. */
     g_pending[queue_id]  = 1;
@@ -312,11 +341,15 @@ int tvm_dsp_dma_wait(int queue_id, int max_inflight) {
     }
 
     if (!g_pending[queue_id]) {
+        DMA_TRACE("[DMA] wait: nothing pending on q=%d\r\n", queue_id);
         return 0;
     }
 
     /* Wait for the DRU transfer to complete. */
+    DMA_TRACE("[DMA] wait: waiting on q=%d dst=%p size=%u\r\n",
+              queue_id, g_dst[queue_id], g_dst_size[queue_id]);
     DmaUtilsAutoInc3d_wait(g_dma_context, queue_id);
+    DMA_TRACE("[DMA] wait: completed\r\n");
 
     /* Invalidate destination cache lines so CPU reads the fresh
      * DRU-written data from DDR instead of stale cached values.

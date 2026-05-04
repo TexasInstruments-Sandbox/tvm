@@ -240,6 +240,13 @@ def _c7x_dma_tir_pipeline():
         ]
         if not bool(config.get("tir.disable_storage_rewrite", False)):
             passes.append(tir.transform.StorageRewrite())
+        # Inject blocking DMA for MMALIB extern PrimFuncs: prefetch input
+        # (and weights when they fit) into L2 SRAM before the MMALIB call.
+        # Runs after StorageRewrite (flat TIR, easy manipulation) and before
+        # LowerL2SramAlloc (which converts Allocate(global.l2sram) → tvm_l2_alloc).
+        from tvm.relax.transform.ti_mmalib_inject_dma import InjectMMALIBDMA
+
+        passes.append(InjectMMALIBDMA())
         # Lower global.l2sram allocations to inline bump allocator calls
         # before LowerTVMBuiltin converts them to TVMBackendAllocWorkspace.
         passes.append(tir.transform.LowerL2SramAlloc())
