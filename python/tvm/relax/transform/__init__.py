@@ -106,6 +106,7 @@ from .eliminate_qdq_roundtrip import EliminateQDQRoundTrip
 from .fuse_qdq_to_int8 import FuseQDQToInt8Conv2D
 from .rewrite_dequantize import RewriteDequantize
 from .schedule_c7x_dma import ScheduleC7xDMATiling
+from .ti_int8_residual_add import FuseInt8ResidualAdd
 from .ti_mmalib_inject_dma import InjectMMALIBDMA
 from .ti_mmalib_legalize import MMALIBLegalize
 from .ti_mmalib_qdq_fusion import FuseMMALIBQDQConv2d

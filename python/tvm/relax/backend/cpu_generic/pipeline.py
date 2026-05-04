@@ -77,8 +77,11 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
 
     # MMALIB QDQ fusion runs FIRST — matches the original PT2E QDQ pattern
     # (dequant→conv→quantize) before FuseQDQToInt8Conv2D rewrites it.
+    # Int8 residual add fusion runs after MMALIB conv2d fusion to catch
+    # the remaining dequant+add+relu+quant between MMALIB layers.
     if is_c7x and target.attrs.get("mmalib", False):
         passes.append(tvm.relax.transform.FuseMMALIBQDQConv2d())
+        passes.append(tvm.relax.transform.FuseInt8ResidualAdd())
 
     # QDQ passes handle remaining (non-MMALIB) quantized conv2d ops
     passes += [
