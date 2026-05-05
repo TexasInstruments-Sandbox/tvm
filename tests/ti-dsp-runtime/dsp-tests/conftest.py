@@ -149,10 +149,20 @@ def pytest_addoption(parser):
         default=None,
         metavar="HOST",
         help="AM67A board hostname for remote c7x_vm tests via SSH "
-             "(e.g. 'am67a').  When set with --dsp-mode=c7x_dload, "
-             "test_c7x_vm_dsp integration tests deploy lib0.out to the "
-             "board and run C7xVirtualMachine assertions there via SSH.",
+        "(e.g. 'am67a').  When set with --dsp-mode=c7x_dload, "
+        "test_c7x_vm_dsp integration tests deploy lib0.out to the "
+        "board and run C7xVirtualMachine assertions there via SSH.",
     )
+
+
+@pytest.fixture(autouse=True)
+def _set_dsp_test_name(request):
+    """Set the current test name in dsp_utils for workspace naming."""
+    from dsp_utils import set_current_test_name
+
+    set_current_test_name(request.node.name)
+    yield
+    set_current_test_name(None)
 
 
 @pytest.fixture
@@ -182,19 +192,13 @@ def save_artifacts(request):
 @pytest.fixture
 def profile(request):
     """Fixture: enable profiling (layer counters + repeat=2)."""
-    return (
-        request.config.getoption("--profile")
-        or request.config.getoption("--profile-layers")
-    )
+    return request.config.getoption("--profile") or request.config.getoption("--profile-layers")
 
 
 @pytest.fixture
 def profile_layers(request):
     """Fixture: compile with per-layer cycle counters."""
-    return (
-        request.config.getoption("--profile")
-        or request.config.getoption("--profile-layers")
-    )
+    return request.config.getoption("--profile") or request.config.getoption("--profile-layers")
 
 
 @pytest.fixture
@@ -222,8 +226,13 @@ def board_target(request):
 
 @pytest.fixture
 def dsp_config(
-    dsp_mode, dsp_timeout, dsp_verbose, save_artifacts,
-    profile_layers, profile, use_cpp_api,
+    dsp_mode,
+    dsp_timeout,
+    dsp_verbose,
+    save_artifacts,
+    profile_layers,
+    profile,
+    use_cpp_api,
 ):
     """Combined fixture providing all DSP configuration."""
     return {
@@ -241,11 +250,18 @@ def _board_ssh_reachable(board: str) -> bool:
     """True if the board is reachable via SSH and has the required files."""
     try:
         rc = subprocess.run(
-            ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
-             f"root@{board}",
-             "test -f /usr/local/lib/libc7x_arm_runtime.so "
-             "&& test -f /usr/local/bin/c7x_compute"],
-            capture_output=True, timeout=10,
+            [
+                "ssh",
+                "-o",
+                "ConnectTimeout=5",
+                "-o",
+                "BatchMode=yes",
+                f"root@{board}",
+                "test -f /usr/local/lib/libc7x_arm_runtime.so "
+                "&& test -f /usr/local/bin/c7x_compute",
+            ],
+            capture_output=True,
+            timeout=10,
         ).returncode
         return rc == 0
     except Exception:  # noqa: BLE001
@@ -275,6 +291,7 @@ def pytest_collection_modifyitems(config, items):
         # breaking tvm.nd in subsequent fixture setups).
         import ctypes as _ctypes
         import glob as _glob
+
         try:
             _ctypes.CDLL("libc7x_arm_runtime.so")
             lib_ok = True
@@ -287,19 +304,18 @@ def pytest_collection_modifyitems(config, items):
 
         skip_no_lib = pytest.mark.skip(
             reason="libc7x_arm_runtime.so not found — "
-                   "install on AM67A board or pass --board-target=HOST"
+            "install on AM67A board or pass --board-target=HOST"
         )
         skip_no_fw = pytest.mark.skip(
             reason="c7x_compute firmware not reachable — "
-                   "run on AM67A board or pass --board-target=HOST"
+            "run on AM67A board or pass --board-target=HOST"
         )
         for item in items:
             # requires_c7x_vm_lib: skip locally when no board_target (the .so
             # is aarch64-only and won't load on x86).  When board_target is
             # set, the "board reachable" branch below removes the mark so
             # tests run via SSH instead.
-            if "requires_c7x_vm_lib" in item.keywords and not lib_ok \
-                    and not board_target:
+            if "requires_c7x_vm_lib" in item.keywords and not lib_ok and not board_target:
                 item.add_marker(skip_no_lib)
             # requires_c7x_firmware: skip locally only when no board_target;
             # with board_target the marks are removed and tests run via SSH.
@@ -316,20 +332,22 @@ def pytest_collection_modifyitems(config, items):
                     # all c7x_vm integration and API-contract tests run via the
                     # board_target SSH path (the board has the .so installed).
                     item.own_markers = [
-                        m for m in item.own_markers
-                        if m.name not in ("requires_c7x_firmware",
-                                          "requires_c7x_vm_lib")
+                        m
+                        for m in item.own_markers
+                        if m.name not in ("requires_c7x_firmware", "requires_c7x_vm_lib")
                     ]
         else:
             # Board specified but unreachable — add a clear failure marker
             skip_unreachable = pytest.mark.skip(
                 reason=f"--board-target={board_target} is not reachable via SSH "
-                       f"or missing /usr/local/lib/libc7x_arm_runtime.so"
+                f"or missing /usr/local/lib/libc7x_arm_runtime.so"
             )
             for item in items:
                 if "test_c7x_vm_dsp" in str(item.fspath):
-                    if any(m.name in ("requires_c7x_vm_lib", "requires_c7x_firmware")
-                           for m in item.own_markers):
+                    if any(
+                        m.name in ("requires_c7x_vm_lib", "requires_c7x_firmware")
+                        for m in item.own_markers
+                    ):
                         item.add_marker(skip_unreachable)
 
 
@@ -374,6 +392,8 @@ def _cycle_writer(request):
 @pytest.fixture
 def record_cycles():
     """Record cycle count for a model. Written to cycles.csv at session end."""
+
     def _record(name: str, cycles: int):
         _cycle_data[name] = cycles
+
     return _record

@@ -281,6 +281,35 @@ The DSP runtime supports models that return multiple outputs (tuples).
 - `Model::InferMulti()` API returns all outputs
 - Output tensors written to `output.bin` in order
 
+## Debugging with DSP_KEEP_TEMP
+
+Set `DSP_KEEP_TEMP=1` to preserve the temporary workspace after each test.
+The workspace is named after the test and timestamped for easy correlation:
+
+```bash
+DSP_KEEP_TEMP=1 pytest test_conv2d_dsp.py -v --dsp-mode=c7x_host
+ls /tmp/dsp_test_conv2d_dsp_20260505_154303/
+```
+
+Each workspace contains both the TVM-generated code and the native build
+artifacts in a single directory:
+
+```
+/tmp/dsp_test_conv2d_dsp_20260505_154303/
+├── lib0.c                  # TVM-generated C code
+├── devc.c                  # Device constants
+├── weights.bin             # Model weights
+├── model_library.tar       # Exported TVM library
+└── build-c7x_host/         # Native build (named after execution mode)
+    ├── cg_dsp              # Compiled executable
+    ├── cmake.log           # Build log
+    ├── input.bin           # Input tensors
+    └── output.bin          # Output tensors
+```
+
+The build subdirectory is named after the execution mode: `build-c7x_host`,
+`build-c7x_dload`, `build-c66x_host`, or `build-c66x`.
+
 ## Requirements
 
 - TVM with c_static backend

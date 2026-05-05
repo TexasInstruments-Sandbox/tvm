@@ -1,4 +1,4 @@
-"""Pytest configuration for wheel packaging tests."""
+"""Pytest configuration for SmolLM tests."""
 
 import sys
 from pathlib import Path
@@ -18,11 +18,3 @@ def _set_dsp_test_name(request):
     set_current_test_name(request.node.name)
     yield
     set_current_test_name(None)
-
-
-def pytest_configure(config):
-    """Register custom markers."""
-    config.addinivalue_line(
-        "markers",
-        "quick: mark test as quick (compile + run under 5 minutes)",
-    )
