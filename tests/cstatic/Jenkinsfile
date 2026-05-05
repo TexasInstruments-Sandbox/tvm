@@ -39,6 +39,11 @@ pipeline {
     }
 
     parameters {
+        string(
+            name: 'BRANCH',
+            defaultValue: 'mmalib',
+            description: 'Branch to build and test'
+        )
         booleanParam(
             name: 'SKIP_UNIT_TESTS',
             defaultValue: false,

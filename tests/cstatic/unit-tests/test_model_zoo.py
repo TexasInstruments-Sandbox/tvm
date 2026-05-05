@@ -8,7 +8,7 @@ Parametrized tests covering 111 models across four categories:
 - YOLO Object Detection (20 models: v5, v8, v11)
 
 Each test compiles for both LLVM (reference) and c_static, then asserts
-numerical agreement (rtol=1e-3, atol=1e-5).
+numerical agreement (rtol=1e-3, atol=5e-5).
 """
 
 import sys
@@ -105,7 +105,9 @@ def _compare_outputs(llvm_result, cstatic_result, model_name):
         f"{model_name}: output count mismatch ({len(a_list)} vs {len(b_list)})"
     )
     for i, (a, b) in enumerate(zip(a_list, b_list)):
-        assert np.allclose(a, b, rtol=1e-3, atol=1e-5), (
+        # atol=5e-5: LLVM JIT and c_static (GCC) use different FMA/op ordering,
+        # causing up to ~3e-5 divergence near zero where rtol alone is insufficient.
+        assert np.allclose(a, b, rtol=1e-3, atol=5e-5), (
             f"{model_name} output[{i}]: max diff {np.max(np.abs(a - b))}"
         )
 
