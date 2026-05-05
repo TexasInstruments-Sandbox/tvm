@@ -83,6 +83,14 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
         passes.append(tvm.relax.transform.FuseMMALIBQDQConv2d())
         passes.append(tvm.relax.transform.FuseInt8ResidualAdd())
 
+    # Simplify tuple indices (e.g., TupleGetItem(Tuple(a,b),0) → a)
+    # before QDQ elimination — PyTorch export artifacts like pool indices
+    # create dead tuple patterns that block pattern matching.
+    passes.append(tvm.relax.transform.CanonicalizeBindings())
+    passes.append(tvm.relax.transform.DeadCodeElimination())
+    # Eliminate redundant QDQ around transparent ops (pool, reshape, etc.)
+    passes.append(tvm.relax.transform.EliminateQDQTransparent())
+
     # QDQ passes handle remaining (non-MMALIB) quantized conv2d ops
     passes += [
         tvm.relax.transform.FuseQDQToInt8Conv2D(),

@@ -223,14 +223,6 @@ exclude = '''
 '''
 
 [tool.ruff]
-# Enable pycodestyle (`E`), Pyflakes (`F`), and isort (`I`) codes
-select = ["E", "F", "I"]
-ignore = []
-
-# Allow fix for all enabled rules (when `--fix`) is provided.
-fixable = ["A", "B", "C", "D", "E", "F", "I", "N", "UP", "W", "ARG", "B", "C4", "DTZ", "T10", "EM", "EXE", "FA", "ICN", "Q", "T20", "TID", "TCH", "RUF"]
-unfixable = []
-
 # Exclude a variety of commonly ignored directories.
 exclude = [
     ".bzr",
@@ -259,12 +251,20 @@ exclude = [
 line-length = 100
 indent-width = 4
 
+[tool.ruff.lint]
+# Enable pycodestyle (`E`), Pyflakes (`F`), and isort (`I`) codes
+select = ["E", "F", "I"]
+ignore = []
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["A", "B", "C", "D", "E", "F", "I", "N", "UP", "W", "ARG", "B", "C4", "DTZ", "T10", "EM", "EXE", "FA", "ICN", "Q", "T20", "TID", "TCH", "RUF"]
+unfixable = []
+
 # Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
-
-[tool.ruff.mccabe]
+[tool.ruff.lint.mccabe]
 max-complexity = 10
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["tvm"]
