@@ -58,6 +58,11 @@ pipeline {
     }
 
     parameters {
+        string(
+            name: 'BRANCH',
+            defaultValue: 'mmalib',
+            description: 'Branch to build and test'
+        )
         booleanParam(
             name: 'SKIP_LONG_TESTS',
             defaultValue: false,
@@ -281,6 +286,19 @@ pipeline {
                     }
                     steps {
                         sh '''
+                            ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+                                root@${AM67A_TARGET} reboot || true
+                            sleep 30
+                            for i in $(seq 1 12); do
+                                ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+                                    root@${AM67A_TARGET} true 2>/dev/null && break
+                                echo "Waiting for EVM to come back up... ($i/12)"
+                                sleep 10
+                            done
+                            ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+                                root@${AM67A_TARGET} true
+                        '''
+                        sh '''
                             cd src/runtime/ti_dsp/firmware/c7x
                             ./deploy-c7x.sh dsp/build/c7x_compute.out
                         '''
@@ -341,6 +359,46 @@ pipeline {
                                 --dsp-mode=c7x_host \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/c7x_host_full.xml
+                        '''
+                    }
+                }
+
+                stage('Unit Tests') {
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/ti-dsp-runtime
+                            pytest -p no:tvm.testing.plugin --rootdir=. unit-tests/ \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/unit_tests.xml
+                        '''
+                    }
+                }
+
+                stage('MMALIB Host') {
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/ti-dsp-runtime
+                            pytest -p no:tvm.testing.plugin --rootdir=. mmalib-tests/ \
+                                --dsp-mode=c7x_host \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/mmalib_host.xml
+                        '''
+                    }
+                }
+
+                stage('Quantized Host') {
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/ti-dsp-runtime
+                            pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
+                                --dsp-mode=c7x_host \
+                                --ignore=quantized/test_quantized_inception_v3.py \
+                                --ignore=quantized/test_quantized_resnext101.py \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/quantized_host.xml
                         '''
                     }
                 }
@@ -476,6 +534,34 @@ pipeline {
                                 --board-target=${AM67A_TARGET} \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/c7x_dload_full.xml
+                        '''
+                    }
+                }
+
+                stage('MMALIB c7x_dload') {
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/ti-dsp-runtime
+                            pytest -p no:tvm.testing.plugin --rootdir=. mmalib-tests/ \
+                                --dsp-mode=c7x_dload \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/mmalib_dload.xml
+                        '''
+                    }
+                }
+
+                stage('Quantized c7x_dload') {
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/ti-dsp-runtime
+                            pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
+                                --dsp-mode=c7x_dload \
+                                --ignore=quantized/test_quantized_inception_v3.py \
+                                --ignore=quantized/test_quantized_resnext101.py \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/quantized_dload.xml
                         '''
                     }
                 }
