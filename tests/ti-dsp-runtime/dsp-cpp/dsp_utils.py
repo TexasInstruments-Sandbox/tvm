@@ -16,11 +16,13 @@ The module supports:
 import json
 import logging
 import os
+import re
 import shutil
 import struct
 import subprocess
 import tempfile
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Union
 
@@ -49,6 +51,15 @@ INPUT_BIN_FILE = "input.bin"
 
 # DSP modes that use C7x code generation
 _C7X_MODES = ("c7x_host", "c7x_dload")
+
+# Module-level test name for workspace naming (set by pytest fixture)
+_current_test_name: Optional[str] = None
+
+
+def set_current_test_name(name: Optional[str]) -> None:
+    """Set the current test name for workspace directory naming."""
+    global _current_test_name
+    _current_test_name = name
 
 
 def get_target_string(
@@ -108,17 +119,23 @@ def assert_dsp_comparison(
         stdout_key = f"{mode_prefix}_stdout"
         if cycles_key in dsp_results:
             cycles = dsp_results[cycles_key]
-            print(f"\n{mode_prefix} cycles: {cycles:,} "
-                  f"({cycles / 1e6:.2f} ms @ 1 GHz)")
+            print(f"\n{mode_prefix} cycles: {cycles:,} ({cycles / 1e6:.2f} ms @ 1 GHz)")
         if stdout_key in dsp_results:
             stdout = dsp_results[stdout_key]
             # Print layer profile and TIDL trace sections
             for line in stdout.split("\n"):
-                if any(k in line for k in (
-                    "Layer Profile", "Total:", "cycles",
-                    "TIDL Per-Layer", "End TIDL", "Iteration",
-                    "input_offset",
-                )):
+                if any(
+                    k in line
+                    for k in (
+                        "Layer Profile",
+                        "Total:",
+                        "cycles",
+                        "TIDL Per-Layer",
+                        "End TIDL",
+                        "Iteration",
+                        "input_offset",
+                    )
+                ):
                     print(line)
 
     # Check each mode's comparison results
@@ -127,18 +144,14 @@ def assert_dsp_comparison(
         passed_key = key.replace("_max_diff", "_passed")
         if not comparison.get(passed_key, False):
             mode = key.removesuffix("_vs_ref_max_diff")
-            raise AssertionError(
-                f"{mode} failed: max diff = {comparison[key]:.2e}"
-            )
+            raise AssertionError(f"{mode} failed: max diff = {comparison[key]:.2e}")
 
     # At least one mode should have produced results
-    assert diff_keys, (
-        "No DSP results available. Check hardware connection or execution mode."
-    )
+    assert diff_keys, "No DSP results available. Check hardware connection or execution mode."
 
 
 @contextmanager
-def temporary_dsp_workspace(cleanup: bool = True):
+def temporary_dsp_workspace(name: Optional[str] = None, cleanup: bool = True):
     """
     Create a temporary workspace for DSP compilation and execution.
 
@@ -147,36 +160,39 @@ def temporary_dsp_workspace(cleanup: bool = True):
     The workspace is automatically cleaned up after use (unless disabled for debugging).
 
     Args:
+        name: Optional name for the workspace directory.  If None, uses the
+            module-level _current_test_name (set by pytest fixture).  When a
+            name is available, the directory is deterministically named
+            (e.g. /tmp/dsp_test_conv2d_dsp_c7x_host__20260505_143027/).
+            Falls back to a random suffix when no name is set.
         cleanup: Whether to cleanup temp directory after use (default: True)
                 Can be overridden by setting DSP_KEEP_TEMP=1 environment variable
 
     Yields:
         Path object pointing to the temporary workspace directory
 
-    Example:
-        >>> with temporary_dsp_workspace() as workspace:
-        ...     build_dir = workspace / "build"
-        ...     build_dir.mkdir()
-        ...     # ... perform build and execution ...
-        ...     # workspace is automatically cleaned up after the block
-
     Environment Variables:
         DSP_KEEP_TEMP: Set to "1" to disable cleanup for debugging purposes
     """
-    # Create unique temp directory with descriptive prefix
-    temp_dir = tempfile.mkdtemp(prefix="dsp_build_", dir=None)
+    resolved_name = name if name is not None else _current_test_name
+    if resolved_name:
+        safe_name = re.sub(r"[^\w\-.]", "_", resolved_name)[:80]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dir_name = f"dsp_{safe_name}_{timestamp}"
+        temp_dir = str(Path(tempfile.gettempdir()) / dir_name)
+        os.makedirs(temp_dir, exist_ok=True)
+    else:
+        temp_dir = tempfile.mkdtemp(prefix="dsp_build_")
     temp_path = Path(temp_dir)
 
     try:
         yield temp_path
 
     finally:
-        # Cleanup unless disabled via parameter or environment variable
         should_cleanup = cleanup and os.getenv("DSP_KEEP_TEMP") != "1"
         if should_cleanup:
             shutil.rmtree(temp_dir, ignore_errors=True)
         else:
-            # If cleanup is disabled, print the path for debugging
             logger.info(f"Keeping temporary workspace for debugging: {temp_dir}")
 
 
@@ -1074,9 +1090,7 @@ def run_dsp_dload(
     # (from c7x_client_open/close info messages); split on the first '{'.
     json_start = out.find("{")
     if json_start < 0:
-        raise RuntimeError(
-            f"No JSON found in c7x_compute run output: {out}"
-        )
+        raise RuntimeError(f"No JSON found in c7x_compute run output: {out}")
     dsp_text = out[:json_start].strip()
     # Append DSP profile output from stderr (layer traces, iteration headers)
     if dsp_stderr:
@@ -1089,9 +1103,7 @@ def run_dsp_dload(
     if result.get("status") != "ok":
         stage = result.get("stage", "unknown")
         error = result.get("error", "unknown error")
-        raise RuntimeError(
-            f"c7x_compute run failed at {stage}: {error}"
-        )
+        raise RuntimeError(f"c7x_compute run failed at {stage}: {error}")
 
     cycles = result.get("cycles", 0)
     logger.info(f"  Inference cycles: {cycles:,}")
@@ -1323,74 +1335,64 @@ def compile_and_run_dsp(
 
     results = {}
 
-    # Step 1: Compile
     # c7x_host mode always uses C7x code generation
     if execution_mode == "c7x_host" and "mcpu=c7x" not in target_string:
         target_string = "c_static -mcpu=c7x"
-    generated_dir = compile_for_dsp(mod, target_string, relax_pipeline=relax_pipeline)
-    results["generated_dir"] = generated_dir
 
     # Convert input_data to list of arrays if needed
     input_tensors: List[np.ndarray]
     if isinstance(input_data, np.ndarray):
         input_tensors = [input_data]
     else:
-        # tuple of arrays
         input_tensors = list(input_data)
 
-    # Step 2/3: Build and run based on execution mode
-    # Use temporary workspaces to avoid stale file issues between tests
-    if execution_mode == "c66x_host":
-        logger.info("Building and running C66x host emulation...")
-        with temporary_dsp_workspace() as workspace:
-            build_dir = workspace / "build-host"
+    # Single workspace for both TVM compilation and native build
+    with temporary_dsp_workspace() as workspace:
+        # Step 1: Compile TVM IRModule into workspace root
+        generated_dir = compile_for_dsp(
+            mod, target_string, output_dir=workspace, relax_pipeline=relax_pipeline
+        )
+        results["generated_dir"] = generated_dir
+
+        # Step 2: Build and run based on execution mode
+        build_dir = workspace / f"build-{execution_mode}"
+
+        if execution_mode == "c66x_host":
+            logger.info("Building and running C66x host emulation...")
             host_exe = build_dsp_host(generated_dir, build_type=build_type, build_dir=build_dir)
-            # Write input file to build directory
             input_file = build_dir / INPUT_BIN_FILE
             write_tensors_to_file(input_tensors, str(input_file))
-            logger.info(f"Wrote input to {input_file}")
             results["c66x_host_result"] = run_dsp_host(host_exe)
 
-    if execution_mode == "c66x":
-        logger.info("Building and running on C66x hardware...")
-        try:
-            with temporary_dsp_workspace() as workspace:
-                build_dir = workspace / "build-c66x"
+        elif execution_mode == "c66x":
+            logger.info("Building and running on C66x hardware...")
+            try:
                 c66x_exe = build_dsp_c66x(generated_dir, build_type=build_type, build_dir=build_dir)
-                # Write input file to build directory
                 input_file = build_dir / INPUT_BIN_FILE
                 write_tensors_to_file(input_tensors, str(input_file))
-                logger.info(f"Wrote input to {input_file}")
                 c66x_output, c66x_stdout = run_dsp_c66x(c66x_exe, timeout_ms=timeout_ms)
                 results["c66x_result"] = c66x_output
                 results["c66x_stdout"] = c66x_stdout
-        except Exception as e:
-            error_msg = str(e)
-            if "XDS110" in error_msg or "emulator" in error_msg.lower():
-                logger.warning(f"C66x hardware not available: {error_msg[:100]}...")
-                results["c66x_error"] = "Hardware not connected (XDS110 debug probe)"
-            else:
-                # Re-raise if it's not a hardware connection issue
-                raise
+            except Exception as e:
+                error_msg = str(e)
+                if "XDS110" in error_msg or "emulator" in error_msg.lower():
+                    logger.warning(f"C66x hardware not available: {error_msg[:100]}...")
+                    results["c66x_error"] = "Hardware not connected (XDS110 debug probe)"
+                else:
+                    raise
 
-    if execution_mode == "c7x_host":
-        logger.info("Building and running C7x host emulation...")
-        with temporary_dsp_workspace() as workspace:
-            build_dir = workspace / "build-c7x-host"
+        elif execution_mode == "c7x_host":
+            logger.info("Building and running C7x host emulation...")
             c7x_host_exe = build_dsp_c7x_host(
                 generated_dir, build_type=build_type, build_dir=build_dir
             )
-            # Write input file to build directory
             input_file = build_dir / INPUT_BIN_FILE
             write_tensors_to_file(input_tensors, str(input_file))
-            logger.info(f"Wrote input to {input_file}")
             results["c7x_host_result"] = run_dsp_host(c7x_host_exe)
 
-    if execution_mode == "c7x_dload":
-        logger.info("Building DLOAD module and running via c7x_compute...")
-        with temporary_dsp_workspace() as workspace:
-            build_dir = workspace / "build-dynmod"
-            weights_path = generated_dir / "weights.bin"
+        elif execution_mode == "c7x_dload":
+            logger.info("Building DLOAD module and running via c7x_compute...")
+            weights_path = workspace / "weights.bin"
             module_path = build_dsp_dynmod(
                 generated_dir,
                 build_dir=build_dir,
@@ -1447,9 +1449,7 @@ def _parse_dsp_outputs(
 
         np_dtype = code_bits_to_dtype.get((dtype_code, dtype_bits))
         if np_dtype is None:
-            raise ValueError(
-                f"Unsupported output dtype: code={dtype_code}, bits={dtype_bits}"
-            )
+            raise ValueError(f"Unsupported output dtype: code={dtype_code}, bits={dtype_bits}")
 
         chunk = raw_data[offset : offset + data_size]
         if len(chunk) != data_size:
@@ -1547,16 +1547,23 @@ def run_dsp_local(
             f.write(np.ascontiguousarray(arr).tobytes())
 
     cmd = [
-        c7x_compute, "run",
-        "--module", str(module_path),
-        "--input", str(input_bin),
-        "--output", str(output_bin),
-        "--shape", ";".join(shape_parts),
-        "--dtype", ";".join(dtype_parts),
+        c7x_compute,
+        "run",
+        "--module",
+        str(module_path),
+        "--input",
+        str(input_bin),
+        "--output",
+        str(output_bin),
+        "--shape",
+        ";".join(shape_parts),
+        "--dtype",
+        ";".join(dtype_parts),
     ]
 
-    logger.info(f"run_dsp_local: {module_path.name}, "
-                f"{len(input_tensors)} input(s), work_dir={work_dir}")
+    logger.info(
+        f"run_dsp_local: {module_path.name}, {len(input_tensors)} input(s), work_dir={work_dir}"
+    )
 
     result_proc = subprocess.run(
         cmd,
@@ -1578,9 +1585,7 @@ def run_dsp_local(
 
     result_json = json.loads(out[json_start:])
     if result_json.get("status") != "ok":
-        raise RuntimeError(
-            f"c7x_compute run error: {result_json.get('error', 'unknown')}"
-        )
+        raise RuntimeError(f"c7x_compute run error: {result_json.get('error', 'unknown')}")
 
     cycles = result_json.get("cycles", 0)
     logger.info(f"  Cycles: {cycles:,}")

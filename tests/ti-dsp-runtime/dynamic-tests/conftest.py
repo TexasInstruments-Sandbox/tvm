@@ -83,6 +83,16 @@ def pytest_addoption(parser):
         pass
 
 
+@pytest.fixture(autouse=True)
+def _set_dsp_test_name(request):
+    """Set the current test name in dsp_utils for workspace naming."""
+    from dsp_utils import set_current_test_name
+
+    set_current_test_name(request.node.name)
+    yield
+    set_current_test_name(None)
+
+
 @pytest.fixture
 def dsp_mode(request):
     """Fixture providing the DSP execution mode."""
