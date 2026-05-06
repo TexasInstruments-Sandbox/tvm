@@ -60,7 +60,7 @@ pipeline {
     parameters {
         string(
             name: 'BRANCH',
-            defaultValue: 'mmalib',
+            defaultValue: 'relax-tidl',
             description: 'Branch to build and test'
         )
         booleanParam(
@@ -102,6 +102,11 @@ pipeline {
             name: 'KEEP_TEMP_DIRS',
             defaultValue: false,
             description: 'Retain /tmp/dsp_build_* directories for post-mortem debugging'
+        )
+        booleanParam(
+            name: 'SKIP_MMALIB_TESTS',
+            defaultValue: false,
+            description: 'Skip MMALIB tests (host and hardware)'
         )
         booleanParam(
             name: 'SKIP_WHEEL_TESTS',
@@ -376,6 +381,9 @@ pipeline {
                 }
 
                 stage('MMALIB Host') {
+                    when {
+                        expression { return !params.SKIP_MMALIB_TESTS }
+                    }
                     steps {
                         sh '''
                             mkdir -p results
@@ -539,6 +547,9 @@ pipeline {
                 }
 
                 stage('MMALIB c7x_dload') {
+                    when {
+                        expression { return !params.SKIP_MMALIB_TESTS }
+                    }
                     steps {
                         sh '''
                             mkdir -p results

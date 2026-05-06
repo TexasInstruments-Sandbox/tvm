@@ -16,7 +16,7 @@ set(CMAKE_AR "${TI_CGT_ROOT}/bin/ar7x" CACHE FILEPATH "Archiver")
 # Set default compile flags (adjust as needed for C7x and your project)
 # Consult TI documentation for recommended flags
 set(CMAKE_C_FLAGS_INIT "-mv7524 --abi=eabi --include_path=\"${TI_CGT_ROOT}/include\" -O2 -g" CACHE STRING "" FORCE)
-set(CMAKE_CXX_FLAGS_INIT "-mv7524 --abi=eabi --include_path=\"${TI_CGT_ROOT}/include\" -O2 -g --rtti --std=c++14" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS_INIT "-mv7524 --abi=eabi --include_path=\"${TI_CGT_ROOT}/include\" -O2 -g --rtti --c++14" CACHE STRING "" FORCE)
 set(CMAKE_ASM_FLAGS_INIT "-mv7524 --abi=eabi --include_path=\"${TI_CGT_ROOT}/include\"" CACHE STRING "" FORCE)
 
 # Set the define flag for TI compiler (uses -D like GCC)

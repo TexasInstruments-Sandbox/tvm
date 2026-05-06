@@ -81,6 +81,8 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # the remaining dequant+add+relu+quant between MMALIB layers.
     if is_c7x and target.attrs.get("mmalib", False):
         passes.append(tvm.relax.transform.FuseMMALIBQDQConv2d())
+        passes.append(tvm.relax.transform.FuseMMALIBQDQDwConv2d())
+        passes.append(tvm.relax.transform.FuseMMALIBQDQFC())
         passes.append(tvm.relax.transform.FuseInt8ResidualAdd())
 
     # Simplify tuple indices (e.g., TupleGetItem(Tuple(a,b),0) → a)

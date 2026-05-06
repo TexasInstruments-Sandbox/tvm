@@ -110,4 +110,6 @@ from .ti_eliminate_qdq_transparent import EliminateQDQTransparent
 from .ti_int8_residual_add import FuseInt8ResidualAdd
 from .ti_mmalib_inject_dma import InjectMMALIBDMA
 from .ti_mmalib_legalize import MMALIBLegalize
+from .ti_mmalib_qdq_dwconv import FuseMMALIBQDQDwConv2d
+from .ti_mmalib_qdq_fc import FuseMMALIBQDQFC
 from .ti_mmalib_qdq_fusion import FuseMMALIBQDQConv2d
