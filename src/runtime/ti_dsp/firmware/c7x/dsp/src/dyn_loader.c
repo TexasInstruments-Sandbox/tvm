@@ -363,6 +363,8 @@ static const DspSymEntry dsp_syms[] = {
     SYM(mmalib_conv2d_i16),
     SYM(mmalib_matmul_i8),
     SYM(mmalib_matmul_i16),
+    SYM(mmalib_depthwise_conv2d_i8),
+    SYM(mmalib_matmul_bias_i8),
 };
 
 #define NUM_DSP_SYMS (sizeof(dsp_syms) / sizeof(dsp_syms[0]))

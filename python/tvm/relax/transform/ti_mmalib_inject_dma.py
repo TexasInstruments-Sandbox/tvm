@@ -42,7 +42,9 @@ logger = logging.getLogger(__name__)
 
 _MMALIB_CONV2D_I8 = "mmalib_conv2d_i8"
 _MMALIB_CONV2D_I16 = "mmalib_conv2d_i16"
-_SUPPORTED = {_MMALIB_CONV2D_I8, _MMALIB_CONV2D_I16}
+_MMALIB_DWCONV2D_I8 = "mmalib_depthwise_conv2d_i8"
+_MMALIB_FC_I8 = "mmalib_matmul_bias_i8"
+_SUPPORTED = {_MMALIB_CONV2D_I8, _MMALIB_CONV2D_I16, _MMALIB_DWCONV2D_I8, _MMALIB_FC_I8}
 
 
 def _find_mmalib_call(body):
@@ -109,6 +111,50 @@ def _extract_dims_conv2d_i16(call_args):
     }
 
 
+def _extract_dims_dwconv2d_i8(call_args):
+    """Extract dimensions from mmalib_depthwise_conv2d_i8 call_extern args.
+
+    Args: (name, input, reordered_weights, bias, scale, shift, output,
+           channels, H_in, W_in, KH, KW, stride_h, stride_w,
+           pad_top, pad_bottom, pad_left, pad_right, num_groups)
+    """
+    channels = int(call_args[7].value)
+    h_in = int(call_args[8].value)
+    w_in = int(call_args[9].value)
+    kh = int(call_args[10].value)
+    kw = int(call_args[11].value)
+    return {
+        "input_arg_idx": 1,
+        "weight_arg_idx": 2,
+        "c_in": channels,
+        "h_in": h_in,
+        "w_in": w_in,
+        "c_out": channels,
+        "kh": kh,
+        "kw": kw,
+    }
+
+
+def _extract_dims_fc_i8(call_args):
+    """Extract dimensions from mmalib_matmul_bias_i8 call_extern args.
+
+    Args: (name, input, weights, bias, scale, shift, output, M, K, N)
+    """
+    m = int(call_args[7].value)
+    k = int(call_args[8].value)
+    n = int(call_args[9].value)
+    return {
+        "input_arg_idx": 1,
+        "weight_arg_idx": 2,
+        "c_in": k,
+        "h_in": m,
+        "w_in": 1,
+        "c_out": n,
+        "kh": 1,
+        "kw": 1,
+    }
+
+
 def _inject_dma(func, l2_budget):
     """Transform a MMALIB PrimFunc to prefetch data into L2 via DMA."""
     _, call_node, extern_name = _find_mmalib_call(func.body)
@@ -121,6 +167,12 @@ def _inject_dma(func, l2_budget):
     elif extern_name == _MMALIB_CONV2D_I16:
         dims = _extract_dims_conv2d_i16(call_node.args)
         elem_bytes = 2
+    elif extern_name == _MMALIB_DWCONV2D_I8:
+        dims = _extract_dims_dwconv2d_i8(call_node.args)
+        elem_bytes = 1
+    elif extern_name == _MMALIB_FC_I8:
+        dims = _extract_dims_fc_i8(call_node.args)
+        elem_bytes = 1
     else:
         return func
 

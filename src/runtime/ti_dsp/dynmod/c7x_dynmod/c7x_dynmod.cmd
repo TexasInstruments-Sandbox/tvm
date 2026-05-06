@@ -203,6 +203,8 @@ SECTIONS
 --import=mmalib_conv2d_i16
 --import=mmalib_matmul_i8
 --import=mmalib_matmul_i16
+--import=mmalib_depthwise_conv2d_i8
+--import=mmalib_matmul_bias_i8
 
 /* ========================================================================
  * Prevent RTS library from pulling in standard C implementations.
