@@ -147,9 +147,12 @@ InferLayoutOutput InferLayoutQuantizeDequantize(
       GetStructInfoAs<TensorStructInfoNode>(call->args[2])->ndim);
 
   // Remap the quantization axis to match the new data layout.
-  // axis=-1 means per-tensor quantization (scalar scale/zp) — leave unchanged.
+  // axis<0 means per-tensor quantization (scalar scale/zp) — leave unchanged.
+  // ndim==0 means the data is a scalar tensor (e.g., a bias zero-point
+  // remaining after QDQ fusion).  FindAxis computes axis % ndim, which
+  // triggers SIGFPE (division by zero) when ndim is 0.
   ObjectPtr<QuantizeAttrs> new_attrs = ffi::make_object<QuantizeAttrs>(*attrs);
-  if (attrs->axis >= 0) {
+  if (attrs->axis >= 0 && ndim > 0) {
     new_attrs->axis = FindAxis(data_layout->layout, attrs->axis);
   }
 
