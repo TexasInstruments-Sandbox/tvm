@@ -123,6 +123,87 @@ def _qdq_fc_pattern():
     return quant_out, annotations, _check_mmalib_qdq_fc
 
 
+def _qdq_fc_reshape_bias_pattern():
+    """dequant(data) -> reshape -> matmul(...) -> reshape -> add(bias) -> quantize
+
+    Handles 3D inputs where aten.linear decomposes to reshape+matmul+reshape.
+    """
+    data = wildcard()
+    d_scale = wildcard()
+    d_zp = wildcard()
+    data_dq = is_op("relax.dequantize")(data, d_scale, d_zp)
+    data_rs = is_op("relax.reshape")(data_dq, wildcard())
+
+    w_int8 = wildcard()
+    w_scale = wildcard()
+    w_zp = wildcard()
+    w_dq = is_op("relax.dequantize")(w_int8, w_scale, w_zp)
+    w_perm = is_op("relax.permute_dims")(w_dq)
+
+    mm = is_op("relax.matmul")(data_rs, w_perm)
+    mm_rs = is_op("relax.reshape")(mm, wildcard())
+    bias = wildcard()
+    add_out = is_op("relax.add")(mm_rs, bias)
+
+    o_scale = wildcard()
+    o_zp = wildcard()
+    quant_out = is_op("relax.quantize")(add_out, o_scale, o_zp)
+
+    annotations = {
+        "data": data,
+        "d_scale": d_scale,
+        "d_zp": d_zp,
+        "w_int8": w_int8,
+        "w_scale": w_scale,
+        "w_zp": w_zp,
+        "w_perm": w_perm,
+        "mm": mm,
+        "bias": bias,
+        "o_scale": o_scale,
+        "o_zp": o_zp,
+    }
+    return quant_out, annotations, _check_mmalib_qdq_fc
+
+
+def _qdq_fc_reshape_pattern():
+    """dequant(data) -> reshape -> matmul(...) -> reshape -> quantize
+
+    Handles 3D inputs where aten.linear decomposes to reshape+matmul+reshape.
+    """
+    data = wildcard()
+    d_scale = wildcard()
+    d_zp = wildcard()
+    data_dq = is_op("relax.dequantize")(data, d_scale, d_zp)
+    data_rs = is_op("relax.reshape")(data_dq, wildcard())
+
+    w_int8 = wildcard()
+    w_scale = wildcard()
+    w_zp = wildcard()
+    w_dq = is_op("relax.dequantize")(w_int8, w_scale, w_zp)
+    w_perm = is_op("relax.permute_dims")(w_dq)
+
+    mm = is_op("relax.matmul")(data_rs, w_perm)
+    mm_rs = is_op("relax.reshape")(mm, wildcard())
+
+    o_scale = wildcard()
+    o_zp = wildcard()
+    quant_out = is_op("relax.quantize")(mm_rs, o_scale, o_zp)
+
+    annotations = {
+        "data": data,
+        "d_scale": d_scale,
+        "d_zp": d_zp,
+        "w_int8": w_int8,
+        "w_scale": w_scale,
+        "w_zp": w_zp,
+        "w_perm": w_perm,
+        "mm": mm,
+        "o_scale": o_scale,
+        "o_zp": o_zp,
+    }
+    return quant_out, annotations, _check_mmalib_qdq_fc
+
+
 # =========================================================================
 # Check function
 # =========================================================================
@@ -196,6 +277,8 @@ def _check_mmalib_qdq_fc(ctx) -> bool:
 # =========================================================================
 
 _COMPOSITE_PREFIXES = (
+    "mmalib.fc_i8_qdq_reshape_bias",
+    "mmalib.fc_i8_qdq_reshape",
     "mmalib.fc_i8_qdq_bias",
     "mmalib.fc_i8_qdq",
 )
@@ -389,6 +472,20 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
         if matmul_data_var is None:
             return roles
 
+        # Trace matmul data input back through reshape (for 3D patterns)
+        data_dq_var = matmul_data_var
+        for block in func.body.blocks:
+            for binding in block.bindings:
+                if not isinstance(binding, relax.VarBinding):
+                    continue
+                if not binding.var.same_as(matmul_data_var):
+                    continue
+                val = binding.value
+                if isinstance(val, relax.Call) and hasattr(val.op, "name"):
+                    if val.op.name == "relax.reshape":
+                        data_dq_var = val.args[0]
+                break
+
         # Find permute_dims to get the dequantize var for weights
         weight_dq_var = None
         for block in func.body.blocks:
@@ -421,7 +518,7 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
 
                 op_name = val.op.name
                 if op_name == "relax.dequantize":
-                    if binding.var.same_as(matmul_data_var):
+                    if binding.var.same_as(data_dq_var):
                         roles["data"] = val.args[0]
                         roles["d_scale"] = val.args[1]
                         roles["d_zp"] = val.args[2]
@@ -430,11 +527,14 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
                         roles["w_scale"] = val.args[1]
                         roles["w_zp"] = val.args[2]
                 elif has_bias and op_name == "relax.add":
-                    param_ids = set(id(p) for p in func.params)
-                    if id(val.args[1]) in param_ids:
-                        roles["bias"] = val.args[1]
-                    elif id(val.args[0]) in param_ids:
-                        roles["bias"] = val.args[0]
+                    # Identify bias as the add operand that is a function param
+                    for arg in (val.args[1], val.args[0]):
+                        for p in func.params:
+                            if arg.same_as(p):
+                                roles["bias"] = p
+                                break
+                        if "bias" in roles:
+                            break
                     else:
                         roles["bias"] = val.args[1]
                 elif op_name == "relax.quantize":
@@ -460,6 +560,8 @@ class FuseMMALIBQDQFC:
 
     def transform_module(self, mod: IRModule, _ctx: PassContext) -> IRModule:
         patterns = [
+            ("mmalib.fc_i8_qdq_reshape_bias", *_qdq_fc_reshape_bias_pattern()),
+            ("mmalib.fc_i8_qdq_reshape", *_qdq_fc_reshape_pattern()),
             ("mmalib.fc_i8_qdq_bias", *_qdq_fc_bias_pattern()),
             ("mmalib.fc_i8_qdq", *_qdq_fc_pattern()),
         ]
