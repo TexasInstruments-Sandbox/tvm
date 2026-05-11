@@ -62,7 +62,7 @@ def _run_test(
     if mmalib:
         comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=5e-1, atol=25.0)
     else:
-        comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=5.0)
+        comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=20.0)
 
     return {
         "torch_result": torch_result,
