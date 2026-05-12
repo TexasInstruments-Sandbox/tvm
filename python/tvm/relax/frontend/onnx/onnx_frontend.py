@@ -1371,6 +1371,23 @@ class ConvTranspose(OnnxOpConverter):
         return conv_out
 
 
+class GridSample(OnnxOpConverter):
+    """Converts an onnx GridSample node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v16(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        grid = inputs[1]
+
+        # ONNX grid is of shape (N, H, W, 2) which should be transposed to (N, 2, H, W) for Relax
+        grid = bb.emit(relax.op.permute_dims(grid, axes=(0, 3, 1, 2)))
+
+        method = attr.get("mode", b"bilinear").decode("utf-8")
+        padding_mode = attr.get("padding_mode", b"zeros").decode("utf-8")
+        align_corners = attr.get("align_corners", 0) != 0
+
+        return bb.emit(relax.op.image.grid_sample(data=data, grid=grid, method=method, layout="NCHW", padding_mode=padding_mode, align_corners=align_corners))
+
 class Erf(OnnxOpConverter):
     """Converts an onnx Erf node into an equivalent Relax expression."""
 
@@ -3964,7 +3981,7 @@ def _get_convert_map():
         # "RoiAlign": RoiAlign,
         "NonMaxSuppression": NonMaxSuppression,
         "AllClassNMS": AllClassNMS,
-        # "GridSample": GridSample,
+        "GridSample": GridSample,
         "Upsample": Upsample,
         # others
         "DepthToSpace": DepthToSpace,
