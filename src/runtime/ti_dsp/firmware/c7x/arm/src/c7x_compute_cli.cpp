@@ -63,7 +63,7 @@ static void print_usage(const char *prog)
     printf("  --input <file>         Input tensor data file\n");
     printf("  --output <file>        Output tensor data file\n");
     printf("  --shape <dims>         Input shape (e.g. 1,3,224,224)\n");
-    printf("  --dtype <type>         Data type: float32, float16, int8 (default: float32)\n");
+    printf("  --dtype <type>         Data type: float32, float16, int32, int16, int8 (default: float32)\n");
     printf("\n");
     printf("Run options:\n");
     printf("  --module <file>        ELF module (lib0.out, with embedded weights)\n");
@@ -337,8 +337,12 @@ static int parse_dtype(const char *str, int32_t *code, int32_t *bits)
         *code = 0; *bits = 32;
     } else if (strcmp(str, "int64") == 0) {
         *code = 0; *bits = 64;
+    } else if (strcmp(str, "int16") == 0) {
+        *code = 0; *bits = 16;
     } else if (strcmp(str, "int8") == 0) {
         *code = 0; *bits = 8;
+    } else if (strcmp(str, "uint16") == 0) {
+        *code = 1; *bits = 16;
     } else if (strcmp(str, "uint8") == 0) {
         *code = 1; *bits = 8;
     } else {

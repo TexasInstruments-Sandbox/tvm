@@ -179,3 +179,4 @@ __declspec(dllexport) int32_t mmalib_matmul_i8() { return 0; }
 __declspec(dllexport) int32_t mmalib_matmul_i16() { return 0; }
 __declspec(dllexport) int32_t mmalib_depthwise_conv2d_i8() { return 0; }
 __declspec(dllexport) int32_t mmalib_matmul_bias_i8() { return 0; }
+__declspec(dllexport) int32_t mmalib_matmul_bias_i16() { return 0; }

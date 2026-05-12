@@ -69,15 +69,18 @@ def _is_mmalib_eligible(call: relax.Call) -> bool:
     if lhs_sinfo.ndim != 2 or rhs_sinfo.ndim != 2:
         return False
 
+    from .ti_mmalib_constants import MMA_SIZE_I16
+
+    mma_size_i16 = MMA_SIZE_I16
     for s in lhs_shape:
         if not isinstance(s, tir.IntImm):
             return False
-        if int(s) % 32 != 0:
+        if int(s) % mma_size_i16 != 0:
             return False
     for s in rhs_shape:
         if not isinstance(s, tir.IntImm):
             return False
-        if int(s) % 32 != 0:
+        if int(s) % mma_size_i16 != 0:
             return False
 
     return True
@@ -182,7 +185,11 @@ def _is_conv2d_mmalib_eligible(call: relax.Call) -> bool:
     if data_sinfo.ndim != 4 or kernel_sinfo.ndim != 4:
         return False
 
-    return _check_conv2d_mmalib_constraints(call.attrs, data_sinfo, kernel_sinfo, mma_size=32)
+    from .ti_mmalib_constants import MMA_SIZE_I16
+
+    return _check_conv2d_mmalib_constraints(
+        call.attrs, data_sinfo, kernel_sinfo, mma_size=MMA_SIZE_I16
+    )
 
 
 def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.Expr:
@@ -262,10 +269,13 @@ def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
 
 
 def _float_to_scale_shift(rescale: np.ndarray):
-    """Convert per-channel float rescale to (uint8 scale, uint8 shift).
+    """Convert per-channel float rescale to (int8 scale, uint8 shift).
 
     Finds (s, sh) per channel such that s * 2^(-sh) ≈ rescale[ch],
-    where s is in [1, 255] and sh is in [0, 31].
+    where s is in [1, 127] (signed int8 positive range) and sh is in [0, 31].
+
+    MMALIB's matrixMatrixMultiplyBias expects signed int8 scale values
+    (confirmed by MMALIB test case 8 which declares scale as int8_t).
     """
     n_channels = rescale.shape[0]
     scale_out = np.zeros(n_channels, dtype=np.uint8)
@@ -285,7 +295,7 @@ def _float_to_scale_shift(rescale: np.ndarray):
             s_int = int(round(s_float))
             if s_int < 1:
                 continue
-            if s_int > 255:
+            if s_int > 127:
                 break
             actual = s_int / (1 << sh)
             err = abs(actual - r) / r
