@@ -989,8 +989,11 @@ def run_dsp_dload(
     code_bits_to_dtype = {
         (2, 32): np.float32,
         (2, 16): np.float16,
+        (0, 64): np.int64,
         (0, 32): np.int32,
+        (0, 16): np.int16,
         (0, 8): np.int8,
+        (1, 16): np.uint16,
         (1, 8): np.uint8,
     }
 

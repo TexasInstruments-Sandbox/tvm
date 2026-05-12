@@ -40,11 +40,10 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_mmalib_constants import MMA_SIZE_I8
 from .ti_mmalib_legalize import _float_to_scale_shift
 
 logger = logging.getLogger(__name__)
-
-MMA_SIZE_I8 = 64
 
 
 # =========================================================================

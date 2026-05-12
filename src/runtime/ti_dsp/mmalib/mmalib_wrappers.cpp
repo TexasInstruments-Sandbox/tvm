@@ -130,10 +130,11 @@ static int32_t matmul_impl(void* src0, void* src1, void* dst,
  * identity defaults (zero bias, scale=1, shift=0) when the caller passes NULL.
  * ========================================================================= */
 
-// MMA_SIZE: hardware-imposed limit on subMChannels for strided convolution.
-// stride=1 has no limit; stride>1 must tile in chunks of this size.
-static constexpr int32_t MMA_SIZE_I8 = 64;
-static constexpr int32_t MMA_SIZE_I16 = 32;
+// MMA_SIZE: derived from MMALIB header (MMALIB_MMA_SIZE_8_BIT).
+// On C7504 (AM67A/J722S): 32 for int8, 16 for int16.
+// Used as subMChannels limit for strided convolution tiling.
+static constexpr int32_t MMA_SIZE_I8 = MMALIB_MMA_SIZE_8_BIT;
+static constexpr int32_t MMA_SIZE_I16 = MMALIB_MMA_SIZE_8_BIT / 2;
 
 template <typename ElemT, int MmalibDtype, int BiasDtype,
           int SatMin, int SatMax, int MmaSize>
@@ -634,7 +635,7 @@ int32_t mmalib_matmul_bias_i8(void* input, void* weights,
     src2_params.stride_y = N * 4;
 
     MMALIB_bufParams2D_t src3_params;
-    src3_params.data_type = MMALIB_UINT8;
+    src3_params.data_type = MMALIB_INT8;
     src3_params.dim_x = (uint32_t)N;
     src3_params.dim_y = 1;
     src3_params.stride_y = N;
@@ -656,11 +657,103 @@ int32_t mmalib_matmul_bias_i8(void* input, void* weights,
     init_args.bTranspose =
         MMALIB_LINALG_MATRIXMATRIXMULTIPLYBIAS_IXX_IXX_OXX_B_TRANSPOSED;
     init_args.biasOrder =
-        MMALIB_LINALG_MATRIXMATRIXMULTIPLYBIAS_IXX_IXX_OXX_BIAS_ORDER_COL;
+        MMALIB_LINALG_MATRIXMATRIXMULTIPLYBIAS_IXX_IXX_OXX_BIAS_ORDER_ROW;
     init_args.scaleAndShiftFlag =
         MMALIB_LINALG_MATRIXMATRIXMULTIPLYBIAS_IXX_IXX_OXX_SCALE_SHIFT_VECTOR;
     init_args.scaleShiftOrder =
-        MMALIB_LINALG_MATRIXMATRIXMULTIPLYBIAS_IXX_IXX_OXX_SCALE_SHIFT_ORDER_COL;
+        MMALIB_LINALG_MATRIXMATRIXMULTIPLYBIAS_IXX_IXX_OXX_SCALE_SHIFT_ORDER_ROW;
+    init_args.interleavedFlag = 0;
+
+    int32_t handle_size =
+        MMALIB_LINALG_matrixMatrixMultiplyBias_ixX_ixX_oxX_getHandleSize(&init_args);
+    Workspace whandle;
+    if (!whandle.alloc(handle_size)) return -1;
+
+    MMALIB_STATUS status = MMALIB_LINALG_matrixMatrixMultiplyBias_ixX_ixX_oxX_init(
+        whandle.ptr, &src0_params, &src1_params, &src2_params, &src3_params,
+        &dst_params, &init_args);
+    if (status != MMALIB_SUCCESS) return (int32_t)status;
+
+    status = MMALIB_LINALG_matrixMatrixMultiplyBias_ixX_ixX_oxX_exec(
+        whandle.ptr, input, weights, bias, scale, shift, output);
+    return (int32_t)status;
+}
+
+int32_t mmalib_matmul_bias_i16(void* input, void* weights,
+                               void* bias, void* scale, void* shift,
+                               void* output,
+                               int32_t M, int32_t K, int32_t N) {
+    if (!input || !weights || !output) {
+        return -1;
+    }
+
+    Workspace wb, ws, wsh;
+    if (!bias) {
+        if (!wb.alloc(N * 8)) return -1;  // int64 bias for int16
+        memset(wb.ptr, 0, N * 8);
+        bias = wb.ptr;
+    }
+    if (!scale) {
+        if (!ws.alloc(N)) return -1;
+        memset(ws.ptr, 1, N);
+        scale = ws.ptr;
+    }
+    if (!shift) {
+        if (!wsh.alloc(N)) return -1;
+        memset(wsh.ptr, 0, N);
+        shift = wsh.ptr;
+    }
+
+    MMALIB_bufParams3D_t src0_params;
+    src0_params.data_type = MMALIB_INT16;
+    src0_params.dim_x = (uint32_t)K;
+    src0_params.dim_y = (uint32_t)M;
+    src0_params.stride_y = K * 2;
+    src0_params.dim_z = 1;
+    src0_params.stride_z = M * K * 2;
+
+    MMALIB_bufParams3D_t src1_params;
+    src1_params.data_type = MMALIB_INT16;
+    src1_params.dim_x = (uint32_t)K;
+    src1_params.dim_y = (uint32_t)N;
+    src1_params.stride_y = K * 2;
+    src1_params.dim_z = 1;
+    src1_params.stride_z = N * K * 2;
+
+    MMALIB_bufParams2D_t src2_params;
+    src2_params.data_type = MMALIB_INT64;
+    src2_params.dim_x = (uint32_t)N;
+    src2_params.dim_y = 1;
+    src2_params.stride_y = N * 8;
+
+    MMALIB_bufParams2D_t src3_params;
+    src3_params.data_type = MMALIB_INT8;
+    src3_params.dim_x = (uint32_t)N;
+    src3_params.dim_y = 1;
+    src3_params.stride_y = N;
+
+    MMALIB_bufParams3D_t dst_params;
+    dst_params.data_type = MMALIB_INT16;
+    dst_params.dim_x = (uint32_t)N;
+    dst_params.dim_y = (uint32_t)M;
+    dst_params.stride_y = N * 2;
+    dst_params.dim_z = 1;
+    dst_params.stride_z = M * N * 2;
+
+    MMALIB_LINALG_matrixMatrixMultiplyBias_ixX_ixX_oxX_InitArgs init_args;
+    memset(&init_args, 0, sizeof(init_args));
+    init_args.funcStyle = MMALIB_FUNCTION_OPTIMIZED;
+    init_args.activationType = MMALIB_SATURATION;
+    init_args.pSatMin = -32768;
+    init_args.pSatMax = 32767;
+    init_args.bTranspose =
+        MMALIB_LINALG_MATRIXMATRIXMULTIPLYBIAS_IXX_IXX_OXX_B_TRANSPOSED;
+    init_args.biasOrder =
+        MMALIB_LINALG_MATRIXMATRIXMULTIPLYBIAS_IXX_IXX_OXX_BIAS_ORDER_ROW;
+    init_args.scaleAndShiftFlag =
+        MMALIB_LINALG_MATRIXMATRIXMULTIPLYBIAS_IXX_IXX_OXX_SCALE_SHIFT_VECTOR;
+    init_args.scaleShiftOrder =
+        MMALIB_LINALG_MATRIXMATRIXMULTIPLYBIAS_IXX_IXX_OXX_SCALE_SHIFT_ORDER_ROW;
     init_args.interleavedFlag = 0;
 
     int32_t handle_size =

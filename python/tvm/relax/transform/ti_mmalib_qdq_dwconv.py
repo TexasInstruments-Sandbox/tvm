@@ -47,8 +47,6 @@ from .ti_mmalib_legalize import _float_to_scale_shift
 
 logger = logging.getLogger(__name__)
 
-MMA_SIZE_I8 = 64
-
 
 # =========================================================================
 # Pattern definitions (same structure as conv2d QDQ, but for depthwise)

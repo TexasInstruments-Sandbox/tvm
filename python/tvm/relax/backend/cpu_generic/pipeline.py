@@ -97,6 +97,27 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     passes += [
         tvm.relax.transform.FuseQDQToInt8Conv2D(),
         tvm.relax.transform.EliminateQDQRoundTrip(),
+        # RewriteDequantize: converts manual weight-only INT8 pattern
+        # (astype(Constant(int8), "float32") * Constant(scale)) into
+        # R.dequantize(). Required before FuseDequantizeMatmul.
+        # Safe for all models: only matches int8 Constant + float32 astype
+        # + Constant multiply — no-op for pure float or PT2E QDQ models.
+        # Previously run manually in smollm_c7x.py; now in the pipeline
+        # to support mixed-quantization (W8A8 MLP + weight-only attention).
+        tvm.relax.transform.RewriteDequantize(),
+        tvm.relax.transform.DeadCodeElimination(),
+    ]
+
+    # Int16 MMALIB for MLP layers: converts dequantize+matmul patterns
+    # with MLP weight shapes to mmalib_matmul_i16 (non-bias, with shift).
+    # Runs BEFORE FuseDequantizeMatmul so MLP layers are captured here;
+    # remaining layers (attention) fall through to FuseDequantizeMatmul.
+    if is_c7x and target.attrs.get("mmalib", False):
+        from tvm.relax.transform.ti_mmalib_i16_fc import LegalizeMLPToMMALIBInt16
+
+        passes.append(LegalizeMLPToMMALIBInt16())
+
+    passes += [
         tvm.relax.transform.FuseDequantizeMatmul(),
     ]
 

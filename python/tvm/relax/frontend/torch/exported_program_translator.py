@@ -1215,6 +1215,25 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             relax.op.dequantize(data, scale, zero_point, axis=0, out_dtype="float32")
         )
 
+    def _dequantize_per_channel(self, node: fx.Node) -> relax.Var:
+        # args: (data, scale_1d, zp_1d, axis, quant_min, quant_max, dtype)
+        import numpy as np
+
+        args = self.retrieve_args(node)
+        data = args[0]
+        scale = args[1]
+        in_dtype = data.struct_info.dtype
+        zero_point = args[2]
+        axis = int(args[3])
+        # PT2E emits zp as int64; TVM dequantize requires it to match
+        # the quantized data dtype. Rebuild as a correctly-typed constant.
+        if hasattr(zero_point, "struct_info") and zero_point.struct_info.dtype != in_dtype:
+            n_channels = int(zero_point.struct_info.shape[0])
+            zero_point = relax.Constant(np.zeros(n_channels, dtype=in_dtype))
+        return self.block_builder.emit(
+            relax.op.dequantize(data, scale, zero_point, axis=axis, out_dtype="float32")
+        )
+
     ########## Others ##########
 
     def create_convert_map(
@@ -1537,6 +1556,7 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             # quantization
             "quantize_per_tensor.default": self._quantize_per_tensor,
             "dequantize_per_tensor.default": self._dequantize_per_tensor,
+            "dequantize_per_channel.default": self._dequantize_per_channel,
             # datatype
             "to.dtype": self._to,
             "to.dtype_layout": self._to,

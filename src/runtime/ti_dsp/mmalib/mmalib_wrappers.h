@@ -253,6 +253,34 @@ int32_t mmalib_matmul_bias_i8(void* input, void* weights,
                               void* output,
                               int32_t M, int32_t K, int32_t N);
 
+/**
+ * @brief Int16 matrix multiply with per-column bias, scale, and shift.
+ *
+ * Same as mmalib_matmul_bias_i8 but with int16 precision:
+ *   - Input/weight/output: int16 (65536 levels, much finer quantization)
+ *   - Bias: int64 (required for int16 accumulator precision)
+ *   - Internal accumulator: int64 (no overflow for K up to ~65536)
+ *   - Scale/shift: same uint8 per-channel as int8 variant
+ *
+ * Dimension constraints: K and N must be multiples of 32.
+ *
+ * @param input   Activation matrix A [M, K], int16, 64-byte aligned
+ * @param weights Weight matrix B [N, K], int16, 64-byte aligned (transposed internally)
+ * @param bias    Per-output bias [N], int64. NULL defaults to zero.
+ * @param scale   Per-output scale [N], uint8. NULL defaults to 1.
+ * @param shift   Per-output shift [N], uint8. NULL defaults to 0.
+ * @param output  Output matrix C [M, N], int16, 64-byte aligned
+ * @param M       Batch size (number of rows in input)
+ * @param K       Input features (must be multiple of 32)
+ * @param N       Output features (must be multiple of 32)
+ * @return 0 on success, non-zero MMALIB error code on failure
+ */
+TVM_MMALIB_EXPORT
+int32_t mmalib_matmul_bias_i16(void* input, void* weights,
+                               void* bias, void* scale, void* shift,
+                               void* output,
+                               int32_t M, int32_t K, int32_t N);
+
 #ifdef __cplusplus
 }
 #endif
