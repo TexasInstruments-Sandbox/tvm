@@ -40,7 +40,7 @@ _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 sys.path.insert(0, str(_THIS_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import compile_and_run_dsp, get_target_string, set_current_test_name  # noqa: E402
 from smollm_c7x import SmolLMWrapper, quantize_linear  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -201,6 +201,7 @@ def create_model(model_dir, seq_len=64, num_layers=30, smooth_alpha=0.5):
 
 def cmd_test(args):
     """Compile and run SmolLM with int16 MMALIB, compare to float reference."""
+    set_current_test_name(f"smollm_w16a16_{args.num_layers}L_{args.dsp_mode}")
     mod, input_data, float_ref = create_model(
         args.model_dir,
         seq_len=args.seq_len,

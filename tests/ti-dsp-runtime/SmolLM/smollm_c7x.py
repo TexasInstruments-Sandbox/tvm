@@ -137,18 +137,10 @@ def quantize_linear(linear: nn.Linear) -> QuantizedLinear:
 
 
 def quantize_linears(module: nn.Module) -> nn.Module:
-    """Replace all nn.Linear layers with QuantizedLinear (in-place).
-
-    Skips the lm_head (embedding) layer to keep it in float32, as it
-    is shared with the input embedding in SmolLM.
-    """
+    """Replace all nn.Linear layers with QuantizedLinear (in-place)."""
     count = 0
     for name, child in module.named_children():
         if isinstance(child, nn.Linear):
-            # Skip lm_head — keep embedding weights in float32
-            if name == "lm_head":
-                logger.info("  Skipping %s (lm_head)", name)
-                continue
             q = quantize_linear(child)
             setattr(module, name, q)
             count += 1
@@ -183,6 +175,7 @@ def create_smollm_model(
     seq_len: int = 16,
     seed: int = 42,
     quantize: bool = False,
+    num_layers: int = 30,
 ) -> tuple:
     """
     Load SmolLM-135M, export to Relax, and bind parameters.
@@ -225,6 +218,8 @@ def create_smollm_model(
         str(model_dir), dtype=torch.float32, local_files_only=True
     )
     model.eval()
+    if num_layers < 30:
+        model.model.layers = model.model.layers[:num_layers]
 
     # Apply quantization before wrapping
     if quantize:
@@ -299,6 +294,7 @@ def cmd_compile(args) -> int:
         model_dir=args.model_dir,
         seq_len=args.seq_len,
         quantize=args.quantize,
+        num_layers=getattr(args, "num_layers", 30),
     )
     print(f"  Input shapes: {[a.shape for a in input_data]}")
     print(f"  Ref output shape: {ref_output.shape}")
@@ -470,9 +466,12 @@ def cmd_infer(args) -> int:
             cos_sims.append(cos)
         avg_cos = np.mean(cos_sims)
 
+        cycles = results.get("c7x_dload_cycles", 0)
         print(f"  Max abs diff:  {max_diff:.2e}")
         print(f"  Top-1 match:   {top1_match:.1%}")
         print(f"  Avg cos sim:   {avg_cos:.4f}")
+        if cycles:
+            print(f"  Cycles:        {cycles:,}")
 
         # Pass criteria:
         # - c7x_host: tight tolerance (same compiler family as PyTorch)
@@ -522,8 +521,8 @@ def cmd_test(args) -> int:
     print(f"SmolLM-135M  {quant_label}  {mode_label}  [test]")
     print("=" * 70)
 
-    # Use a temporary directory for artifacts
-    artifacts_dir = Path(tempfile.mkdtemp(prefix="smollm_test_"))
+    # Use a named temporary directory for artifacts
+    artifacts_dir = Path(tempfile.mkdtemp(prefix=f"smollm_{quant_label}_{mode_label}_"))
 
     # Compile
     args.output = str(artifacts_dir)
@@ -1053,6 +1052,7 @@ examples:
         help="Path to local SmolLM model directory",
     )
     p_compile.add_argument("--seq-len", type=int, default=16, help="Sequence length (default: 16)")
+    p_compile.add_argument("--num-layers", type=int, default=30, help="Number of transformer layers (default: 30)")
     p_compile.add_argument(
         "--quantize",
         action="store_true",
@@ -1105,6 +1105,7 @@ examples:
         help="Path to local SmolLM model directory",
     )
     p_test.add_argument("--seq-len", type=int, default=16, help="Sequence length (default: 16)")
+    p_test.add_argument("--num-layers", type=int, default=30, help="Number of transformer layers (default: 30)")
     p_test.add_argument(
         "--quantize",
         action="store_true",

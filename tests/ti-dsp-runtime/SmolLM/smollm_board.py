@@ -563,13 +563,10 @@ class SmolLMEngine:
         """Process a prompt (list of token IDs), populate KV cache.
 
         The prompt is padded or chunked to fit the fixed prefill_len.
-        Returns the logits for the last prompt position as a 1D array.
+        Returns (logits_1d, elapsed_seconds).
         """
-        # Pad or truncate to prefill_len
         n = len(token_ids)
         if n > self.prefill_len:
-            # Chunked prefill: process in prefill_len windows
-            # Simple approach: truncate to last prefill_len tokens
             token_ids = token_ids[-self.prefill_len :]
             n = self.prefill_len
             self.cache_pos = 0
@@ -581,16 +578,18 @@ class SmolLMEngine:
         self.cache.reset()
         self.cache_pos = 0
 
+        t0 = time.monotonic()
         outputs, cycles = self._run(self.prefill_out, [input_ids, cache_pos])
+        elapsed = time.monotonic() - t0
+
         self.cache.update_from_outputs(outputs)
         self.cache_pos = self.prefill_len
 
-        # Return logits at the last real token position (n-1)
         logits = outputs[0]  # [1, prefill_len, vocab]
-        return logits[0, n - 1, :]
+        return logits[0, n - 1, :], elapsed
 
     def decode_step(self, token_id):
-        """Decode one token, update KV cache, return next-token logits."""
+        """Decode one token, update KV cache, return (logits_1d, elapsed_seconds)."""
         if self.cache_pos >= self.max_cache_len:
             raise RuntimeError(
                 f"KV cache full ({self.max_cache_len} tokens). "
@@ -600,44 +599,50 @@ class SmolLMEngine:
         cache_pos = np.array([self.cache_pos], dtype=np.int64)
         all_inputs = [input_ids, cache_pos] + self.cache.as_inputs()
 
+        t0 = time.monotonic()
         if self._use_session:
             outputs, _cycles = self._get_decode_session().infer(all_inputs)
         else:
             outputs, _cycles = _run_local(
                 self.decode_out, all_inputs, self.work_dir, self.c7x_compute
             )
+        elapsed = time.monotonic() - t0
 
         self.cache.update_from_outputs(outputs)
         self.cache_pos += 1
 
         logits = outputs[0]  # [1, 1, vocab]
-        return logits[0, 0, :]
+        return logits[0, 0, :], elapsed
 
     def generate(self, prompt, max_new_tokens=200, temperature=1.0, top_k=0):
         """Generate text from a prompt, yielding decoded text incrementally.
 
-        Args:
-            prompt: Input text string.
-            max_new_tokens: Maximum number of new tokens to generate.
-            temperature: Sampling temperature (1.0 = greedy, <1.0 = sharper).
-            top_k: If > 0, restrict sampling to top-k logits.
-
-        Yields:
-            Decoded text fragments as they are generated.
+        After generation completes, throughput stats are available via
+        self.last_stats (dict with prefill_s, decode_tokens, decode_s, tok_per_s).
         """
+        self.last_stats = None
         token_ids = self.tokenizer.encode(prompt).ids
 
-        # Prefill
-        logits = self.prefill(token_ids)
+        logits, prefill_s = self.prefill(token_ids)
         next_token = _sample(logits, temperature=temperature, top_k=top_k)
 
+        decode_times = []
+
         if next_token == self.eos_token_id:
+            self.last_stats = {
+                "prefill_s": prefill_s,
+                "prefill_tokens": len(token_ids),
+                "decode_tokens": 0,
+                "decode_s": 0.0,
+                "tok_per_s": 0.0,
+            }
             return
         yield self.tokenizer.decode([next_token])
 
         for _ in range(max_new_tokens - 1):
             try:
-                logits = self.decode_step(next_token)
+                logits, step_s = self.decode_step(next_token)
+                decode_times.append(step_s)
             except RuntimeError as e:
                 if "KV cache full" in str(e):
                     print(
@@ -645,12 +650,22 @@ class SmolLMEngine:
                         f"Recompile with a larger --max-cache-len to continue.]",
                         file=sys.stderr,
                     )
-                    return
+                    break
                 raise
             next_token = _sample(logits, temperature=temperature, top_k=top_k)
             if next_token == self.eos_token_id:
                 break
             yield self.tokenizer.decode([next_token])
+
+        decode_s = sum(decode_times)
+        n_decode = len(decode_times)
+        self.last_stats = {
+            "prefill_s": prefill_s,
+            "prefill_tokens": len(token_ids),
+            "decode_tokens": n_decode,
+            "decode_s": decode_s,
+            "tok_per_s": n_decode / decode_s if decode_s > 0 else 0.0,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -762,6 +777,14 @@ def chat(engine, max_tokens=200, temperature=1.0, top_k=0):
         response = "".join(response_tokens)
         print()
 
+        stats = engine.last_stats
+        if stats:
+            print(
+                f"  [{stats['prefill_tokens']} prompt tok / {stats['prefill_s']:.2f}s prefill"
+                f" | {stats['decode_tokens']} gen tok / {stats['decode_s']:.1f}s decode"
+                f" | {stats['tok_per_s']:.2f} tok/s]"
+            )
+
         history.append({"role": "assistant", "content": response})
 
 
@@ -843,6 +866,14 @@ examples:
             ):
                 print(fragment, end="", flush=True)
             print()
+            stats = engine.last_stats
+            if stats:
+                print(
+                    f"\n[{stats['prefill_tokens']} prompt tok / {stats['prefill_s']:.2f}s prefill"
+                    f" | {stats['decode_tokens']} gen tok / {stats['decode_s']:.1f}s decode"
+                    f" | {stats['tok_per_s']:.2f} tok/s]",
+                    file=sys.stderr,
+                )
         else:
             # Interactive chat
             chat(engine, max_tokens=args.max_tokens, temperature=args.temperature, top_k=args.top_k)
