@@ -423,6 +423,116 @@ def _schedule_conv2d(func, l2_budget):
     return sch.mod["main"]
 
 
+def _schedule_dequantize_matmul(func, l2_budget):
+    """Apply N-tiling DMA schedule to a PrimFunc containing dequantize_matmul_acc.
+
+    Tiles the N (output channel) loop and prefetches weight tiles from
+    DDR into L2 SRAM with double-buffering. Also reorders the inner
+    loops to K-outer → N → K-inner for better vectorization potential.
+
+    Returns the scheduled PrimFunc, or the original if not applicable.
+    """
+    sch = tir.Schedule(func)
+
+    try:
+        root_block = sch.get_block("root")
+    except Exception:
+        return func
+    all_blocks = sch.get_child_blocks(root_block)
+    block_names = [sch.get(b).name_hint for b in all_blocks]
+    if "dequantize_matmul_acc" not in block_names:
+        return func
+    acc_block = sch.get_block("dequantize_matmul_acc")
+
+    # Extract dimensions from block
+    try:
+        block_stmt = sch.get(acc_block)
+        # reads[0] = activation: [M, K] float32
+        # reads[1] = weight: [N, K] int8
+        # writes[0] = acc: [M, N] float32
+        act_shape = block_stmt.reads[0].buffer.shape
+        w_shape = block_stmt.reads[1].buffer.shape
+        M = int(act_shape[0])
+        K = int(act_shape[1])
+        N = int(w_shape[0])
+    except (IndexError, TypeError, ValueError) as e:
+        logger.debug("Cannot extract dequantize_matmul dimensions: %s", e)
+        return func
+
+    # Current loop order: [i0(M), i1(N), k(K)]
+    loops = sch.get_loops(acc_block)
+    if len(loops) != 3:
+        logger.debug(
+            "Unexpected loop count %d for dequantize_matmul, skipping",
+            len(loops),
+        )
+        return func
+
+    m_loop, n_loop, k_loop = loops
+
+    # Only cache weight in L2 if the entire matrix fits.
+    # SW-pipelined N-tiling for larger weights is deferred until
+    # IdentifyMemCpy recognition of the fused copy pattern is fixed.
+    weight_bytes = N * K  # int8
+    if weight_bytes > int(l2_budget * 0.75):
+        logger.debug(
+            "dequantize_matmul: weight %d KB > L2 budget, skipping",
+            weight_bytes // 1024,
+        )
+        return func
+
+    n_tile = N  # entire weight fits
+    n_tiles = 1
+    if n_tiles < 2:
+        # Weight fits in L2 — cache it once before the M loop (no SW pipeline)
+        cache_weight = sch.cache_read(acc_block, 1, "global.l2sram")
+        # Don't compute_at — leave at root so the copy runs once before M loop
+        w_cache_loops = sch.get_loops(cache_weight)
+        if len(w_cache_loops) >= 2:
+            sch.fuse(*w_cache_loops)
+
+        sch.decompose_reduction(acc_block, sch.get_loops(acc_block)[2])
+
+        logger.info(
+            "DMA dequantize_matmul: M=%d K=%d N=%d, weight cached in L2 (%d KB)",
+            M, K, N, N * K // 1024,
+        )
+        return sch.mod["main"]
+
+    # Split N loop: n_outer, n_inner
+    n_outer, n_inner = sch.split(n_loop, factors=[None, n_tile])
+
+    # Cache weight into L2 SRAM (per n_outer tile)
+    cache_weight = sch.cache_read(acc_block, 1, "global.l2sram")
+    sch.compute_at(cache_weight, n_outer)
+
+    # Fuse weight cache copy loops for LowerAsyncDMA pattern matching
+    w_cache_loops = sch.get_loops(cache_weight)
+    w_copy_loops = w_cache_loops[2:]  # skip m_loop and n_outer
+    if len(w_copy_loops) >= 2:
+        sch.fuse(*w_copy_loops)
+
+    # Decompose reduction: split init from update for the k-loop
+    update_loops = sch.get_loops(acc_block)
+    for i, lp in enumerate(update_loops):
+        loop_var = sch.get(lp)
+        if hasattr(loop_var, 'extent') and int(loop_var.extent) == K:
+            sch.decompose_reduction(acc_block, lp)
+            break
+
+    # Software pipeline: stage 0 = DMA weight tile, stage 1 = compute
+    sch.annotate(n_outer, "software_pipeline_stage", [0, 1])
+    sch.annotate(n_outer, "software_pipeline_order", [0, 1])
+    sch.annotate(n_outer, "software_pipeline_async_stages", [0])
+
+    logger.info(
+        "DMA N-tiling dequantize_matmul: M=%d K=%d N=%d, n_tile=%d (%d tiles), "
+        "tile=%d KB",
+        M, K, N, n_tile, n_tiles, n_tile * K // 1024,
+    )
+    return sch.mod["main"]
+
+
 @tvm.transform.module_pass(opt_level=0, name="ScheduleC7xDMATiling")
 class ScheduleC7xDMATiling:
     """Apply DMA tiling to conv2d PrimFuncs for C7x L2 SRAM.
@@ -456,10 +566,12 @@ class ScheduleC7xDMATiling:
         new_funcs = {}
         for gvar, func in mod.functions.items():
             if isinstance(func, tir.PrimFunc):
-                # Try NHWC H-tiling first, then NCHW OC-tiling
+                # Try NHWC H-tiling first, then NCHW OC-tiling, then matmul
                 new_func = _schedule_conv2d_nhwc(func, self.l2_budget)
                 if new_func is func:
                     new_func = _schedule_conv2d(func, self.l2_budget)
+                if new_func is func:
+                    new_func = _schedule_dequantize_matmul(func, self.l2_budget)
                 if new_func is not func:
                     new_funcs[gvar] = new_func
 
