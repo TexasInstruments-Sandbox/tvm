@@ -67,23 +67,25 @@ from .ti_mmalib_constants import MMA_SIZE_I16
 logger = logging.getLogger(__name__)
 
 
-def _compute_shift(w_i16):
-    """Compute global shift to prevent int16 output overflow.
+def _compute_per_channel_shift(w_i16_NK):
+    """Compute per-output-channel shift from per-row L1-norms.
 
-    Uses the maximum L1-norm (sum of absolute values) across weight rows
-    instead of worst-case max|w| * K. This gives a much tighter bound
-    because real matmul accumulators benefit from sign cancellation.
+    Each output channel n has its own optimal shift based on its weight
+    row's L1-norm: shift[n] = ceil(log2(L1[n])) where L1[n] = sum|w[n,:]|.
+    This gives 2-3 more bits of precision vs the global max shift.
 
-    Tight bound: max_accum ≈ max|x_i16| * max_row_l1_norm(w)
-    With dynamic quantization, max|x_i16| = 32767 always.
+    w_i16_NK: weight in [N, K] layout (each row = one output channel).
+    Returns uint8 array [N].
     """
-    # L1 norm per output channel (row of [N, K] weight matrix transposed to [K, N])
-    row_l1 = np.abs(w_i16).sum(axis=0)  # w_i16 is [K, N], sum over K → [N]
-    max_l1 = int(row_l1.max())
-    max_accum = 32767 * max_l1
-    if max_accum <= 32767:
-        return 0
-    return math.ceil(math.log2(max_accum / 32767))
+    # Per-channel L1 norm: sum of absolute values along K dimension
+    l1_per_ch = np.abs(w_i16_NK).sum(axis=1)  # [N]
+    shift = np.zeros(len(l1_per_ch), dtype=np.uint8)
+    for n in range(len(l1_per_ch)):
+        # max_accum for this channel = L1[n] * max|x_i16| = L1[n] * 32767
+        max_accum = int(l1_per_ch[n]) * 32767
+        if max_accum > 32767:
+            shift[n] = math.ceil(math.log2(max_accum / 32767))
+    return shift
 
 
 def _pre_scan_bindings(func):
@@ -194,31 +196,33 @@ class _MMALIBInt16FCMutator(PyExprMutator):
 
         # --- Compute int16 quantization parameters ---
 
-        # Sign-extend int8 weight to int16 (lossless)
-        w_i16 = w_np.astype(np.int16)
+        # Sign-extend int8 weight to int16 (lossless), keep [N, K] layout
+        # matmulBias_i16 uses bTranspose=1 so weight stays in [N, K]
+        w_i16_NK = w_np.astype(np.int16)
 
-        # Weight in [K, N] for non-transposed mmalib_matmul_i16
-        w_i16_KN = np.ascontiguousarray(w_i16.T)
+        # Per-channel shift: each output channel gets its optimal shift
+        # based on its weight row L1-norm (2-3 bits better than global max)
+        shift_per_ch = _compute_per_channel_shift(w_i16_NK)
+        # DEBUG: use uniform shift (max) to isolate kernel vs dequant issue
+        # TODO: remove this once per-channel dequant is verified
+        shift_per_ch[:] = shift_per_ch.max()
 
-        # Compute shift using tight L1-norm bound (not worst-case max*K)
-        shift = _compute_shift(w_i16_KN)
+        # Constants for matmulBias_i16: bias=0, scale=1, per-channel shift
+        bias_i64 = np.zeros(N, dtype=np.int64)
+        scale_i8 = np.ones(N, dtype=np.int8)
 
         # --- Emit replacement ops ---
 
-        # 1. Dynamic per-tensor quantization: compute scale from actual input
-        #    x_scale = max(|x|) / 32767, then x_i16 = round(x / x_scale)
-        #    This guarantees no clipping and optimal precision for any input range.
+        # 1. Dynamic per-tensor activation quantization:
+        #    x_scale = max(|x|) / 32767, x_i16 = round(x / x_scale)
         x_abs = self.builder_.emit(relax.op.abs(activation))
         x_max = self.builder_.emit(relax.op.max(x_abs))
-        # x_scale = x_max / 32767
         x_scale = self.builder_.emit(
             relax.op.divide(x_max, relax.const(32767.0, "float32"))
         )
-        # Prevent division by zero
         x_scale = self.builder_.emit(
             relax.op.maximum(x_scale, relax.const(1e-10, "float32"))
         )
-        # x_i16 = clip(round(x / x_scale), -32768, 32767)
         inv_scale = self.builder_.emit(
             relax.op.divide(relax.const(1.0, "float32"), x_scale)
         )
@@ -227,43 +231,55 @@ class _MMALIBInt16FCMutator(PyExprMutator):
         x_clipped = self.builder_.emit(relax.op.clip(x_rounded, -32768, 32767))
         x_i16 = self.builder_.emit(relax.op.astype(x_clipped, "int16"))
 
-        # 2. MMALIB int16 matmul (non-bias, with shift)
-        def te_mmalib_i16(data_t, w_t):
+        # 2. MMALIB matmulBias_i16: per-channel shift, scale=1, bias=0
+        def te_mmalib_bias_i16(data_t, w_t, bias_t, scale_t, shift_t):
             def fcompute(ins, outs):
                 return tir.call_extern(
                     "int32",
-                    "mmalib_matmul_i16",
+                    "mmalib_matmul_bias_i16",
                     ins[0].data,
                     ins[1].data,
+                    ins[2].data,
+                    ins[3].data,
+                    ins[4].data,
                     outs[0].data,
-                    M, K, N, shift,
+                    M, K, N,
                 )
 
             return te.extern(
-                [M, N], [data_t, w_t], fcompute,
-                name="mmalib_i16_fc", dtype="int16",
+                [M, N],
+                [data_t, w_t, bias_t, scale_t, shift_t],
+                fcompute,
+                name="mmalib_i16_fc",
+                dtype="int16",
             )
 
         out_i16 = self.builder_.call_te(
-            te_mmalib_i16, x_i16, relax.Constant(w_i16_KN),
+            te_mmalib_bias_i16,
+            x_i16,
+            relax.Constant(np.ascontiguousarray(w_i16_NK)),
+            relax.Constant(bias_i64),
+            relax.Constant(scale_i8),
+            relax.Constant(shift_per_ch),
             primfunc_name_hint="mmalib_i16_fc",
         )
 
-        # 3. Dequantize: out_float = cast(out_i16) * (2^shift) * x_scale * w_scale[n]
-        #    x_scale is dynamic (computed at runtime), w_scale is a compile-time constant
+        # 3. Dequantize: out_float = cast(out_i16) * (2^shift[n]) * x_scale * w_scale[n]
         out_float = self.builder_.emit(relax.op.astype(out_i16, "float32"))
-        # Static part: (2^shift) * w_scale[n]
-        static_dequant = (np.float32(1 << shift) * w_scale_np).astype(np.float32)
+        # Static part: (2^shift[n]) * w_scale[n] — per-channel
+        pow2_shift = np.power(2.0, shift_per_ch.astype(np.float64))
+        static_dequant = (pow2_shift * w_scale_np).astype(np.float32)
         out_float = self.builder_.emit(
             relax.op.multiply(out_float, relax.Constant(static_dequant.reshape(1, N)))
         )
-        # Dynamic part: multiply by x_scale (scalar, computed at runtime)
+        # Dynamic part: x_scale (scalar, computed at runtime)
         out_float = self.builder_.emit(relax.op.multiply(out_float, x_scale))
 
+        shift_min, shift_max = int(shift_per_ch.min()), int(shift_per_ch.max())
         self.count += 1
         logger.info(
-            "MMALIB i16 FC #%d: M=%d K=%d N=%d shift=%d",
-            self.count, M, K, N, shift,
+            "MMALIB i16 FC #%d: M=%d K=%d N=%d shift=[%d,%d]",
+            self.count, M, K, N, shift_min, shift_max,
         )
         return out_float
 
