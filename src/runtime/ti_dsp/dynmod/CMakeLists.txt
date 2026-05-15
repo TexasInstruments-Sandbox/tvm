@@ -59,8 +59,8 @@ if(NOT DSP_RUNTIME_DIR)
 endif()
 set(TIDL_API_DIR "${DSP_RUNTIME_DIR}/tidl")
 
-# Generated code directory (must contain lib0.c)
-set(GENERATED_CODE_DIR "" CACHE PATH "Directory containing lib0.c")
+# Generated code directory (must contain lib*.c files)
+set(GENERATED_CODE_DIR "" CACHE PATH "Directory containing lib*.c files")
 if(NOT GENERATED_CODE_DIR)
     message(FATAL_ERROR "GENERATED_CODE_DIR must be set")
 endif()
@@ -91,10 +91,12 @@ else()
 endif()
 
 # Check for generated code
-if(NOT EXISTS "${GENERATED_CODE_DIR}/lib0.c")
-    message(FATAL_ERROR "Generated code not found at ${GENERATED_CODE_DIR}/lib0.c\n"
+file(GLOB LIB_SRCS "${GENERATED_CODE_DIR}/lib*.c")
+if(NOT LIB_SRCS)
+    message(FATAL_ERROR "No generated code (lib*.c) found in ${GENERATED_CODE_DIR}\n"
             "Run TVM compilation first to generate lib0.c")
 endif()
+list(SORT LIB_SRCS)
 
 # Split flag strings into lists for add_custom_command
 string(TOUPPER "${CMAKE_BUILD_TYPE}" _BUILD_TYPE_UPPER)
@@ -194,8 +196,6 @@ endif()
 
 # --- Stage 2: Compile and link the TVM module ---
 
-set(LIB0_SRC "${GENERATED_CODE_DIR}/lib0.c")
-set(LIB0_OBJ "${CMAKE_CURRENT_BINARY_DIR}/lib0.obj")
 set(LIB0_OUT "${CMAKE_CURRENT_BINARY_DIR}/lib0.out")
 set(LIB0_MAP "${CMAKE_CURRENT_BINARY_DIR}/lib0.out.map")
 set(DYNMOD_CMD "${DYNMOD_DIR}/c7x_dynmod.cmd")
@@ -385,21 +385,27 @@ if(LIB0_USER_FLAGS)
     message(STATUS "  lib0.c user flags: ${LIB0_USER_FLAGS}")
 endif()
 
-# Compile lib0.c -> lib0.obj
-add_custom_command(
-    OUTPUT "${LIB0_OBJ}"
-    COMMAND ${CMAKE_CXX_COMPILER}
-        ${CXX_FLAGS_LIST}
-        ${LIB0_EXTRA_FLAGS}
-        ${DYNMOD_LANG_FLAGS}
-        ${DYNMOD_INCLUDES}
-        ${DYNMOD_DEFINES}
-        --compile_only
-        --output_file="${LIB0_OBJ}"
-        "${LIB0_SRC}"
-    DEPENDS "${LIB0_SRC}"
-    COMMENT "Stage 2a: Compiling lib0.c"
-)
+# Compile lib*.c -> lib*.obj
+set(LIB_OBJS "")
+foreach(LIB_SRC ${LIB_SRCS})
+    get_filename_component(LIB_NAME_WE ${LIB_SRC} NAME_WE)
+    set(LIB_OBJ "${CMAKE_CURRENT_BINARY_DIR}/${LIB_NAME_WE}.obj")
+    add_custom_command(
+        OUTPUT "${LIB_OBJ}"
+        COMMAND ${CMAKE_CXX_COMPILER}
+            ${CXX_FLAGS_LIST}
+            ${LIB0_EXTRA_FLAGS}
+            ${DYNMOD_LANG_FLAGS}
+            ${DYNMOD_INCLUDES}
+            ${DYNMOD_DEFINES}
+            --compile_only
+            --output_file="${LIB_OBJ}"
+            "${LIB_SRC}"
+        DEPENDS "${LIB_SRC}"
+        COMMENT "Stage 2a: Compiling ${LIB_NAME_WE}.c"
+    )
+    list(APPEND LIB_OBJS "${LIB_OBJ}")
+endforeach()
 
 # Compile TIDL bridge (if provided)
 set(BRIDGE_OBJ_FILE "")
@@ -419,11 +425,11 @@ if(TIDL_BRIDGE_SOURCES AND EXISTS "${TIDL_BRIDGE_SOURCES}")
     )
 endif()
 
-# Link lib0.obj + dsp_syms.out.obj [+ TIDL objs] -> lib0.out
+# Link lib*.obj + dsp_syms.out.obj [+ TIDL objs] -> lib0.out
 add_custom_command(
     OUTPUT "${LIB0_OUT}"
     COMMAND ${CMAKE_LINKER}
-        "${LIB0_OBJ}"
+        ${LIB_OBJS}
         ${BRIDGE_OBJ_FILE}
         ${WEIGHTS_OBJ_FILE}
         ${TIDL_OBJ_FILES}
@@ -436,7 +442,7 @@ add_custom_command(
         -l${TI_CGT_C7000_PATH}/lib/libc.a
         -m "${LIB0_MAP}"
         --output_file="${LIB0_OUT}"
-    DEPENDS "${LIB0_OBJ}" ${BRIDGE_OBJ_FILE} "${DSP_SYMS_SECT_OBJ}" "${DSP_SYMS_OUT}" "${DYNMOD_CMD}"
+    DEPENDS ${LIB_OBJS} ${BRIDGE_OBJ_FILE} "${DSP_SYMS_SECT_OBJ}" "${DSP_SYMS_OUT}" "${DYNMOD_CMD}"
             ${WEIGHTS_OBJ_FILE} ${TIDL_OBJ_FILES}
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     COMMENT "Stage 2b: Linking lib0.out (DLOAD relocatable module)"

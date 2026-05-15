@@ -382,15 +382,16 @@ def compile_for_dsp(
     tar.untar(str(tar_path), str(output_dir))
 
     # Verify generated files exist
-    lib0_path = output_dir / "lib0.c"
+    lib_files = sorted(output_dir.glob("lib*.c"))
     weights_path = output_dir / "weights.bin"
-    if not lib0_path.exists():
-        raise FileNotFoundError(f"Generated code not found: {lib0_path}")
+    if not lib_files:
+        raise FileNotFoundError(f"No generated code (lib*.c) found in {output_dir}")
     if not weights_path.exists():
         raise FileNotFoundError(f"Weights file not found: {weights_path}")
 
     logger.info(f"Generated files in: {output_dir}")
-    logger.info(f"  lib0.c: {lib0_path.stat().st_size} bytes")
+    for lib_path in lib_files:
+        logger.info(f"  {lib_path.name}: {lib_path.stat().st_size} bytes")
     logger.info(f"  weights.bin: {weights_path.stat().st_size} bytes")
 
     return output_dir
@@ -463,7 +464,7 @@ def build_dsp_host(
         # Build
         logger.debug("Building cg_dsp target...")
         result = subprocess.run(
-            ["cmake", "--build", "."],
+            ["cmake", "--build", ".", "--parallel"],
             cwd=str(build_dir),
             stdout=f,
             stderr=subprocess.STDOUT,
@@ -554,7 +555,7 @@ def build_dsp_c66x(
         # Build
         logger.debug("Building cg_dsp_c66x target...")
         result = subprocess.run(
-            ["cmake", "--build", "."],
+            ["cmake", "--build", ".", "--parallel"],
             cwd=str(build_dir),
             stdout=f,
             stderr=subprocess.STDOUT,
@@ -655,7 +656,7 @@ def build_dsp_c7x_host(
         # Build
         logger.debug("Building cg_dsp target (c7x_host)...")
         result = subprocess.run(
-            ["cmake", "--build", "."],
+            ["cmake", "--build", ".", "--parallel"],
             cwd=str(build_dir),
             stdout=f,
             stderr=subprocess.STDOUT,
@@ -789,7 +790,7 @@ def build_dsp_dynmod(
         # Build
         logger.debug("Building c7x_dynmod target...")
         result = subprocess.run(
-            ["cmake", "--build", "."],
+            ["cmake", "--build", ".", "--parallel"],
             cwd=str(build_dir),
             stdout=f,
             stderr=subprocess.STDOUT,
