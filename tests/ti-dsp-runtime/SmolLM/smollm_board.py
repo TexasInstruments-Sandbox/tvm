@@ -573,7 +573,11 @@ class SmolLMEngine:
 
         pad_ids = token_ids + [0] * (self.prefill_len - n)
         input_ids = np.array(pad_ids, dtype=np.int64).reshape(1, self.prefill_len)
-        cache_pos = np.arange(self.prefill_len, dtype=np.int64)
+        # Only fill cache positions 0..n-1 with real KV entries.
+        # Padded positions use cache_position=0 so their scatter writes
+        # harmlessly overwrite position 0 instead of polluting positions n..63.
+        cache_pos = np.zeros(self.prefill_len, dtype=np.int64)
+        cache_pos[:n] = np.arange(n, dtype=np.int64)
 
         self.cache.reset()
         self.cache_pos = 0
@@ -583,7 +587,7 @@ class SmolLMEngine:
         elapsed = time.monotonic() - t0
 
         self.cache.update_from_outputs(outputs)
-        self.cache_pos = self.prefill_len
+        self.cache_pos = n
 
         logits = outputs[0]  # [1, prefill_len, vocab]
         return logits[0, n - 1, :], elapsed

@@ -136,11 +136,14 @@ def quantize_linear(linear: nn.Linear) -> QuantizedLinear:
     return QuantizedLinear(weight_int8, scale, linear.bias)
 
 
-def quantize_linears(module: nn.Module) -> nn.Module:
+def quantize_linears(module: nn.Module, skip_lm_head: bool = False) -> nn.Module:
     """Replace all nn.Linear layers with QuantizedLinear (in-place)."""
     count = 0
     for name, child in module.named_children():
         if isinstance(child, nn.Linear):
+            if skip_lm_head and name == "lm_head":
+                logger.info("  Skipping %s (lm_head)", name)
+                continue
             q = quantize_linear(child)
             setattr(module, name, q)
             count += 1
@@ -221,7 +224,7 @@ def create_smollm_model(
     if num_layers < 30:
         model.model.layers = model.model.layers[:num_layers]
 
-    # Apply quantization before wrapping
+    # Apply quantization before wrapping (include lm_head for standalone)
     if quantize:
         print("  Applying per-channel INT8 weight quantization ...")
         quantize_linears(model)
@@ -569,7 +572,8 @@ def _build_kv_cache_model(model_dir: Path, quantize: bool, max_cache_len: int):
 
     if quantize:
         print("  Applying per-channel INT8 weight quantization ...")
-        quantize_linears(model)
+        # Skip lm_head in chat mode: tied with embedding, quantizing breaks lookup
+        quantize_linears(model, skip_lm_head=True)
 
     # Configure model for static caching
     model.generation_config.use_cache = True
@@ -580,6 +584,31 @@ def _build_kv_cache_model(model_dir: Path, quantize: bool, max_cache_len: int):
     )
     exportable.eval()
     return exportable
+
+
+def _substitute_vars(expr, var_map):
+    """Recursively substitute Var references in a Relax expression."""
+    if isinstance(expr, relax.Var):
+        for old, new in var_map.items():
+            if expr.same_as(old):
+                return new
+        return expr
+    if isinstance(expr, relax.Call):
+        new_args = [_substitute_vars(a, var_map) for a in expr.args]
+        if any(a is not b for a, b in zip(new_args, expr.args)):
+            return relax.Call(expr.op, new_args, expr.attrs, expr.sinfo_args, expr.span)
+        return expr
+    if isinstance(expr, relax.Tuple):
+        new_fields = [_substitute_vars(f, var_map) for f in expr.fields]
+        if any(a is not b for a, b in zip(new_fields, expr.fields)):
+            return relax.Tuple(new_fields, expr.span)
+        return expr
+    if isinstance(expr, relax.TupleGetItem):
+        new_tuple = _substitute_vars(expr.tuple_value, var_map)
+        if new_tuple is not expr.tuple_value:
+            return relax.TupleGetItem(new_tuple, expr.index, expr.span)
+        return expr
+    return expr
 
 
 def _add_kv_scatter_outputs(mod):
@@ -626,6 +655,55 @@ def _add_kv_scatter_outputs(mod):
     if not scatter_map:
         return mod, 0
 
+    # Redirect KV reads through scatter outputs.
+    #
+    # In the HuggingFace model, index_copy_ mutates the KV cache
+    # in-place: it writes the new token's K/V, then attention reads
+    # the full updated cache. In TVM's functional IR, scatter_elements
+    # produces a NEW tensor while the original param stays unchanged.
+    # The attention chain reads from the original param (stale).
+    #
+    # Fix: rewrite ALL uses of each KV param (except the scatter data
+    # input itself) to use the scatter output. This makes attention
+    # read from the updated cache, matching in-place mutation semantics.
+    new_bindings = []
+    for block in func.body.blocks:
+        new_block_bindings = []
+        active_subs = {}  # kv_param -> scatter_output_var
+
+        for binding in block.bindings:
+            if not isinstance(binding, relax.VarBinding):
+                new_block_bindings.append(binding)
+                continue
+
+            val = binding.value
+
+            # Check if this binding IS a scatter_elements on a KV param
+            is_scatter = (
+                isinstance(val, relax.Call)
+                and "scatter_elements" in str(val.op)
+                and isinstance(val.args[0], relax.Var)
+                and val.args[0] in kv_param_set
+            )
+
+            if is_scatter:
+                active_subs[val.args[0]] = binding.var
+                new_block_bindings.append(binding)
+                continue
+
+            # Substitute KV param references in ALL expression types
+            if active_subs:
+                val = _substitute_vars(val, active_subs)
+                binding = relax.VarBinding(binding.var, val)
+
+            new_block_bindings.append(binding)
+
+        new_bindings.append(
+            relax.DataflowBlock(new_block_bindings)
+            if isinstance(block, relax.DataflowBlock)
+            else relax.BindingBlock(new_block_bindings)
+        )
+
     # Sort by parameter order for a stable, deterministic output layout
     param_order = {var: i for i, var in enumerate(func.params)}
     sorted_kv_vars = [
@@ -642,7 +720,7 @@ def _add_kv_scatter_outputs(mod):
         new_fields = [orig_ret] + sorted_kv_vars
     new_ret = relax.Tuple(new_fields)
 
-    new_body = relax.SeqExpr(blocks=func.body.blocks, body=new_ret)
+    new_body = relax.SeqExpr(blocks=new_bindings, body=new_ret)
     new_ret_sinfo = relax.TupleStructInfo([f.struct_info for f in new_fields])
     new_func = relax.Function(
         params=func.params,
@@ -860,7 +938,7 @@ def cmd_compile_chat(args) -> int:
         f"{num_kv_buffers * 2 * 3 * args.max_cache_len * 64 * 4 / 1024 / 1024:.1f} MB total"
     )
 
-    fp_off = args.fp_reassoc_off if hasattr(args, "fp_reassoc_off") else True
+    fp_off = getattr(args, "fp_reassoc_off", False)
 
     # Compile prefill
     print("\n[2/3] Compiling prefill model ...")
@@ -1171,9 +1249,9 @@ examples:
         "--fp-reassoc-off",
         action="store_true",
         dest="fp_reassoc_off",
-        default=True,
-        help="Compile with --fp_reassoc=off (default: enabled for LLM accuracy). "
-        "Prevents cl7x -O2 from reordering float accumulations.",
+        default=False,
+        help="Compile with --fp_reassoc=off (27%% cycle overhead). "
+        "No longer needed with lm_head quantized (fp_reassoc divergence eliminated).",
     )
 
     # -- deploy --
