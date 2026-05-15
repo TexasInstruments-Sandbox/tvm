@@ -199,3 +199,113 @@ def test_mmalib_fc_i16_qdq_small(dsp_mode, record_cycles):
 
     mmalib_cycles = results_mmalib.get("c7x_dload_cycles", 0)
     record_cycles("mmalib_fc_i16_32x32", mmalib_cycles)
+
+
+@pytest.mark.c7x_only
+def test_mmalib_fc_i16_bias_per_channel_shift(dsp_mode, record_cycles):
+    """Test matmulBias_i16 with scale=1 and per-channel shift.
+
+    Uses mmalib_matmul_bias_i16 (bTranspose=1, weight [N,K]) with:
+    - bias = zeros (int64)
+    - scale = ones (int8, identity)
+    - shift = per-channel values (uint8)
+
+    This gives each output channel its optimal precision without the
+    lossy uint8 scale approximation — just a right-shift per channel.
+    """
+    import math
+
+    if dsp_mode not in ("c7x_host", "c7x_dload"):
+        pytest.skip("MMALIB test requires c7x_host or c7x_dload")
+
+    M, K, N = 1, 32, 32
+    rng = np.random.default_rng(42)
+    input_data = rng.integers(-100, 100, size=(M, K), dtype=np.int16)
+    weight_data = rng.integers(-50, 50, size=(N, K), dtype=np.int16)
+
+    # Per-channel shift from L1-norm of each weight row
+    l1_per_ch = np.abs(weight_data).sum(axis=1)  # [N]
+    shift_per_ch = np.zeros(N, dtype=np.uint8)
+    for n in range(N):
+        max_accum = int(l1_per_ch[n]) * 32767
+        if max_accum > 32767:
+            shift_per_ch[n] = math.ceil(math.log2(max_accum / 32767))
+
+    bias_i64 = np.zeros(N, dtype=np.int64)
+    scale_i8 = np.ones(N, dtype=np.int8)
+
+    # Reference: per-channel (accum * 1) >> shift[n]
+    accum = input_data.astype(np.int64) @ weight_data.astype(np.int64).T  # [M, N]
+    ref = np.zeros((M, N), dtype=np.int16)
+    for n in range(N):
+        ref[0, n] = np.clip(accum[0, n] >> int(shift_per_ch[n]), -32768, 32767)
+
+    # Build model
+    from tvm import te, tir
+
+    bb = relax.BlockBuilder()
+    x = relax.Var("x", TensorStructInfo((M, K), "int16"))
+
+    def te_bias_i16(data_t, w_t, bias_t, scale_t, shift_t):
+        def fcompute(ins, outs):
+            return tir.call_extern(
+                "int32",
+                "mmalib_matmul_bias_i16",
+                ins[0].data,
+                ins[1].data,
+                ins[2].data,
+                ins[3].data,
+                ins[4].data,
+                outs[0].data,
+                M, K, N,
+            )
+
+        return te.extern(
+            [M, N],
+            [data_t, w_t, bias_t, scale_t, shift_t],
+            fcompute,
+            name="mmalib_bias_i16",
+            dtype="int16",
+        )
+
+    with bb.function("main", [x], attrs={"num_input": 1}):
+        with bb.dataflow():
+            result = bb.emit(
+                bb.call_te(
+                    te_bias_i16,
+                    x,
+                    relax.Constant(weight_data),
+                    relax.Constant(bias_i64),
+                    relax.Constant(scale_i8),
+                    relax.Constant(shift_per_ch),
+                    primfunc_name_hint="mmalib_bias_i16",
+                )
+            )
+            bb.emit_output(result)
+        bb.emit_func_output(result)
+
+    mod = bb.finalize()
+
+    result_key = "c7x_host_result" if dsp_mode == "c7x_host" else "c7x_dload_result"
+    target_mmalib = get_target_string(dsp_mode, use_cpp_api=True) + " -mmalib=1"
+    results = compile_and_run_dsp(
+        mod=mod,
+        input_data=input_data,
+        target_string=target_mmalib,
+        execution_mode=dsp_mode,
+        profile=True,
+    )
+
+    dsp_output = results.get(result_key)
+    assert dsp_output is not None, f"No {result_key} returned"
+    dsp_i16 = dsp_output.astype(np.int16).reshape(M, N)
+
+    diff = np.abs(dsp_i16.astype(np.int32) - ref.astype(np.int32))
+    max_diff = int(diff.max())
+
+    print(f"\n  bias_i16 per-ch shift: max_diff={max_diff}")
+    print(f"  shift range: [{shift_per_ch.min()}, {shift_per_ch.max()}]")
+    assert max_diff <= 1, f"MMALIB bias_i16 per-ch shift mismatch: max_diff={max_diff}"
+
+    mmalib_cycles = results.get("c7x_dload_cycles", 0)
+    record_cycles("mmalib_bias_i16_per_ch_shift_32x32", mmalib_cycles)
