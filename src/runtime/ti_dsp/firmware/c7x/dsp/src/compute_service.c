@@ -866,6 +866,9 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
     tvm_dsp_restore_infer_watermark();
     TVMDSPSetWeightsData(NULL, 0);
 
+    DebugP_log("[COMPUTE] DDR free after watermark restore: %u MB\r\n",
+               (uint32_t)(tvm_dsp_get_free_memory(TVM_DSP_MEM_MAIN) / (1024*1024)));
+
     /* Allocate per-inference arrays from DSP heap */
     input_ndarrays = (TVMDSPNDArray *)tvm_dsp_alloc(
         num_inputs * sizeof(TVMDSPNDArray), 8, TVM_DSP_MEM_MAIN);
@@ -957,6 +960,9 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
         }
     }
 
+    DebugP_log("[COMPUTE] DDR free before cg_main_dsp: %u MB\r\n",
+               (uint32_t)(tvm_dsp_get_free_memory(TVM_DSP_MEM_MAIN) / (1024*1024)));
+
     /* Reset printf buffer before each inference so accumulated INFO
      * messages don't fill the 64 KB buffer and block cg_main_dsp(). */
     shm_printf_reset();
@@ -980,6 +986,9 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
     resp->return_value = ret;
     resp->cycles = end_cycles - start_cycles;
 
+    DebugP_log("[COMPUTE] DDR free after cg_main_dsp: %u MB (ret=%d)\r\n",
+               (uint32_t)(tvm_dsp_get_free_memory(TVM_DSP_MEM_MAIN) / (1024*1024)),
+               ret);
     DebugP_log("[COMPUTE] cg_main_dsp returned %d, %llu cycles\r\n",
                ret, (unsigned long long)resp->cycles);
 

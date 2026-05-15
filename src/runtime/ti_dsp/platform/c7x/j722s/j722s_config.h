@@ -85,7 +85,7 @@ extern char __TVM_DSP_DDR_HEAP_END[];
 #define TVM_DSP_L2_SIZE_FALLBACK (256 * 1024)   /* 256KB for host emulation */
 #endif
 #ifndef TVM_DSP_DDR_SIZE_FALLBACK
-#define TVM_DSP_DDR_SIZE_FALLBACK (128 * 1024 * 1024) /* 128MB for host emulation */
+#define TVM_DSP_DDR_SIZE_FALLBACK (256 * 1024 * 1024) /* 256MB for host emulation */
 #endif
 #endif
 
