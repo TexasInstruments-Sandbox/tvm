@@ -158,6 +158,18 @@ void CodeGenCStatic::Init(bool output_ssa, bool emit_asserts, bool emit_fwd_func
 void CodeGenCStatic::PrintTrailer() {
 }
 
+std::string CodeGenCStatic::FinishKernels() {
+  std::string kernel_body = kernel_stream_.str();
+  if (kernel_body.empty()) {
+    return "";
+  }
+  std::ostringstream code;
+  code << decl_stream.str();
+  code << fwd_decl_stream.str();
+  code << kernel_body;
+  return code.str();
+}
+
 void CodeGenCStatic::AddFunction(const GlobalVar& gvar, const PrimFunc& func) {
   return AddFunction(gvar, func, /*emit_fwd_func_decl=*/false);
 }
@@ -167,7 +179,6 @@ void CodeGenCStatic::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
   auto global_symbol = func->GetAttr<ffi::String>(tvm::attr::kGlobalSymbol);
   ICHECK(global_symbol.has_value())
       << "CodeGenCStatic: Expect PrimFunc to have the global_symbol attribute";
-  function_names_.push_back(global_symbol.value());
 
   // Track current function being processed
   current_function_name_ = global_symbol.value();
@@ -204,14 +215,24 @@ void CodeGenCStatic::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
   }
 
   emit_fwd_func_decl_ = emit_fwd_func_decl;
-  CodeGenC::AddFunction(gvar, func);
+
+  // For kernel (was_private) functions, emit directly into kernel_stream_
+  if (it->second.was_private) {
+    std::swap(stream, kernel_stream_);
+    CodeGenC::AddFunction(gvar, func);
+    std::swap(stream, kernel_stream_);
+    kernel_function_names_.push_back(global_symbol.value());
+  } else {
+    CodeGenC::AddFunction(gvar, func);
+    main_function_names_.push_back(global_symbol.value());
+  }
 
   if (func->HasNonzeroAttr(tir::attr::kIsEntryFunc)) {
     ICHECK(global_symbol.has_value())
         << "CodeGenCHost: The entry func must have the global_symbol attribute, "
         << "but function " << gvar << " only has attributes " << func->attrs;
 
-    function_names_.push_back(ffi::symbol::tvm_ffi_main);
+    main_function_names_.push_back(ffi::String(ffi::symbol::tvm_ffi_main));
     stream << "// CodegenC: NOTE: Auto-generated entry function\n";
     PrintFuncPrefix(stream);
     PrintType(func->ret_type, stream);
@@ -2000,8 +2021,16 @@ ffi::Module BuildCStatic(IRModule mod, Target target) {
   // Note: System library mode is not supported for CStatic backend
   // CStatic generates C++ wrapper code that requires C++ runtime
 
-  std::string code = cg.Finish();
-  return CSourceModuleCreate(code, "c", cg.GetFunctionNames());
+  std::string main_code = cg.Finish();
+  auto main_mod = CSourceModuleCreate(main_code, "c", cg.GetMainFunctionNames());
+
+  std::string kernel_code = cg.FinishKernels();
+  if (!kernel_code.empty()) {
+    auto kernel_mod = CSourceModuleCreate(kernel_code, "c", cg.GetKernelFunctionNames());
+    main_mod->ImportModule(kernel_mod);
+  }
+
+  return main_mod;
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

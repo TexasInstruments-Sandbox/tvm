@@ -156,25 +156,22 @@ if(NOT C7X_DYNMOD)
         io/weights_loader.cpp
     )
 
-    # Generated code (lib0.c + optional TIDL bridge)
-    set(GENERATED_SOURCES
-        ${GENERATED_CODE_DIR}/lib0.c
-    )
+    # Generated code (lib*.c + optional TIDL bridge)
+    file(GLOB GENERATED_SOURCES "${GENERATED_CODE_DIR}/lib*.c")
+    if(NOT GENERATED_SOURCES)
+        message(WARNING "No generated code (lib*.c) found in ${GENERATED_CODE_DIR}")
+        message(WARNING "Run TVM compilation first to generate lib0.c")
+    endif()
+    list(SORT GENERATED_SOURCES)
     if(TIDL_BRIDGE_SOURCES)
         list(APPEND GENERATED_SOURCES ${TIDL_BRIDGE_SOURCES})
-        # Generate -include flag for the bridge header so lib0.c can
+        # Generate -include flag for the bridge header so lib*.c can
         # resolve tidl_subgraph_N_process() forward declarations.
         string(REPLACE ".c" ".h" TIDL_BRIDGE_HEADER "${TIDL_BRIDGE_SOURCES}")
         if(EXISTS "${TIDL_BRIDGE_HEADER}")
             add_compile_options("-include" "${TIDL_BRIDGE_HEADER}")
         endif()
         message(STATUS "  TIDL bridge: ${TIDL_BRIDGE_SOURCES}")
-    endif()
-
-    # Check for generated code
-    if(NOT EXISTS "${GENERATED_CODE_DIR}/lib0.c")
-        message(WARNING "Generated code not found at ${GENERATED_CODE_DIR}/lib0.c")
-        message(WARNING "Run TVM compilation first to generate lib0.c")
     endif()
 endif()
 
@@ -532,10 +529,12 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
     endif()
 
     # Check for generated code
-    if(NOT EXISTS "${GENERATED_CODE_DIR}/lib0.c")
-        message(FATAL_ERROR "Generated code not found at ${GENERATED_CODE_DIR}/lib0.c\n"
+    file(GLOB LIB_SRCS "${GENERATED_CODE_DIR}/lib*.c")
+    if(NOT LIB_SRCS)
+        message(FATAL_ERROR "No generated code (lib*.c) found in ${GENERATED_CODE_DIR}\n"
                 "Run TVM compilation first to generate lib0.c")
     endif()
+    list(SORT LIB_SRCS)
 
     # Split flag strings into lists for use in add_custom_command.
     # Must include both base flags and build-type-specific flags since
@@ -642,8 +641,6 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
 
     # --- Stage 2: Compile and link the TVM module ---
 
-    set(LIB0_SRC "${GENERATED_CODE_DIR}/lib0.c")
-    set(LIB0_OBJ "${CMAKE_CURRENT_BINARY_DIR}/lib0.obj")
     set(LIB0_OUT "${CMAKE_CURRENT_BINARY_DIR}/lib0.out")
     set(LIB0_MAP "${CMAKE_CURRENT_BINARY_DIR}/lib0.out.map")
     set(DYNMOD_CMD "${DYNMOD_DIR}/c7x_dynmod.cmd")
@@ -664,7 +661,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
     # SOC-dependent TIDL_MAX_NUM_CORES (2 for J722S), causing a mismatch.
     # Override to 4 so tidl_api.c reads IOBufDesc at the correct offsets.
     set(DYNMOD_DEFINES -DTVM_DSP_TARGET_C7X -DSOC_J722S -DTIDL_MAX_NUM_CORES=4)
-    # lib0.c contains C++ code (namespaces, cstdint) - force C++ compilation
+    # lib*.c contains C++ code (namespaces, cstdint) - force C++ compilation
     set(DYNMOD_LANG_FLAGS --cpp_default)
 
     # TIDL bridge header for extern declarations (if provided)
@@ -811,20 +808,26 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
         message(STATUS "  TIDL: enabled (libs from ${TIDL_LIB_PATH})")
     endif()
 
-    # Compile lib0.c → lib0.obj
-    add_custom_command(
-        OUTPUT "${LIB0_OBJ}"
-        COMMAND ${CMAKE_CXX_COMPILER}
-            ${CXX_FLAGS_LIST}
-            ${DYNMOD_LANG_FLAGS}
-            ${DYNMOD_INCLUDES}
-            ${DYNMOD_DEFINES}
-            --compile_only
-            --output_file="${LIB0_OBJ}"
-            "${LIB0_SRC}"
-        DEPENDS "${LIB0_SRC}"
-        COMMENT "Stage 2a: Compiling lib0.c"
-    )
+    # Compile lib*.c → lib*.obj
+    set(LIB_OBJS "")
+    foreach(LIB_SRC ${LIB_SRCS})
+        get_filename_component(LIB_NAME_WE ${LIB_SRC} NAME_WE)
+        set(LIB_OBJ "${CMAKE_CURRENT_BINARY_DIR}/${LIB_NAME_WE}.obj")
+        add_custom_command(
+            OUTPUT "${LIB_OBJ}"
+            COMMAND ${CMAKE_CXX_COMPILER}
+                ${CXX_FLAGS_LIST}
+                ${DYNMOD_LANG_FLAGS}
+                ${DYNMOD_INCLUDES}
+                ${DYNMOD_DEFINES}
+                --compile_only
+                --output_file="${LIB_OBJ}"
+                "${LIB_SRC}"
+            DEPENDS "${LIB_SRC}"
+            COMMENT "Stage 2a: Compiling ${LIB_NAME_WE}.c"
+        )
+        list(APPEND LIB_OBJS "${LIB_OBJ}")
+    endforeach()
 
     # Compile TIDL bridge (if provided)
     set(BRIDGE_OBJ_FILE "")
@@ -844,12 +847,12 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
         )
     endif()
 
-    # Link lib0.obj + dsp_syms.out.obj [+ TIDL objs] → lib0.out
+    # Link lib*.obj + dsp_syms.out.obj [+ TIDL objs] → lib0.out
     # Note: lnk7x is the standalone linker; don't pass -z
     add_custom_command(
         OUTPUT "${LIB0_OUT}"
         COMMAND ${CMAKE_LINKER}
-            "${LIB0_OBJ}"
+            ${LIB_OBJS}
             ${BRIDGE_OBJ_FILE}
             ${WEIGHTS_OBJ_FILE}
             ${TIDL_OBJ_FILES}
@@ -862,7 +865,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
             -l${TI_CGT_C7000_PATH}/lib/libc.a
             -m "${LIB0_MAP}"
             --output_file="${LIB0_OUT}"
-        DEPENDS "${LIB0_OBJ}" ${BRIDGE_OBJ_FILE} "${DSP_SYMS_SECT_OBJ}" "${DSP_SYMS_OUT}" "${DYNMOD_CMD}"
+        DEPENDS ${LIB_OBJS} ${BRIDGE_OBJ_FILE} "${DSP_SYMS_SECT_OBJ}" "${DSP_SYMS_OUT}" "${DYNMOD_CMD}"
                 ${WEIGHTS_OBJ_FILE} ${TIDL_OBJ_FILES}
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
         COMMENT "Stage 2b: Linking lib0.out (DLOAD relocatable module)"

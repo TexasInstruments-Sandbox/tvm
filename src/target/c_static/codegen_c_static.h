@@ -142,7 +142,9 @@ class CodeGenCStatic final : public CodeGenC {
   void VisitStmt_(const EvaluateNode* op) override;
   void VisitStmt_(const ForNode* op) override;
 
-  ffi::Array<ffi::String> GetFunctionNames() const { return function_names_; }
+  ffi::Array<ffi::String> GetMainFunctionNames() const { return main_function_names_; }
+  ffi::Array<ffi::String> GetKernelFunctionNames() const { return kernel_function_names_; }
+  std::string FinishKernels();
 
   void DumpCGFunctionInfo() const;
   void EmitWrapperFunctions();
@@ -244,8 +246,12 @@ class CodeGenCStatic final : public CodeGenC {
   std::string module_name_;
   /* \brief mapping global packed func to the unique name */
   std::unordered_map<std::string, std::string> declared_globals_;
-  /* \brief names of the functions declared in this module */
-  ffi::Array<ffi::String> function_names_;
+  /* \brief function names for the main source file (non-kernel) */
+  ffi::Array<ffi::String> main_function_names_;
+  /* \brief function names for the kernel source file */
+  ffi::Array<ffi::String> kernel_function_names_;
+  /* \brief stream for kernel function bodies (split into separate source file) */
+  std::ostringstream kernel_stream_;
   /* \brief current function being processed */
   std::string current_function_name_;
   /* \brief mapping function names to codegen information */
