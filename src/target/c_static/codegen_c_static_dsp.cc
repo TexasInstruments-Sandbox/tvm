@@ -80,7 +80,7 @@ void DSPCodeGenExtension::EmitHeaders(bool use_cpp_api, bool profile_layers, boo
 
   // Add profiling infrastructure when profile-layers is enabled
   if (profile_layers) {
-    os << templates::kDSPProfilingInfrastructure;
+    os << templates::kDSPProfilingExterns;
   }
 
   // Add debug allocation tracing infrastructure when debug-alloc is enabled

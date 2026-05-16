@@ -153,6 +153,12 @@ void CodeGenCStatic::Init(bool output_ssa, bool emit_asserts, bool emit_fwd_func
     }
   }
   CodeGenC::Init(output_ssa);
+
+  // Emit profiling definitions to main stream only (not shared decl_stream)
+  // so they appear only in lib0.c, not in the kernel file (lib1.c).
+  if (dsp_.enabled && dsp_.profile_layers) {
+    stream << templates::kDSPProfilingDefinitions;
+  }
 }
 
 void CodeGenCStatic::PrintTrailer() {
