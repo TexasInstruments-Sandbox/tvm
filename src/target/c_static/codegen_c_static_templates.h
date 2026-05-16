@@ -259,13 +259,21 @@ inline int TVMBackendAnyListMoveFromPackedReturn(void* anylist, int index, TVMFF
  * When profile-layers is enabled, this code provides per-layer
  * cycle counting and result printing functionality.
  */
-constexpr const char* kDSPProfilingInfrastructure = R"(
-// Layer profiling infrastructure
+constexpr const char* kDSPProfilingExterns = R"(
+// Layer profiling extern declarations (shared across compilation units)
 #include <inttypes.h>
-#define TVM_PROFILE_MAX_LAYERS 256
-static uint64_t _tvm_layer_cycles[TVM_PROFILE_MAX_LAYERS];
-static const char* _tvm_layer_names[TVM_PROFILE_MAX_LAYERS];
-static int _tvm_layer_count = 0;
+#define TVM_PROFILE_MAX_LAYERS 1024
+extern uint64_t _tvm_layer_cycles[TVM_PROFILE_MAX_LAYERS];
+extern const char* _tvm_layer_names[TVM_PROFILE_MAX_LAYERS];
+extern int _tvm_layer_count;
+
+)";
+
+constexpr const char* kDSPProfilingDefinitions = R"(
+// Layer profiling definitions (main file only)
+uint64_t _tvm_layer_cycles[TVM_PROFILE_MAX_LAYERS];
+const char* _tvm_layer_names[TVM_PROFILE_MAX_LAYERS];
+int _tvm_layer_count = 0;
 
 // Print layer profiling results (exported for firmware to call after cycle recording)
 extern "C" TVM_DSP_EXPORT void TVMPrintLayerProfile(void) {
