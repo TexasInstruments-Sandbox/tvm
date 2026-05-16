@@ -745,6 +745,7 @@ def _compile_one_kvcache_mode(
     fp_reassoc_off: bool,
     quantize: bool,
     label: str,
+    profile_layers: bool = False,
 ) -> int:
     """Export, compile, and build one KV-cache model variant (prefill or decode).
 
@@ -866,6 +867,8 @@ def _compile_one_kvcache_mode(
 
     # TVM compile
     target_string = "c_static -mcpu=c7x"
+    if profile_layers:
+        target_string += " -profile-layers=1"
     label_dir = artifacts_dir / label
     label_dir.mkdir(parents=True, exist_ok=True)
     print(f"    TVM compile → {label_dir} ...")
@@ -956,6 +959,7 @@ def cmd_compile_chat(args) -> int:
 
     # Compile decode
     print("\n[3/3] Compiling decode model ...")
+    profile = getattr(args, "profile_layers", False)
     rc = _compile_one_kvcache_mode(
         exportable,
         1,
@@ -964,6 +968,7 @@ def cmd_compile_chat(args) -> int:
         fp_off,
         args.quantize,
         "decode",
+        profile_layers=profile,
     )
     if rc != 0:
         return rc
@@ -1252,6 +1257,14 @@ examples:
         default=False,
         help="Compile with --fp_reassoc=off (27%% cycle overhead). "
         "No longer needed with lm_head quantized (fp_reassoc divergence eliminated).",
+    )
+    p_cc.add_argument(
+        "--profile-layers",
+        action="store_true",
+        dest="profile_layers",
+        default=False,
+        help="Enable per-layer cycle profiling in the decode model. "
+        "Wraps each kernel call with TSC measurement and emits TVMPrintLayerProfile().",
     )
 
     # -- deploy --

@@ -282,7 +282,7 @@ class BuiltinLower : public StmtExprMutator {
     if (const auto* dev_type = device_type_.as<IntImmNode>();
         dev_type && dev_type->value == kDLCPU) {
       auto storage_scope = op->buffer->storage_scope;
-      if (storage_scope == "global") {
+      if (storage_scope == "global" || storage_scope == "local") {
         auto constant_size = stmt.as_or_throw<AllocBuffer>().ConstantAllocationSize();
         if (constant_size.has_value() && constant_size.value() > 0 &&
             static_cast<size_t>(constant_size.value()) * nbytes < runtime::kMaxStackAlloca) {
