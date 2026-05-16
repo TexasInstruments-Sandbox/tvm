@@ -85,8 +85,8 @@ struct c7x_client {
 /* C7x core 0 device tree address (stable across reboots/stop-start cycles) */
 #define C7X_DEVICE_ADDR "7e000000.dsp"
 
-/* Response timeout in milliseconds (300s for large models like ResNet-18) */
-#define RESPONSE_TIMEOUT_MS  300000
+/* Response timeout in milliseconds (600s to accommodate profiled models with many layers) */
+#define RESPONSE_TIMEOUT_MS  600000
 
 /*
  * =============================================================================
