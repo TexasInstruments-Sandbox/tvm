@@ -44,7 +44,7 @@ import logging
 import numpy as np
 
 import tvm
-from tvm import IRModule, relax, te
+from tvm import IRModule, relax, te, tir
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
@@ -201,8 +201,7 @@ def _te_dequantize_matmul(activation, w_int8, scale):
         batch = indices[:-1]
         n = indices[-1]
         return te.sum(
-            activation[(*batch, k)].astype("float32")
-            * w_int8[n, k].astype("float32"),
+            activation[(*batch, k)].astype("float32") * w_int8[n, k].astype("float32"),
             axis=k,
         )
 
@@ -227,9 +226,10 @@ def _te_dequantize_matmul(activation, w_int8, scale):
 class _DequantizeMatmulFuser(PyExprMutator):
     """Replace composite dequantize_matmul functions with fused TIR."""
 
-    def __init__(self, mod):
+    def __init__(self, mod, use_extern=False):
         super().__init__(mod)
         self.count = 0
+        self.use_extern = use_extern
 
     def visit_call_(self, call):
         if not isinstance(call.op, relax.GlobalVar):
@@ -262,24 +262,77 @@ class _DequantizeMatmulFuser(PyExprMutator):
         w_scale = param_to_arg[roles["w_scale"]]
 
         self.count += 1
-        result = self.builder_.call_te(
-            _te_dequantize_matmul,
-            act,
-            w_int8,
-            w_scale,
-            primfunc_name_hint="dequantize_matmul",
-        )
+
+        if self.use_extern:
+            result = self._rewrite_extern(call, act, w_int8, w_scale)
+        else:
+            result = self.builder_.call_te(
+                _te_dequantize_matmul,
+                act,
+                w_int8,
+                w_scale,
+                primfunc_name_hint="dequantize_matmul",
+            )
 
         if has_bias and "bias" in roles and roles["bias"] in param_to_arg:
             bias = param_to_arg[roles["bias"]]
             result = relax.op.add(result, bias)
 
         logger.info(
-            "Fused dequantize_matmul #%d%s",
+            "Fused dequantize_matmul #%d%s%s",
             self.count,
             " (bias)" if has_bias else "",
+            " [extern]" if self.use_extern else "",
         )
         return result
+
+    def _rewrite_extern(self, call, act, w_int8, w_scale):
+        """Emit call_extern to tvm_dequantize_vecmatmul for C7x."""
+        act_sinfo = act.struct_info
+        w_sinfo = w_int8.struct_info
+
+        act_shape = [int(act_sinfo.shape[i]) for i in range(act_sinfo.ndim)]
+        K = act_shape[-1]
+        N = int(w_sinfo.shape[0])
+        M = 1
+        for d in act_shape[:-1]:
+            M *= d
+
+        out_shape_int = act_shape[:-1] + [N]
+
+        c_M = int(M)
+        c_K = int(K)
+        c_N = int(N)
+
+        def te_vecmatmul(act_t, w_t, scale_t):
+            def fcompute(ins, outs):
+                return tir.call_extern(
+                    "int32",
+                    "tvm_dequantize_vecmatmul",
+                    ins[0].data,
+                    ins[1].data,
+                    ins[2].data,
+                    outs[0].data,
+                    c_M,
+                    c_K,
+                    c_N,
+                )
+
+            return te.extern(
+                out_shape_int,
+                [act_t, w_t, scale_t],
+                fcompute,
+                name="dequantize_vecmatmul",
+                dtype="float32",
+            )
+
+        return self.builder_.call_te(
+            te_vecmatmul,
+            act,
+            w_int8,
+            w_scale,
+            primfunc_name_hint="dequantize_vecmatmul",
+        )
 
     @staticmethod
     def _extract_roles(func, has_bias):
@@ -331,9 +384,14 @@ class FuseDequantizeMatmul:  # pylint: disable=too-few-public-methods
     This pass should run BEFORE LegalizeOps.
     """
 
-    def transform_module(
-        self, mod: IRModule, _ctx: tvm.transform.PassContext
-    ) -> IRModule:
+    def transform_module(self, mod: IRModule, _ctx: tvm.transform.PassContext) -> IRModule:
+        # Detect C7x target for vectorized extern path
+        use_extern = False
+        target = tvm.target.Target.current()
+        if target is not None:
+            is_c7x = target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x"
+            use_extern = is_c7x
+
         # Phase 1: pattern-match and wrap into composite functions
         mod = relax.transform.FuseOpsByPattern(
             [
@@ -344,7 +402,7 @@ class FuseDequantizeMatmul:  # pylint: disable=too-few-public-methods
         )(mod)
 
         # Phase 2: replace composite functions with fused call_te
-        fuser = _DequantizeMatmulFuser(mod)
+        fuser = _DequantizeMatmulFuser(mod, use_extern=use_extern)
         for gv, func in mod.functions_items():
             if isinstance(func, relax.Function):
                 func = fuser.visit_expr(func)
@@ -352,9 +410,7 @@ class FuseDequantizeMatmul:  # pylint: disable=too-few-public-methods
         mod = fuser.builder_.get()
 
         if fuser.count > 0:
-            logger.info(
-                "FuseDequantizeMatmul: fused %d patterns", fuser.count
-            )
+            logger.info("FuseDequantizeMatmul: fused %d patterns", fuser.count)
 
         # Phase 3: remove the now-unused composite function definitions.
         # FuseOpsByPattern creates global functions with the "Composite"

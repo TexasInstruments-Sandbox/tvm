@@ -148,6 +148,7 @@ SECTIONS
 --import=tvm_dsp_dma_wait
 /* TVM kernels */
 --import=tvm_int8_residual_add_relu
+--import=tvm_dequantize_vecmatmul
 
 /* TVM platform */
 --import=tvm_dsp_alloc
