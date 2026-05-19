@@ -246,8 +246,19 @@ static void handle_dyn_unload(struct c7x_msg_dyn_unload *req,
 
         /* Free storage/NDArray objects from the last inference.
          * These are heap-allocated objects referenced by the static
-         * register file inside the loaded module. */
+         * register file inside the loaded module.
+         *
+         * Reset the reg_file pointer afterward: dyn_loader_unload frees
+         * the module's .bss where the static reg file array lives.
+         * Without the reset, the next module's first INFER_LARGE calls
+         * TVMDSPRegFileCleanup (designed for same-module multi-inference
+         * cleanup where cg_main_dsp already called TVMDSPRegFileInit)
+         * and dereferences the dangling pointer into freed memory.
+         * In the prefill→decode transition, module 2's cg_main_dsp has
+         * not yet run, so g_reg_file still points to module 1's freed
+         * .bss — causing a DMC address exception. */
         TVMDSPRegFileCleanup();
+        TVMDSPRegFileInit(NULL, 0);
 
         /* Free the model slot so it can be reused */
         if (g_embedded_model_id != 0) {
