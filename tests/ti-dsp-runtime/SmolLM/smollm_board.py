@@ -305,32 +305,66 @@ class C7xSession:
         except Exception:
             pass
 
-    def infer(self, input_arrays, timeout_s=600):
-        """Send one inference request, return (output_arrays, cycles)."""
+    def infer(self, input_arrays, timeout_s=600, profile=False,
+              kv_resident=False, kv_meta=None):
+        """Send one inference request, return (output_arrays, cycles).
+
+        If profile=True, returns (output_arrays, cycles, timings_dict) with
+        per-stage durations in seconds.
+
+        If kv_resident=True, the CLI appends synthetic KV descriptors pointing
+        to the fixed DSP KV region. kv_meta is a dict with num_kv_heads,
+        max_cache_len, head_dim for the KV tensor shape.
+        """
+        t0 = time.monotonic()
         raw = b"".join(np.ascontiguousarray(a).tobytes() for a in input_arrays)
         shapes = ";".join(",".join(str(d) for d in a.shape) for a in input_arrays)
         dtypes = ";".join(_DTYPE_STR[a.dtype] for a in input_arrays)
-        header = json.dumps(
-            {
-                "op": "infer",
-                "num_inputs": len(input_arrays),
-                "input_size": len(raw),
-                "shape": shapes,
-                "dtype": dtypes,
-            },
-            separators=(",", ":"),
-        )
+        hdr_dict = {
+            "op": "infer",
+            "num_inputs": len(input_arrays),
+            "input_size": len(raw),
+            "shape": shapes,
+            "dtype": dtypes,
+        }
+        if kv_resident:
+            hdr_dict["kv_resident"] = 1
+            if kv_meta:
+                hdr_dict["kv_num_heads"] = kv_meta.get("num_kv_heads", 3)
+                hdr_dict["kv_max_cache_len"] = kv_meta.get("max_cache_len", 256)
+                hdr_dict["kv_head_dim"] = kv_meta.get("head_dim", 64)
+                hdr_dict["kv_num_tensors"] = kv_meta.get("num_kv_tensors", 60)
+        header = json.dumps(hdr_dict, separators=(",", ":"))
+        t1 = time.monotonic()
+
         self._proc.stdin.write(header.encode() + b"\n")
         self._proc.stdin.write(raw)
         self._proc.stdin.flush()
+        t2 = time.monotonic()
 
         resp_line = _read_json_line(self._proc.stdout, timeout_s)
         info = json.loads(resp_line)
         if info.get("status") != "ok":
             raise RuntimeError(f"session infer failed: {info.get('error')}")
+        t3 = time.monotonic()
 
         output_bytes = _read_exact(self._proc.stdout, info["output_size"])
+        t4 = time.monotonic()
+
         arrays = _parse_session_outputs(output_bytes, info["outputs"])
+        t5 = time.monotonic()
+
+        if profile:
+            timings = {
+                "serialize_ms": (t1 - t0) * 1000,
+                "pipe_write_ms": (t2 - t1) * 1000,
+                "dsp_roundtrip_ms": (t3 - t2) * 1000,
+                "pipe_read_ms": (t4 - t3) * 1000,
+                "deserialize_ms": (t5 - t4) * 1000,
+                "input_bytes": len(raw),
+                "output_bytes": info["output_size"],
+            }
+            return arrays, info.get("cycles", 0), timings
         return arrays, info.get("cycles", 0)
 
     def close(self):
@@ -473,6 +507,7 @@ class SmolLMEngine:
         c7x_compute="/usr/local/bin/c7x_compute",
         work_dir="/tmp/c7x_smollm",
         use_session=True,
+        profile=False,
     ):
         self.prefill_out = Path(prefill_out)
         self.decode_out = Path(decode_out)
@@ -481,6 +516,7 @@ class SmolLMEngine:
         self.work_dir = work_dir
         self._use_session = use_session
         self._decode_session = None  # created lazily on first decode_step
+        self.profile = profile
 
         self.prefill_len = metadata["prefill_len"]
         self.max_cache_len = metadata["max_cache_len"]
@@ -493,6 +529,13 @@ class SmolLMEngine:
 
         self.cache = KVCache(num_layers, num_kv_heads, self.max_cache_len, head_dim)
         self.cache_pos = 0  # next position to write into the KV cache
+        self._kv_resident = False  # set after prefill populates DSP KV region
+        self._kv_meta = {
+            "num_kv_heads": num_kv_heads,
+            "max_cache_len": self.max_cache_len,
+            "head_dim": head_dim,
+            "num_kv_tensors": 2 * num_layers,
+        }
 
     @classmethod
     def from_dir(
@@ -500,6 +543,7 @@ class SmolLMEngine:
         model_dir,
         c7x_compute="/usr/local/bin/c7x_compute",
         work_dir="/tmp/c7x_smollm",
+        profile=False,
     ):
         """Load engine from an artifacts directory produced by compile-chat."""
         from tokenizers import Tokenizer  # noqa: PLC0415
@@ -533,6 +577,7 @@ class SmolLMEngine:
             metadata,
             c7x_compute=c7x_compute,
             work_dir=work_dir,
+            profile=profile,
         )
 
     def _get_decode_session(self):
@@ -563,6 +608,8 @@ class SmolLMEngine:
         """Process a prompt (list of token IDs), populate KV cache.
 
         The prompt is padded or chunked to fit the fixed prefill_len.
+        Uses a temporary session with KV_RESIDENT flag so the DSP copies
+        KV outputs to the fixed region (no round-trip to host).
         Returns (logits_1d, elapsed_seconds).
         """
         n = len(token_ids)
@@ -573,20 +620,29 @@ class SmolLMEngine:
 
         pad_ids = token_ids + [0] * (self.prefill_len - n)
         input_ids = np.array(pad_ids, dtype=np.int64).reshape(1, self.prefill_len)
-        # Only fill cache positions 0..n-1 with real KV entries.
-        # Padded positions use cache_position=0 so their scatter writes
-        # harmlessly overwrite position 0 instead of polluting positions n..63.
         cache_pos = np.zeros(self.prefill_len, dtype=np.int64)
         cache_pos[:n] = np.arange(n, dtype=np.int64)
 
         self.cache.reset()
         self.cache_pos = 0
+        self._kv_resident = False
 
         t0 = time.monotonic()
-        outputs, cycles = self._run(self.prefill_out, [input_ids, cache_pos])
+        if self._use_session:
+            all_inputs = [input_ids, cache_pos] + self.cache.as_inputs()
+            sess = C7xSession(self.prefill_out, self.c7x_compute)
+            try:
+                outputs, _cycles = sess.infer(
+                    all_inputs, kv_resident=True, kv_meta=self._kv_meta
+                )
+            finally:
+                sess.close()
+            self._kv_resident = True
+        else:
+            outputs, _cycles = self._run(self.prefill_out, [input_ids, cache_pos])
+            self.cache.update_from_outputs(outputs)
         elapsed = time.monotonic() - t0
 
-        self.cache.update_from_outputs(outputs)
         self.cache_pos = n
 
         logits = outputs[0]  # [1, prefill_len, vocab]
@@ -601,22 +657,58 @@ class SmolLMEngine:
             )
         input_ids = np.array([[token_id]], dtype=np.int64)
         cache_pos = np.array([self.cache_pos], dtype=np.int64)
-        all_inputs = [input_ids, cache_pos] + self.cache.as_inputs()
+
+        if self._kv_resident and self._use_session:
+            all_inputs = [input_ids, cache_pos]
+        else:
+            all_inputs = [input_ids, cache_pos] + self.cache.as_inputs()
 
         t0 = time.monotonic()
         if self._use_session:
-            outputs, _cycles = self._get_decode_session().infer(all_inputs)
+            result = self._get_decode_session().infer(
+                all_inputs,
+                profile=self.profile,
+                kv_resident=self._kv_resident,
+                kv_meta=self._kv_meta if self._kv_resident else None,
+            )
+            if self.profile:
+                outputs, _cycles, timings = result
+            else:
+                outputs, _cycles = result
         else:
             outputs, _cycles = _run_local(
                 self.decode_out, all_inputs, self.work_dir, self.c7x_compute
             )
-        elapsed = time.monotonic() - t0
+        t1 = time.monotonic()
 
-        self.cache.update_from_outputs(outputs)
+        if not self._kv_resident:
+            self.cache.update_from_outputs(outputs)
+        t2 = time.monotonic()
+
+        elapsed = t2 - t0
+
+        if self.profile and self._use_session:
+            timings["cache_update_ms"] = (t2 - t1) * 1000
+            timings["total_ms"] = elapsed * 1000
+            self._print_profile(timings)
+
         self.cache_pos += 1
-
         logits = outputs[0]  # [1, 1, vocab]
         return logits[0, 0, :], elapsed
+
+    def _print_profile(self, t):
+        """Print one-line per-stage timing breakdown to stderr."""
+        print(
+            f"  [profile] serialize={t['serialize_ms']:.1f}ms "
+            f"pipe_wr={t['pipe_write_ms']:.1f}ms "
+            f"dsp_rt={t['dsp_roundtrip_ms']:.1f}ms "
+            f"pipe_rd={t['pipe_read_ms']:.1f}ms "
+            f"deser={t['deserialize_ms']:.1f}ms "
+            f"cache_upd={t['cache_update_ms']:.1f}ms "
+            f"total={t['total_ms']:.1f}ms "
+            f"(in={t['input_bytes']//1024}KB out={t['output_bytes']//1024}KB)",
+            file=sys.stderr,
+        )
 
     def generate(self, prompt, max_new_tokens=200, temperature=1.0, top_k=0):
         """Generate text from a prompt, yielding decoded text incrementally.
@@ -832,6 +924,11 @@ examples:
         help="Top-k sampling (default: 50, use 0 to disable)",
     )
     parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Print per-stage timing breakdown for each decode step",
+    )
+    parser.add_argument(
         "--prompt",
         type=str,
         default=None,
@@ -855,6 +952,7 @@ examples:
         args.model_dir,
         c7x_compute=args.c7x_compute,
         work_dir=args.work_dir,
+        profile=args.profile,
     )
     print(f"Ready.  KV cache: {engine.cache.size_mb:.1f} MB in ARM RAM\n")
 

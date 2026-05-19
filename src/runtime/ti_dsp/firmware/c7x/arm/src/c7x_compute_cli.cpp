@@ -803,6 +803,11 @@ static int cmd_session_run(const char *module_file)
             break;
         }
 
+        /* Parse optional kv_resident flag */
+        long long kv_resident_ll = 0;
+        json_get_ll(header_buf, "kv_resident", &kv_resident_ll);
+        bool kv_resident = (kv_resident_ll != 0);
+
         /* Parse tensor descriptors using existing helper */
         c7x_tensor_desc_t inputs[kMaxInputs];
         c7x_tensor_desc_t outputs_arr[kMaxInputs];
@@ -816,12 +821,49 @@ static int cmd_session_run(const char *module_file)
             continue;
         }
 
+        /* KV-resident mode: set flag so DSP copies KV outputs to fixed region.
+         * If only user inputs arrived via pipe (not the full 62 with KV),
+         * append synthetic KV descriptors pointing to the fixed DSP region. */
+        uint32_t infer_flags = 0;
+        if (kv_resident) {
+            infer_flags = C7X_INFER_FLAG_KV_RESIDENT;
+
+            long long kv_num_ll = C7X_KV_NUM_TENSORS;
+            json_get_ll(header_buf, "kv_num_tensors", &kv_num_ll);
+            int kv_num = static_cast<int>(kv_num_ll);
+
+            /* Only inject synthetic descriptors when KV wasn't sent via pipe.
+             * Prefill sends all 62 inputs; decode sends only 2. */
+            if (num_inputs + kv_num <= kMaxInputs && num_inputs < kv_num) {
+                long long kv_shape[4] = {1, 3, 256, 64};
+                json_get_ll(header_buf, "kv_num_heads", &kv_shape[1]);
+                json_get_ll(header_buf, "kv_max_cache_len", &kv_shape[2]);
+                json_get_ll(header_buf, "kv_head_dim", &kv_shape[3]);
+
+                for (int k = 0; k < kv_num; k++) {
+                    c7x_tensor_desc_t *kv = &inputs[num_inputs + k];
+                    memset(kv, 0, sizeof(*kv));
+                    kv->data = nullptr;
+                    kv->data_size = C7X_KV_TENSOR_SIZE;
+                    kv->ndim = 4;
+                    kv->dtype_code = 2;  /* kDLFloat */
+                    kv->dtype_bits = 32;
+                    kv->shape[0] = kv_shape[0];
+                    kv->shape[1] = kv_shape[1];
+                    kv->shape[2] = kv_shape[2];
+                    kv->shape[3] = kv_shape[3];
+                }
+                num_inputs += kv_num;
+            }
+        }
+
         /* Run inference (model_id=0 → embedded weights in the ELF) */
         int num_outputs = 0;
         uint64_t cycles = 0;
-        ret = c7x_client_infer(client, handle, /*model_id=*/0,
-                               inputs, num_inputs,
-                               outputs_arr, &num_outputs, &cycles);
+        ret = c7x_client_infer_flags(client, handle, /*model_id=*/0,
+                                     inputs, num_inputs,
+                                     outputs_arr, &num_outputs,
+                                     &cycles, infer_flags);
         if (ret != 0) {
             printf("{\"status\":\"error\",\"error\":\"%s\"}\n",
                    c7x_strerror(ret));

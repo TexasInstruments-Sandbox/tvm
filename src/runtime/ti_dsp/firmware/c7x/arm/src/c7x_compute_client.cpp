@@ -193,7 +193,7 @@ c7x_client_t *c7x_client_open(void)
 
     client->staging_buf  = client->shared_map.get();
     client->result_buf = static_cast<uint8_t *>(client->shared_map.get())
-                         + C7X_STAGING_SIZE;
+                         + (C7X_RESULT_ADDR - C7X_SHARED_BASE);
 
     /* Get physical address via remoteproc driver.
      * rproc_fd must stay open -- RPROC_IOC_DMA_BUF_ATTACH creates a device
@@ -236,7 +236,8 @@ c7x_client_t *c7x_client_open(void)
            static_cast<unsigned long long>(client->phys_addr));
     printf("c7x: Result buffer: %p (phys 0x%llx)\n",
            client->result_buf,
-           static_cast<unsigned long long>(client->phys_addr + C7X_STAGING_SIZE));
+           static_cast<unsigned long long>(client->phys_addr +
+               (C7X_RESULT_ADDR - C7X_SHARED_BASE)));
 
     return client.release();
 }
@@ -504,7 +505,8 @@ int c7x_client_dyn_unload(c7x_client_t *client, uint32_t handle)
 }
 
 /**
- * Internal helper: run INFER with an explicit repeat count in flags.
+ * Internal helper: run INFER with explicit flags.
+ * flags bits[15:0] = repeat count, bits[31:16] = feature flags.
  */
 static int c7x_client_infer_impl(c7x_client_t *client,
                                   uint32_t module_handle,
@@ -512,7 +514,7 @@ static int c7x_client_infer_impl(c7x_client_t *client,
                                   const c7x_tensor_desc_t *inputs, int num_inputs,
                                   c7x_tensor_desc_t *outputs, int *num_outputs,
                                   uint64_t *cycles,
-                                  uint32_t repeat)
+                                  uint32_t flags)
 {
     /* INFER message - sized for up to 4 inputs */
     uint8_t req_buf[512];
@@ -543,10 +545,22 @@ static int c7x_client_infer_impl(c7x_client_t *client,
         return -EINVAL;
     }
 
-    /* Pass 1: stage non-pre-staged inputs and record DSP data_addr for all. */
+    /* Pass 1: stage non-pre-staged inputs and record DSP data_addr for all.
+     * KV-resident inputs have data=NULL and a non-zero data_size — their
+     * DSP address is derived from the fixed KV region layout. */
     uint64_t data_addrs[128] = {};
+    int kv_idx = 0;
     for (int i = 0; i < num_inputs; i++) {
         const uint8_t *input_ptr = static_cast<const uint8_t *>(inputs[i].data);
+
+        if (input_ptr == nullptr && inputs[i].data_size > 0) {
+            /* KV-resident: data lives at fixed DSP address */
+            data_addrs[i] = C7X_KV_ADDR +
+                            static_cast<uint64_t>(kv_idx) * C7X_KV_TENSOR_SIZE;
+            kv_idx++;
+            continue;
+        }
+
         bool prestaged = (input_ptr != nullptr &&
                           input_ptr >= staging_base &&
                           input_ptr + inputs[i].data_size <= staging_base + staging_size);
@@ -603,7 +617,7 @@ static int c7x_client_infer_impl(c7x_client_t *client,
         req->module_handle = module_handle;
         req->model_id = model_id;
         req->num_inputs = static_cast<uint32_t>(num_inputs);
-        req->flags = (repeat > 1) ? (repeat & 0xFFFF) : 0;
+        req->flags = flags;
         for (int i = 0; i < num_inputs; i++)
             req->inputs[i] = desc_arr[i];
         req_size = inline_size;
@@ -642,7 +656,7 @@ static int c7x_client_infer_impl(c7x_client_t *client,
         lreq->module_handle = module_handle;
         lreq->model_id     = model_id;
         lreq->num_inputs   = static_cast<uint32_t>(num_inputs);
-        lreq->flags        = (repeat > 1) ? (repeat & 0xFFFF) : 0;
+        lreq->flags        = flags;
         lreq->descs_addr   = descs_dsp_addr;
         lreq->descs_size   = static_cast<uint32_t>(descs_size);
 
@@ -720,7 +734,7 @@ int c7x_client_infer(c7x_client_t *client,
 {
     return c7x_client_infer_impl(client, module_handle, model_id,
                                   inputs, num_inputs, outputs, num_outputs,
-                                  cycles, /*repeat=*/1);
+                                  cycles, /*flags=*/0);
 }
 
 int c7x_client_infer_repeat(c7x_client_t *client,
@@ -733,7 +747,20 @@ int c7x_client_infer_repeat(c7x_client_t *client,
 {
     return c7x_client_infer_impl(client, module_handle, model_id,
                                   inputs, num_inputs, outputs, num_outputs,
-                                  cycles, repeat);
+                                  cycles, /*flags=*/(repeat & 0xFFFF));
+}
+
+int c7x_client_infer_flags(c7x_client_t *client,
+                           uint32_t module_handle,
+                           uint32_t model_id,
+                           const c7x_tensor_desc_t *inputs, int num_inputs,
+                           c7x_tensor_desc_t *outputs, int *num_outputs,
+                           uint64_t *cycles,
+                           uint32_t flags)
+{
+    return c7x_client_infer_impl(client, module_handle, model_id,
+                                  inputs, num_inputs, outputs, num_outputs,
+                                  cycles, flags);
 }
 
 void *c7x_client_get_input_buffer(c7x_client_t *client, size_t *size)
