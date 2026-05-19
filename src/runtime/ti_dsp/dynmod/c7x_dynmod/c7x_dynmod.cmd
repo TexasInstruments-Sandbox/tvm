@@ -44,6 +44,12 @@ SECTIONS
     GROUP
     {
         .rodata:
+        /* SE guard: 4 KB padding before weights. The Streaming Engine's
+         * prefetch buffer (32x64B = 2KB) may issue speculative reads
+         * near buffer boundaries. Without padding, weights start at
+         * staging+0x40 — only one cache line from the mapped region
+         * edge at 0xC0000000. */
+        .se_guard: load = 0x80000000, fill = 0x00 { . += 0x1000; }
         .rodata.weights:    /* Embedded model weights */
         .neardata:
         .bss:
