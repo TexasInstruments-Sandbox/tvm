@@ -211,6 +211,21 @@ int c7x_client_infer_repeat(c7x_client_t *client,
                             uint32_t repeat);
 
 /**
+ * Run inference with explicit flags (repeat + feature flags).
+ *
+ * flags bits[15:0] = repeat count, bit[16] = C7X_INFER_FLAG_KV_RESIDENT.
+ * For KV-resident inputs, set inputs[i].data = NULL with non-zero data_size;
+ * the client assigns fixed KV region addresses automatically.
+ */
+int c7x_client_infer_flags(c7x_client_t *client,
+                           uint32_t module_handle,
+                           uint32_t model_id,
+                           const c7x_tensor_desc_t *inputs, int num_inputs,
+                           c7x_tensor_desc_t *outputs, int *num_outputs,
+                           uint64_t *cycles,
+                           uint32_t flags);
+
+/**
  * Get error message for a status code.
  *
  * @param status  Status code from c7x functions

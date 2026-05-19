@@ -386,17 +386,19 @@ static int32_t build_input_ndarrays(
         struct c7x_tensor_desc *td = &req->inputs[i];
 
         if (td->data_addr != 0 && td->data_size != 0) {
-            if (!C7X_IS_VALID_STAGING_ADDR(td->data_addr, td->data_size)) {
+            if (!C7X_IS_VALID_INPUT_ADDR(td->data_addr, td->data_size)) {
                 DebugP_log("[COMPUTE] Input %u addr 0x%llx+0x%llx outside "
-                           "shared buffer\r\n",
+                           "valid range\r\n",
                            i, (unsigned long long)td->data_addr,
                            (unsigned long long)td->data_size);
                 return C7X_STATUS_ERR_TENSOR;
             }
-            uint32_t cache_size = (td->data_size > 0xFFFFFFFFU)
-                                  ? 0xFFFFFFFFU : (uint32_t)td->data_size;
-            CacheP_inv((void *)(uintptr_t)td->data_addr,
-                       cache_size, CacheP_TYPE_ALL);
+            if (!C7X_IS_VALID_KV_ADDR(td->data_addr, td->data_size)) {
+                uint32_t cache_size = (td->data_size > 0xFFFFFFFFU)
+                                      ? 0xFFFFFFFFU : (uint32_t)td->data_size;
+                CacheP_inv((void *)(uintptr_t)td->data_addr,
+                           cache_size, CacheP_TYPE_ALL);
+            }
         }
     }
 
@@ -794,6 +796,44 @@ done:
 }
 
 /**
+ * copy_kv_to_fixed_region - Copy KV output tensors to the persistent KV region.
+ *
+ * Copies tuple elements [1..N] (skipping element 0 which is logits) to the
+ * fixed KV region at C7X_KV_ADDR with a uniform stride of C7X_KV_TENSOR_SIZE.
+ */
+static void copy_kv_to_fixed_region(TVMDSPArray *arr)
+{
+    uint8_t *dst = (uint8_t *)(uintptr_t)C7X_KV_ADDR;
+    int32_t i;
+    int32_t count = 0;
+
+    for (i = 1; i < arr->size && count < C7X_KV_NUM_TENSORS; i++) {
+        TVMFFIAny *elem = &arr->elements[i];
+        if (elem->type_index != kTVMFFITensor || elem->v_ptr == NULL)
+            continue;
+        TVMDSPNDArray *nd = (TVMDSPNDArray *)elem->v_ptr;
+        if (nd->data == NULL)
+            continue;
+
+        int32_t ndim = nd->ndim;
+        if (ndim < 0) ndim = 0;
+        int64_t total = 1;
+        int32_t j;
+        for (j = 0; j < ndim && j < C7X_TENSOR_MAX_NDIM; j++)
+            total *= nd->shape[j];
+        uint64_t sz = (uint64_t)total * (nd->dtype.bits / 8);
+        if (sz > C7X_KV_TENSOR_SIZE)
+            sz = C7X_KV_TENSOR_SIZE;
+
+        memcpy(dst, nd->data, (size_t)sz);
+        dst += C7X_KV_TENSOR_SIZE;
+        count++;
+    }
+
+    DebugP_log("[COMPUTE] Copied %d KV tensors to fixed region\r\n", count);
+}
+
+/**
  * handle_infer_large - Handle INFER_LARGE: tensor descriptors staged in DDR.
  *
  * For models with many inputs (e.g. KV cache: 62 tensors) the inline
@@ -814,6 +854,7 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
     int num_constants = 0;
     int ret;
     uint32_t i;
+    uint32_t repeat;
 
     /* Dynamic allocation via DDR (ndarrays/shapes/anys sized to num_inputs) */
     TVMDSPNDArray *input_ndarrays = NULL;
@@ -903,15 +944,17 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
         struct c7x_tensor_desc *td = &descs[i];
 
         if (td->data_addr != 0 && td->data_size != 0) {
-            if (!C7X_IS_VALID_STAGING_ADDR(td->data_addr, td->data_size)) {
-                DebugP_log("[COMPUTE] Input %u addr outside staging\r\n", i);
+            if (!C7X_IS_VALID_INPUT_ADDR(td->data_addr, td->data_size)) {
+                DebugP_log("[COMPUTE] Input %u addr outside valid range\r\n", i);
                 resp->hdr.status = C7X_STATUS_ERR_TENSOR;
                 goto done;
             }
-            uint32_t cache_sz = (td->data_size > 0xFFFFFFFFU)
-                                 ? 0xFFFFFFFFU : (uint32_t)td->data_size;
-            CacheP_inv((void *)(uintptr_t)td->data_addr,
-                       cache_sz, CacheP_TYPE_ALL);
+            if (!C7X_IS_VALID_KV_ADDR(td->data_addr, td->data_size)) {
+                uint32_t cache_sz = (td->data_size > 0xFFFFFFFFU)
+                                     ? 0xFFFFFFFFU : (uint32_t)td->data_size;
+                CacheP_inv((void *)(uintptr_t)td->data_addr,
+                           cache_sz, CacheP_TYPE_ALL);
+            }
         }
 
         int32_t ndim = td->ndim;
@@ -979,7 +1022,7 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
     shm_printf_reset();
 
     /* Run inference */
-    uint32_t repeat = req->flags & 0xFFFF;
+    repeat = req->flags & 0xFFFF;
     if (repeat < 1) repeat = 1;
 
     start_cycles = __TSC;
@@ -1010,7 +1053,26 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
         goto done;
     }
 
-    extract_infer_output(&output_any, resp);
+    {
+        uint32_t kv_resident = (req->flags & C7X_INFER_FLAG_KV_RESIDENT) != 0;
+        if (kv_resident && output_any.type_index == kTVMFFIArray) {
+            TVMDSPArray *arr = (TVMDSPArray *)output_any.v_ptr;
+            copy_kv_to_fixed_region(arr);
+            /* Return only logits (element 0) */
+            if (arr->size > 0 && arr->elements[0].type_index == kTVMFFITensor) {
+                TVMDSPNDArray *logits = (TVMDSPNDArray *)arr->elements[0].v_ptr;
+                fill_one_output_tensor(logits, &resp->outputs[0], 0);
+                resp->num_outputs = 1;
+                resp->descs_addr = 0;
+                resp->descs_size = 0;
+                resp->reserved = 0;
+            } else {
+                resp->num_outputs = 0;
+            }
+        } else {
+            extract_infer_output(&output_any, resp);
+        }
+    }
     resp->printf_size = shm_printf_finish();
     resp->hdr.status = C7X_STATUS_SUCCESS;
     gJobsCompleted++;

@@ -44,7 +44,7 @@ extern "C" {
 #define C7X_SHARED_PHYS_BASE    0x900000000ULL  /* Physical address (host DMA heap) */
 #define C7X_SHARED_SIZE         0x20000000ULL   /* 512 MB total — full DMA heap carveout */
 
-/* Staging buffer: first 480 MB of the shared DDR carveout.
+/* Staging buffer: first 468 MB of the shared DDR carveout.
  * Used for host-to-DSP data transfer: ELF modules (DLOAD), weights
  * (MODEL_LOAD), and inference input tensors (INFER).
  *
@@ -52,11 +52,19 @@ extern "C" {
  *   Physical 0x900000000 -> DSP virtual 0xC0000000
  * The host side uses mmap'd userspace pointers (client->staging_buf). */
 #define C7X_STAGING_ADDR   0xC0000000ULL
-#define C7X_STAGING_SIZE   0x1E000000ULL   /* 480 MB */
+#define C7X_STAGING_SIZE   0x1D400000ULL   /* 468 MB */
 
-/* Result buffer: last 32 MB (DSP-to-host: inference output + printf).
- * Sized for max-cache-len=256: prefill outputs ~15 MB (3 MB logits +
- * 11.8 MB KV cache) + descriptor array overhead. */
+/* KV cache fixed region: 12 MB between staging and result.
+ * Persists across inferences — not touched by watermark restore.
+ * Used when C7X_INFER_FLAG_KV_RESIDENT is set: the DSP copies KV output
+ * tensors here after cg_main_dsp() and reads them back as inputs on the
+ * next inference without host involvement. */
+#define C7X_KV_ADDR      0xDD400000ULL   /* staging + 468 MB */
+#define C7X_KV_SIZE      0x00C00000ULL   /* 12 MB */
+#define C7X_KV_NUM_TENSORS   60
+#define C7X_KV_TENSOR_SIZE   196608      /* 1*3*256*64*sizeof(float) */
+
+/* Result buffer: last 32 MB (DSP-to-host: inference output + printf). */
 #define C7X_RESULT_ADDR  0xDE000000ULL
 #define C7X_RESULT_SIZE  0x02000000ULL   /* 32 MB */
 
@@ -276,11 +284,13 @@ struct c7x_tensor_desc {
  * INFER request (variable size, fits in C7X_MAX_MSG_SIZE for 1 input)
  *
  * flags field:
- *   bits [15:0] = repeat count.  The firmware loops cg_main_dsp() this
- *                 many times, recording per-iteration cycles and printing
- *                 layer profiles.  0 or 1 = run once (backward compatible).
- *                 Use repeat=2 to separate one-time init from steady-state.
- *   bits [31:16] = reserved (must be 0).
+ *   bits [15:0]  = repeat count.  The firmware loops cg_main_dsp() this
+ *                  many times, recording per-iteration cycles and printing
+ *                  layer profiles.  0 or 1 = run once (backward compatible).
+ *                  Use repeat=2 to separate one-time init from steady-state.
+ *   bit  [16]    = C7X_INFER_FLAG_KV_RESIDENT: DSP copies KV outputs to
+ *                  fixed region and returns only logits.
+ *   bits [31:17] = reserved (must be 0).
  */
 struct c7x_msg_infer {
     struct c7x_msg_hdr hdr;     /* type = C7X_MSG_INFER */
@@ -315,6 +325,9 @@ struct c7x_msg_infer_large {
     uint32_t descs_size;            /* Size in bytes of descriptor array */
     uint32_t reserved;
 } __attribute__((packed));
+
+/* INFER flags */
+#define C7X_INFER_FLAG_KV_RESIDENT  (1U << 16)
 
 /*
  * INFER response (variable size)
@@ -378,6 +391,14 @@ union c7x_msg {
     ((size) <= C7X_STAGING_SIZE && \
      (addr) >= C7X_STAGING_ADDR && \
      ((addr) - C7X_STAGING_ADDR) <= (C7X_STAGING_SIZE - (size)))
+
+#define C7X_IS_VALID_KV_ADDR(addr, size) \
+    ((size) <= C7X_KV_SIZE && \
+     (addr) >= C7X_KV_ADDR && \
+     ((addr) - C7X_KV_ADDR) <= (C7X_KV_SIZE - (size)))
+
+#define C7X_IS_VALID_INPUT_ADDR(addr, size) \
+    (C7X_IS_VALID_STAGING_ADDR(addr, size) || C7X_IS_VALID_KV_ADDR(addr, size))
 
 #define C7X_IS_VALID_RESULT_ADDR(addr, size) \
     ((size) <= C7X_RESULT_SIZE && \
