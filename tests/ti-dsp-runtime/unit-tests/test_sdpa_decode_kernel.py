@@ -105,6 +105,8 @@ def _build_sdpa_module(num_q_heads, num_kv_heads, head_dim, max_cache_len):
 def _run_sdpa_test(dsp_mode, num_q_heads, num_kv_heads, head_dim,
                    max_cache_len, cache_pos, seed=42):
     """Build, compile, run, verify."""
+    if dsp_mode is None:
+        pytest.skip("--dsp-mode required (c7x_host or c7x_dload)")
     rng = np.random.default_rng(seed)
 
     Q = rng.uniform(-1.0, 1.0, (num_q_heads, head_dim)).astype(np.float32)
