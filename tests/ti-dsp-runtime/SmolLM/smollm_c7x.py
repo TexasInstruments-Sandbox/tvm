@@ -51,7 +51,8 @@ from torch import nn
 from torch.export import export
 from transformers import AutoModelForCausalLM
 
-from tvm import relax
+import tvm
+from tvm import relax, te, tir
 from tvm.relax.frontend.torch import from_exported_program
 
 # Add dsp-cpp to path for dsp_utils
@@ -610,6 +611,268 @@ def _substitute_vars(expr, var_map):
     return expr
 
 
+def _fuse_sdpa_decode(mod, seq_len):
+    """Replace GQA expand+attention_bias with tvm_sdpa_decode for decode (seq=1).
+
+    Pattern per layer in the Relax IR:
+        lv85: scatter_elements [1,3,cache,64]   (K cache write)
+        lv86: expand_dims     [1,3,1,cache,64]
+        lv87: broadcast_to    [1,3,3,cache,64]  (GQA 3→9)
+        lv88: reshape         [1,9,cache,64]
+        lv91: scatter_elements [1,3,cache,64]   (V cache write)
+        lv92-94: same expand/broadcast/reshape for V
+        lv95: permute_dims    [1,1,9,64]        (Q)
+        lv96: permute_dims    [1,cache,9,64]    (K transposed)
+        lv97: permute_dims    [1,cache,9,64]    (V transposed)
+        lv101: attention_bias [1,1,9,64]        (Q×K^T + softmax + ×V)
+
+    Replaced with:
+        scatter_elements(K/V) kept
+        call_extern("tvm_sdpa_decode", Q, K_scatter, V_scatter, mask,
+                    num_q_heads, num_kv_heads, head_dim, max_cache_len)
+
+    Only applied when seq_len=1 (decode model).
+    """
+    if seq_len != 1:
+        return mod, 0
+
+    func = mod["main"]
+    if not func.body or not func.body.blocks:
+        return mod, 0
+
+    block = func.body.blocks[0]
+    bindings = list(block.bindings)
+
+    # Map var → binding value for tracing
+    var_to_val = {}
+    for b in bindings:
+        if isinstance(b, relax.VarBinding):
+            var_to_val[b.var] = b.value
+
+    def _op_name(var):
+        val = var_to_val.get(var)
+        return str(val.op) if isinstance(val, relax.Call) else ""
+
+    def _arg(var, idx=0):
+        val = var_to_val.get(var)
+        if isinstance(val, relax.Call) and len(val.args) > idx:
+            a = val.args[idx]
+            return a if isinstance(a, relax.Var) else None
+        return None
+
+    def _trace_chain(var, ops):
+        """Trace backward through a chain of ops. ops[0] is checked on var,
+        ops[1] on var's arg, etc. Returns the arg of the last matched op."""
+        cur = var
+        for op in ops:
+            if op not in _op_name(cur):
+                return None
+            cur = _arg(cur)
+            if cur is None:
+                return None
+        return cur
+
+    # Find attention_bias calls and trace inputs to scatter_elements
+    groups = []
+    for b in bindings:
+        if not isinstance(b, relax.VarBinding):
+            continue
+        val = b.value
+        if not isinstance(val, relax.Call) or "attention_bias" not in str(val.op):
+            continue
+
+        q_t, k_t, v_t, mask_v = val.args[0], val.args[1], val.args[2], val.args[3]
+
+        # K_t: permute_dims ← reshape ← broadcast_to ← expand_dims ← scatter_elements
+        k_scatter = _trace_chain(k_t, ["permute_dims", "reshape", "broadcast_to", "expand_dims"])
+        if k_scatter is None or "scatter_elements" not in _op_name(k_scatter):
+            continue
+
+        # V_t: same chain
+        v_scatter = _trace_chain(v_t, ["permute_dims", "reshape", "broadcast_to", "expand_dims"])
+        if v_scatter is None or "scatter_elements" not in _op_name(v_scatter):
+            continue
+
+        # Q: permute_dims ← q_rope [1, num_q_heads, 1, head_dim]
+        q_rope = _arg(q_t)
+        if q_rope is None:
+            continue
+
+        # Extract dims from scatter output: [1, kv_heads, cache_len, head_dim]
+        try:
+            k_shape = [int(s) for s in k_scatter.struct_info.shape]
+            q_shape = [int(s) for s in q_rope.struct_info.shape]
+        except (TypeError, ValueError):
+            continue
+
+        groups.append({
+            "attn_var": b.var,
+            "q_rope": q_rope, "q_t": q_t,
+            "k_scatter": k_scatter, "k_t": k_t,
+            "v_scatter": v_scatter, "v_t": v_t,
+            "mask": mask_v,
+            "num_q_heads": q_shape[1],
+            "num_kv_heads": k_shape[1],
+            "head_dim": k_shape[3],
+            "max_cache_len": k_shape[2],
+        })
+
+    if not groups:
+        return mod, 0
+
+    print(f"    FuseSDPADecode: found {len(groups)} attention layers "
+          f"(q={groups[0]['num_q_heads']} kv={groups[0]['num_kv_heads']} "
+          f"hd={groups[0]['head_dim']} cache={groups[0]['max_cache_len']})")
+
+    # Collect the intermediate vars that become dead after SDPA replacement
+    remove_vars = set()
+    for g in groups:
+        for end_var in [g["k_t"], g["v_t"]]:
+            cur = end_var
+            while cur is not None and cur in var_to_val:
+                if cur == g["k_scatter"] or cur == g["v_scatter"]:
+                    break
+                remove_vars.add(cur)
+                cur = _arg(cur)
+        remove_vars.add(g["q_t"])
+
+    attn_set = {g["attn_var"]: g for g in groups}
+
+    # Use PyExprMutator for correct SSA variable handling
+    @relax.expr_functor.mutator
+    class _SDPAMutator(relax.expr_functor.PyExprMutator):
+        def __init__(self, mod):
+            super().__init__(mod)
+
+        def visit_call_(self, call):
+            call = self.visit_expr_post_order(call)
+            return call
+
+    # Simpler approach: directly construct a new function body by filtering
+    # bindings and inserting SDPA calls using relax.Function constructor.
+    # Since the IR is a flat dataflow block, we can rebuild it cleanly.
+
+    new_bindings = []
+    var_remap = {}  # old_var → new_expr for attention outputs
+
+    for b in bindings:
+        if not isinstance(b, relax.VarBinding):
+            new_bindings.append(b)
+            continue
+
+        # Skip dead intermediate vars (expand/broadcast/reshape/permute chains)
+        if b.var in remove_vars:
+            continue
+
+        # Replace attention_bias with SDPA extern
+        if b.var in attn_set:
+            g = attn_set[b.var]
+            nqh, nkvh, hd, mcl = g["num_q_heads"], g["num_kv_heads"], g["head_dim"], g["max_cache_len"]
+
+            # Build the extern call as a TIR PrimFunc
+            q_param = tir.Var("q", "handle")
+            k_param = tir.Var("k", "handle")
+            v_param = tir.Var("v", "handle")
+            m_param = tir.Var("m", "handle")
+            o_param = tir.Var("o", "handle")
+
+            body = tir.Evaluate(tir.call_extern(
+                "int32", "tvm_sdpa_decode",
+                tir.call_intrin("handle", "tir.tvm_struct_get", q_param, 0, 1),
+                tir.call_intrin("handle", "tir.tvm_struct_get", k_param, 0, 1),
+                tir.call_intrin("handle", "tir.tvm_struct_get", v_param, 0, 1),
+                tir.call_intrin("handle", "tir.tvm_struct_get", m_param, 0, 1),
+                tir.call_intrin("handle", "tir.tvm_struct_get", o_param, 0, 1),
+                nqh, nkvh, hd, mcl,
+            ))
+
+            # For now, skip the full rewrite — this requires too much TIR plumbing.
+            # Instead, just mark the groups and let DeadCodeElimination clean up.
+            # The attention_bias op will remain but the pattern is proven.
+            new_bindings.append(b)
+            continue
+
+        new_bindings.append(b)
+
+    # Rewrite using PyExprMutator: visit_binding_ replaces attention_bias
+    # calls with the SDPA extern while the framework handles SSA rebinding.
+    @relax.expr_functor.mutator
+    class _Mutator(relax.expr_functor.PyExprMutator):
+        def __init__(self, mod, attn_map, dead_vars):
+            super().__init__(mod)
+            self._attn_map = attn_map  # attn_var → group dict
+            self._dead = dead_vars
+            self._count = 0
+
+        def visit_binding_(self, binding):
+            if not isinstance(binding, relax.VarBinding):
+                return super().visit_binding_(binding)
+
+            # Skip dead chain vars — emit nothing (DCE will handle)
+            if binding.var in self._dead:
+                return super().visit_binding_(binding)
+
+            # Replace attention_bias with SDPA extern
+            if binding.var in self._attn_map:
+                g = self._attn_map[binding.var]
+                nqh, nkvh, hd, mcl = (
+                    g["num_q_heads"], g["num_kv_heads"],
+                    g["head_dim"], g["max_cache_len"],
+                )
+                # Get the current (possibly remapped) vars
+                q_var = self.lookup_binding(g["q_rope"])
+                k_var = self.lookup_binding(g["k_scatter"])
+                v_var = self.lookup_binding(g["v_scatter"])
+                m_var = self.lookup_binding(g["mask"])
+
+                bb = self.builder_
+
+                # Reshape inputs for kernel
+                q_sq = bb.emit(relax.op.reshape(q_var, relax.ShapeExpr([nqh, hd])))
+                k_sq = bb.emit(relax.op.reshape(k_var, relax.ShapeExpr([nkvh, mcl, hd])))
+                v_sq = bb.emit(relax.op.reshape(v_var, relax.ShapeExpr([nkvh, mcl, hd])))
+                m_sq = bb.emit(relax.op.reshape(m_var, relax.ShapeExpr([mcl])))
+
+                def _te_sdpa(qt, kt, vt, mt,
+                             _nqh=nqh, _nkvh=nkvh, _hd=hd, _mcl=mcl):
+                    def fcompute(ins, outs):
+                        return tir.call_extern(
+                            "int32", "tvm_sdpa_decode",
+                            ins[0].data, ins[1].data, ins[2].data,
+                            ins[3].data, outs[0].data,
+                            _nqh, _nkvh, _hd, _mcl,
+                        )
+                    return te.extern(
+                        [_nqh, _hd], [qt, kt, vt, mt],
+                        fcompute, name="sdpa_decode", dtype="float32",
+                    )
+
+                sdpa_out = bb.emit_te(
+                    _te_sdpa, q_sq, k_sq, v_sq, m_sq,
+                    primfunc_name_hint="sdpa_decode",
+                )
+                # Reshape to original output shape [1, 1, nqh, hd]
+                out_shape = [int(s) for s in binding.var.struct_info.shape]
+                new_val = bb.emit(relax.op.reshape(sdpa_out, relax.ShapeExpr(out_shape)))
+                self.set_var_remap(binding.var.vid, new_val)
+                self._count += 1
+                return
+
+            return super().visit_binding_(binding)
+
+    mut = _Mutator(mod, attn_set, remove_vars)
+    new_func = mut.visit_expr(func)
+    new_func = relax.utils.copy_with_new_vars(new_func)
+    new_mod = tvm.IRModule({"main": new_func})
+
+    # Copy over any TIR primfuncs that emit_te generated
+    for gv, f in mut.builder_.get().functions.items():
+        if gv.name_hint != "main":
+            new_mod[gv.name_hint] = f
+
+    return new_mod, mut._count
+
+
 def _add_kv_scatter_outputs(mod):
     """Add scatter_elements outputs for KV cache to the function return.
 
@@ -863,6 +1126,9 @@ def _compile_one_kvcache_mode(
         print("    Running RewriteDequantize pass ...")
         mod = relax.transform.RewriteDequantize()(mod)
         mod = relax.transform.DeadCodeElimination()(mod)
+
+    # SDPA fusion is now handled in the c_static pipeline (pipeline.py)
+    # for any GQA model with seq_q=1 on c7x. No explicit call needed here.
 
     # TVM compile
     target_string = "c_static -mcpu=c7x"

@@ -121,6 +121,14 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
         tvm.relax.transform.FuseDequantizeMatmul(),
     ]
 
+    # SDPA decode fusion: replaces GQA expand+broadcast+transpose+attention_bias
+    # with a single tvm_sdpa_decode extern call. Only matches decode models
+    # (seq_q=1) with GQA (num_q_heads % num_kv_heads == 0).
+    if is_c7x:
+        from tvm.relax.transform.ti_fuse_sdpa_decode import FuseSDPADecode
+
+        passes.append(FuseSDPADecode())
+
     # MMALIB path: skip NHWC, custom int16 legalization.
     # Non-MMALIB path: convert to NHWC, default legalization.
     if is_c7x and target.attrs.get("mmalib", False):

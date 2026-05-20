@@ -155,6 +155,7 @@ SECTIONS
 /* TVM kernels */
 --import=tvm_int8_residual_add_relu
 --import=tvm_dequantize_vecmatmul
+--import=tvm_sdpa_decode
 
 /* TVM platform */
 --import=tvm_dsp_alloc
