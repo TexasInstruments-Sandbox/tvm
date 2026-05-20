@@ -304,6 +304,15 @@ class _DequantizeMatmulFuser(PyExprMutator):
         c_K = int(K)
         c_N = int(N)
 
+        # The kernel reads scale[n] for n in 0..N-1, so it requires a
+        # per-channel vector.  PT2E per-tensor quantization produces a
+        # scalar scale — broadcast it to shape [N] before passing.
+        scale_sinfo = w_scale.struct_info
+        if scale_sinfo.ndim == 0:
+            w_scale = self.builder_.emit(
+                relax.op.broadcast_to(w_scale, relax.ShapeExpr([N]))
+            )
+
         def te_vecmatmul(act_t, w_t, scale_t):
             def fcompute(ins, outs):
                 return tir.call_extern(

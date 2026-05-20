@@ -11,6 +11,14 @@ _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "c7x_only: test only valid for c7x targets "
+        "(model too large for C66x, or feature is c7x-specific)",
+    )
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--dsp-mode",
