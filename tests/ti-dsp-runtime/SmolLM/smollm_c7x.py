@@ -572,8 +572,7 @@ def _build_kv_cache_model(model_dir: Path, quantize: bool, max_cache_len: int):
 
     if quantize:
         print("  Applying per-channel INT8 weight quantization ...")
-        # Skip lm_head in chat mode: tied with embedding, quantizing breaks lookup
-        quantize_linears(model, skip_lm_head=True)
+        quantize_linears(model)
 
     # Configure model for static caching
     model.generation_config.use_cache = True
