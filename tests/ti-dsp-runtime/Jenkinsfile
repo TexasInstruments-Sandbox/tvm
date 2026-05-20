@@ -374,6 +374,7 @@ pipeline {
                             mkdir -p results
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. unit-tests/ \
+                                --dsp-mode=c7x_host \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/unit_tests.xml
                         '''
@@ -573,6 +574,23 @@ pipeline {
                                 --ignore=quantized/test_quantized_resnext101.py \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/quantized_dload.xml
+                        '''
+                    }
+                }
+
+                stage('SmolLM Chat e2e') {
+                    options {
+                        timeout(time: 20, unit: 'MINUTES')
+                    }
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/ti-dsp-runtime
+                            pytest -p no:tvm.testing.plugin --rootdir=. \
+                                SmolLM/test_smollm_chat_e2e.py \
+                                --dsp-mode=c7x_dload \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/smollm_chat_e2e.xml
                         '''
                     }
                 }
