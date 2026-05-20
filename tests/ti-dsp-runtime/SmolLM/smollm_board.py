@@ -296,12 +296,14 @@ class C7xSession:
             raise RuntimeError(f"session-run failed to start: {info}")
 
     def _drain_stderr(self):
-        """Background thread: read and discard session stderr to prevent pipe deadlock."""
+        """Background thread: forward session stderr to sys.stderr."""
         try:
             while True:
                 chunk = self._proc.stderr.read(4096)  # type: ignore[union-attr]
                 if not chunk:
                     break
+                sys.stderr.buffer.write(chunk)
+                sys.stderr.buffer.flush()
         except Exception:
             pass
 

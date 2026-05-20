@@ -943,6 +943,8 @@ def cmd_compile_chat(args) -> int:
 
     fp_off = getattr(args, "fp_reassoc_off", False)
 
+    profile = getattr(args, "profile_layers", False)
+
     # Compile prefill
     print("\n[2/3] Compiling prefill model ...")
     rc = _compile_one_kvcache_mode(
@@ -953,13 +955,13 @@ def cmd_compile_chat(args) -> int:
         fp_off,
         args.quantize,
         "prefill",
+        profile_layers=profile,
     )
     if rc != 0:
         return rc
 
     # Compile decode
     print("\n[3/3] Compiling decode model ...")
-    profile = getattr(args, "profile_layers", False)
     rc = _compile_one_kvcache_mode(
         exportable,
         1,

@@ -1040,6 +1040,18 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
     resp->return_value = ret;
     resp->cycles = end_cycles - start_cycles;
 
+    /* Print layer profile if the module was compiled with --profile-layers */
+    {
+        uint64_t profile_fn_addr = 0;
+        if (req->module_handle != 0 &&
+            dyn_loader_query_symbol(req->module_handle,
+                "TVMPrintLayerProfile", &profile_fn_addr) == 0) {
+            void (*print_profile)(void) =
+                (void (*)(void))(uintptr_t)profile_fn_addr;
+            print_profile();
+        }
+    }
+
     DebugP_log("[COMPUTE] DDR free after cg_main_dsp: %u MB (ret=%d)\r\n",
                (uint32_t)(tvm_dsp_get_free_memory(TVM_DSP_MEM_MAIN) / (1024*1024)),
                ret);
