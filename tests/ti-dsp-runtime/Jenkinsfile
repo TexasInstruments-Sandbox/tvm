@@ -60,7 +60,7 @@ pipeline {
     parameters {
         string(
             name: 'BRANCH',
-            defaultValue: 'relax-tidl',
+            defaultValue: 'mmalib-offload',
             description: 'Branch to build and test'
         )
         booleanParam(
@@ -574,6 +574,25 @@ pipeline {
                                 --ignore=quantized/test_quantized_resnext101.py \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/quantized_dload.xml
+                        '''
+                    }
+                }
+
+                stage('Quantized MMALIB c7x_dload') {
+                    when {
+                        expression { return !params.SKIP_MMALIB_TESTS }
+                    }
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/ti-dsp-runtime
+                            pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
+                                --dsp-mode=c7x_dload \
+                                --mmalib \
+                                --ignore=quantized/test_quantized_inception_v3.py \
+                                --ignore=quantized/test_quantized_resnext101.py \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/quantized_mmalib_dload.xml
                         '''
                     }
                 }

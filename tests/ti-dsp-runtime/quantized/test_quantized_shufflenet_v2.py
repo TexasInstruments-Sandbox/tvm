@@ -61,6 +61,8 @@ def _run_test(
 
     if mmalib:
         comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=5e-1, atol=25.0)
+    elif dsp_mode == "c7x_dload":
+        comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=20.0)
     else:
         comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=20.0)
 
