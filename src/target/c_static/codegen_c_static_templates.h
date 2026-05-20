@@ -72,6 +72,7 @@ constexpr const char* kDSPHeaders = R"(
 #include "dma/tvm_dsp_dma.h"
 #include "kernels/tvm_int8_residual_add.h"
 #include "kernels/tvm_dequantize_vecmatmul.h"
+#include "kernels/tvm_sdpa_decode.h"
 #include <cstdint>
 #include <cstring>
 #include <cmath>
