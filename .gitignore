@@ -298,3 +298,8 @@ pytest-of-bohanhou/
 docs/dsp/pptx-workspace/
 
 *.pt
+
+# Temporary wheel build directories
+packaging/ti_dsp/staging-arm64/
+packaging/ti_dsp/staging-x86/
+packaging/ti_dsp/staging/

@@ -43,8 +43,20 @@ stop_firmware() {
     local state=$(get_state)
     if [ "$state" = "running" ]; then
         info "Stopping C7x firmware..."
-        ssh_cmd "echo stop > ${RPROC}/state"
-        info "Stopped"
+        # Retry on EBUSY: the kernel rejects "stop" while virtio vdev
+        # negotiation is still in progress after autostart, even though
+        # state already reads "running".
+        local i
+        for i in $(seq 1 10); do
+            if ssh_cmd "echo stop > ${RPROC}/state" 2>/dev/null; then
+                info "Stopped"
+                return 0
+            fi
+            warn "stop returned EBUSY, retrying ($i/10)..."
+            sleep 2
+        done
+        error "Failed to stop C7x firmware after 10 retries"
+        return 1
     else
         info "C7x already stopped (state: $state)"
     fi

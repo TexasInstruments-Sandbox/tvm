@@ -15,7 +15,9 @@ Requirements:
 
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -34,7 +36,6 @@ def _resolve_model_dir() -> Path:
 
 
 _MODEL_DIR = _resolve_model_dir()
-_ARTIFACTS_DIR = Path("/tmp/smollm_ci")
 _BOARD_TARGET = "root@am67a"
 _BOARD_MODEL_DIR = "/opt/smollm"
 _TEST_PROMPT = "What is the capital of France?"
@@ -52,6 +53,8 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
     if not _MODEL_DIR.exists() or not (_MODEL_DIR / "config.json").exists():
         pytest.skip(f"SmolLM model weights not found at {_MODEL_DIR}")
 
+    artifacts_dir = Path(tempfile.mkdtemp(prefix="smollm_ci_"))
+
     # Step 1: Compile
     compile_cmd = [
         "python", str(_THIS_DIR / "smollm_c7x.py"), "compile-chat",
@@ -60,7 +63,7 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
         "--dsp-mode", "c7x_dload",
         "--prefill-len", "64",
         "--max-cache-len", "256",
-        "-o", str(_ARTIFACTS_DIR),
+        "-o", str(artifacts_dir),
     ]
     result = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=600)
     assert result.returncode == 0, f"Compile failed:\n{result.stderr[-500:]}"
@@ -68,7 +71,7 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
     # Step 2: Deploy
     deploy_cmd = [
         "python", str(_THIS_DIR / "smollm_c7x.py"), "deploy",
-        "--artifacts", str(_ARTIFACTS_DIR),
+        "--artifacts", str(artifacts_dir),
         "--target", f"{_BOARD_TARGET}:{_BOARD_MODEL_DIR}",
     ]
     result = subprocess.run(deploy_cmd, capture_output=True, text=True, timeout=300)
@@ -129,3 +132,6 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
     assert tok_per_sec >= _MIN_TOK_PER_SEC, (
         f"Performance regression: {tok_per_sec:.2f} tok/s < {_MIN_TOK_PER_SEC} tok/s threshold"
     )
+
+    if not os.environ.get("DSP_KEEP_TEMP"):
+        shutil.rmtree(artifacts_dir, ignore_errors=True)
