@@ -42,6 +42,19 @@
 //
 //        # Then copy the entire cache to the Jenkins node:
 //        scp -r ~/.cache/torch sdomcbuild@<node>:~/.cache/torch
+//
+//   7. Pre-cache SmolLM-135M model weights for the SmolLM chat e2e test.
+//        # On a machine with internet access, run:
+//        python -c "
+//        from transformers import AutoModelForCausalLM, AutoTokenizer
+//        import torch
+//        m = AutoModelForCausalLM.from_pretrained(
+//            'HuggingFaceTB/SmolLM-135M-Instruct', dtype=torch.float32)
+//        t = AutoTokenizer.from_pretrained('HuggingFaceTB/SmolLM-135M-Instruct')
+//        m.save_pretrained('/tmp/SmolLM-135M-Instruct')
+//        t.save_pretrained('/tmp/SmolLM-135M-Instruct')
+//        "
+//        scp -r /tmp/SmolLM-135M-Instruct sdomcbuild@<node>:~/.cache/smollm/SmolLM-135M-Instruct
 
 pipeline {
     agent { label 'relax-c7x' }
@@ -136,6 +149,7 @@ pipeline {
         C7X_MMA_TIDL_PATH             = "${WORKSPACE}/c7x-mma-tidl"
         AM67A_TARGET                   = 'am67a'
         ENABLE_SDK_11_0_COMPATIBILITY  = '1'
+        SMOLLM_MODEL_DIR               = "${HOME}/.cache/smollm/SmolLM-135M-Instruct"
     }
 
     stages {
@@ -197,7 +211,7 @@ pipeline {
                                 exit 1
                             fi
                             test -d .venv || uv venv .venv
-                            uv pip install numpy pytest scipy psutil ml_dtypes build pandas tqdm seaborn
+                            uv pip install numpy pytest scipy psutil ml_dtypes build pandas tqdm seaborn transformers
                             uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --extra-index-url https://download.pytorch.org/whl/cpu
                             uv pip install ultralytics
                             uv pip install -e 3rdparty/tvm-ffi
