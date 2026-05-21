@@ -13,6 +13,7 @@ Requirements:
     - TI_CGT_C7000_PATH set
 """
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -20,6 +21,19 @@ from pathlib import Path
 import pytest
 
 _THIS_DIR = Path(__file__).parent
+
+
+def _resolve_model_dir() -> Path:
+    """Resolve model directory: env var > cache dir > sibling dir."""
+    if env := os.environ.get("SMOLLM_MODEL_DIR"):
+        return Path(env)
+    cache_dir = Path.home() / ".cache" / "smollm" / "SmolLM-135M-Instruct"
+    if cache_dir.exists():
+        return cache_dir
+    return _THIS_DIR / "model"
+
+
+_MODEL_DIR = _resolve_model_dir()
 _ARTIFACTS_DIR = Path("/tmp/smollm_ci")
 _BOARD_TARGET = "root@am67a"
 _BOARD_MODEL_DIR = "/opt/smollm"
@@ -35,10 +49,13 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
     """Compile, deploy, run SmolLM chat and verify output + throughput."""
     if dsp_mode != "c7x_dload":
         pytest.skip("SmolLM e2e requires c7x_dload (AM67A hardware)")
+    if not _MODEL_DIR.exists() or not (_MODEL_DIR / "config.json").exists():
+        pytest.skip(f"SmolLM model weights not found at {_MODEL_DIR}")
 
     # Step 1: Compile
     compile_cmd = [
         "python", str(_THIS_DIR / "smollm_c7x.py"), "compile-chat",
+        "--model-dir", str(_MODEL_DIR),
         "--quantize",
         "--dsp-mode", "c7x_dload",
         "--prefill-len", "64",

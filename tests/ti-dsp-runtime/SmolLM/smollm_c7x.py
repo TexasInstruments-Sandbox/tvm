@@ -40,6 +40,7 @@ Usage:
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -73,8 +74,17 @@ from dsp_utils import (  # noqa: E402, I001
 
 logger = logging.getLogger(__name__)
 
-# Default local model directory (sibling of this script)
-_DEFAULT_MODEL_DIR = _THIS_DIR / "model"
+def _resolve_model_dir() -> Path:
+    """Resolve model directory: env var > cache dir > sibling dir."""
+    if env := os.environ.get("SMOLLM_MODEL_DIR"):
+        return Path(env)
+    cache_dir = Path.home() / ".cache" / "smollm" / "SmolLM-135M-Instruct"
+    if cache_dir.exists():
+        return cache_dir
+    return _THIS_DIR / "model"
+
+
+_DEFAULT_MODEL_DIR = _resolve_model_dir()
 
 
 # ---------------------------------------------------------------------------
