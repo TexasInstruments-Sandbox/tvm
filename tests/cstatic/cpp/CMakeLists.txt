@@ -73,9 +73,12 @@ set(CXX_SRC_FILES
     main.cpp
 )
 
+# Glob all generated lib*.c files (split lib0 produces lib0.c + lib1.c)
+file(GLOB LIB_C_FILES "${CMAKE_CURRENT_SOURCE_DIR}/lib*.c")
+
 set(C_AS_CXX_SRC_FILES
-    lib0.c
     devc.c
+    ${LIB_C_FILES}
 )
 
 # Create executable
