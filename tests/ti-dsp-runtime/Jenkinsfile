@@ -5,7 +5,7 @@
 //
 // Jenkins setup:
 //   1. Install plugins: Pipeline, JUnit, Lockable Resources,
-//      Timestamper, Build Timeout, Pipeline Stage View
+//      Timestamper, Build Timeout, Pipeline Stage View, Copy Artifact
 //   2. Create lockable resource "am67a-dsp-board" in
 //      Manage Jenkins > Lockable Resources
 //   3. Pipeline job: SCM, script path "tests/ti-dsp-runtime/Jenkinsfile"
@@ -684,6 +684,29 @@ pipeline {
         always {
             junit testResults: 'results/*.xml', allowEmptyResults: true
             archiveArtifacts artifacts: 'results/**', allowEmptyArchive: true
+            // Fetch previous successful build's cycles.csv for regression comparison
+            copyArtifacts projectName: env.JOB_NAME,
+                          selector: lastSuccessful(),
+                          filter: 'results/cycles.csv',
+                          target: 'prev',
+                          optional: true
+            script {
+                if (fileExists('results/cycles.csv')) {
+                    sh """python3 tests/ti-dsp-runtime/scripts/cycles_report.py \
+                        --current results/cycles.csv \
+                        --previous prev/results/cycles.csv \
+                        --output results/cycles_report.html \
+                        --threshold 10"""
+                    publishHTML([
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: false,
+                        keepAll: true,
+                        reportDir: 'results',
+                        reportFiles: 'cycles_report.html',
+                        reportName: 'DSP Cycles Report'
+                    ])
+                }
+            }
             script {
                 if (fileExists('results/cycles.csv')) {
                     plot csvFileName: 'dsp_inference_cycles.csv',
@@ -701,7 +724,10 @@ pipeline {
                 if (!params.KEEP_TEMP_DIRS) {
                     // Clean up temp build dirs from DSP test runs, but only
                     // those owned by the Jenkins user.
-                    sh 'find /tmp -maxdepth 1 -name "dsp_build_*" -user "$(id -un)" -exec rm -rf {} + 2>/dev/null || true'
+                    sh 'find /tmp -maxdepth 1 -name "dsp_*" -user "$(id -un)" -exec rm -rf {} + 2>/dev/null || true'
+                    sh 'find /tmp -maxdepth 1 -name "tvm_dsp_*" -user "$(id -un)" -exec rm -rf {} + 2>/dev/null || true'
+                    sh 'find /tmp -maxdepth 1 -name "wheel_e2e_*" -user "$(id -un)" -exec rm -rf {} + 2>/dev/null || true'
+                    sh 'find /tmp -maxdepth 1 -name "c7x_vm_*" -user "$(id -un)" -exec rm -rf {} + 2>/dev/null || true'
                 }
             }
         }
