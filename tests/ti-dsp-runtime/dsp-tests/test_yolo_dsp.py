@@ -324,7 +324,6 @@ def test_yolo_dsp(
 # -----------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="TIDL partitioner cyclic dependency bug — re-enable after fix")
 class TestYOLOTIDL:
     """YOLO TIDL offloading: c7x_host smoke + c7x_dload correctness.
 

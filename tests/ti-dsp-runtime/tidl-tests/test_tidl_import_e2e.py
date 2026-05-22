@@ -145,11 +145,11 @@ class TestTIDLImportE2E:
     @pytest.fixture(autouse=True)
     def _check_deps(self):
         if not _has_import_so():
-            pytest.fail(
+            pytest.skip(
                 f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}"
             )
         if not _has_c7x_compiler():
-            pytest.fail("TI_CGT_C7000_PATH not set")
+            pytest.skip("TI_CGT_C7000_PATH not set")
 
     def test_import_build_run(self, tmp_path):
         """Full pipeline via compiler.build()."""

@@ -50,7 +50,13 @@ def _partition_and_lower(mod):
 
 
 def _build_and_get_source(mod, target_str="c_static -mcpu=c7x"):
-    """Build a module through c_static and return the generated lib0.c source."""
+    """Build a module through c_static and return all generated C source.
+
+    Since commit [codegen] Split lib0.c into main + kernels, the codegen
+    emits lib0.c (entry wrappers) and lib1.c (kernel functions).  The
+    call_extern for tidl_subgraph_N_process lives in lib1.c, so we read
+    every lib*.c file and concatenate them.
+    """
     target = tvm.target.Target(target_str)
     with tvm.transform.PassContext(opt_level=0):
         ex = relax.build(mod, target=target)
@@ -61,11 +67,12 @@ def _build_and_get_source(mod, target_str="c_static -mcpu=c7x"):
         with tarfile.open(tar_path) as tf:
             tf.extractall(td)
 
-        lib0_path = os.path.join(td, "lib0.c")
-        if not os.path.exists(lib0_path):
-            return ""
-        with open(lib0_path) as f:
-            return f.read()
+        parts = []
+        for fname in sorted(os.listdir(td)):
+            if fname.startswith("lib") and fname.endswith(".c"):
+                with open(os.path.join(td, fname)) as f:
+                    parts.append(f.read())
+        return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
