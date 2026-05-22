@@ -417,9 +417,23 @@ class TIDLOffloadCompiler:
             Partitioned module with TIDL subgraph functions.
         """
         patterns = get_tidl_patterns()
-        mod = transform.FuseOpsByPattern(
-            patterns, bind_constants=True, annotate_codegen=False
-        )(mod)
+        # Apply patterns one at a time so a cyclic-group error in one pattern
+        # (can occur with composite activations on complex model topologies)
+        # only skips that pattern rather than aborting the whole partition.
+        for pat in patterns:
+            try:
+                mod = transform.FuseOpsByPattern(
+                    [pat], bind_constants=True, annotate_codegen=False
+                )(mod)
+            except Exception as e:  # noqa: BLE001
+                if "cyclic dependency" in str(e).lower():
+                    logger.warning(
+                        "Skipping TIDL pattern '%s': cyclic group dependency "
+                        "in model graph. Op will run on TVM scalar path.",
+                        pat.name,
+                    )
+                else:
+                    raise
         mod = transform.MergeCompositeFunctions()(mod)
         return mod
 
@@ -514,9 +528,9 @@ class TIDLOffloadCompiler:
         artifacts: Dict[str, Dict[str, str]] = {}
         failed_subgraphs: set = set()
 
-        # If max_subgraphs is set (e.g. 16 for TIDL hardware limit), rank
-        # all candidate subgraphs by estimated FLOPs and pre-mark the lowest
-        # compute ones as fallbacks so only the top-N are imported into TIDL.
+        # If max_subgraphs is set, rank all candidate subgraphs by estimated
+        # FLOPs and pre-mark the lowest compute ones as fallbacks so only the
+        # top-N are imported into TIDL.
         if max_subgraphs is not None and len(subgraphs) > max_subgraphs:
             flops_list = [
                 (gv.name_hint, _estimate_subgraph_flops(func))
@@ -1716,6 +1730,19 @@ def _lower_tidl_pass(
     # Inlining eliminates the cross-function calls entirely.
     if fallback_funcs:
         result = relax.transform.InlinePrivateFunctions()(result)
+        if os.environ.get("TIDL_DEBUG_DATAFLOW"):
+            import re as _re
+            js = tvm.ir.save_json(result)
+            dfvars = _re.findall(r'"type":\s*"relax\.expr\.DataflowVar"', js)
+            logger.warning(
+                "TIDL_DEBUG_DATAFLOW: DataflowVar refs after InlinePrivateFunctions: %d",
+                len(dfvars),
+            )
+            if dfvars:
+                _bindings = _re.findall(r'"type":\s*"relax\.expr\.VarBinding"', js)
+                logger.warning(
+                    "TIDL_DEBUG_DATAFLOW: total VarBinding nodes: %d", len(_bindings)
+                )
 
     return result
 
