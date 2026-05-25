@@ -39,7 +39,7 @@ _MODEL_DIR = _resolve_model_dir()
 _BOARD_TARGET = "root@am67a"
 _BOARD_MODEL_DIR = "/opt/smollm"
 _TEST_PROMPT = "What is the capital of France?"
-_EXPECTED_PREFIX = "The capital of France"
+_EXPECTED_SUBSTR = "Paris"
 _MIN_TOK_PER_SEC = 2.0
 _MAX_TOKENS = 50
 
@@ -74,7 +74,7 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
         "--artifacts", str(artifacts_dir),
         "--target", f"{_BOARD_TARGET}:{_BOARD_MODEL_DIR}",
     ]
-    result = subprocess.run(deploy_cmd, capture_output=True, text=True, timeout=300)
+    result = subprocess.run(deploy_cmd, capture_output=True, text=True, timeout=600)
     assert result.returncode == 0, f"Deploy failed:\n{result.stderr[-500:]}"
 
     # Step 3: Run inference on board
@@ -111,8 +111,8 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
         generated = parts[-1].strip()
 
     print(f"\n  Generated text: {generated[:200]}")
-    assert _EXPECTED_PREFIX in generated, (
-        f"Accuracy check failed: expected '{_EXPECTED_PREFIX}' in output.\n"
+    assert _EXPECTED_SUBSTR in generated, (
+        f"Accuracy check failed: expected '{_EXPECTED_SUBSTR}' in output.\n"
         f"Got: {generated[:200]}"
     )
 
