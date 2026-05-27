@@ -70,7 +70,7 @@ set(TIDL_BRIDGE_SOURCES "" CACHE STRING "Extra .c files for TIDL bridge")
 
 # === TIDL Integration (optional) ===
 option(USE_TIDL "Link TIDL libraries into model module" OFF)
-set(PSDK_PATH "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
+set(PSDK_PATH "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
     CACHE PATH "Path to TI Processor SDK")
 
 # === Weights ===

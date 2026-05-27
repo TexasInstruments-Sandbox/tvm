@@ -362,8 +362,10 @@ class TestYOLOTIDL:
         ids=[m[0] for m in YOLO_TIDL_MODELS],
     )
     @pytest.mark.xfail(
-        reason="TVM ExprMutator DataflowVar vid-mismatch bug in "
-        "_lower_tidl_pass when large subgraphs fall back to TVM",
+        reason="MergeCompositeFunctions creates a cyclic SPPF/detection-head "
+        "dependency when the TIDL backbone+neck subgraph falls back to TVM; "
+        "SSA ordering violations block relax.build. Fix requires partitioner "
+        "to avoid cyclic cross-block subgraph merges.",
         strict=False,
     )
     def test_yolo_tidl(self, tmp_path, model_spec):
