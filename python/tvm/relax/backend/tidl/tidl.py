@@ -54,15 +54,15 @@ TIDL_DIM_MAX = 6
 
 # eTIDL_ElementType from itidl_io.h
 _TIDL_ELEMENT_TYPE = {
-    "uint8": 0,    # TIDL_UnsignedChar
-    "int8": 1,     # TIDL_SignedChar
-    "uint16": 2,   # TIDL_UnsignedShort
-    "int16": 3,    # TIDL_SignedShort
-    "uint32": 4,   # TIDL_UnsignedWord
-    "int32": 5,    # TIDL_SignedWord
+    "uint8": 0,  # TIDL_UnsignedChar
+    "int8": 1,  # TIDL_SignedChar
+    "uint16": 2,  # TIDL_UnsignedShort
+    "int16": 3,  # TIDL_SignedShort
+    "uint32": 4,  # TIDL_UnsignedWord
+    "int32": 5,  # TIDL_SignedWord
     "float32": 6,  # TIDL_SinglePrecFloat
-    "uint64": 7,   # TIDL_UnsignedDoubleWord
-    "int64": 8,    # TIDL_SignedDoubleWord
+    "uint64": 7,  # TIDL_UnsignedDoubleWord
+    "int64": 8,  # TIDL_SignedDoubleWord
 }
 
 
@@ -111,16 +111,10 @@ def _load_tidl_relax_so(path=None):
         except ImportError:
             pass
     if path is None:
-        c7x = os.environ.get(
-            "C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl")
-        )
-        path = os.path.join(
-            c7x, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
-        )
+        c7x = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
+        path = os.path.join(c7x, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so")
     if not os.path.isfile(path):
-        raise FileNotFoundError(
-            f"tidl_model_import_relax.so not found: {path}"
-        )
+        raise FileNotFoundError(f"tidl_model_import_relax.so not found: {path}")
     tvm.runtime.load_module(path)
     required = [
         "TIDL_relaxInit",
@@ -132,9 +126,7 @@ def _load_tidl_relax_so(path=None):
     ]
     for name in required:
         if tvm.get_global_func(name, allow_missing=True) is None:
-            raise RuntimeError(
-                f"FFI function '{name}' not registered after loading .so"
-            )
+            raise RuntimeError(f"FFI function '{name}' not registered after loading .so")
 
 
 def _tidl_element_type(dtype_str: str) -> int:
@@ -159,6 +151,16 @@ def _normalize_shape_6d(shape) -> List[int]:
     if n == 5:  # NCDHW
         return [s[0], s[1], 1, s[2], s[3], s[4]]
     return s
+
+
+def _flatten_sinfos(sinfo) -> List:
+    """Recursively flatten TupleStructInfo into a flat list of TensorStructInfos."""
+    if isinstance(sinfo, relax.TupleStructInfo):
+        result = []
+        for field in sinfo.fields:
+            result.extend(_flatten_sinfos(field))
+        return result
+    return [sinfo]
 
 
 def _find_tidl_subgraphs(mod: IRModule):
@@ -194,11 +196,7 @@ def _extract_composite_calls(func):
         pending_fn = None
         for b in block.bindings:
             val = b.value
-            if (
-                isinstance(val, relax.Function)
-                and val.attrs
-                and val.attrs.get("Composite")
-            ):
+            if isinstance(val, relax.Function) and val.attrs and val.attrs.get("Composite"):
                 pending_fn = val
                 comp_func_map[b.var] = val
             elif isinstance(val, relax.Call):
@@ -206,10 +204,7 @@ def _extract_composite_calls(func):
                     # First call immediately after a composite function def
                     results.append((pending_fn, val, b.var))
                     pending_fn = None
-                elif (
-                    isinstance(val.op, relax.Var)
-                    and val.op in comp_func_map
-                ):
+                elif isinstance(val.op, relax.Var) and val.op in comp_func_map:
                     # Reuse of a previously defined composite function
                     results.append((comp_func_map[val.op], val, b.var))
     return results
@@ -221,21 +216,13 @@ def _make_in_out_nodes(this_node, in_names, out_names):
     Returns ``(struct, *refs)`` — the caller must keep all returned
     objects alive until the struct has been consumed by the FFI call.
     """
-    this_b = (
-        this_node.encode("utf-8")
-        if isinstance(this_node, str)
-        else this_node
-    )
+    this_b = this_node.encode("utf-8") if isinstance(this_node, str) else this_node
 
     n_in = len(in_names)
     n_out = len(out_names)
 
-    in_bytes = [
-        n.encode("utf-8") if isinstance(n, str) else n for n in in_names
-    ]
-    out_bytes = [
-        n.encode("utf-8") if isinstance(n, str) else n for n in out_names
-    ]
+    in_bytes = [n.encode("utf-8") if isinstance(n, str) else n for n in in_names]
+    out_bytes = [n.encode("utf-8") if isinstance(n, str) else n for n in out_names]
 
     InArray = ctypes.c_char_p * max(n_in, 1)
     OutArray = ctypes.c_char_p * max(n_out, 1)
@@ -272,17 +259,16 @@ def _lift_constants_in_composite(func):
                             f"tidl_const_{len(new_bindings)}",
                             arg.struct_info,
                         )
-                        new_bindings.append(
-                            relax.VarBinding(const_var, arg)
-                        )
+                        new_bindings.append(relax.VarBinding(const_var, arg))
                         new_args[k] = const_var
 
                 new_call = relax.Call(
-                    val.op, new_args, val.attrs, val.sinfo_args,
+                    val.op,
+                    new_args,
+                    val.attrs,
+                    val.sinfo_args,
                 )
-                relax._ffi_api.UpdateStructInfo(
-                    new_call, val.struct_info
-                )
+                relax._ffi_api.UpdateStructInfo(new_call, val.struct_info)
                 new_bindings.append(relax.VarBinding(b.var, new_call))
             else:
                 new_bindings.append(b)
@@ -300,7 +286,11 @@ def _lift_constants_in_composite(func):
 
 
 def _write_calibration_data(
-    artifacts_dir, sg_id, input_sinfos, num_frames, user_data=None,
+    artifacts_dir,
+    sg_id,
+    input_sinfos,
+    num_frames,
+    user_data=None,
 ):
     """Write calibration binary for one subgraph.
 
@@ -312,9 +302,7 @@ def _write_calibration_data(
         if isinstance(user_data, np.ndarray):
             user_data.astype("float32").tofile(calib_path)
         else:
-            raise TypeError(
-                f"calibration_data must be ndarray, got {type(user_data)}"
-            )
+            raise TypeError(f"calibration_data must be ndarray, got {type(user_data)}")
         return calib_path
 
     # Generate random float32 data (all inputs concatenated per frame)
@@ -497,12 +485,8 @@ class TIDLOffloadCompiler:
         artifacts_dir = self._artifacts_dir
         os.makedirs(artifacts_dir, exist_ok=True)
 
-        c7x_root = os.environ.get(
-            "C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl")
-        )
-        tidl_tools_path = self.config.get(
-            "tidl_tools_path", os.path.join(c7x_root, "tidl_tools")
-        )
+        c7x_root = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
+        tidl_tools_path = self.config.get("tidl_tools_path", os.path.join(c7x_root, "tidl_tools"))
 
         # ---- TIDL_relaxInit -------------------------------------------
         init_options = dict(self.config.get("tidl_options", {}))
@@ -532,10 +516,7 @@ class TIDLOffloadCompiler:
         # FLOPs and pre-mark the lowest compute ones as fallbacks so only the
         # top-N are imported into TIDL.
         if max_subgraphs is not None and len(subgraphs) > max_subgraphs:
-            flops_list = [
-                (gv.name_hint, _estimate_subgraph_flops(func))
-                for gv, func in subgraphs
-            ]
+            flops_list = [(gv.name_hint, _estimate_subgraph_flops(func)) for gv, func in subgraphs]
             # Sort descending by FLOPs; keep top max_subgraphs
             flops_list.sort(key=lambda x: x[1], reverse=True)
             keep = {name for name, _ in flops_list[:max_subgraphs]}
@@ -545,8 +526,10 @@ class TIDLOffloadCompiler:
             logger.info(
                 "max_subgraphs=%d: offloading top-%d of %d subgraphs "
                 "(by FLOPs estimate); %d fall back to TVM",
-                max_subgraphs, max_subgraphs,
-                len(subgraphs), len(failed_subgraphs),
+                max_subgraphs,
+                max_subgraphs,
+                len(subgraphs),
+                len(failed_subgraphs),
             )
             for i, (name, flops) in enumerate(flops_list):
                 status = "TIDL" if name in keep else "TVM "
@@ -560,7 +543,8 @@ class TIDLOffloadCompiler:
                 logger.info(
                     "Pre-skipping TIDL import for '%s' (sg_id=%d): "
                     "not in top-%s subgraphs by FLOPs",
-                    sg_name, sg_id,
+                    sg_name,
+                    sg_id,
                     max_subgraphs if max_subgraphs is not None else "all",
                 )
                 continue
@@ -571,7 +555,7 @@ class TIDLOffloadCompiler:
             input_sinfos = [p.struct_info for p in func.params]
             output_sinfo = func.ret_struct_info
             if isinstance(output_sinfo, relax.TupleStructInfo):
-                output_sinfos = list(output_sinfo.fields)
+                output_sinfos = _flatten_sinfos(output_sinfo)
             else:
                 output_sinfos = [output_sinfo]
 
@@ -613,15 +597,13 @@ class TIDLOffloadCompiler:
                 n_inputs,
                 n_outputs,
                 ctypes.c_void_p(ctypes.addressof(descriptors)),
-                1,               # is_nchw
+                1,  # is_nchw
                 tidl_tools_path,
                 artifacts_dir,
-                False,           # isSubgraphOD
+                False,  # isSubgraphOD
             )
             if ret != 0:
-                raise RuntimeError(
-                    f"TIDL_relaxImportInit failed for '{sg_name}' (rc={ret})"
-                )
+                raise RuntimeError(f"TIDL_relaxImportInit failed for '{sg_name}' (rc={ret})")
 
             # -- Walk composite calls -----------------------------------
             composites = _extract_composite_calls(func)
@@ -648,9 +630,7 @@ class TIDLOffloadCompiler:
 
                 # Synthetic call: Function as op (C++ expects FunctionNode)
                 syn_call = relax.Call(lifted_fn, orig_call.args)
-                relax._ffi_api.UpdateStructInfo(
-                    syn_call, orig_call.struct_info
-                )
+                relax._ffi_api.UpdateStructInfo(syn_call, orig_call.struct_info)
 
                 # No per-tensor quantization for float32 models
                 zp = np.zeros(1, dtype=np.int32)
@@ -663,29 +643,21 @@ class TIDLOffloadCompiler:
                     ctypes.c_void_p(scale.ctypes.data),
                 )
                 if ret != 0:
-                    raise RuntimeError(
-                        f"TIDL_relaxImportNode failed for "
-                        f"'{comp_name}' (rc={ret})"
-                    )
+                    raise RuntimeError(f"TIDL_relaxImportNode failed for '{comp_name}' (rc={ret})")
 
                 # -- InOutNodes for linking -----------------------------
                 # Input names (use Var identity via var_map)
                 in_names = []
                 for arg in orig_call.args:
                     if isinstance(arg, relax.Var):
-                        in_names.append(
-                            var_map.get(arg, arg.name_hint)
-                        )
+                        in_names.append(var_map.get(arg, arg.name_hint))
 
                 # Output consumer names (use Var.same_as for identity)
                 out_names = []
                 for j in range(i + 1, len(composites)):
                     _, future_call, _ = composites[j]
                     for farg in future_call.args:
-                        if (
-                            isinstance(farg, relax.Var)
-                            and farg.same_as(bvar)
-                        ):
+                        if isinstance(farg, relax.Var) and farg.same_as(bvar):
                             out_names.append(str(j))
 
                 # Terminal node: use subgraph output tensor name
@@ -696,27 +668,21 @@ class TIDLOffloadCompiler:
 
                 refs = _make_in_out_nodes(node_name, in_names, out_names)
                 in_out_struct = refs[0]
-                ret = link_node_fn(
-                    ctypes.c_void_p(ctypes.addressof(in_out_struct))
-                )
+                ret = link_node_fn(ctypes.c_void_p(ctypes.addressof(in_out_struct)))
                 if ret != 0:
-                    raise RuntimeError(
-                        f"TIDL_relaxImportLinkNode failed for "
-                        f"node {i} (rc={ret})"
-                    )
+                    raise RuntimeError(f"TIDL_relaxImportLinkNode failed for node {i} (rc={ret})")
 
             # -- TIDL_relaxOptimizeNet ----------------------------------
             optimize_fn = tvm.get_global_func("TIDL_relaxOptimizeNet")
             ret = optimize_fn(sg_id)
             if ret != 0:
-                _errmsg = (
-                    f"TIDL_relaxOptimizeNet failed for "
-                    f"'{sg_name}' (rc={ret})"
-                )
+                _errmsg = f"TIDL_relaxOptimizeNet failed for '{sg_name}' (rc={ret})"
                 if skip_failing:
                     logger.warning(
                         "Skipping TIDL subgraph '%s' (sg_id=%d): %s",
-                        sg_name, sg_id, _errmsg,
+                        sg_name,
+                        sg_id,
+                        _errmsg,
                     )
                     failed_subgraphs.add(sg_name)
                     continue
@@ -731,19 +697,16 @@ class TIDLOffloadCompiler:
                 user_data=self.config.get("calibration_data"),
             )
 
-            postprocess_fn = tvm.get_global_func(
-                "TIDL_relaxPostProcessNet"
-            )
+            postprocess_fn = tvm.get_global_func("TIDL_relaxPostProcessNet")
             ret = postprocess_fn(num_calib_frames)
             if ret != 0:
-                _errmsg = (
-                    f"TIDL_relaxPostProcessNet failed for "
-                    f"'{sg_name}' (rc={ret})"
-                )
+                _errmsg = f"TIDL_relaxPostProcessNet failed for '{sg_name}' (rc={ret})"
                 if skip_failing:
                     logger.warning(
                         "Skipping TIDL subgraph '%s' (sg_id=%d): %s",
-                        sg_name, sg_id, _errmsg,
+                        sg_name,
+                        sg_id,
+                        _errmsg,
                     )
                     failed_subgraphs.add(sg_name)
                     continue
@@ -752,17 +715,11 @@ class TIDLOffloadCompiler:
             # Record artifact paths; store sg_id directly so lower_tidl
             # can recover it without parsing file names.
             artifacts[sg_name] = {
-                "net_bin": os.path.join(
-                    artifacts_dir, f"subgraph{sg_id}_net.bin"
-                ),
-                "io_bin": os.path.join(
-                    artifacts_dir, f"subgraph{sg_id}_params_1.bin"
-                ),
+                "net_bin": os.path.join(artifacts_dir, f"subgraph{sg_id}_net.bin"),
+                "io_bin": os.path.join(artifacts_dir, f"subgraph{sg_id}_params_1.bin"),
                 "sg_id": sg_id,
             }
-            logger.info(
-                "Subgraph %d (%s) imported successfully", sg_id, sg_name
-            )
+            logger.info("Subgraph %d (%s) imported successfully", sg_id, sg_name)
 
         self._last_failed_subgraphs = failed_subgraphs
         return mod, artifacts
@@ -865,8 +822,7 @@ class TIDLOffloadCompiler:
         ]
         for sg in subgraphs:
             if sg["output"] is not None:
-                header_lines.append(
-                    f"void {sg['name']}_process({_process_fn_sig(sg)});")
+                header_lines.append(f"void {sg['name']}_process({_process_fn_sig(sg)});")
         header_lines += [
             "#ifdef __cplusplus",
             "}",
@@ -1111,8 +1067,7 @@ def _build_dynmod(
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"CMake configuration failed (rc={result.returncode}). "
-                f"Check {log_path}"
+                f"CMake configuration failed (rc={result.returncode}). Check {log_path}"
             )
 
         result = subprocess.run(
@@ -1123,9 +1078,7 @@ def _build_dynmod(
             check=False,
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                f"Build failed (rc={result.returncode}). Check {log_path}"
-            )
+            raise RuntimeError(f"Build failed (rc={result.returncode}). Check {log_path}")
 
     module = build_dir / "lib0.out"
     if not module.exists():
@@ -1168,24 +1121,34 @@ def _collect_tidl_subgraph_info(mod):
             # Recover original sg_id (set by _make_tidl_tir_stub)
             sg_id_attr = func.attrs.get("tidl_sg_id") if func.attrs else None
             sg_id = int(sg_id_attr) if sg_id_attr is not None else len(subgraphs)
-            subgraphs.append({
-                "name": name,
-                "inputs": inputs,
-                # Keep "output" (singular) for backward compat with single-output,
-                # and add "outputs" (plural) for multi-output subgraphs.
-                "output": outputs[0] if outputs else None,
-                "outputs": outputs,
-                "sg_id": sg_id,
-            })
+            subgraphs.append(
+                {
+                    "name": name,
+                    "inputs": inputs,
+                    # Keep "output" (singular) for backward compat with single-output,
+                    # and add "outputs" (plural) for multi-output subgraphs.
+                    "output": outputs[0] if outputs else None,
+                    "outputs": outputs,
+                    "sg_id": sg_id,
+                }
+            )
     return subgraphs
 
 
 def _dtype_sizeof(dtype):
     """Return sizeof() for a TVM dtype string."""
     size_map = {
-        "float32": 4, "float16": 2, "float64": 8,
-        "int8": 1, "int16": 2, "int32": 4, "int64": 8,
-        "uint8": 1, "uint16": 2, "uint32": 4, "uint64": 8,
+        "float32": 4,
+        "float16": 2,
+        "float64": 8,
+        "int8": 1,
+        "int16": 2,
+        "int32": 4,
+        "int64": 8,
+        "uint8": 1,
+        "uint16": 2,
+        "uint32": 4,
+        "uint64": 8,
     }
     return size_map.get(dtype, 4)
 
@@ -1225,14 +1188,12 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
 
     if not stub and real_subgraphs:
         # Shared includes and externs for real bridge mode (emitted once)
-        lines.append('#include <stdio.h>')
+        lines.append("#include <stdio.h>")
         lines.append('#include "tidl_api.h"')
         lines.append('#include "dlpack/dlpack.h"')
         lines.append("")
         lines.append("extern void* appUdmaGetObj(void);")
-        lines.append(
-            "extern int32_t TVM_cacheWbInvRegion"
-            "(void *addr, uint32_t size);")
+        lines.append("extern int32_t TVM_cacheWbInvRegion(void *addr, uint32_t size);")
         lines.append("")
 
         # Per-subgraph artifact symbols (from bin_to_asm.py).
@@ -1241,12 +1202,9 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
         lines.append("/* Embedded TIDL artifacts (from bin_to_asm.py) */")
         for sg in real_subgraphs:
             sg_id = sg.get("sg_id", real_subgraphs.index(sg))
-            lines.append(
-                f"extern unsigned char _binary_tidl_net_{sg_id}_start[];")
-            lines.append(
-                f"extern unsigned int  _binary_tidl_net_{sg_id}_size;")
-            lines.append(
-                f"extern unsigned char _binary_tidl_io_{sg_id}_start[];")
+            lines.append(f"extern unsigned char _binary_tidl_net_{sg_id}_start[];")
+            lines.append(f"extern unsigned int  _binary_tidl_net_{sg_id}_size;")
+            lines.append(f"extern unsigned char _binary_tidl_io_{sg_id}_start[];")
         lines.append("")
 
     # Forward declarations with C linkage (lib0.c is compiled as C++)
@@ -1254,8 +1212,7 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
     lines.append('extern "C" {')
     lines.append("#endif")
     for sg in real_subgraphs:
-        lines.append(
-            f"void {sg['name']}_process({_process_fn_sig(sg)});")
+        lines.append(f"void {sg['name']}_process({_process_fn_sig(sg)});")
     lines.append("void tidl_bridge_cleanup(void);")
     lines.append("int32_t tidl_bridge_init_all(void);")
     lines.append("#ifdef __cplusplus")
@@ -1308,8 +1265,8 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
                 lines.append(f"    in_tensor{j}.data = inp{j};")
                 lines.append(f"    in_tensor{j}.ndim = {len(in_shape)};")
                 lines.append(
-                    f"    int64_t in_shape{j}[] = "
-                    f"{{{', '.join(str(d) for d in in_shape)}}};")
+                    f"    int64_t in_shape{j}[] = {{{', '.join(str(d) for d in in_shape)}}};"
+                )
                 lines.append(f"    in_tensor{j}.shape = in_shape{j};")
                 lines.append(f"    in_tensor{j}.dtype.code = kDLFloat;")
                 lines.append(f"    in_tensor{j}.dtype.bits = 32;")
@@ -1323,13 +1280,12 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
                 o_code = "kDLFloat" if "float" in o_dtype else "kDLInt"
                 o_bits = int("".join(c for c in o_dtype if c.isdigit()) or "32")
                 lines.append(f"    DLTensor out_tensor{k};")
-                lines.append(
-                    f"    memset(&out_tensor{k}, 0, sizeof(out_tensor{k}));")
+                lines.append(f"    memset(&out_tensor{k}, 0, sizeof(out_tensor{k}));")
                 lines.append(f"    out_tensor{k}.data = out{k};")
                 lines.append(f"    out_tensor{k}.ndim = {len(o_shape)};")
                 lines.append(
-                    f"    int64_t out_shape{k}[] = "
-                    f"{{{', '.join(str(d) for d in o_shape)}}};")
+                    f"    int64_t out_shape{k}[] = {{{', '.join(str(d) for d in o_shape)}}};"
+                )
                 lines.append(f"    out_tensor{k}.shape = out_shape{k};")
                 lines.append(f"    out_tensor{k}.dtype.code = {o_code};")
                 lines.append(f"    out_tensor{k}.dtype.bits = {o_bits};")
@@ -1346,10 +1302,8 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
                 for d in in_info["shape"]:
                     in_bytes *= d
                 in_bytes *= _dtype_sizeof(in_info.get("dtype", "float32"))
-                lines.append(
-                    f"    TVM_cacheWbInvRegion(inp{j}, {in_bytes});")
-            lines.append(
-                f"    process_tidl_subgraph({name}_instance, in, out);")
+                lines.append(f"    TVM_cacheWbInvRegion(inp{j}, {in_bytes});")
+            lines.append(f"    process_tidl_subgraph({name}_instance, in, out);")
             for k, out_info in enumerate(all_outputs):
                 o_bytes = 1
                 for d in out_info["shape"]:
@@ -1369,15 +1323,10 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
             sid = sg.get("sg_id", real_subgraphs.index(sg))
             lines.append(f"    if ({n}_instance == NULL) {{")
             lines.append(f"        {n}_instance = init_tidl_subgraph(")
-            lines.append(
-                f"            _binary_tidl_net_{sid}_start,"
-                f" _binary_tidl_net_{sid}_size,")
-            lines.append(
-                f"            _binary_tidl_io_{sid}_start, appUdmaGetObj(),"
-                " 1, 0);")
+            lines.append(f"            _binary_tidl_net_{sid}_start, _binary_tidl_net_{sid}_size,")
+            lines.append(f"            _binary_tidl_io_{sid}_start, appUdmaGetObj(), 1, 0);")
             lines.append(f"        if ({n}_instance == NULL) {{")
-            lines.append(
-                f'            printf("[TIDL] init failed for {n}\\n");')
+            lines.append(f'            printf("[TIDL] init failed for {n}\\n");')
             lines.append("            return -1;")
             lines.append("        }")
             lines.append("    }")
@@ -1449,16 +1398,14 @@ def _make_tidl_tir_stub(name, input_sinfos, output_sinfo, sg_id=None):
         buffer_map[out_handle] = out_buf
         out_bufs.append(out_buf)
 
-    extern_args = [buffer_map[h].data for h in params[:len(input_sinfos)]]
+    extern_args = [buffer_map[h].data for h in params[: len(input_sinfos)]]
     for ob in out_bufs:
         extern_args.append(ob.data)
 
     # Wrap the extern call in a Block → BlockRealize so that Relax
     # analysis passes (e.g., HasReshapePattern) don't crash when
     # inspecting this function.
-    extern_call = tvm.tir.Evaluate(
-        tvm.tir.call_extern("int32", f"{name}_process", *extern_args)
-    )
+    extern_call = tvm.tir.Evaluate(tvm.tir.call_extern("int32", f"{name}_process", *extern_args))
     block = tvm.tir.Block([], [], [], name + "_block", extern_call)
     body = tvm.tir.BlockRealize([], tvm.tir.const(True, "bool"), block)
 
@@ -1494,6 +1441,7 @@ def _estimate_subgraph_flops(func: relax.Function) -> float:
 
     Returns a float FLOPs estimate (higher = more compute-intensive).
     """
+
     def _prod(shape):
         p = 1
         for d in shape:
@@ -1572,7 +1520,9 @@ def _expand_inline_composites(func: relax.Function) -> relax.Function:
     public_func = func.with_attr("global_symbol", "_f")
     tmp_mod = tvm.IRModule({"_f": public_func})
     tmp_mod = relax.transform.LambdaLift()(tmp_mod)
+    tmp_mod = relax.transform.ToNonDataflow()(tmp_mod)
     tmp_mod = relax.transform.InlinePrivateFunctions()(tmp_mod)
+    tmp_mod = relax.transform.ToNonDataflow()(tmp_mod)
     result = tmp_mod["_f"]
     # Strip the temporary global_symbol before returning.
     result = relax.Function(result.params, result.body, result.ret_struct_info, result.is_pure)
@@ -1662,9 +1612,7 @@ def _lower_tidl_pass(
                 if is_failed:
                     fallback_funcs[gv.name_hint] = (gv, func)
                 else:
-                    success_funcs[gv.name_hint] = (
-                        gv, func, input_sinfos, output_sinfo
-                    )
+                    success_funcs[gv.name_hint] = (gv, func, input_sinfos, output_sinfo)
 
     if not success_funcs and not fallback_funcs:
         return mod
@@ -1673,14 +1621,10 @@ def _lower_tidl_pass(
     # Use sg_id from artifacts so bridge symbols (_binary_tidl_net_N_start)
     # remain aligned with CMake's embedding even when subgraphs are skipped.
     tir_stubs = {}
-    for idx, (name, (gv, func, input_sinfos, output_sinfo)) in enumerate(
-        success_funcs.items()
-    ):
+    for idx, (name, (gv, func, input_sinfos, output_sinfo)) in enumerate(success_funcs.items()):
         sg_id = (artifacts or {}).get(name, {}).get("sg_id", idx)
         sg_name = f"tidl_subgraph_{idx}"
-        tir_func = _make_tidl_tir_stub(
-            sg_name, input_sinfos, output_sinfo, sg_id=sg_id
-        )
+        tir_func = _make_tidl_tir_stub(sg_name, input_sinfos, output_sinfo, sg_id=sg_id)
         tir_stubs[name] = (tir_func, sg_name, input_sinfos, output_sinfo)
 
     # Build new module
@@ -1704,9 +1648,7 @@ def _lower_tidl_pass(
     # Replace TIDL calls in main and copy remaining functions.
     # The replacer handles TIDL→TIR remapping (success_funcs) and
     # old-GVar→new-GVar remapping (fallback_funcs).
-    replacer = _TIDLCallReplacer(
-        mod, tir_stubs, stub_gvars, fallback_gvars=fallback_gvars
-    )
+    replacer = _TIDLCallReplacer(mod, tir_stubs, stub_gvars, fallback_gvars=fallback_gvars)
     for gv, func in mod.functions.items():
         name = gv.name_hint
         if name in success_funcs:
@@ -1729,20 +1671,19 @@ def _lower_tidl_pass(
     # (tir.anylist_setitem_call_packed) which codegen_c_static cannot emit.
     # Inlining eliminates the cross-function calls entirely.
     if fallback_funcs:
+        result = relax.transform.ToNonDataflow()(result)
+        # ToNonDataflow processes bindings in order and cannot remap a
+        # DataflowVar that is USED before its DEFINITION in the binding
+        # sequence (a forward reference).  This arises when the TIDL
+        # partitioner produces a subgraph whose outputs are consumed by
+        # ops that appear earlier in main's DataflowBlock binding order.
+        # DataflowVar and Var share the same JSON field layout, so a
+        # JSON round-trip that replaces the remaining type keys converts
+        # any stale forward-reference DataflowVars safely.
+        _js = tvm.ir.save_json(result)
+        if '"relax.expr.DataflowVar"' in _js:
+            result = tvm.ir.load_json(_js.replace('"relax.expr.DataflowVar"', '"relax.expr.Var"'))
         result = relax.transform.InlinePrivateFunctions()(result)
-        if os.environ.get("TIDL_DEBUG_DATAFLOW"):
-            import re as _re
-            js = tvm.ir.save_json(result)
-            dfvars = _re.findall(r'"type":\s*"relax\.expr\.DataflowVar"', js)
-            logger.warning(
-                "TIDL_DEBUG_DATAFLOW: DataflowVar refs after InlinePrivateFunctions: %d",
-                len(dfvars),
-            )
-            if dfvars:
-                _bindings = _re.findall(r'"type":\s*"relax\.expr\.VarBinding"', js)
-                logger.warning(
-                    "TIDL_DEBUG_DATAFLOW: total VarBinding nodes: %d", len(_bindings)
-                )
 
     return result
 
