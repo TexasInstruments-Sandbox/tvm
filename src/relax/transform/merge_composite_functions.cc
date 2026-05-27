@@ -261,6 +261,22 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
       for (auto dep : group_deps_[arg_group_root]) {
         group_deps_[group_root].insert(dep);
       }
+
+      // Reverse propagation: when a non-composite group (no codegen target)
+      // consumes the output of a composite group, mark the composite group as
+      // "closed" by inserting a self-dep.  This prevents later composites
+      // that take the composite as a *direct* skip-connection arg from
+      // merging into it — closing the gap that would otherwise form a cycle
+      // when a non-composite bridge op connects two composite groups.
+      //
+      // Example: backbone(composite) -> maxpool(non-composite) -> concat
+      //          -> detection(composite, also has a direct backbone arg)
+      // Without this, detection can merge into backbone because backbone's
+      // group_deps_ is empty (no composite consumed it yet).  The self-dep
+      // ensures detection sees backbone in parent_dependencies.
+      if (!GetCodegenName(group_root) && GetCodegenName(arg_group_root)) {
+        group_deps_[arg_group_root].insert(arg_group_root);
+      }
     };
 
     for (const auto& arg : args) {

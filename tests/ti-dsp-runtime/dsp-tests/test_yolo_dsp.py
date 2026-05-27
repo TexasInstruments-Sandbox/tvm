@@ -362,10 +362,13 @@ class TestYOLOTIDL:
         ids=[m[0] for m in YOLO_TIDL_MODELS],
     )
     @pytest.mark.xfail(
-        reason="MergeCompositeFunctions creates a cyclic SPPF/detection-head "
-        "dependency when the TIDL backbone+neck subgraph falls back to TVM; "
-        "SSA ordering violations block relax.build. Fix requires partitioner "
-        "to avoid cyclic cross-block subgraph merges.",
+        reason="cg_main_dsp not emitted when the large TIDL neck+detection "
+        "subgraph is rejected by tidl_model_import_relax.so and falls back to "
+        "TVM: lib0.c/lib1.c are generated but the c_static wrapper function "
+        "is absent, causing an undefined-reference link error. The earlier "
+        "MergeCompositeFunctions cycle bug (SSA ordering violations in "
+        "relax.build) is fixed; this is a separate codegen issue in the TIDL "
+        "fallback path.",
         strict=False,
     )
     def test_yolo_tidl(self, tmp_path, model_spec):

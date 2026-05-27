@@ -458,5 +458,232 @@ class TestTIDLBatchNormFolding:
         )
 
 
+def _count_codegen_subgraphs(mod, codegen="tidl"):
+    """Count functions with a specific Codegen attribute."""
+    return sum(
+        1 for _gv, func in mod.functions.items()
+        if isinstance(func, relax.Function)
+        and func.attrs
+        and func.attrs.get("Codegen") == codegen
+    )
+
+
+class TestNonCompositeBridgeCycle:
+    """Regression tests for MergeCompositeFunctions cycle via non-composite bridge.
+
+    Tests use hand-crafted composite functions (Composite="tidl.*") fed directly
+    into MergeCompositeFunctions, avoiding TIDL pattern-matching complexity.
+
+    Topology under test:
+        backbone_composite (tidl)
+              |              |
+        bridge (non-comp)   skip (direct arg)
+              |              |
+        detection_composite (tidl, takes bridge output AND backbone skip directly)
+
+    Without the fix in UpdateGroupDependencies, detection merges into backbone,
+    creating a cycle when the bridge later feeds back. With the fix, the two
+    groups remain separate.
+    """
+
+    @staticmethod
+    def _make_bridge_module():
+        """Build a pre-fused module with the SPPF bridge topology.
+
+        After FuseOpsByPattern the graph looks like:
+          main:
+            lv  = backbone_composite(x, w1)     # Composite="tidl.nn.conv2d"
+            lv2 = nn.relu(lv)                   # non-composite bridge
+            gv  = detection_composite(lv2, lv)  # Composite="tidl.nn.conv2d_relu"
+                                                # takes lv (backbone) as direct arg
+        """
+
+        @I.ir_module
+        class BridgeModule:
+            @R.function(private=True)
+            def backbone_comp(
+                x: R.Tensor((1, 16, 8, 8), "float32"),
+                w: R.Tensor((16, 16, 3, 3), "float32"),
+            ) -> R.Tensor((1, 16, 8, 8), "float32"):
+                R.func_attr({"Composite": "tidl.nn.conv2d", "Primitive": True})
+                with R.dataflow():
+                    gv: R.Tensor((1, 16, 8, 8), "float32") = R.nn.conv2d(
+                        x, w, strides=[1, 1], padding=[1, 1, 1, 1]
+                    )
+                    R.output(gv)
+                return gv
+
+            @R.function(private=True)
+            def detection_comp(
+                bridge: R.Tensor((1, 16, 8, 8), "float32"),
+                skip: R.Tensor((1, 16, 8, 8), "float32"),
+                w: R.Tensor((16, 16, 3, 3), "float32"),
+            ) -> R.Tensor((1, 16, 8, 8), "float32"):
+                R.func_attr({"Composite": "tidl.nn.conv2d_relu", "Primitive": True})
+                with R.dataflow():
+                    tmp: R.Tensor((1, 16, 8, 8), "float32") = R.nn.conv2d(
+                        bridge, w, strides=[1, 1], padding=[1, 1, 1, 1]
+                    )
+                    gv: R.Tensor((1, 16, 8, 8), "float32") = R.add(tmp, skip)
+                    R.output(gv)
+                return gv
+
+            @R.function
+            def main(
+                x: R.Tensor((1, 16, 8, 8), "float32"),
+                w1: R.Tensor((16, 16, 3, 3), "float32"),
+                w2: R.Tensor((16, 16, 3, 3), "float32"),
+            ) -> R.Tensor((1, 16, 8, 8), "float32"):
+                cls = BridgeModule
+                with R.dataflow():
+                    # backbone composite
+                    lv: R.Tensor((1, 16, 8, 8), "float32") = cls.backbone_comp(x, w1)
+                    # non-composite bridge
+                    lv2: R.Tensor((1, 16, 8, 8), "float32") = R.nn.relu(lv)
+                    # detection composite: args are (bridge_output, backbone_output_direct, w2)
+                    gv: R.Tensor((1, 16, 8, 8), "float32") = cls.detection_comp(lv2, lv, w2)
+                    R.output(gv)
+                return gv
+
+        return BridgeModule
+
+    @staticmethod
+    def _make_linear_module():
+        """Build a pre-fused module with a linear chain (no bridge)."""
+
+        @I.ir_module
+        class LinearModule:
+            @R.function(private=True)
+            def conv_a(
+                x: R.Tensor((1, 16, 8, 8), "float32"),
+                w: R.Tensor((16, 16, 3, 3), "float32"),
+            ) -> R.Tensor((1, 16, 8, 8), "float32"):
+                R.func_attr({"Composite": "tidl.nn.conv2d", "Primitive": True})
+                with R.dataflow():
+                    gv: R.Tensor((1, 16, 8, 8), "float32") = R.nn.conv2d(
+                        x, w, strides=[1, 1], padding=[1, 1, 1, 1]
+                    )
+                    R.output(gv)
+                return gv
+
+            @R.function(private=True)
+            def conv_b(
+                x: R.Tensor((1, 16, 8, 8), "float32"),
+                w: R.Tensor((16, 16, 3, 3), "float32"),
+            ) -> R.Tensor((1, 16, 8, 8), "float32"):
+                R.func_attr({"Composite": "tidl.nn.conv2d", "Primitive": True})
+                with R.dataflow():
+                    gv: R.Tensor((1, 16, 8, 8), "float32") = R.nn.conv2d(
+                        x, w, strides=[1, 1], padding=[1, 1, 1, 1]
+                    )
+                    R.output(gv)
+                return gv
+
+            @R.function
+            def main(
+                x: R.Tensor((1, 16, 8, 8), "float32"),
+                w1: R.Tensor((16, 16, 3, 3), "float32"),
+                w2: R.Tensor((16, 16, 3, 3), "float32"),
+            ) -> R.Tensor((1, 16, 8, 8), "float32"):
+                cls = LinearModule
+                with R.dataflow():
+                    lv: R.Tensor((1, 16, 8, 8), "float32") = cls.conv_a(x, w1)
+                    gv: R.Tensor((1, 16, 8, 8), "float32") = cls.conv_b(lv, w2)
+                    R.output(gv)
+                return gv
+
+        return LinearModule
+
+    def test_bridge_keeps_subgraphs_separate(self):
+        """Non-composite bridge must prevent backbone and detection from merging."""
+        mod = self._make_bridge_module()
+        merged = relax.transform.MergeCompositeFunctions()(mod)
+
+        n = _count_codegen_subgraphs(merged, "tidl")
+        assert n == 2, (
+            f"Expected 2 TIDL subgraphs (backbone + detection), got {n}. "
+            "If got 1, UpdateGroupDependencies reverse-propagation fix is missing."
+        )
+
+    def test_bridge_module_has_main(self):
+        """Merged module must still have a main function."""
+        mod = self._make_bridge_module()
+        merged = relax.transform.MergeCompositeFunctions()(mod)
+        assert _has_main_function(merged)
+
+    def test_linear_chain_still_merges(self):
+        """Direct chain (no bridge) must still collapse into 1 subgraph.
+
+        The fix must not over-restrict: adjacent composites with no non-composite
+        op between them should still merge.
+        """
+        mod = self._make_linear_module()
+        merged = relax.transform.MergeCompositeFunctions()(mod)
+
+        n = _count_codegen_subgraphs(merged, "tidl")
+        assert n == 1, (
+            f"Linear chain (no bridge) should merge into 1 TIDL subgraph, got {n}. "
+            "Fix over-restricts merging of directly chained composites."
+        )
+
+    def test_multi_bridge_sppf_pattern(self):
+        """SPPF-like topology: backbone → 3 non-composite pools → detection skip."""
+
+        @I.ir_module
+        class SPPFModule:
+            @R.function(private=True)
+            def backbone_comp(
+                x: R.Tensor((1, 16, 8, 8), "float32"),
+                w: R.Tensor((16, 16, 3, 3), "float32"),
+            ) -> R.Tensor((1, 16, 8, 8), "float32"):
+                R.func_attr({"Composite": "tidl.nn.conv2d", "Primitive": True})
+                with R.dataflow():
+                    gv: R.Tensor((1, 16, 8, 8), "float32") = R.nn.conv2d(
+                        x, w, strides=[1, 1], padding=[1, 1, 1, 1]
+                    )
+                    R.output(gv)
+                return gv
+
+            @R.function(private=True)
+            def detection_comp(
+                bridge: R.Tensor((1, 16, 8, 8), "float32"),
+                skip: R.Tensor((1, 16, 8, 8), "float32"),
+                w: R.Tensor((16, 16, 3, 3), "float32"),
+            ) -> R.Tensor((1, 16, 8, 8), "float32"):
+                R.func_attr({"Composite": "tidl.nn.conv2d_relu", "Primitive": True})
+                with R.dataflow():
+                    tmp: R.Tensor((1, 16, 8, 8), "float32") = R.nn.conv2d(
+                        bridge, w, strides=[1, 1], padding=[1, 1, 1, 1]
+                    )
+                    gv: R.Tensor((1, 16, 8, 8), "float32") = R.add(tmp, skip)
+                    R.output(gv)
+                return gv
+
+            @R.function
+            def main(
+                x: R.Tensor((1, 16, 8, 8), "float32"),
+                w1: R.Tensor((16, 16, 3, 3), "float32"),
+                w2: R.Tensor((16, 16, 3, 3), "float32"),
+            ) -> R.Tensor((1, 16, 8, 8), "float32"):
+                cls = SPPFModule
+                with R.dataflow():
+                    backbone: R.Tensor((1, 16, 8, 8), "float32") = cls.backbone_comp(x, w1)
+                    # Three non-composite bridge ops (SPPF maxpool chain)
+                    p1: R.Tensor((1, 16, 8, 8), "float32") = R.nn.relu(backbone)
+                    p2: R.Tensor((1, 16, 8, 8), "float32") = R.nn.relu(p1)
+                    p3: R.Tensor((1, 16, 8, 8), "float32") = R.add(p2, p1)
+                    # detection: takes p3 (through bridge) AND backbone (direct skip)
+                    gv: R.Tensor((1, 16, 8, 8), "float32") = cls.detection_comp(p3, backbone, w2)
+                    R.output(gv)
+                return gv
+
+        merged = relax.transform.MergeCompositeFunctions()(SPPFModule)
+
+        n = _count_codegen_subgraphs(merged, "tidl")
+        assert n == 2, (
+            f"SPPF multi-bridge pattern must produce 2 TIDL subgraphs, got {n}"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
