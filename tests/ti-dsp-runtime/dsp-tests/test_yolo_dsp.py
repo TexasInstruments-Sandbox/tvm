@@ -362,13 +362,18 @@ class TestYOLOTIDL:
         ids=[m[0] for m in YOLO_TIDL_MODELS],
     )
     @pytest.mark.xfail(
-        reason="cg_main_dsp not emitted when the large TIDL neck+detection "
-        "subgraph is rejected by tidl_model_import_relax.so and falls back to "
-        "TVM: lib0.c/lib1.c are generated but the c_static wrapper function "
-        "is absent, causing an undefined-reference link error. The earlier "
-        "MergeCompositeFunctions cycle bug (SSA ordering violations in "
-        "relax.build) is fixed; this is a separate codegen issue in the TIDL "
-        "fallback path.",
+        reason="Steps 1-3 pass; c7x_dload runs to completion (status:ok, "
+        "cycles ~2.78B, output shape (1,6300,85)) but cos_sim=nan. "
+        "4 of 8 subgraphs fail host-side TIDL import (sg_id=1 "
+        "TIDL_relaxOptimizeNet rc=-1; sg_id=2,4,6 TIDL_relaxPostProcessNet "
+        "rc=-1) and fall back to TVM C scalar code. The NaN output likely "
+        "comes from an op in the fallback neck+detection path (sg_id=1 "
+        "inline) producing NaN with the random calibration-like test input, "
+        "or from interaction with the partial net.bin artifacts that "
+        "_build_dynmod embeds for the 4 failed subgraphs (glob picks up all "
+        "subgraph*_net.bin including partial writes from PostProcessNet). "
+        "The 'Subgraph Compiled with 3 Errors' messages in the log are from "
+        "the host-side import tool (step 1), not from the board.",
         strict=False,
     )
     def test_yolo_tidl(self, tmp_path, model_spec):
@@ -432,12 +437,17 @@ class TestYOLOTIDL:
         pipeline = get_default_pipeline(tvm_target)
         with tvm_target, tvm.transform.PassContext(opt_level=3):
             ex = relax.build(
-                lowered, target=tvm_target, relax_pipeline=pipeline
+                lowered,
+                target=tvm_target,
+                exec_mode="compiled",
+                system_lib=True,
+                relax_pipeline=pipeline,
+                tir_pipeline=None,
             )
         gen_dir = tmp_path / "gen"
         gen_dir.mkdir()
         tar_path = gen_dir / "model.tar"
-        ex.export_library(str(tar_path))
+        ex.export_library(str(tar_path), target=tvm_target)
         with tarfile.open(str(tar_path)) as tf:
             tf.extractall(str(gen_dir))
         tar_path.unlink()
