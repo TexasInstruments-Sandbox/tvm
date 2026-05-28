@@ -578,6 +578,8 @@ def build_dsp_c7x_host(
     build_type: str = "Release",
     build_dir: Optional[Path] = None,
     tidl_bridge: Optional[str] = None,
+    use_tidl: bool = False,
+    tidl_artifacts_dir: Optional[str] = None,
 ) -> Path:
     """
     Build DSP executable for C7x host emulation using TI Host Emulation library.
@@ -595,6 +597,10 @@ def build_dsp_c7x_host(
         build_type: Build type - "Release" (default) or "Debug".
         build_dir: Optional build directory. If None, creates one in dsp_cpp_dir.
                   When provided, enables isolated builds for parallel test execution.
+        tidl_bridge: Optional path to tidl_bridge.c source file.
+        use_tidl: If True, pass -DUSE_TIDL=ON to cmake to link PC TIDL algo libs.
+        tidl_artifacts_dir: Directory with TIDL artifacts (subgraph*_net.bin etc.).
+                            Required when use_tidl=True.
 
     Returns:
         Path to the cg_dsp executable
@@ -636,7 +642,15 @@ def build_dsp_c7x_host(
         f"-DWEIGHTS_FILE={generated_dir / 'weights.bin'}",
     ]
     if tidl_bridge:
-        cmake_cmd.append(f"-DTIDL_BRIDGE_SOURCES={tidl_bridge}")
+        # Accept a single path or a list; cmake list items are separated by ";"
+        if isinstance(tidl_bridge, (list, tuple)):
+            cmake_cmd.append("-DTIDL_BRIDGE_SOURCES=" + ";".join(str(p) for p in tidl_bridge))
+        else:
+            cmake_cmd.append(f"-DTIDL_BRIDGE_SOURCES={tidl_bridge}")
+    if use_tidl:
+        cmake_cmd.append("-DUSE_TIDL=ON")
+    if tidl_artifacts_dir:
+        cmake_cmd.append(f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
     cmake_cmd.append(str(dsp_cpp_dir))
 
     log_path = build_dir / "cmake.log"

@@ -72,7 +72,9 @@ def _has_import_so():
 
 
 def _has_c7x_compiler():
-    return os.environ.get("TI_CGT_C7000_PATH") is not None
+    from conftest import has_c7x_host_env
+
+    return has_c7x_host_env()
 
 
 INPUT_SHAPE = (1, 3, 320, 320)
