@@ -26,4 +26,5 @@ from .patterns import get_tidl_patterns as get_tidl_patterns
 from .tidl import LowerTIDLToTIR as LowerTIDLToTIR
 from .tidl import TIDLBuildResult as TIDLBuildResult
 from .tidl import TIDLOffloadCompiler as TIDLOffloadCompiler
+from .tidl import generate_artifacts_c as generate_artifacts_c
 from .tidl import partition_for_tidl as partition_for_tidl

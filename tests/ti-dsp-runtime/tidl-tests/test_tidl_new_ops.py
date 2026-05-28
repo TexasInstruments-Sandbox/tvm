@@ -16,7 +16,6 @@ Prerequisites:
 """
 
 import os
-import shutil
 import sys
 
 import numpy as np
@@ -45,16 +44,17 @@ def _has_import_so():
 
 
 def _has_c7x_compiler():
-    return os.environ.get("TI_CGT_C7000_PATH") is not None
+    from conftest import has_c7x_host_env
+
+    return has_c7x_host_env()
 
 
-def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape):
-    """Build model through TIDL pipeline and run on AM67A.
+def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape, dsp_mode):
+    """Build model through TIDL pipeline and run via dsp_mode.
 
     Returns (output, n_artifacts).
     """
-    from dsp_utils import run_dsp_dload
-
+    from conftest import tidl_build_and_run
     from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
     model = model_cls()
@@ -69,45 +69,27 @@ def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape):
     ]
     param_dict = dict(zip(mod["main"].params[1:], params))
 
-    artifacts_dir = str(tmp_path / "tidl_artifacts")
     compiler = TIDLOffloadCompiler(
         config={
-            "artifacts_dir": artifacts_dir,
+            "artifacts_dir": str(tmp_path / "tidl_artifacts"),
             "tidl_tools_path": TIDL_TOOLS_PATH,
             "tidl_relax_so_path": RELAX_SO_PATH,
             "num_calibration_frames": 2,
         }
     )
-    result = compiler.build(
-        mod,
-        params=param_dict,
-        build_dir=str(tmp_path / "build"),
+
+    output, n_artifacts = tidl_build_and_run(
+        compiler, mod, param_dict, input_data, tmp_path, dsp_mode
     )
 
-    assert result.module_path.exists(), f"Build failed: {result.module_path}"
-    n_artifacts = len(result.artifacts)
-
-    try:
-        output, _stdout, cycles = run_dsp_dload(
-            result.module_path,
-            result.weights_path,
-            [input_data],
-            embedded_weights=True,
-        )
-
-        assert output is not None, "No output from DSP"
-        assert output.shape == expected_shape, (
-            f"Unexpected shape: {output.shape}, expected {expected_shape}"
-        )
-        print(f"  Output: shape={output.shape}, "
-              f"min={output.min():.4f}, max={output.max():.4f}, "
-              f"cycles={cycles:,}")
-        return output, n_artifacts
-
-    finally:
-        if not os.environ.get("DSP_KEEP_TEMP"):
-            shutil.rmtree(str(result.gen_dir), ignore_errors=True)
-            shutil.rmtree(str(result.build_dir), ignore_errors=True)
+    assert output.shape == expected_shape, (
+        f"Unexpected shape: {output.shape}, expected {expected_shape}"
+    )
+    print(
+        f"  Output: shape={output.shape}, "
+        f"min={output.min():.4f}, max={output.max():.4f}"
+    )
+    return output, n_artifacts
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +178,7 @@ class TestTIDLNewOps:
         if not _has_c7x_compiler():
             pytest.skip("TI_CGT_C7000_PATH not set")
 
-    def test_softmax(self, tmp_path):
+    def test_softmax(self, dsp_mode, tmp_path):
         """Softmax inside TIDL subgraph produces valid output."""
         input_data = np.random.randn(1, 3, 16, 16).astype("float32")
         output, n_artifacts = _build_and_run(
@@ -205,12 +187,13 @@ class TestTIDLNewOps:
             input_data,
             tmp_path,
             expected_shape=(1, 8, 16, 16),
+            dsp_mode=dsp_mode,
         )
         assert n_artifacts >= 1, "Expected at least 1 TIDL subgraph"
         # Softmax output should be non-negative
         assert output.min() >= -0.01
 
-    def test_multiply(self, tmp_path):
+    def test_multiply(self, dsp_mode, tmp_path):
         """Element-wise multiply inside TIDL subgraph."""
         input_data = np.random.randn(1, 3, 16, 16).astype("float32")
         output, n_artifacts = _build_and_run(
@@ -219,6 +202,7 @@ class TestTIDLNewOps:
             input_data,
             tmp_path,
             expected_shape=(1, 8, 16, 16),
+            dsp_mode=dsp_mode,
         )
         assert n_artifacts >= 1
         # TIDL int8 quantization with random calibration data can
@@ -226,7 +210,7 @@ class TestTIDLNewOps:
         # (relu * relu) should be non-negative.  Only check finiteness.
         assert np.isfinite(output).all()
 
-    def test_permute_dims(self, tmp_path):
+    def test_permute_dims(self, dsp_mode, tmp_path):
         """Permute_dims (transpose) inside TIDL subgraph."""
         input_data = np.random.randn(1, 3, 16, 16).astype("float32")
         output, n_artifacts = _build_and_run(
@@ -236,10 +220,11 @@ class TestTIDLNewOps:
             tmp_path,
             # NCHW (1,8,16,16) -> NHWC (1,16,16,8)
             expected_shape=(1, 16, 16, 8),
+            dsp_mode=dsp_mode,
         )
         assert n_artifacts >= 1
 
-    def test_concat(self, tmp_path):
+    def test_concat(self, dsp_mode, tmp_path):
         """Concat inside TIDL subgraph."""
         input_data = np.random.randn(1, 3, 16, 16).astype("float32")
         output, n_artifacts = _build_and_run(
@@ -249,6 +234,7 @@ class TestTIDLNewOps:
             tmp_path,
             # 4 + 4 = 8 channels after concat
             expected_shape=(1, 8, 16, 16),
+            dsp_mode=dsp_mode,
         )
         assert n_artifacts >= 1
         # TIDL int8 quantization with random calibration data can

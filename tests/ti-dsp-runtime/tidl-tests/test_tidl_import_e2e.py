@@ -69,7 +69,6 @@ Set DSP_KEEP_TEMP=1 to preserve build artifacts for debugging.
 """
 
 import os
-import shutil
 import sys
 
 import numpy as np
@@ -99,7 +98,9 @@ def _has_import_so():
 
 
 def _has_c7x_compiler():
-    return os.environ.get("TI_CGT_C7000_PATH") is not None
+    from conftest import has_c7x_host_env
+
+    return has_c7x_host_env()
 
 
 class ConvReluSoftmaxModel(nn.Module):
@@ -151,11 +152,10 @@ class TestTIDLImportE2E:
         if not _has_c7x_compiler():
             pytest.skip("TI_CGT_C7000_PATH not set")
 
-    def test_import_build_run(self, tmp_path):
+    def test_import_build_run(self, dsp_mode, tmp_path):
         """Full pipeline via compiler.build()."""
-        from dsp_utils import run_dsp_dload
+        from conftest import tidl_build_and_run
 
-        # 1. Export and bind params
         model = ConvReluSoftmaxModel()
         mod, param_spec = model.export_tvm(
             spec={"main": {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")}}
@@ -170,73 +170,38 @@ class TestTIDLImportE2E:
         ]
         param_dict = dict(zip(mod["main"].params[1:], params))
 
-        # 2. Build via single API call
-        artifacts_dir = str(tmp_path / "tidl_artifacts")
         compiler = TIDLOffloadCompiler(
             config={
-                "artifacts_dir": artifacts_dir,
+                "artifacts_dir": str(tmp_path / "tidl_artifacts"),
                 "tidl_tools_path": TIDL_TOOLS_PATH,
                 "tidl_relax_so_path": RELAX_SO_PATH,
                 "num_calibration_frames": 2,
             }
         )
-        result = compiler.build(
-            mod,
-            params=param_dict,
-            build_dir=str(tmp_path / "build"),
+
+        input_data = np.random.randn(1, 3, 32, 32).astype("float32")
+        output, n_artifacts = tidl_build_and_run(
+            compiler, mod, param_dict, input_data, tmp_path, dsp_mode
         )
 
-        assert result.module_path.exists(), (
-            f"Build failed: {result.module_path}"
+        assert n_artifacts > 0, "No TIDL artifacts produced"
+        assert output.shape == (1, 16, 32, 32), f"Unexpected shape: {output.shape}"
+        print(
+            f"Output: shape={output.shape}, "
+            f"min={output.min():.4f}, max={output.max():.4f}, "
+            f"mean={output.mean():.4f}"
         )
-        assert len(result.artifacts) > 0, "No TIDL artifacts produced"
+        # Softmax output (via TIDL int8) should be non-negative
+        assert output.min() >= -0.01, f"Softmax output min {output.min():.4f} below 0"
+        assert output.max() <= 1.01, f"Softmax output max {output.max():.4f} above 1"
 
-        size_mb = result.module_path.stat().st_size / (1024 * 1024)
-        print(f"Module: {result.module_path} ({size_mb:.1f} MB)")
-
-        # 3. Deploy and run on AM67A
-        try:
-            input_data = np.random.randn(1, 3, 32, 32).astype("float32")
-            output, stdout, _cycles = run_dsp_dload(
-                result.module_path,
-                result.weights_path,
-                [input_data],
-                embedded_weights=True,
-            )
-
-            # 4. Verify output
-            assert output is not None, "No output from DSP"
-            assert output.shape == (1, 16, 32, 32), (
-                f"Unexpected shape: {output.shape}"
-            )
-            print(
-                f"Output: shape={output.shape}, "
-                f"min={output.min():.4f}, max={output.max():.4f}, "
-                f"mean={output.mean():.4f}"
-            )
-
-            # Softmax output (via TIDL int8) should be non-negative
-            # and have reasonable values (int8 quantization prevents
-            # exact sum-to-1 guarantee)
-            assert output.min() >= -0.01, (
-                f"Softmax output min {output.min():.4f} below 0"
-            )
-            assert output.max() <= 1.01, (
-                f"Softmax output max {output.max():.4f} above 1"
-            )
-
-        finally:
-            if not os.environ.get("DSP_KEEP_TEMP"):
-                shutil.rmtree(str(result.gen_dir), ignore_errors=True)
-                shutil.rmtree(str(result.build_dir), ignore_errors=True)
-
-    def test_two_subgraph_model(self, tmp_path):
+    def test_two_subgraph_model(self, dsp_mode, tmp_path):
         """Conv+ReLU+Sigmoid chain offloaded to TIDL on AM67A.
 
         Originally designed to produce two subgraphs (sigmoid was not
         a TIDL pattern), but now all ops merge into one subgraph.
         """
-        from dsp_utils import run_dsp_dload
+        from conftest import tidl_build_and_run
 
         model = TwoSubgraphModel()
         mod, param_spec = model.export_tvm(
@@ -252,62 +217,29 @@ class TestTIDLImportE2E:
         ]
         param_dict = dict(zip(mod["main"].params[1:], params))
 
-        artifacts_dir = str(tmp_path / "tidl_artifacts")
         compiler = TIDLOffloadCompiler(
             config={
-                "artifacts_dir": artifacts_dir,
+                "artifacts_dir": str(tmp_path / "tidl_artifacts"),
                 "tidl_tools_path": TIDL_TOOLS_PATH,
                 "tidl_relax_so_path": RELAX_SO_PATH,
                 "num_calibration_frames": 2,
             }
         )
-        result = compiler.build(
-            mod,
-            params=param_dict,
-            build_dir=str(tmp_path / "build"),
+
+        input_data = np.random.randn(1, 3, 32, 32).astype("float32")
+        output, n_artifacts = tidl_build_and_run(
+            compiler, mod, param_dict, input_data, tmp_path, dsp_mode
         )
 
-        assert result.module_path.exists(), f"Build failed: {result.module_path}"
-        n_artifacts = len(result.artifacts)
-        assert n_artifacts >= 1, (
-            f"Expected >= 1 TIDL subgraphs, got {n_artifacts}"
+        assert n_artifacts >= 1, f"Expected >= 1 TIDL subgraphs, got {n_artifacts}"
+        assert output.shape == (1, 4, 32, 32), f"Unexpected shape: {output.shape}"
+        print(
+            f"Output: shape={output.shape}, "
+            f"min={output.min():.4f}, max={output.max():.4f}"
         )
-
-        size_mb = result.module_path.stat().st_size / (1024 * 1024)
-        print(f"\nModule: {result.module_path} ({size_mb:.1f} MB)")
-        print(f"TIDL artifacts: {n_artifacts} subgraph(s)")
-
-        try:
-            input_data = np.random.randn(1, 3, 32, 32).astype("float32")
-            output, stdout, cycles = run_dsp_dload(
-                result.module_path,
-                result.weights_path,
-                [input_data],
-                embedded_weights=True,
-            )
-
-            assert output is not None, "No output from DSP"
-            assert output.shape == (1, 4, 32, 32), (
-                f"Unexpected shape: {output.shape}"
-            )
-            print(
-                f"Output: shape={output.shape}, "
-                f"min={output.min():.4f}, max={output.max():.4f}"
-            )
-            print(f"Cycles: {cycles:,}")
-
-            # Sigmoid output should be in (0, 1)
-            assert output.min() >= -0.01, (
-                f"Sigmoid output min {output.min():.4f} below 0"
-            )
-            assert output.max() <= 1.01, (
-                f"Sigmoid output max {output.max():.4f} above 1"
-            )
-
-        finally:
-            if not os.environ.get("DSP_KEEP_TEMP"):
-                shutil.rmtree(str(result.gen_dir), ignore_errors=True)
-                shutil.rmtree(str(result.build_dir), ignore_errors=True)
+        # Sigmoid output should be in (0, 1)
+        assert output.min() >= -0.01, f"Sigmoid output min {output.min():.4f} below 0"
+        assert output.max() <= 1.01, f"Sigmoid output max {output.max():.4f} above 1"
 
 
 if __name__ == "__main__":

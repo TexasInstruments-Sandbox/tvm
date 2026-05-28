@@ -11,7 +11,6 @@ Test levels:
 """
 
 import os
-import shutil
 import sys
 
 import numpy as np
@@ -1137,13 +1136,12 @@ class TestLayerPartition:
 # ---------------------------------------------------------------------------
 
 
-def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape):
-    """Build model through TIDL pipeline and run on AM67A.
+def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape, dsp_mode):
+    """Build model through TIDL pipeline and run via dsp_mode.
 
     Returns (output, n_artifacts).
     """
-    from dsp_utils import run_dsp_dload
-
+    from conftest import tidl_build_and_run
     from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
     model = model_cls()
@@ -1158,47 +1156,27 @@ def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape):
     ]
     param_dict = dict(zip(mod["main"].params[1:], params))
 
-    artifacts_dir = str(tmp_path / "tidl_artifacts")
     compiler = TIDLOffloadCompiler(
         config={
-            "artifacts_dir": artifacts_dir,
+            "artifacts_dir": str(tmp_path / "tidl_artifacts"),
             "tidl_tools_path": TIDL_TOOLS_PATH,
             "tidl_relax_so_path": RELAX_SO_PATH,
             "num_calibration_frames": 2,
         }
     )
-    result = compiler.build(
-        mod,
-        params=param_dict,
-        build_dir=str(tmp_path / "build"),
+
+    output, n_artifacts = tidl_build_and_run(
+        compiler, mod, param_dict, input_data, tmp_path, dsp_mode
     )
 
-    assert result.module_path.exists(), f"Build failed: {result.module_path}"
-    n_artifacts = len(result.artifacts)
-
-    try:
-        output, _stdout, cycles = run_dsp_dload(
-            result.module_path,
-            result.weights_path,
-            [input_data],
-            embedded_weights=True,
-        )
-
-        assert output is not None, "No output from DSP"
-        assert output.shape == expected_shape, (
-            f"Unexpected shape: {output.shape}, expected {expected_shape}"
-        )
-        print(
-            f"  Output: shape={output.shape}, "
-            f"min={output.min():.4f}, max={output.max():.4f}, "
-            f"cycles={cycles:,}"
-        )
-        return output, n_artifacts
-
-    finally:
-        if not os.environ.get("DSP_KEEP_TEMP"):
-            shutil.rmtree(str(result.gen_dir), ignore_errors=True)
-            shutil.rmtree(str(result.build_dir), ignore_errors=True)
+    assert output.shape == expected_shape, (
+        f"Unexpected shape: {output.shape}, expected {expected_shape}"
+    )
+    print(
+        f"  Output: shape={output.shape}, "
+        f"min={output.min():.4f}, max={output.max():.4f}"
+    )
+    return output, n_artifacts
 
 
 # --- nn.Module models for hardware tests ---
@@ -1678,7 +1656,7 @@ class TestLayerHardware:
     INPUT_SHAPE = (1, 3, 16, 16)
     OUTPUT_SHAPE = (1, 8, 16, 16)
 
-    def _run(self, model_cls, tmp_path, expected_shape=None):
+    def _run(self, model_cls, tmp_path, dsp_mode, expected_shape=None):
         if expected_shape is None:
             expected_shape = self.OUTPUT_SHAPE
         input_data = np.random.randn(*self.INPUT_SHAPE).astype("float32")
@@ -1688,96 +1666,101 @@ class TestLayerHardware:
             input_data,
             tmp_path,
             expected_shape,
+            dsp_mode=dsp_mode,
         )
 
-    def test_sigmoid_hw(self, tmp_path):
+    def test_sigmoid_hw(self, dsp_mode, tmp_path):
         """Sigmoid offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvSigmoidModel, tmp_path)
+        output, n = self._run(ConvSigmoidModel, tmp_path, dsp_mode)
         assert n >= 1
         # Sigmoid output is bounded [0, 1]
         assert output.min() >= -0.01
         assert output.max() <= 1.01
 
-    def test_tanh_hw(self, tmp_path):
+    def test_tanh_hw(self, dsp_mode, tmp_path):
         """Tanh offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvTanhModel, tmp_path)
+        output, n = self._run(ConvTanhModel, tmp_path, dsp_mode)
         assert n >= 1
         # Tanh output bounded [-1,1]; quantization may exceed slightly
         assert output.min() >= -1.1
         assert output.max() <= 1.1
 
-    def test_clip_hw(self, tmp_path):
+    def test_clip_hw(self, dsp_mode, tmp_path):
         """Clip (relu6) offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvClipModel, tmp_path)
+        output, n = self._run(ConvClipModel, tmp_path, dsp_mode)
         assert n >= 1
         assert output.min() >= -0.01
         assert output.max() <= 6.01
 
-    def test_leakyrelu_hw(self, tmp_path):
+    def test_leakyrelu_hw(self, dsp_mode, tmp_path):
         """LeakyReLU offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvLeakyReluModel, tmp_path)
+        output, n = self._run(ConvLeakyReluModel, tmp_path, dsp_mode)
         assert n >= 1
         # LeakyReLU has no upper bound, but output should be finite
         assert np.isfinite(output).all()
 
-    def test_subtract_hw(self, tmp_path):
+    def test_subtract_hw(self, dsp_mode, tmp_path):
         """Element-wise subtract offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvSubtractModel, tmp_path)
+        output, n = self._run(ConvSubtractModel, tmp_path, dsp_mode)
         assert n >= 1
         assert np.isfinite(output).all()
 
-    def test_maximum_hw(self, tmp_path):
+    def test_maximum_hw(self, dsp_mode, tmp_path):
         """Element-wise maximum offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvMaximumModel, tmp_path)
+        output, n = self._run(ConvMaximumModel, tmp_path, dsp_mode)
         assert n >= 1
         # Output should be finite (quantization may produce negatives)
         assert np.isfinite(output).all()
 
-    def test_minimum_hw(self, tmp_path):
+    def test_minimum_hw(self, dsp_mode, tmp_path):
         """Element-wise minimum offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvMinimumModel, tmp_path)
+        output, n = self._run(ConvMinimumModel, tmp_path, dsp_mode)
         assert n >= 1
         # Output should be finite (quantization may produce negatives)
         assert np.isfinite(output).all()
 
     # --- Reduction hardware tests ---
 
-    def test_sum_hw(self, tmp_path):
+    def test_sum_hw(self, dsp_mode, tmp_path):
         """Sum over channels offloaded to TIDL on AM67A."""
         output, n = self._run(
             ConvSumModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 1, 16, 16),
         )
         assert n >= 1
         assert np.isfinite(output).all()
 
-    def test_reduce_max_hw(self, tmp_path):
+    def test_reduce_max_hw(self, dsp_mode, tmp_path):
         """Height-wise max offloaded to TIDL on AM67A (axis=2, NCHW → (1,8,1,16))."""
         output, n = self._run(
             ConvReduceMaxModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 8, 1, 16),
         )
         assert n >= 1
         assert np.isfinite(output).all()
 
-    def test_argmax_hw(self, tmp_path):
+    def test_argmax_hw(self, dsp_mode, tmp_path):
         """Argmax over channel axis (cast int64→int32) on AM67A → (1,1,16,16)."""
         output, n = self._run(
             ConvArgmaxModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 1, 16, 16),
         )
         assert n >= 1
         # Output is int32 channel indices (0–7 for 8 channels)
         assert output.max() < 8
 
-    def test_argmin_hw(self, tmp_path):
+    def test_argmin_hw(self, dsp_mode, tmp_path):
         """Argmin over channel axis (cast int64→int32) on AM67A → (1,1,16,16)."""
         output, n = self._run(
             ConvArgminModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 1, 16, 16),
         )
         assert n >= 1
@@ -1787,7 +1770,7 @@ class TestLayerHardware:
     # --- Math/unary hardware tests ---
 
     @pytest.mark.parametrize("op_attr,composite", _MATH_UNARY_HW_OPS)
-    def test_math_unary_hw(self, op_attr, composite, tmp_path):
+    def test_math_unary_hw(self, op_attr, composite, dsp_mode, tmp_path):
         """Math/unary op offloaded to TIDL on AM67A.
 
         Validates the full import → codegen → hardware pipeline.
@@ -1798,11 +1781,11 @@ class TestLayerHardware:
         _MATH_UNARY_HW_OPS for details.
         """
         model_cls = _make_conv_unary_model(op_attr)
-        output, n = self._run(model_cls, tmp_path)
+        output, n = self._run(model_cls, tmp_path, dsp_mode)
         assert n >= 1
         assert np.isfinite(output).all()
 
-    def test_power_hw(self, tmp_path):
+    def test_power_hw(self, dsp_mode, tmp_path):
         """Power (x**2) offloaded to TIDL on AM67A."""
         from tvm.relax import op as _op
         from tvm.relax.frontend.nn.op import wrap_nested
@@ -1818,17 +1801,18 @@ class TestLayerHardware:
                 x = wrap_nested(_op.power(x._expr, relax.const(2.0, "float32")), "power")
                 return x
 
-        output, n = self._run(ConvPowerModel, tmp_path)
+        output, n = self._run(ConvPowerModel, tmp_path, dsp_mode)
         assert n >= 1
         assert np.isfinite(output).all()
 
     # --- Advanced op hardware tests ---
 
-    def test_resize2d_hw(self, tmp_path):
+    def test_resize2d_hw(self, dsp_mode, tmp_path):
         """Resize nearest 2x upsample offloaded to TIDL on AM67A."""
         output, n = self._run(
             ConvResizeModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 8, 32, 32),
         )
         assert n >= 1
@@ -1836,31 +1820,34 @@ class TestLayerHardware:
 
     # --- Shape/slice/layout hardware tests ---
 
-    def test_strided_slice_hw(self, tmp_path):
+    def test_strided_slice_hw(self, dsp_mode, tmp_path):
         """Strided slice (first 4 channels) offloaded to TIDL on AM67A."""
         output, n = self._run(
             ConvSliceModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 4, 16, 16),
         )
         assert n >= 1
         assert np.isfinite(output).all()
 
-    def test_permute_dims_hw(self, tmp_path):
+    def test_permute_dims_hw(self, dsp_mode, tmp_path):
         """permute_dims (NCHW→NHWC transpose) offloaded to TIDL on AM67A."""
         output, n = self._run(
             ConvPermuteModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 16, 16, 8),  # NHWC output
         )
         assert n >= 1
         assert np.isfinite(output).all()
 
-    def test_concat_hw(self, tmp_path):
+    def test_concat_hw(self, dsp_mode, tmp_path):
         """Concat inside TIDL subgraph on AM67A — 4+4=8 channels."""
         output, n = self._run(
             ConvReluConcatModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 8, 16, 16),
         )
         assert n >= 1
@@ -1868,21 +1855,23 @@ class TestLayerHardware:
         assert output.shape == (1, 8, 16, 16)
         assert np.isfinite(output).all()
 
-    def test_topk_hw(self, tmp_path):
+    def test_topk_hw(self, dsp_mode, tmp_path):
         """TopK (values, k=8 of 16 HEIGHT rows) offloaded to TIDL on AM67A."""
         output, n = self._run(
             ConvTopKModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 8, 8, 16),  # 8 top rows selected from 16
         )
         assert n >= 1
         assert np.isfinite(output).all()
 
-    def test_split_hw(self, tmp_path):
+    def test_split_hw(self, dsp_mode, tmp_path):
         """Split (first of 4 channel slices) offloaded to TIDL on AM67A."""
         output, n = self._run(
             ConvSplitModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 2, 16, 16),  # 2 channels = 8 / 4
         )
         assert n >= 1
@@ -1890,37 +1879,38 @@ class TestLayerHardware:
 
     # --- Composite activation hardware tests ---
 
-    def test_elu_hw(self, tmp_path):
+    def test_elu_hw(self, dsp_mode, tmp_path):
         """ELU (decomposed) offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvEluModel, tmp_path)
+        output, n = self._run(ConvEluModel, tmp_path, dsp_mode)
         assert n >= 1
         assert np.isfinite(output).all()
 
-    def test_hard_sigmoid_hw(self, tmp_path):
+    def test_hard_sigmoid_hw(self, dsp_mode, tmp_path):
         """HardSigmoid (decomposed) offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvHardSigmoidModel, tmp_path)
+        output, n = self._run(ConvHardSigmoidModel, tmp_path, dsp_mode)
         assert n >= 1
         assert output.min() >= -0.01
         assert output.max() <= 1.01
 
-    def test_hard_swish_hw(self, tmp_path):
+    def test_hard_swish_hw(self, dsp_mode, tmp_path):
         """HardSwish (decomposed) offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvHardSwishModel, tmp_path)
+        output, n = self._run(ConvHardSwishModel, tmp_path, dsp_mode)
         assert n >= 1
         assert np.isfinite(output).all()
 
-    def test_mish_hw(self, tmp_path):
+    def test_mish_hw(self, dsp_mode, tmp_path):
         """Mish (decomposed) offloaded to TIDL on AM67A."""
-        output, n = self._run(ConvMishModel, tmp_path)
+        output, n = self._run(ConvMishModel, tmp_path, dsp_mode)
         assert n >= 1
         assert np.isfinite(output).all()
 
     @pytest.mark.skip(reason="pixel_shuffle has no TOPI lowering for c_static")
-    def test_depth_to_space_hw(self, tmp_path):
+    def test_depth_to_space_hw(self, dsp_mode, tmp_path):
         """Depth-to-space (pixel shuffle factor=2) offloaded to TIDL on AM67A."""
         output, n = self._run(
             ConvDepthToSpaceModel,
             tmp_path,
+            dsp_mode,
             expected_shape=(1, 8, 32, 32),  # 32ch -> 8ch, 16x16 -> 32x32
         )
         assert n >= 1

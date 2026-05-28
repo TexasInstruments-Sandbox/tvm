@@ -80,7 +80,7 @@ set(TIDL_BRIDGE_SOURCES "" CACHE STRING "Extra .c files for TIDL bridge")
 # When enabled, links TIDL algo libraries and TIDL API source files into
 # the model DLOAD module.  Only used with c7x-dynmod target.
 option(USE_TIDL "Link TIDL libraries into model module" OFF)
-set(PSDK_PATH "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
+set(PSDK_PATH "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
     CACHE PATH "Path to TI Processor SDK (for TIDL/MMALIB libs and headers)")
 # === Tilde expansion helper ===
 # CMake doesn't expand ~ in paths read from environment variables.
@@ -167,7 +167,10 @@ if(NOT C7X_DYNMOD)
         list(APPEND GENERATED_SOURCES ${TIDL_BRIDGE_SOURCES})
         # Generate -include flag for the bridge header so lib*.c can
         # resolve tidl_subgraph_N_process() forward declarations.
-        string(REPLACE ".c" ".h" TIDL_BRIDGE_HEADER "${TIDL_BRIDGE_SOURCES}")
+        # When TIDL_BRIDGE_SOURCES is a list (bridge.c + artifacts.c),
+        # only the first element has a matching .h header.
+        list(GET TIDL_BRIDGE_SOURCES 0 _FIRST_BRIDGE_SRC)
+        string(REPLACE ".c" ".h" TIDL_BRIDGE_HEADER "${_FIRST_BRIDGE_SRC}")
         if(EXISTS "${TIDL_BRIDGE_HEADER}")
             add_compile_options("-include" "${TIDL_BRIDGE_HEADER}")
         endif()
@@ -451,7 +454,14 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
     # DMA runtime (host emulation stub: memcpy)
     list(APPEND DSP_SOURCES ${DSP_RUNTIME_DIR}/dma/tvm_dsp_dma_host.c)
 
-    # MMALIB integration (optional)
+    # MMALIB integration (optional).
+    # libmmalib_x86_64.a provides the x86-64 AVX reference implementation of
+    # the MMA kernels used by both TVM's MMALIB direct integration and TIDL's
+    # internal convolution path.  Always link when present.
+    # mmalib_wrappers.cpp is the TVM-side call layer (MMALIB ops invoked from
+    # TVM generated code).  Skip it under USE_TIDL: in the TIDL path TVM code
+    # never calls MMALIB directly — TIDL calls it internally — so the wrapper
+    # would introduce a duplicate symbol conflict.
     set(MMALIB_ROOT "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mmalib_11_02_00_06")
     if(DEFINED ENV{MMALIB_PATH})
         set(MMALIB_ROOT "$ENV{MMALIB_PATH}")
@@ -461,17 +471,93 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
         list(APPEND INCLUDE_DIRS "${MMALIB_ROOT}/ti/mmalib/src")
         list(APPEND INCLUDE_DIRS "${MMALIB_ROOT}/ti/mmalib/src/common")
         list(APPEND INCLUDE_DIRS "${DSP_RUNTIME_DIR}/mmalib")
-        list(APPEND DSP_SOURCES "${DSP_RUNTIME_DIR}/mmalib/mmalib_wrappers.cpp")
+        if(NOT USE_TIDL)
+            list(APPEND DSP_SOURCES "${DSP_RUNTIME_DIR}/mmalib/mmalib_wrappers.cpp")
+        endif()
         set(MMALIB_LIBS
             "${MMALIB_ROOT}/lib/C7524/release/libmmalib_x86_64.a"
             "${MMALIB_ROOT}/lib/C7524/release/libmmalib_cn_x86_64.a"
             "${MMALIB_ROOT}/lib/C7524/release/libcommon_x86_64.a"
         )
         add_compile_definitions(_HOST_BUILD __C7524__ __C7X_MMA_2_256__)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include mmalib_wrappers.h")
+        if(NOT USE_TIDL)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include mmalib_wrappers.h")
+        endif()
     else()
         message(STATUS "  MMALIB: not found (skipping)")
         set(MMALIB_LIBS "")
+    endif()
+
+    # TIDL integration for c7x_host (optional, enabled by -DUSE_TIDL=ON).
+    # Links the PC x86-64 TIDL algo libs (AVX reference path) and compiles
+    # tidl_api.c with -DHOST_EMULATION so TIDL uses the REF_ONLY+AVX_REF
+    # flowCtrl and skips hardware-specific code paths (DMA, MMA co-processor).
+    # Net/io artifacts are embedded via generate_artifacts_c() in Python and
+    # passed as extra .c files through TIDL_BRIDGE_SOURCES, not here.
+    set(TIDL_HOST_LIBS "")
+    if(USE_TIDL)
+        set(C7X_MMA_TIDL_PATH "$ENV{C7X_MMA_TIDL_PATH}")
+        if(NOT C7X_MMA_TIDL_PATH)
+            set(C7X_MMA_TIDL_PATH "$ENV{HOME}/ml/c7x-mma-tidl")
+        endif()
+        set(TIDL_PC_LIB_DIR "${C7X_MMA_TIDL_PATH}/ti_dl/lib/J722S/PC/algo/release")
+        set(TIDL_INC_PATH   "${C7X_MMA_TIDL_PATH}/ti_dl/inc")
+        if(EXISTS "${TIDL_PC_LIB_DIR}/libtidl_algo.a" AND EXISTS "${TIDL_INC_PATH}/itidl_ti.h")
+            message(STATUS "  TIDL (c7x_host): PC libs from ${TIDL_PC_LIB_DIR}")
+            list(APPEND DSP_SOURCES ${TIDL_API_DIR}/tidl_api.c)
+            list(APPEND DSP_SOURCES ${TIDL_API_DIR}/tidl_api_mem.c)
+            list(APPEND DSP_SOURCES ${TIDL_API_DIR}/ti_mem_manager.c)
+            list(APPEND INCLUDE_DIRS
+                ${TIDL_API_DIR}
+                ${TIDL_INC_PATH}
+                ${DSP_RUNTIME_DIR}/firmware/c7x/common
+            )
+            # ivision.h: TI VISION algorithm interface header required by TIDL
+            # algo libs.  Distributed with PSDK but not with c7x-mma-tidl.
+            # MMALIB and ivision are co-installed under the same PSDK root, so
+            # derive the path from MMALIB_ROOT's parent rather than requiring a
+            # separate env variable.  PSDK_INSTALL_PATH overrides if set.
+            if(NOT "$ENV{PSDK_INSTALL_PATH}" STREQUAL "")
+                set(_IVISION_INC "$ENV{PSDK_INSTALL_PATH}/ivision")
+            else()
+                get_filename_component(_PSDK_ROOT "${MMALIB_ROOT}" DIRECTORY)
+                set(_IVISION_INC "${_PSDK_ROOT}/ivision")
+            endif()
+            if(EXISTS "${_IVISION_INC}/ivision.h")
+                list(APPEND INCLUDE_DIRS ${_IVISION_INC})
+            else()
+                message(FATAL_ERROR "ivision.h not found at ${_IVISION_INC}\n"
+                        "Set PSDK_INSTALL_PATH to the PSDK root directory.")
+            endif()
+            # TIDL_MAX_NUM_CORES=4: the c7x-mma-tidl import tool writes
+            # sTIDL_IOBufDesc_t arrays sized with TIDL_IO_MAX_NUM_CORES=4.
+            # The PSDK header uses SOC-specific TIDL_MAX_NUM_CORES (2 for
+            # J722S), causing a struct layout mismatch when reading io.bin.
+            # Force 4 here to match the import tool's layout.
+            add_compile_definitions(TIDL_MAX_NUM_CORES=4 HOST_EMULATION)
+            # Host stubs for firmware-provided symbols that TIDL algo expects
+            # at runtime (appMemAlloc/Free, TVM_cacheWbInvRegion, interrupt
+            # lock/unlock, DMA no-ops).  Equivalent to tidl_firmware_syms.c
+            # on the DLOAD path, but without __declspec(dllexport) syntax.
+            # appUdmaGetObj is intentionally absent: under HOST_EMULATION +
+            # REF_ONLY, TIDL's algInit skips the NULL UDMA check, so no stub
+            # is needed.  The bridge passes NULL for the UDMA handle.
+            list(APPEND DSP_SOURCES ${TIDL_API_DIR}/tidl_host_stubs.c)
+            set(TIDL_HOST_LIBS
+                "${TIDL_PC_LIB_DIR}/libtidl_algo.a"
+                "${TIDL_PC_LIB_DIR}/libtidl_priv_algo.a"
+                "${TIDL_PC_LIB_DIR}/libtidl_avx_kernels.a"
+                "${TIDL_PC_LIB_DIR}/libtidl_custom.a"
+                "${TIDL_PC_LIB_DIR}/libtidl_obj_algo.a"
+            )
+            # circularBlockSizeTbl is defined in both libtidl_algo.a and
+            # libcommon_x86_64.a.  Both libs are required (TIDL algo calls
+            # MMALIB internally), and the definitions are identical, so
+            # --allow-multiple-definition is safe.
+            set(TIDL_LINK_FLAGS "-Wl,--allow-multiple-definition")
+        else()
+            message(WARNING "TIDL PC libs not found at ${TIDL_PC_LIB_DIR} -- USE_TIDL ignored")
+        endif()
     endif()
 
     # Create executable
@@ -481,8 +567,13 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
     set_source_files_properties(${GENERATED_SOURCES} PROPERTIES LANGUAGE CXX)
 
     target_include_directories(cg_dsp PRIVATE ${INCLUDE_DIRS})
-    target_link_libraries(cg_dsp PRIVATE ${DSP_RUNTIME_LIB} ${MMALIB_LIBS} ${C7X_HOST_EMU_LIB})
+    # TIDL_HOST_LIBS before MMALIB_LIBS: TIDL algo references MMALIB symbols,
+    # so MMALIB must appear after TIDL in the link order.
+    target_link_libraries(cg_dsp PRIVATE ${DSP_RUNTIME_LIB} ${TIDL_HOST_LIBS} ${MMALIB_LIBS} ${C7X_HOST_EMU_LIB})
     target_link_libraries(cg_dsp PRIVATE pthread)
+    if(TIDL_LINK_FLAGS)
+        target_link_options(cg_dsp PRIVATE ${TIDL_LINK_FLAGS})
+    endif()
 
     # Configure weights loading - use filesystem
     if(EXISTS "${WEIGHTS_FILE}")
