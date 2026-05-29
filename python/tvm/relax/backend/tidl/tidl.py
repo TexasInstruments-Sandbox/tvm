@@ -310,7 +310,7 @@ def _write_calibration_data(
     for si in input_sinfos:
         shape = [int(d) for d in si.shape]
         per_frame_shape = shape[1:] if len(shape) > 1 else shape
-        data = np.random.rand(num_frames, *per_frame_shape).astype("float32")
+        data = np.random.randn(num_frames, *per_frame_shape).astype("float32")
         parts.append(data.reshape(num_frames, -1))
     all_data = np.concatenate(parts, axis=1).flatten()
     all_data.tofile(calib_path)
@@ -408,9 +408,12 @@ class TIDLOffloadCompiler:
             Partitioned module with TIDL subgraph functions.
         """
         patterns = get_tidl_patterns()
-        # Apply patterns one at a time so a cyclic-group error in one pattern
-        # (can occur with composite activations on complex model topologies)
-        # only skips that pattern rather than aborting the whole partition.
+        # Apply patterns one at a time and merge after each pattern.  Running
+        # MergeCompositeFunctions inside the loop (rather than once at the end)
+        # prevents cross-pattern cyclic dependencies that occur in models with
+        # complex topologies (e.g. YOLOv8 detection head).  If the per-pattern
+        # merge fails, skip it — the composites from that step remain as
+        # individual composites and may be merged in a later step.
         for pat in patterns:
             try:
                 mod = transform.FuseOpsByPattern(
@@ -425,7 +428,17 @@ class TIDLOffloadCompiler:
                     )
                 else:
                     raise
-        mod = transform.MergeCompositeFunctions()(mod)
+            try:
+                mod = transform.MergeCompositeFunctions()(mod)
+            except Exception as e:  # noqa: BLE001
+                if "cyclic dependency" in str(e).lower():
+                    logger.warning(
+                        "MergeCompositeFunctions cycle after pattern '%s'; "
+                        "skipping merge for this step.",
+                        pat.name,
+                    )
+                else:
+                    raise
         return mod
 
     # ------------------------------------------------------------------
