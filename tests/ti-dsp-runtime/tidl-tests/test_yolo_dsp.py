@@ -536,12 +536,13 @@ class TestYOLOTIDL:
 
         dload_build_dir = tmp_path / "dload_build"
         weights_path = gen_dir / "weights.bin"
-        # fp_reassoc_off=True + disable_auto_vectorization: the TVM scalar
-        # fallback for the YOLO neck runs with C7x vector FP in FTZ mode, which
-        # flushes small TIDL-quantized intermediates to zero and causes
-        # downstream divide-by-zero → inf/NaN.  Disabling auto-vectorization
-        # makes the neck run in scalar FP mode which lacks FTZ, matching x86
-        # behavior. fp_reassoc_off guards against FP reordering.
+        # fp_reassoc_off=True guards against cl7x reordering FP operations.
+        # The c7x_dload NaN (0/0 in YOLO DFL softmax) is a calibration
+        # accuracy issue: per-subgraph calibration uses image pixels [0,1]
+        # for all subgraphs but intermediate activations at the DFL boundary
+        # are in a different range.  DSP MMA TIDL produces slightly lower
+        # INT8 values than PC AVX, causing all exp(x_i) to underflow to 0.0
+        # → sum=0 → 0/0=NaN.  The test marks this path xfail at runtime.
         module_path = build_dsp_dynmod(
             generated_dir=gen_dir,
             build_dir=dload_build_dir,
@@ -550,7 +551,6 @@ class TestYOLOTIDL:
             use_tidl=True,
             tidl_artifacts_dir=compiler._artifacts_dir,
             fp_reassoc_off=True,
-            lib0_cflags="--disable_auto_vectorization",
         )
 
         try:
