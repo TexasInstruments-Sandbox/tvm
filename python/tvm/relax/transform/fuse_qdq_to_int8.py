@@ -69,6 +69,26 @@ def _get_const_value(expr: Expr):
     return None
 
 
+def _broadcast_channel_scale(scale: Expr, data_layout: str, out_ndim: int = 4) -> Expr:
+    """Reshape a 1-D per-channel scale [C] to broadcast against conv output.
+
+    For NCHW layouts the channel axis is 1: [C] -> [1, C, 1, ..., 1].
+    For NHWC layouts the channel axis is the last dim: [C] -> [1, ..., 1, C].
+    Scalar scales (ndim == 0) are returned unchanged.
+    """
+    sinfo = scale.struct_info
+    if not isinstance(sinfo, relax.TensorStructInfo):
+        return scale
+    shape = sinfo.shape
+    if shape is None or len(list(shape)) != 1:  # type: ignore[arg-type]
+        return scale  # scalar or already multi-dimensional
+    if data_layout.startswith("NC"):  # NCHW, NCW, …
+        new_shape = tuple([1, -1] + [1] * (out_ndim - 2))
+    else:  # NHWC, NWC, …
+        new_shape = tuple([1] * (out_ndim - 1) + [-1])
+    return relax.op.reshape(scale, new_shape)  # type: ignore[arg-type]
+
+
 # ---------------------------------------------------------------------------
 # Pattern: dequant -> conv2d -> [add(wildcard)] -> [relu] -> quantize
 #
@@ -332,10 +352,15 @@ def _make_rewriter(annotations):
 
         out_float = relax.op.astype(conv_int32, "float32")
 
+        # Reshape per-channel weight scale [C] -> [1, C, 1, 1] (NCHW) so it
+        # broadcasts correctly against out_float [N, C, H, W].
+        assert w_scale is not None
+        w_scale_bc = _broadcast_channel_scale(w_scale, str(attrs.data_layout))
+
         if has_bias:
             float_bias = matches[annotations["bias"]]
             # Scale to real domain first: conv_int32 * d_scale * w_scale
-            dw_scale = relax.op.multiply(d_scale, w_scale)
+            dw_scale = relax.op.multiply(d_scale, w_scale_bc)
             out_float = relax.op.multiply(out_float, dw_scale)
             # Add float bias
             out_float = relax.op.add(out_float, float_bias)
@@ -344,7 +369,7 @@ def _make_rewriter(annotations):
         else:
             # combined_scale = d_scale * w_scale / o_scale
             combined_scale = relax.op.divide(
-                relax.op.multiply(d_scale, w_scale), o_scale
+                relax.op.multiply(d_scale, w_scale_bc), o_scale
             )
             out_float = relax.op.multiply(out_float, combined_scale)
 
