@@ -427,13 +427,42 @@ class TIDLOffloadCompiler:
             Partitioned module with TIDL subgraph functions.
         """
         patterns = get_tidl_patterns()
-        # Apply all patterns first, then merge once.  Running
-        # MergeCompositeFunctions a single time at the end (rather than after
-        # each pattern) allows cross-pattern composites to merge into the same
-        # Codegen="tidl" subgraph.  Cyclic dependencies in models like YOLOv8
-        # are handled upstream by MergeCompositeFunctions itself (self-dep
-        # insertion on non-composite bridge ops closes groups at skip
-        # connections, preventing incorrect cross-cycle merging).
+        mod_pre_partition = mod  # saved for per-pattern fallback below
+
+        def _apply_patterns(m):
+            for pat in patterns:
+                try:
+                    m = transform.FuseOpsByPattern(
+                        [pat], bind_constants=True, annotate_codegen=False
+                    )(m)
+                except Exception as e:  # noqa: BLE001
+                    if "cyclic dependency" in str(e).lower():
+                        logger.warning(
+                            "Skipping TIDL pattern '%s': cyclic group dependency "
+                            "in model graph. Op will run on TVM scalar path.",
+                            pat.name,
+                        )
+                    else:
+                        raise
+            return m
+
+        # Preferred path: annotate all patterns then merge once.  Produces the
+        # fewest (largest) subgraphs, minimising per-subgraph TIDL init overhead.
+        mod = _apply_patterns(mod)
+        try:
+            return transform.MergeCompositeFunctions()(mod)
+        except Exception as e:  # noqa: BLE001
+            if "cyclic dependency" not in str(e).lower():
+                raise
+
+        # Fallback: per-pattern merge for topologies with cross-pattern cycles
+        # (e.g. YOLOv8 detection head).  Produces more subgraphs than the
+        # once-at-end path but avoids the cycle crash.
+        logger.warning(
+            "MergeCompositeFunctions cycle (once-at-end); "
+            "retrying with per-pattern merge (may produce more subgraphs)."
+        )
+        mod = mod_pre_partition
         for pat in patterns:
             try:
                 mod = transform.FuseOpsByPattern(
@@ -448,15 +477,17 @@ class TIDLOffloadCompiler:
                     )
                 else:
                     raise
-        try:
-            mod = transform.MergeCompositeFunctions()(mod)
-        except Exception as e:  # noqa: BLE001
-            if "cyclic dependency" in str(e).lower():
-                logger.warning(
-                    "MergeCompositeFunctions: cyclic dependency, skipping merge."
-                )
-            else:
-                raise
+            try:
+                mod = transform.MergeCompositeFunctions()(mod)
+            except Exception as e:  # noqa: BLE001
+                if "cyclic dependency" in str(e).lower():
+                    logger.warning(
+                        "MergeCompositeFunctions cycle after pattern '%s'; "
+                        "skipping merge for this step.",
+                        pat.name,
+                    )
+                else:
+                    raise
         return mod
 
     # ------------------------------------------------------------------
