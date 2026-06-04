@@ -95,11 +95,21 @@ class InOutNodes(ctypes.Structure):
 # ---------------------------------------------------------------------------
 
 
-def _load_tidl_relax_so(path=None):
+# Relative path from c7x-mma-tidl root to the Relax import .so.
+_RELAX_SO_REL = "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
+
+
+def _load_tidl_relax_so(path=None, tidl_tools_path=None):
     """Load tidl_model_import_relax.so and verify FFI functions.
 
-    Resolution order: *path* arg > ``TIDL_RELAX_SO_PATH`` env >
-    bundled package > ``$C7X_MMA_TIDL_PATH/.../tidl_model_import_relax.so``.
+    Resolution order:
+      1. *path* arg (explicit override)
+      2. ``TIDL_RELAX_SO_PATH`` env var
+      3. bundled package (``tvm.data.ti_dsp.paths``)
+      4. derived from *tidl_tools_path*: the .so and ``tidl_tools/`` are
+         siblings under the same c7x-mma-tidl root, so
+         ``os.path.dirname(tidl_tools_path)/<rel>`` gives the .so path
+      5. ``$C7X_MMA_TIDL_PATH/<rel>`` env var (no hardcoded default)
     """
     if path is None:
         path = os.environ.get("TIDL_RELAX_SO_PATH")
@@ -110,11 +120,18 @@ def _load_tidl_relax_so(path=None):
             path = find_tidl_relax_so()
         except ImportError:
             pass
+    if path is None and tidl_tools_path is not None:
+        c7x = os.path.dirname(os.path.abspath(tidl_tools_path))
+        path = os.path.join(c7x, _RELAX_SO_REL)
     if path is None:
-        c7x = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-        path = os.path.join(c7x, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so")
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"tidl_model_import_relax.so not found: {path}")
+        c7x = os.environ.get("C7X_MMA_TIDL_PATH")
+        if c7x:
+            path = os.path.join(c7x, _RELAX_SO_REL)
+    if not path or not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"tidl_model_import_relax.so not found (tried: {path!r}).  "
+            "Pass 'tidl_tools_path' in config or set C7X_MMA_TIDL_PATH."
+        )
     tvm.runtime.load_module(path)
     required = [
         "TIDL_relaxInit",
@@ -408,12 +425,13 @@ class TIDLOffloadCompiler:
             Partitioned module with TIDL subgraph functions.
         """
         patterns = get_tidl_patterns()
-        # Apply patterns one at a time and merge after each pattern.  Running
-        # MergeCompositeFunctions inside the loop (rather than once at the end)
-        # prevents cross-pattern cyclic dependencies that occur in models with
-        # complex topologies (e.g. YOLOv8 detection head).  If the per-pattern
-        # merge fails, skip it — the composites from that step remain as
-        # individual composites and may be merged in a later step.
+        # Apply all patterns first, then merge once.  Running
+        # MergeCompositeFunctions a single time at the end (rather than after
+        # each pattern) allows cross-pattern composites to merge into the same
+        # Codegen="tidl" subgraph.  Cyclic dependencies in models like YOLOv8
+        # are handled upstream by MergeCompositeFunctions itself (self-dep
+        # insertion on non-composite bridge ops closes groups at skip
+        # connections, preventing incorrect cross-cycle merging).
         for pat in patterns:
             try:
                 mod = transform.FuseOpsByPattern(
@@ -428,17 +446,15 @@ class TIDLOffloadCompiler:
                     )
                 else:
                     raise
-            try:
-                mod = transform.MergeCompositeFunctions()(mod)
-            except Exception as e:  # noqa: BLE001
-                if "cyclic dependency" in str(e).lower():
-                    logger.warning(
-                        "MergeCompositeFunctions cycle after pattern '%s'; "
-                        "skipping merge for this step.",
-                        pat.name,
-                    )
-                else:
-                    raise
+        try:
+            mod = transform.MergeCompositeFunctions()(mod)
+        except Exception as e:  # noqa: BLE001
+            if "cyclic dependency" in str(e).lower():
+                logger.warning(
+                    "MergeCompositeFunctions: cyclic dependency, skipping merge."
+                )
+            else:
+                raise
         return mod
 
     # ------------------------------------------------------------------
@@ -494,15 +510,23 @@ class TIDLOffloadCompiler:
         artifacts : dict
             ``{subgraph_name: {"net_bin": path, "io_bin": path}}``.
         """
-        # ---- Load .so -------------------------------------------------
-        _load_tidl_relax_so(self.config.get("tidl_relax_so_path"))
-
         # ---- Resolve paths --------------------------------------------
         artifacts_dir = self._artifacts_dir
         os.makedirs(artifacts_dir, exist_ok=True)
 
-        c7x_root = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-        tidl_tools_path = self.config.get("tidl_tools_path", os.path.join(c7x_root, "tidl_tools"))
+        tidl_tools_path = self.config.get("tidl_tools_path")
+        if tidl_tools_path is None:
+            c7x_root = os.environ.get("C7X_MMA_TIDL_PATH")
+            if c7x_root is None:
+                raise ValueError(
+                    "Either 'tidl_tools_path' in config or C7X_MMA_TIDL_PATH env must be set."
+                )
+            tidl_tools_path = os.path.join(c7x_root, "tidl_tools")
+
+        # ---- Load .so -------------------------------------------------
+        # Derived from tidl_tools_path if tidl_relax_so_path is not set;
+        # both live under the same c7x-mma-tidl root.
+        _load_tidl_relax_so(tidl_tools_path=tidl_tools_path)
 
         # ---- TIDL_relaxInit -------------------------------------------
         init_options = dict(self.config.get("tidl_options", {}))
@@ -550,6 +574,43 @@ class TIDLOffloadCompiler:
             for i, (name, flops) in enumerate(flops_list):
                 status = "TIDL" if name in keep else "TVM "
                 logger.debug("  [%s] sg%-3d %.3e FLOPs  %s", status, i, flops, name)
+
+        # ------------------------------------------------------------------ #
+        # Require calibration_inputs: random calibration produces            #
+        # miscalibrated INT8 scales for intermediate subgraphs and was the  #
+        # root cause of the YOLOv8 DFL NaN on c7x_dload.                   #
+        # ------------------------------------------------------------------ #
+        calib_frames = self.config.get("calibration_inputs")
+        if not calib_frames:
+            raise ValueError(
+                "tidl_import() requires 'calibration_inputs': a list of "
+                "per-frame numpy arrays (one (1,C,H,W) array per calibration "
+                "image).  Random calibration data produces miscalibrated INT8 "
+                "scales for intermediate subgraphs and is not accepted."
+            )
+
+        # ------------------------------------------------------------------ #
+        # Collect real boundary activations when calibration_inputs is set.  #
+        # _build_calibration_module augments main to also emit the tensor     #
+        # that enters each TIDL subgraph, then lowers all TIDL ops to TVM   #
+        # CPU so we can run the model on actual images.                       #
+        # ------------------------------------------------------------------ #
+        _sg_calib: Dict[str, np.ndarray] = {}
+        if calib_frames:
+            logger.info(
+                "Building CPU calibration module to collect real boundary activations "
+                "for %d subgraph(s) × %d frame(s)",
+                len(subgraphs),
+                len(calib_frames),
+            )
+            cpu_mod, output_map = _build_calibration_module(mod, subgraphs)
+            _sg_calib = _collect_subgraph_calibration_data(
+                cpu_mod, output_map, calib_frames, subgraphs
+            )
+            logger.info(
+                "Calibration data collected for subgraphs: %s",
+                list(_sg_calib.keys()),
+            )
 
         for sg_id, (gv, func) in enumerate(subgraphs):
             sg_name = gv.name_hint
@@ -706,12 +767,19 @@ class TIDLOffloadCompiler:
                 raise RuntimeError(_errmsg)
 
             # -- Calibration + PostProcess ------------------------------
+            user_data = _sg_calib.get(sg_name)
+            if user_data is None:
+                raise ValueError(
+                    f"No calibration data collected for TIDL subgraph '{sg_name}'. "
+                    "The subgraph call was not found when augmenting main(); "
+                    "check the partitioned module structure."
+                )
             _write_calibration_data(
                 artifacts_dir,
                 sg_id,
                 input_sinfos,
                 num_calib_frames,
-                user_data=self.config.get("calibration_data"),
+                user_data=user_data,
             )
 
             postprocess_fn = tvm.get_global_func("TIDL_relaxPostProcessNet")
@@ -1071,6 +1139,7 @@ def _build_dynmod(
         Path to the built lib0.out module.
     """
     # Resolve DSP build infrastructure: bundled package first, source tree fallback
+    tvm_home = Path(__file__).resolve().parents[5]
     try:
         from tvm.data.ti_dsp.paths import find_dsp_runtime_dir
 
@@ -1079,7 +1148,6 @@ def _build_dynmod(
         dsp_runtime_dir = None
 
     if dsp_runtime_dir is None:
-        tvm_home = Path(__file__).resolve().parents[5]
         dsp_runtime_dir = tvm_home / "src" / "runtime" / "ti_dsp"
 
     dynmod_cmake = dsp_runtime_dir / "dynmod"
@@ -1348,9 +1416,9 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
         # Use extern "C" so the bridge (compiled as C++) resolves these
         # against the C-linkage definitions in tidl_host_stubs.c /
         # the DLOAD firmware export table.
-        lines.append('#ifdef __cplusplus')
+        lines.append("#ifdef __cplusplus")
         lines.append('extern "C" {')
-        lines.append('#endif')
+        lines.append("#endif")
         lines.append("extern int32_t  TVM_cacheWbInvRegion(void *addr, uint32_t size);")
         # appUdmaGetObj is provided by the firmware on real hardware (c7x_dload).
         # Under HOST_EMULATION+REF_ONLY, TIDL skips the NULL UDMA check, so
@@ -1358,9 +1426,9 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
         lines.append("#ifndef HOST_EMULATION")
         lines.append("extern void*    appUdmaGetObj(void);")
         lines.append("#endif")
-        lines.append('#ifdef __cplusplus')
-        lines.append('}')
-        lines.append('#endif')
+        lines.append("#ifdef __cplusplus")
+        lines.append("}")
+        lines.append("#endif")
         lines.append("")
 
         # Per-subgraph artifact symbols (from bin_to_asm.py or generate_artifacts_c).
@@ -1936,6 +2004,257 @@ def _lower_tidl_pass(
         result = relax.transform.InlinePrivateFunctions()(result)
 
     return result
+
+
+def _build_calibration_module(
+    mod: IRModule,
+    tidl_subgraphs: List[Tuple],
+):
+    """Build a CPU module whose main() also returns TIDL subgraph input activations.
+
+    The returned module is compiled for LLVM and run with real calibration images
+    so that ``_collect_subgraph_calibration_data`` can collect the actual
+    intermediate feature-map distributions seen at each TIDL subgraph boundary.
+    Without this, subgraphs 1..N receive Gaussian random calibration data whose
+    range is wrong for deeper activations, causing INT8 miscalibration.
+
+    Mechanism
+    ---------
+    1. Walk main's DataflowBlock to find every call to a TIDL subgraph GVar.
+       Record the arguments (= subgraph input tensors) for each subgraph.
+    2. Expose each DataflowVar argument as a regular (block-output) Var binding
+       at the end of the DataflowBlock.  Regular Vars can appear in the
+       SeqExpr return; DataflowVars cannot (they are block-scoped).
+    3. Replace main's return with Tuple([original_ret, calib_var0, calib_var1, ...]).
+    4. Lower all TIDL subgraphs to CPU via ``_lower_tidl_pass`` with
+       failed_subgraphs = all subgraph names.  This reuses the existing
+       fallback path (``_expand_inline_composites`` + ``InlinePrivateFunctions``)
+       so all TIDL composite patterns are correctly expanded to TVM ops.
+    5. Apply ToNonDataflow to clean up any remaining DataflowVar references.
+
+    Parameters
+    ----------
+    mod : IRModule
+        Partitioned module (after ``partition()``).
+    tidl_subgraphs : list of (GlobalVar, relax.Function)
+        Output of ``_find_tidl_subgraphs(mod)``.
+
+    Returns
+    -------
+    cpu_mod : IRModule
+        CPU-only module; main returns extended tuple.
+    output_map : Dict[str, int]
+        Maps ``"{sg_name}_i{j}"`` to a 0-based *extra* index, where
+        actual tuple position = ``extra_idx + 1`` (index 0 = original output).
+    """
+    tidl_gvar_set = {gv for gv, _ in tidl_subgraphs}
+
+    main_func = mod["main"]
+
+    # ------------------------------------------------------------------ #
+    # Step 1: Find the arguments passed to each TIDL subgraph call in    #
+    # main's DataflowBlock(s).  These args are the subgraph's inputs —   #
+    # precisely the tensors whose activation distribution we need for     #
+    # accurate INT8 calibration.                                          #
+    # ------------------------------------------------------------------ #
+    sg_input_args: Dict[str, List] = {}  # sg_name -> [arg0, arg1, ...]
+    for block in main_func.body.blocks:
+        for b in block.bindings:
+            val = b.value
+            if isinstance(val, relax.Call) and isinstance(val.op, relax.GlobalVar):
+                if val.op in tidl_gvar_set:
+                    sg_name = val.op.name_hint
+                    if sg_name not in sg_input_args:  # record first call only
+                        sg_input_args[sg_name] = list(val.args)
+
+    # ------------------------------------------------------------------ #
+    # Step 2: Build the ordered list of extra outputs and the output_map. #
+    # Order follows the tidl_subgraphs list so both functions agree on    #
+    # tuple index → (sg_name, input_idx) mapping.                         #
+    # ------------------------------------------------------------------ #
+    extra_args: List[Tuple[str, object]] = []  # [(key, arg_expr), ...]
+    output_map: Dict[str, int] = {}
+    extra_idx = 0
+    for gv, func in tidl_subgraphs:
+        sg_name = gv.name_hint
+        if sg_name not in sg_input_args:
+            continue
+        for j, arg in enumerate(sg_input_args[sg_name]):
+            key = f"{sg_name}_i{j}"
+            output_map[key] = extra_idx
+            extra_args.append((key, arg))
+            extra_idx += 1
+
+    # ------------------------------------------------------------------ #
+    # Step 3: Rebuild main to expose TIDL input args as extra outputs.   #
+    #                                                                      #
+    # DataflowVars are block-scoped and cannot appear outside the         #
+    # DataflowBlock.  Wrap each one in a regular Var binding at the end   #
+    # of the block ("output" bindings that escape block scope).  Regular  #
+    # Vars (function params, existing block outputs) can be used directly.#
+    # ------------------------------------------------------------------ #
+    exposure_vars: List[relax.Var] = []
+    new_blocks = []
+    for block in main_func.body.blocks:
+        if isinstance(block, relax.DataflowBlock) and extra_args:
+            new_bindings = list(block.bindings)
+            for _key, arg in extra_args:
+                if isinstance(arg, relax.DataflowVar):
+                    # DataflowVar → wrap in a regular Var so it can escape scope.
+                    ev = relax.Var(f"_calib_{len(exposure_vars)}", arg.struct_info)
+                    new_bindings.append(relax.VarBinding(ev, arg))
+                    exposure_vars.append(ev)
+                else:
+                    # Function param or regular Var — already in scope.
+                    exposure_vars.append(arg)
+            new_blocks.append(relax.DataflowBlock(new_bindings))
+        else:
+            new_blocks.append(block)
+
+    # Replace main's return with Tuple([original_ret, calib_var0, ...]).
+    original_ret = main_func.body.body
+    new_ret = relax.Tuple([original_ret] + exposure_vars)
+    new_ret_sinfo = relax.TupleStructInfo(
+        [main_func.ret_struct_info] + [v.struct_info for v in exposure_vars]
+    )
+    new_body = relax.SeqExpr(new_blocks, new_ret)
+    new_main = relax.Function(
+        main_func.params,
+        new_body,
+        new_ret_sinfo,
+        main_func.is_pure,
+        main_func.attrs,
+    )
+
+    # ------------------------------------------------------------------ #
+    # Step 4: Build the augmented module, preserving the original         #
+    # GlobalVar objects so that TIDL subgraph call sites in main          #
+    # (which reference those GVars) remain valid.                         #
+    # ------------------------------------------------------------------ #
+    main_gv = next(gv for gv in mod.functions if gv.name_hint == "main")
+    aug_funcs = dict(mod.functions)
+    aug_funcs[main_gv] = new_main
+    augmented_mod = tvm.IRModule(aug_funcs)
+
+    # ------------------------------------------------------------------ #
+    # Step 5: Lower all TIDL subgraphs to CPU using the existing fallback #
+    # path (_expand_inline_composites + InlinePrivateFunctions).          #
+    # Passing all sg names as failed_subgraphs ensures no TIR stubs are   #
+    # created; every TIDL function is expanded to TVM scalar ops instead. #
+    # ------------------------------------------------------------------ #
+    all_sg_names = {gv.name_hint for gv, _ in tidl_subgraphs}
+    cpu_mod = _lower_tidl_pass(augmented_mod, failed_subgraphs=all_sg_names, artifacts={})
+
+    # _lower_tidl_pass already applies ToNonDataflow when there are fallback
+    # functions, but call it again to be safe (no-op if already clean).
+    cpu_mod = relax.transform.ToNonDataflow()(cpu_mod)
+
+    return cpu_mod, output_map
+
+
+def _collect_subgraph_calibration_data(
+    cpu_mod: IRModule,
+    output_map: Dict[str, int],
+    calibration_inputs: List,
+    tidl_subgraphs: List[Tuple],
+) -> Dict[str, np.ndarray]:
+    """Run cpu_mod on calibration frames and collect per-subgraph activations.
+
+    Compiles cpu_mod for LLVM (opt_level=0 for correctness over speed), runs
+    it on each calibration image, and assembles a per-subgraph calibration
+    binary in the same layout that ``_write_calibration_data`` writes to
+    ``calib_raw_data{sg_id}.bin``.
+
+    Layout: for each subgraph, the binary is:
+        [inp0_frame0 | inp0_frame1 | ... | inp1_frame0 | ...]  (all float32)
+    i.e., ``np.concatenate([np.stack(inp_j_frames) for j], axis=1).flatten()``.
+
+    Parameters
+    ----------
+    cpu_mod : IRModule
+        Output of ``_build_calibration_module``.
+    output_map : Dict[str, int]
+        Maps ``"{sg_name}_i{j}"`` to extra-tuple index (0-based).
+    calibration_inputs : list
+        One element per calibration frame.  Each element is either a single
+        ``np.ndarray`` (for single-input models) or a list of ``np.ndarray``
+        (for multi-input models).
+    tidl_subgraphs : list of (GlobalVar, relax.Function)
+        Used to determine the number of inputs per subgraph.
+
+    Returns
+    -------
+    Dict[str, np.ndarray]
+        Per-subgraph flat float32 calibration data, keyed by sg_name.
+        Subgraphs absent from output_map are omitted (caller falls back
+        to ``calibration_data`` or Gaussian random).
+    """
+    # Compile for LLVM at opt_level=0: correctness matters, not speed.
+    with tvm.transform.PassContext(opt_level=0):
+        ex = relax.build(
+            cpu_mod,
+            target=tvm.target.Target("llvm"),
+            exec_mode="compiled",
+            system_lib=False,
+        )
+    vm = relax.VirtualMachine(ex, tvm.cpu())
+
+    # per_sg_frames[sg_name][frame_idx][input_idx] = np.ndarray shape (1, ...)
+    per_sg_frames: Dict[str, List[List[np.ndarray]]] = {}
+
+    for calib_input in calibration_inputs:
+        # Accept both a single array (single-input model) and a list of arrays.
+        if isinstance(calib_input, np.ndarray):
+            tvm_inputs = [tvm.runtime.tensor(calib_input, device=tvm.cpu())]
+        else:
+            tvm_inputs = [tvm.runtime.tensor(inp, device=tvm.cpu()) for inp in calib_input]
+
+        # result[0] = original model output; result[extra_idx+1] = extra tensors.
+        result = vm["main"](*tvm_inputs)
+
+        frame_data: Dict[str, List[np.ndarray]] = {}
+        for gv, func in tidl_subgraphs:
+            sg_name = gv.name_hint
+            n_inputs = len(func.params)
+            inp_arrays: List[np.ndarray] = []
+            for j in range(n_inputs):
+                key = f"{sg_name}_i{j}"
+                if key not in output_map:
+                    inp_arrays.append(None)
+                    continue
+                inp_arrays.append(result[output_map[key] + 1].numpy())
+            frame_data[sg_name] = inp_arrays
+
+        for sg_name, inp_arrays in frame_data.items():
+            per_sg_frames.setdefault(sg_name, []).append(inp_arrays)
+
+    # ------------------------------------------------------------------ #
+    # Assemble calibration binary for each subgraph.                      #
+    # Layout per subgraph:                                                 #
+    #   parts[j] = (num_frames, inp_j_flat_size)                          #
+    #   concat along axis=1 → (num_frames, total_flat) → flatten()        #
+    # Matches the layout written by _write_calibration_data (random path).#
+    # ------------------------------------------------------------------ #
+    sg_calib: Dict[str, np.ndarray] = {}
+    for gv, func in tidl_subgraphs:
+        sg_name = gv.name_hint
+        frames = per_sg_frames.get(sg_name)
+        if not frames:
+            continue
+        parts = []
+        for j in range(len(func.params)):
+            key = f"{sg_name}_i{j}"
+            if key not in output_map:
+                continue
+            # frames[f][j] has shape (1, ...) — drop batch dim then flatten.
+            inp_frames = np.stack(
+                [frames[f][j][0].flatten() for f in range(len(frames))], axis=0
+            )  # shape: (num_frames, inp_j_flat_size)
+            parts.append(inp_frames)
+        if parts:
+            sg_calib[sg_name] = np.concatenate(parts, axis=1).flatten().astype("float32")
+
+    return sg_calib
 
 
 @tvm.ir.transform.module_pass(opt_level=0, name="LowerTIDLToTIR")

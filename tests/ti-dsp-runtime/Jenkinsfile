@@ -103,7 +103,7 @@ pipeline {
         )
         booleanParam(
             name: 'SKIP_TIDL_TESTS',
-            defaultValue: true,
+            defaultValue: false,
             description: 'Skip all TIDL tests (host and hardware)'
         )
         booleanParam(
@@ -440,6 +440,7 @@ pipeline {
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. tidl-tests/ \
                                 -m quick \
+                                --dsp-mode=c7x_host \
                                 --ignore=tidl-tests/test_tidl_import_e2e.py \
                                 --ignore=tidl-tests/test_tidl_new_ops.py \
                                 --ignore=tidl-tests/test_tidl_resnet_e2e.py \
@@ -458,6 +459,7 @@ pipeline {
                             mkdir -p results
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. tidl-tests/ \
+                                --dsp-mode=c7x_host \
                                 --ignore=tidl-tests/test_tidl_import_e2e.py \
                                 --ignore=tidl-tests/test_tidl_new_ops.py \
                                 --ignore=tidl-tests/test_tidl_resnet_e2e.py \
@@ -638,6 +640,7 @@ pipeline {
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. tidl-tests/ \
                                 -m quick \
+                                --dsp-mode=c7x_dload \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/tidl_hw_quick.xml
                         '''
@@ -649,13 +652,14 @@ pipeline {
                         expression { return !params.SKIP_LONG_TESTS && !params.SKIP_TIDL_TESTS }
                     }
                     options {
-                        timeout(time: 1, unit: 'HOURS')
+                        timeout(time: 3, unit: 'HOURS')
                     }
                     steps {
                         sh '''
                             mkdir -p results
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. tidl-tests/ \
+                                --dsp-mode=c7x_dload \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/tidl_hw_full.xml
                         '''

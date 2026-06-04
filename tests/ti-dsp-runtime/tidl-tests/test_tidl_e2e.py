@@ -208,8 +208,7 @@ class TestTIDLPipelineHost:
             # one TIDL subgraph.  The stub bridge zero-fills all subgraph
             # outputs, so the result should be all zeros.
             assert np.all(result == 0.0), (
-                f"Expected all-zero stub output, "
-                f"got min={result.min():.6f} max={result.max():.6f}"
+                f"Expected all-zero stub output, got min={result.min():.6f} max={result.max():.6f}"
             )
 
         finally:
@@ -304,8 +303,9 @@ class TestTIDLPipelineHostRealBridge:
             config={
                 "artifacts_dir": artifacts_dir,
                 "tidl_tools_path": _TIDL_TOOLS_PATH,
-                "tidl_relax_so_path": _RELAX_SO_PATH,
                 "num_calibration_frames": 1,
+                # Pipeline test — accuracy not checked; one random frame is enough.
+                "calibration_inputs": [np.random.randn(1, 3, 32, 32).astype("float32")],
             }
         )
         lowered_mod, artifacts = compiler.tidl_import(partitioned)
@@ -367,9 +367,7 @@ class TestTIDLPipelineHostRealBridge:
             # small negative values even after ReLU; only finiteness and
             # non-zero max are checked here.
             assert np.isfinite(result).all(), "Output contains non-finite values"
-            assert result.max() > 0, (
-                "Output is all zeros: TIDL did not run (stub-like output)"
-            )
+            assert result.max() > 0, "Output is all zeros: TIDL did not run (stub-like output)"
 
         finally:
             if not os.environ.get("DSP_KEEP_TEMP"):

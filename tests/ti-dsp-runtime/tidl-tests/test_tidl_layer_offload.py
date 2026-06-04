@@ -411,8 +411,8 @@ def _build_take_model():
     with bb.function("main", [x_var, idx_var]):
         with bb.dataflow():
             out = bb.emit(relax.op.take(x_var, idx_var, axis=1))
-            bb.emit_output(out)
-        bb.emit_func_output(out)
+            gv = bb.emit_output(out)
+        bb.emit_func_output(gv)
     return bb.get()
 
 
@@ -424,8 +424,8 @@ def _build_topk_model():
         with bb.dataflow():
             # topk on HEIGHT axis (axis=2); ret_type="both" → Tuple(values,idx)
             t = bb.emit(relax.op.topk(x_var, k=4, axis=2, ret_type="both"))
-            bb.emit_output(t)
-        bb.emit_func_output(t)
+            gv = bb.emit_output(t)
+        bb.emit_func_output(gv)
     return bb.get()
 
 
@@ -437,8 +437,8 @@ def _build_split_model():
         with bb.dataflow():
             t = bb.emit(relax.op.split(x_var, 4, axis=1))
             # Return all slices as a tuple; partition test checks composite exists
-            bb.emit_output(t)
-        bb.emit_func_output(t)
+            gv = bb.emit_output(t)
+        bb.emit_func_output(gv)
     return bb.get()
 
 
@@ -530,8 +530,8 @@ def _build_depth_to_space_model():
     with bb.function("main", [x_var]):
         with bb.dataflow():
             out = bb.emit(relax.op.nn.pixel_shuffle(x_var, upscale_factor=2))
-            bb.emit_output(out)
-        bb.emit_func_output(out)
+            gv = bb.emit_output(out)
+        bb.emit_func_output(gv)
     return bb.get()
 
 
@@ -542,8 +542,8 @@ def _build_expand_model():
     with bb.function("main", [x_var]):
         with bb.dataflow():
             out = bb.emit(relax.op.broadcast_to(x_var, (1, 8, 16, 16)))
-            bb.emit_output(out)
-        bb.emit_func_output(out)
+            gv = bb.emit_output(out)
+        bb.emit_func_output(gv)
     return bb.get()
 
 
@@ -557,12 +557,15 @@ def _build_instance_norm_model():
         with bb.dataflow():
             out = bb.emit(
                 relax.op.nn.instance_norm(
-                    x_var, gamma_var, beta_var,
-                    channel_axis=1, axes=[2, 3],
+                    x_var,
+                    gamma_var,
+                    beta_var,
+                    channel_axis=1,
+                    axes=[2, 3],
                 )
             )
-            bb.emit_output(out)
-        bb.emit_func_output(out)
+            gv = bb.emit_output(out)
+        bb.emit_func_output(gv)
     return bb.get()
 
 
@@ -575,8 +578,8 @@ def _build_scatter_elements_model():
     with bb.function("main", [data, indices, updates]):
         with bb.dataflow():
             out = bb.emit(relax.op.scatter_elements(data, indices, updates, axis=1))
-            bb.emit_output(out)
-        bb.emit_func_output(out)
+            gv = bb.emit_output(out)
+        bb.emit_func_output(gv)
     return bb.get()
 
 
@@ -589,8 +592,8 @@ def _build_scatter_nd_model():
     with bb.function("main", [data, indices, updates]):
         with bb.dataflow():
             out = bb.emit(relax.op.scatter_nd(data, indices, updates))
-            bb.emit_output(out)
-        bb.emit_func_output(out)
+            gv = bb.emit_output(out)
+        bb.emit_func_output(gv)
     return bb.get()
 
 
@@ -601,11 +604,9 @@ def _build_grid_sample_model():
     bb = relax.BlockBuilder()
     with bb.function("main", [data, grid]):
         with bb.dataflow():
-            out = bb.emit(
-                relax.op.image.grid_sample(data, grid, method="bilinear")
-            )
-            bb.emit_output(out)
-        bb.emit_func_output(out)
+            out = bb.emit(relax.op.image.grid_sample(data, grid, method="bilinear"))
+            gv = bb.emit_output(out)
+        bb.emit_func_output(gv)
     return bb.get()
 
 
@@ -637,8 +638,8 @@ def _make_unary_module(op_fn):
     with bb.function("main", [x_var]):
         with bb.dataflow():
             out = bb.emit(op_fn(x_var))
-            bb.emit_output(out)
-        bb.emit_func_output(out)
+            gv = bb.emit_output(out)
+        bb.emit_func_output(gv)
     return bb.get()
 
 
@@ -1160,8 +1161,11 @@ def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape, 
         config={
             "artifacts_dir": str(tmp_path / "tidl_artifacts"),
             "tidl_tools_path": TIDL_TOOLS_PATH,
-            "tidl_relax_so_path": RELAX_SO_PATH,
             "num_calibration_frames": 2,
+            "calibration_inputs": [
+                np.random.randn(*input_data.shape).astype("float32"),
+                np.random.randn(*input_data.shape).astype("float32"),
+            ],
         }
     )
 
@@ -1172,10 +1176,7 @@ def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape, 
     assert output.shape == expected_shape, (
         f"Unexpected shape: {output.shape}, expected {expected_shape}"
     )
-    print(
-        f"  Output: shape={output.shape}, "
-        f"min={output.min():.4f}, max={output.max():.4f}"
-    )
+    print(f"  Output: shape={output.shape}, min={output.min():.4f}, max={output.max():.4f}")
     return output, n_artifacts
 
 
