@@ -111,6 +111,8 @@ def _load_tidl_relax_so(path=None, tidl_tools_path=None):
          ``os.path.dirname(tidl_tools_path)/<rel>`` gives the .so path
       5. ``$C7X_MMA_TIDL_PATH/<rel>`` env var (no hardcoded default)
     """
+    if tvm.get_global_func("TIDL_relaxInit", allow_missing=True) is not None:
+        return
     if path is None:
         path = os.environ.get("TIDL_RELAX_SO_PATH")
     if path is None:
