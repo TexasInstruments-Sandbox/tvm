@@ -97,13 +97,11 @@ class TestTIDLResNetE2E:
     """ResNet-18 TIDL offloading: build pipeline + hardware validation."""
 
     @pytest.fixture(autouse=True)
-    def _check_deps(self):
+    def _check_deps(self, dsp_mode):  # noqa: ARG002
         if not _has_torch():
             pytest.fail("torch/torchvision not installed")
         if not _has_import_so():
-            pytest.fail(
-                f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}"
-            )
+            pytest.fail(f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}")
         if not _has_c7x_compiler():
             pytest.fail("TI_CGT_C7000_PATH not set")
 
@@ -122,8 +120,11 @@ class TestTIDLResNetE2E:
             config={
                 "artifacts_dir": artifacts_dir,
                 "tidl_tools_path": TIDL_TOOLS_PATH,
-                "tidl_relax_so_path": RELAX_SO_PATH,
                 "num_calibration_frames": 2,
+                "calibration_inputs": [
+                    np.random.randn(1, 3, 224, 224).astype("float32"),
+                    np.random.randn(1, 3, 224, 224).astype("float32"),
+                ],
             }
         )
         result = compiler.build(
@@ -145,12 +146,14 @@ class TestTIDLResNetE2E:
             shutil.rmtree(str(result.gen_dir), ignore_errors=True)
             shutil.rmtree(str(result.build_dir), ignore_errors=True)
 
-    def test_tidl_resnet18_correctness(self, tmp_path):
+    def test_tidl_resnet18_correctness(self, tmp_path, dsp_mode):
         """Deploy TIDL ResNet-18 to AM67A and verify vs PyTorch.
 
         Requires AM67A hardware with c7x_compute firmware running.
         May timeout if TIDL runtime exceeds DSP heap for large models.
         """
+        if dsp_mode != "c7x_dload":
+            pytest.skip("requires --dsp-mode=c7x_dload and AM67A hardware")
         import torch
         from dsp_utils import run_dsp_dload
 
@@ -168,8 +171,11 @@ class TestTIDLResNetE2E:
             config={
                 "artifacts_dir": artifacts_dir,
                 "tidl_tools_path": TIDL_TOOLS_PATH,
-                "tidl_relax_so_path": RELAX_SO_PATH,
                 "num_calibration_frames": 2,
+                "calibration_inputs": [
+                    np.random.randn(1, 3, 224, 224).astype("float32"),
+                    np.random.randn(1, 3, 224, 224).astype("float32"),
+                ],
                 "profile_layers": True,
             }
         )
@@ -218,11 +224,13 @@ class TestTIDLResNetE2E:
                 shutil.rmtree(str(result.gen_dir), ignore_errors=True)
                 shutil.rmtree(str(result.build_dir), ignore_errors=True)
 
-    def test_tidl_vs_tvm_cycles(self, tmp_path):
+    def test_tidl_vs_tvm_cycles(self, tmp_path, dsp_mode):
         """Compare TIDL-offloaded vs pure c_static cycle counts.
 
         Requires AM67A hardware with c7x_compute firmware running.
         """
+        if dsp_mode != "c7x_dload":
+            pytest.skip("requires --dsp-mode=c7x_dload and AM67A hardware")
         import torch
         from dsp_utils import compile_and_run_dsp, get_target_string, run_dsp_dload
 
@@ -241,8 +249,11 @@ class TestTIDLResNetE2E:
             config={
                 "artifacts_dir": artifacts_dir,
                 "tidl_tools_path": TIDL_TOOLS_PATH,
-                "tidl_relax_so_path": RELAX_SO_PATH,
                 "num_calibration_frames": 2,
+                "calibration_inputs": [
+                    np.random.randn(1, 3, 224, 224).astype("float32"),
+                    np.random.randn(1, 3, 224, 224).astype("float32"),
+                ],
             }
         )
         tidl_result = compiler.build(
@@ -264,9 +275,7 @@ class TestTIDLResNetE2E:
                 shutil.rmtree(str(tidl_result.build_dir), ignore_errors=True)
 
         # --- Non-TIDL (pure c_static) path ---
-        mod_bound = relax.transform.BindParams(
-            func_name="main", params=param_dict
-        )(mod)
+        mod_bound = relax.transform.BindParams(func_name="main", params=param_dict)(mod)
         target_string = get_target_string("c7x_dload", use_cpp_api=True)
         tvm_results = compile_and_run_dsp(
             mod=mod_bound,
@@ -285,28 +294,23 @@ class TestTIDLResNetE2E:
         print("ResNet-18 TIDL vs Pure-TVM Comparison")
         print("=" * 60)
         print(f"{'':20s} {'TIDL':>15s} {'Pure TVM':>15s}")
-        print(f"{'-'*20} {'-'*15} {'-'*15}")
+        print(f"{'-' * 20} {'-' * 15} {'-' * 15}")
         print(f"{'Max diff vs PyTorch':20s} {tidl_diff:15.4f} {tvm_diff:15.4f}")
         print(f"{'Cycles':20s} {tidl_cycles:15,} {tvm_cycles:15,}")
         if tidl_cycles > 0:
-            print(f"{'Time @ 1GHz (ms)':20s} {tidl_cycles/1e6:15.2f} {tvm_cycles/1e6:15.2f}")
+            print(f"{'Time @ 1GHz (ms)':20s} {tidl_cycles / 1e6:15.2f} {tvm_cycles / 1e6:15.2f}")
         if tidl_cycles > 0 and tvm_cycles > 0:
             speedup = tvm_cycles / tidl_cycles
             print(f"{'Speedup (TIDL)':20s} {speedup:15.1f}x")
         print("=" * 60)
 
-        assert tidl_diff < 0.15, (
-            f"TIDL vs PyTorch max diff {tidl_diff:.4f} exceeds 0.15"
-        )
-        assert tvm_diff < 0.05, (
-            f"TVM vs PyTorch max diff {tvm_diff:.4f} exceeds 0.05"
-        )
+        assert tidl_diff < 0.15, f"TIDL vs PyTorch max diff {tidl_diff:.4f} exceeds 0.15"
+        assert tvm_diff < 0.05, f"TVM vs PyTorch max diff {tvm_diff:.4f} exceeds 0.05"
 
         # TIDL (MMA int8) should be faster than scalar float32
         if tidl_cycles > 0 and tvm_cycles > 0:
             assert tidl_cycles < tvm_cycles, (
-                f"Expected TIDL ({tidl_cycles:,}) to be faster than "
-                f"pure TVM ({tvm_cycles:,})"
+                f"Expected TIDL ({tidl_cycles:,}) to be faster than pure TVM ({tvm_cycles:,})"
             )
 
 
@@ -328,7 +332,8 @@ def main():
         help="JSON file with layer profile data (from parse_layer_profile)",
     )
     parser.add_argument(
-        "--test", action="store_true",
+        "--test",
+        action="store_true",
         help="Run pytest instead of standalone mode",
     )
     args = parser.parse_args()
@@ -349,8 +354,11 @@ def main():
         config={
             "artifacts_dir": "/tmp/tidl_viz_artifacts",
             "tidl_tools_path": TIDL_TOOLS_PATH,
-            "tidl_relax_so_path": RELAX_SO_PATH,
             "num_calibration_frames": 2,
+            "calibration_inputs": [
+                np.random.randn(1, 3, 224, 224).astype("float32"),
+                np.random.randn(1, 3, 224, 224).astype("float32"),
+            ],
         }
     )
     prepared = compiler.prepare(mod, param_dict)

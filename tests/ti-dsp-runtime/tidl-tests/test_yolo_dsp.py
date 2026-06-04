@@ -100,10 +100,22 @@ def _load_calibration_images(size: int = 320) -> np.ndarray:
     for p in sorted(_TEST_IMAGES_DIR.glob("*.jpg")):
         img = Image.open(p).convert("RGB").resize((size, size))
         arr = np.array(img).astype(np.float32) / 255.0  # HWC [0,1]
-        images.append(arr.transpose(2, 0, 1))            # CHW
+        images.append(arr.transpose(2, 0, 1))  # CHW
     if not images:
         return None
     return np.stack(images)  # (N, 3, H, W)
+
+
+def _split_calib_frames(images):
+    """Split (N, 3, H, W) batch into list of (1, 3, H, W) per-frame arrays.
+
+    Used to build calibration_inputs for TIDLOffloadCompiler:
+    per-frame inputs let _build_calibration_module run the model once per
+    image and collect real intermediate activations at each subgraph boundary.
+    """
+    if images is None:
+        return None
+    return [images[i : i + 1] for i in range(len(images))]
 
 
 # (model_name, version) — version is "v5" or "v8"
@@ -163,17 +175,16 @@ def _load_yolov5(model_name: str):
     pt_file = local_pt if local_pt.exists() else (cached_pt if cached_pt.exists() else None)
     if pt_file and hub_cached:
         model = torch.hub.load(
-            str(hub_dir), "custom", path=str(pt_file),
-            source="local", verbose=False,
+            str(hub_dir),
+            "custom",
+            path=str(pt_file),
+            source="local",
+            verbose=False,
         )
     elif pt_file:
-        model = torch.hub.load(
-            "ultralytics/yolov5", "custom", path=str(pt_file), verbose=False
-        )
+        model = torch.hub.load("ultralytics/yolov5", "custom", path=str(pt_file), verbose=False)
     else:
-        pytest.skip(
-            f"{model_name} requires pre-cached weights at {cached_pt} or {local_pt}"
-        )
+        pytest.skip(f"{model_name} requires pre-cached weights at {cached_pt} or {local_pt}")
     model.eval()
     return model
 
@@ -215,9 +226,7 @@ def _create_yolo_model_unbound(model_name: str, version: str) -> tuple:
 
     with torch.no_grad():
         exported_program = export(wrapped, example_args, strict=False)
-        mod = from_exported_program(
-            exported_program, keep_params_as_input=True
-        )
+        mod = from_exported_program(exported_program, keep_params_as_input=True)
 
     mod, params = relax.frontend.detach_params(mod)
     param_dict = dict(zip(mod["main"].params[1:], params["main"]))
@@ -235,12 +244,8 @@ def create_yolo_model(model_name: str, version: str) -> tuple:
     Returns:
         Tuple of (tvm_mod, wrapped_model, input_data)
     """
-    mod, param_dict, wrapped, input_data = _create_yolo_model_unbound(
-        model_name, version
-    )
-    mod = relax.transform.BindParams(
-        func_name="main", params=param_dict
-    )(mod)
+    mod, param_dict, wrapped, input_data = _create_yolo_model_unbound(model_name, version)
+    mod = relax.transform.BindParams(func_name="main", params=param_dict)(mod)
     return mod, wrapped, input_data
 
 
@@ -264,8 +269,9 @@ def _run_yolo_test(
         torch_input = torch.from_numpy(input_data)
         torch_result = wrapped(torch_input).numpy()
 
-    target_string = get_target_string(dsp_mode, profile_layers=profile_layers,
-                                      use_cpp_api=use_cpp_api)
+    target_string = get_target_string(
+        dsp_mode, profile_layers=profile_layers, use_cpp_api=use_cpp_api
+    )
 
     dsp_results = compile_and_run_dsp(
         mod=tvm_mod,
@@ -280,9 +286,7 @@ def _run_yolo_test(
     # coordinates where small floating-point differences compound.
     # Use cosine similarity (> 0.999) instead of element-wise tolerance
     # for a more meaningful accuracy check on detection tensors.
-    comparison = compare_results(
-        dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=2e1
-    )
+    comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=2e1)
     # Override pass/fail with cosine similarity check
     flat_ref = torch_result.flatten()
     for key in list(comparison.keys()):
@@ -328,9 +332,7 @@ def _skip_yolo_if_no_ultralytics(model_name):
     YOLO_MODELS,
     ids=[m[0] for m in YOLO_MODELS],
 )
-def test_yolo_dsp(
-    model_spec, dsp_mode, dsp_timeout, use_cpp_api, profile_layers, record_cycles
-):
+def test_yolo_dsp(model_spec, dsp_mode, dsp_timeout, use_cpp_api, profile_layers, record_cycles):
     """Test YOLO model on DSP comparing against PyTorch reference."""
     model_name, version = model_spec
 
@@ -369,12 +371,17 @@ class TestYOLOTIDL:
     """
 
     _CALIB_IMAGES = _load_calibration_images()
+    # Split the batch array into a list of per-frame arrays so that
+    # TIDLOffloadCompiler can run the model once per image and collect
+    # real intermediate activations at each TIDL subgraph boundary.
+    # This fixes INT8 miscalibration for deeper subgraphs whose inputs are
+    # not raw image pixels but post-activation feature maps (DFL NaN fix).
+    _CALIB_INPUTS = _split_calib_frames(_CALIB_IMAGES)
 
     _COMPILER_CONFIG = {
         "tidl_tools_path": TIDL_TOOLS_PATH,
-        "tidl_relax_so_path": RELAX_SO_PATH,
-        "num_calibration_frames": 3,
-        "calibration_data": _CALIB_IMAGES,
+        "num_calibration_frames": len(_CALIB_INPUTS) if _CALIB_INPUTS else 1,
+        "calibration_inputs": _CALIB_INPUTS,  # real boundary activations per subgraph
         "skip_failing_subgraphs": True,
         "max_subgraphs": 8,
     }
@@ -382,9 +389,7 @@ class TestYOLOTIDL:
     @pytest.fixture(autouse=True)
     def _check_deps(self):
         if not _has_import_so():
-            pytest.fail(
-                f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}"
-            )
+            pytest.fail(f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}")
         if not _has_c7x_compiler():
             pytest.fail("TI_CGT_C7000_PATH not set")
 
@@ -426,9 +431,7 @@ class TestYOLOTIDL:
         model_name, version = model_spec
         _skip_yolo_if_no_ultralytics(model_name)
 
-        mod, param_dict, wrapped, input_data = _create_yolo_model_unbound(
-            model_name, version
-        )
+        mod, param_dict, wrapped, input_data = _create_yolo_model_unbound(model_name, version)
 
         with torch.no_grad():
             torch_out = wrapped(torch.from_numpy(input_data)).numpy()
@@ -481,7 +484,9 @@ class TestYOLOTIDL:
         if has_tidl_pc_libs():
             real_bridge_host = str(gen_dir / "tidl_bridge.c")
             TIDLOffloadCompiler.generate_bridge(
-                lowered, real_bridge_host, stub=False,
+                lowered,
+                real_bridge_host,
+                stub=False,
                 artifacts_dir=compiler._artifacts_dir,
             )
             artifacts_c = str(gen_dir / "tidl_artifacts.c")
@@ -500,26 +505,18 @@ class TestYOLOTIDL:
 
             flat_ref = torch_out.flatten()
             flat_host = host_out.flatten()
-            print(
-                f"c7x_host: ref nan={np.isnan(flat_ref).any()} "
-                f"inf={np.isinf(flat_ref).any()}"
-            )
-            print(
-                f"c7x_host: dsp nan={np.isnan(flat_host).any()} "
-                f"inf={np.isinf(flat_host).any()}"
-            )
+            print(f"c7x_host: ref nan={np.isnan(flat_ref).any()} inf={np.isinf(flat_ref).any()}")
+            print(f"c7x_host: dsp nan={np.isnan(flat_host).any()} inf={np.isinf(flat_host).any()}")
             cos_sim_host = float(
                 np.dot(flat_ref, flat_host)
                 / (np.linalg.norm(flat_ref) * np.linalg.norm(flat_host) + 1e-10)
             )
-            print(f"c7x_host real bridge: output shape={host_out.shape}, "
-                  f"cos_sim={cos_sim_host:.6f}")
-            assert np.isfinite(cos_sim_host), (
-                f"c7x_host: cos_sim is not finite for {model_name}"
+            print(
+                f"c7x_host real bridge: output shape={host_out.shape}, cos_sim={cos_sim_host:.6f}"
             )
+            assert np.isfinite(cos_sim_host), f"c7x_host: cos_sim is not finite for {model_name}"
             assert cos_sim_host > 0.94, (
-                f"c7x_host TIDL vs PyTorch cos_sim {cos_sim_host:.6f} < 0.94 "
-                f"for {model_name}"
+                f"c7x_host TIDL vs PyTorch cos_sim {cos_sim_host:.6f} < 0.94 for {model_name}"
             )
 
         # ------------------------------------------------------------------
@@ -530,7 +527,9 @@ class TestYOLOTIDL:
         real_bridge_dload = str(gen_dir / "tidl_bridge.c")
         if not Path(real_bridge_dload).exists():
             TIDLOffloadCompiler.generate_bridge(
-                lowered, real_bridge_dload, stub=False,
+                lowered,
+                real_bridge_dload,
+                stub=False,
                 artifacts_dir=compiler._artifacts_dir,
             )
 
@@ -563,14 +562,8 @@ class TestYOLOTIDL:
 
             flat_ref = torch_out.flatten()
             flat_dsp = output.flatten()
-            print(
-                f"c7x_dload: ref nan={np.isnan(flat_ref).any()} "
-                f"inf={np.isinf(flat_ref).any()}"
-            )
-            print(
-                f"c7x_dload: dsp nan={np.isnan(flat_dsp).any()} "
-                f"inf={np.isinf(flat_dsp).any()}"
-            )
+            print(f"c7x_dload: ref nan={np.isnan(flat_ref).any()} inf={np.isinf(flat_ref).any()}")
+            print(f"c7x_dload: dsp nan={np.isnan(flat_dsp).any()} inf={np.isinf(flat_dsp).any()}")
             cos_sim = float(
                 np.dot(flat_ref, flat_dsp)
                 / (np.linalg.norm(flat_ref) * np.linalg.norm(flat_dsp) + 1e-10)
@@ -582,21 +575,25 @@ class TestYOLOTIDL:
                 print(stdout)
 
             if not np.isfinite(cos_sim):
-                # C7x DSP runs in FTZ (flush-to-zero) mode for vector FP.
-                # TIDL INT8 dequantized values can be very small; FTZ flushes
-                # them to zero and the YOLO detection head (DFL softmax, anchor
-                # grid) then computes 0/0 → NaN.  c7x_host passes (using PC
-                # AVX TIDL + x86 which does not enforce FTZ), confirming the
-                # pipeline is correct.  This is a known C7x hardware limitation
-                # for partial TIDL offloading with synthetic calibration data.
+                # Root cause (confirmed): PC AVX TIDL and DSP MMA TIDL apply
+                # slightly different INT8 rounding at inference time.  Even with
+                # correct per-subgraph calibration (real images, cos_sim > 0.98
+                # on c7x_host), the DSP-side dequantized DFL softmax inputs are
+                # shifted enough that exp(x_i) underflows to exactly 0.0 for all
+                # 16 elements — genuine IEEE 754 underflow, not FTZ (clearing
+                # FPCR bit 4 had no effect).  sum(0,...) = 0 → 0/0 = NaN.
+                # Fix requires eliminating the PC-DSP gap: either force float32
+                # at the TIDL subgraph boundary, or switch YOLO to the MMALIB
+                # path (C7xMMAQuantizer) which bakes scales into compiled code
+                # and has no separate PC-calibration inference step.
+                # See docs/dsp/tidl_subgraph_calibration.md for full analysis.
                 pytest.xfail(
                     f"c7x_dload cos_sim is not finite for {model_name}: "
-                    "C7x FTZ mode produces NaN in YOLO detection head when fed "
-                    "TIDL INT8-dequantized intermediates; c7x_host passes (0.99+)"
+                    "PC AVX vs DSP MMA INT8 rounding gap causes exp() underflow "
+                    "in YOLO DFL softmax; c7x_host passes (cos_sim > 0.98)"
                 )
             assert cos_sim > 0.94, (
-                f"c7x_dload TIDL vs PyTorch cos_sim {cos_sim:.6f} < 0.94 "
-                f"for {model_name}"
+                f"c7x_dload TIDL vs PyTorch cos_sim {cos_sim:.6f} < 0.94 for {model_name}"
             )
 
         finally:
@@ -638,15 +635,11 @@ def main():
         action="store_true",
         help="Enable per-layer cycle profiling",
     )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Verbose output"
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     args = parser.parse_args()
 
     if args.verbose:
-        logging.basicConfig(
-            level=logging.DEBUG, format="%(name)s: %(message)s"
-        )
+        logging.basicConfig(level=logging.DEBUG, format="%(name)s: %(message)s")
 
     # --visualize: partition + HTML (no hardware, no .so needed for partition)
     if args.visualize:
@@ -664,14 +657,11 @@ def main():
                 return 1
 
         print(f"Partitioning {model_name} with TIDL...")
-        mod, param_dict, _wrapped, _input_data = _create_yolo_model_unbound(
-            model_name, version
-        )
+        mod, param_dict, _wrapped, _input_data = _create_yolo_model_unbound(model_name, version)
         compiler = TIDLOffloadCompiler(
             config={
                 "artifacts_dir": f"/tmp/tidl_viz_{model_name}",
                 "tidl_tools_path": TIDL_TOOLS_PATH,
-                "tidl_relax_so_path": RELAX_SO_PATH,
                 "num_calibration_frames": 2,
             }
         )
@@ -711,9 +701,7 @@ def main():
         print("=" * 70)
 
         print(f"\n[1/3] Creating {model_name} model...")
-        tvm_mod, wrapped, input_data = create_yolo_model(
-            model_name, version
-        )
+        tvm_mod, wrapped, input_data = create_yolo_model(model_name, version)
 
         print("\n[2/3] Running PyTorch reference...")
         with torch.no_grad():
@@ -743,16 +731,11 @@ def main():
             print(f"\n[C7x DLOAD] Output shape: {c7x_dload_result.shape}")
             if "c7x_dload_stdout" in dsp_results:
                 stdout = dsp_results["c7x_dload_stdout"]
-                cycles_match = re.search(
-                    r"Inference complete:\s*(\d+)\s*cycles", stdout
-                )
+                cycles_match = re.search(r"Inference complete:\s*(\d+)\s*cycles", stdout)
                 if cycles_match:
                     cycles = int(cycles_match.group(1))
                     time_ms = cycles / 1_000_000
-                    print(
-                        f"[C7x DLOAD] Inference cycles: {cycles:,} "
-                        f"({time_ms:.3f} ms at 1 GHz)"
-                    )
+                    print(f"[C7x DLOAD] Inference cycles: {cycles:,} ({time_ms:.3f} ms at 1 GHz)")
 
         if "c7x_host_result" in dsp_results:
             c7x_host_result = dsp_results["c7x_host_result"]
@@ -764,9 +747,7 @@ def main():
         # Use cosine similarity (> 0.999) for pass/fail instead of
         # element-wise tolerance on raw tensor values.
         print("\n[Comparison] vs PyTorch:")
-        comparison = compare_results(
-            dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=2e1
-        )
+        comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=2e1)
 
         passed = True
         flat_ref = torch_result.flatten()
@@ -779,9 +760,10 @@ def main():
             # Compute cosine similarity
             if result_key in dsp_results:
                 flat_dsp = dsp_results[result_key].flatten()
-                cos_sim = float(np.dot(flat_ref, flat_dsp) / (
-                    np.linalg.norm(flat_ref) * np.linalg.norm(flat_dsp) + 1e-10
-                ))
+                cos_sim = float(
+                    np.dot(flat_ref, flat_dsp)
+                    / (np.linalg.norm(flat_ref) * np.linalg.norm(flat_dsp) + 1e-10)
+                )
                 cos_pass = cos_sim > 0.999
                 label = mode.replace("_", " ").title()
                 status = "PASS" if cos_pass else "FAIL"

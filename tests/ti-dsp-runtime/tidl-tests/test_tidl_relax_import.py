@@ -67,8 +67,7 @@ def _init_tidl():
     if not os.path.isfile(device_cfg):
         pytest.skip(f"device_config.cfg not found at {device_cfg}")
     init_fn = tvm.get_global_func("TIDL_relaxInit")
-    ret = init_fn(1, {"tidl_tools_path": TIDL_TOOLS_PATH,
-                       "artifacts_folder": "/tmp"})
+    ret = init_fn(1, {"tidl_tools_path": TIDL_TOOLS_PATH, "artifacts_folder": "/tmp"})
     assert ret == 0, f"TIDL_relaxInit returned {ret}"
 
 
@@ -94,8 +93,7 @@ def _extract_composites(mod):
         for block in func.body.blocks:
             for b in block.bindings:
                 val = b.value
-                if (isinstance(val, relax.Function) and val.attrs
-                        and val.attrs.get("Composite")):
+                if isinstance(val, relax.Function) and val.attrs and val.attrs.get("Composite"):
                     comp_fn = val
                 elif isinstance(val, relax.Call):
                     orig_call = val
@@ -111,9 +109,7 @@ def _partition_model(model_cls, input_spec):
     model = model_cls()
     mod, ps = model.export_tvm(spec={"main": input_spec})
     params = [
-        tvm.runtime.tensor(
-            np.random.rand(*p.shape).astype("float32"), device=tvm.cpu()
-        )
+        tvm.runtime.tensor(np.random.rand(*p.shape).astype("float32"), device=tvm.cpu())
         for _, p in ps
     ]
     mod = relax.transform.BindParams(
@@ -121,9 +117,9 @@ def _partition_model(model_cls, input_spec):
         params=dict(zip(mod["main"].params[1:], params)),
     )(mod)
     patterns = get_tidl_patterns()
-    return relax.transform.FuseOpsByPattern(
-        patterns, bind_constants=True, annotate_codegen=True
-    )(mod)
+    return relax.transform.FuseOpsByPattern(patterns, bind_constants=True, annotate_codegen=True)(
+        mod
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -135,8 +131,12 @@ class ConvReluModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.conv1 = nn.Conv2D(
-            in_channels=3, out_channels=16, kernel_size=3,
-            stride=1, padding=1, bias=False,
+            in_channels=3,
+            out_channels=16,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False,
         )
 
     def main(self, x):
@@ -147,8 +147,12 @@ class ConvBiasReluModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.conv1 = nn.Conv2D(
-            in_channels=3, out_channels=16, kernel_size=3,
-            stride=1, padding=1, bias=True,
+            in_channels=3,
+            out_channels=16,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=True,
         )
 
     def main(self, x):
@@ -210,14 +214,12 @@ class TestRelaxAllowNode:
 
         for name, call in composites:
             result = allow_fn(call)
-            assert result in (0, 1), (
-                f"AllowNode returned unexpected value {result} for {name}"
-            )
+            assert result in (0, 1), f"AllowNode returned unexpected value {result} for {name}"
 
     def test_conv_bias_relu_parseable(self):
         """Conv2d+bias+relu composite should be parseable."""
         _init_tidl()
-        allow_fn = tvm.get_global_func("TIDL_relaxAllowNode")
+        _allow_fn = tvm.get_global_func("TIDL_relaxAllowNode")
         mod = _partition_model(
             ConvBiasReluModel,
             {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
@@ -227,9 +229,7 @@ class TestRelaxAllowNode:
 
         # Should find a conv2d variant with bias
         names = {name for name, _ in composites}
-        assert any("conv2d" in n for n in names), (
-            f"Expected conv2d composite, found: {names}"
-        )
+        assert any("conv2d" in n for n in names), f"Expected conv2d composite, found: {names}"
 
     def test_composite_name_extraction(self):
         """Verify the parser correctly extracts composite names from
@@ -240,9 +240,7 @@ class TestRelaxAllowNode:
         )
         composites = _extract_composites(mod)
         names = {name for name, _ in composites}
-        assert "tidl.nn.conv2d_relu" in names, (
-            f"Expected tidl.nn.conv2d_relu, found: {names}"
-        )
+        assert "tidl.nn.conv2d_relu" in names, f"Expected tidl.nn.conv2d_relu, found: {names}"
 
 
 # ---------------------------------------------------------------------------
@@ -263,21 +261,24 @@ class TestTIDLImport:
         """Create a TIDLOffloadCompiler with test config."""
         from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
-        return TIDLOffloadCompiler(config={
-            "artifacts_dir": str(tmpdir),
-            "tidl_tools_path": TIDL_TOOLS_PATH,
-            "tidl_relax_so_path": RELAX_SO_PATH,
-            "num_calibration_frames": 1,
-        })
+        # Pipeline test — INT8 accuracy is not verified, but calibration_inputs
+        # is still required by tidl_import().  A single random frame is enough.
+        calib_frame = np.random.randn(1, 3, 32, 32).astype("float32")
+        return TIDLOffloadCompiler(
+            config={
+                "artifacts_dir": str(tmpdir),
+                "tidl_tools_path": TIDL_TOOLS_PATH,
+                "num_calibration_frames": 1,
+                "calibration_inputs": [calib_frame],
+            }
+        )
 
     def _prepare_and_partition(self, compiler, model_cls, input_spec):
         """Export, prepare, and partition a model."""
         model = model_cls()
         mod, ps = model.export_tvm(spec={"main": input_spec})
         params = [
-            tvm.runtime.tensor(
-                np.random.rand(*p.shape).astype("float32"), device=tvm.cpu()
-            )
+            tvm.runtime.tensor(np.random.rand(*p.shape).astype("float32"), device=tvm.cpu())
             for _, p in ps
         ]
         param_dict = dict(zip(mod["main"].params[1:], params))
@@ -297,9 +298,9 @@ class TestTIDLImport:
 
         # Verify the partitioned module has TIDL subgraphs
         tidl_funcs = [
-            gv for gv, f in mod.functions.items()
-            if isinstance(f, relax.Function) and f.attrs
-            and f.attrs.get("Codegen") == "tidl"
+            gv
+            for gv, f in mod.functions.items()
+            if isinstance(f, relax.Function) and f.attrs and f.attrs.get("Codegen") == "tidl"
         ]
         if not tidl_funcs:
             pytest.skip("No TIDL subgraphs found after partition")
@@ -326,9 +327,9 @@ class TestTIDLImport:
         )
 
         tidl_funcs = [
-            gv for gv, f in mod.functions.items()
-            if isinstance(f, relax.Function) and f.attrs
-            and f.attrs.get("Codegen") == "tidl"
+            gv
+            for gv, f in mod.functions.items()
+            if isinstance(f, relax.Function) and f.attrs and f.attrs.get("Codegen") == "tidl"
         ]
         if not tidl_funcs:
             pytest.skip("No TIDL subgraphs found after partition")
@@ -337,9 +338,7 @@ class TestTIDLImport:
 
         # Calibration data file should exist
         calib_path = tmp_path / "calib_raw_data0.bin"
-        assert calib_path.exists(), (
-            f"Calibration data not found at {calib_path}"
-        )
+        assert calib_path.exists(), f"Calibration data not found at {calib_path}"
         assert calib_path.stat().st_size > 0
 
     def test_import_conv_bias_relu(self, tmp_path):
@@ -353,9 +352,9 @@ class TestTIDLImport:
         )
 
         tidl_funcs = [
-            gv for gv, f in mod.functions.items()
-            if isinstance(f, relax.Function) and f.attrs
-            and f.attrs.get("Codegen") == "tidl"
+            gv
+            for gv, f in mod.functions.items()
+            if isinstance(f, relax.Function) and f.attrs and f.attrs.get("Codegen") == "tidl"
         ]
         if not tidl_funcs:
             pytest.skip("No TIDL subgraphs found after partition")
