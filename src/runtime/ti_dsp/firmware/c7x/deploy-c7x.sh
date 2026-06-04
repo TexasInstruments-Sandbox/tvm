@@ -104,10 +104,11 @@ deploy_firmware() {
     info "Deploying: $firmware"
     info "Target: ${TARGET}:${FIRMWARE_PATH}"
 
-    # Stop if running
-    stop_firmware
-
-    # Remove existing file/symlink to ensure clean copy
+    # Just copy — caller is responsible for rebooting so that remoteproc
+    # autostart loads the new firmware cleanly.  Avoid stop/start here:
+    # the kernel returns EBUSY while virtio vdev negotiation is still in
+    # progress after the board's own autostart, and there is no reliable
+    # way to know when that window has passed.
     info "Copying firmware..."
     ssh_cmd "rm -f ${FIRMWARE_PATH}"
     scp -o ConnectTimeout=5 "$firmware" "root@${TARGET}:${FIRMWARE_PATH}"
@@ -122,15 +123,7 @@ deploy_firmware() {
     fi
 
     info "Copied $(numfmt --to=iec $local_size)"
-
-    # Start
-    start_firmware
-
-    # Brief pause for boot
-    sleep 1
-
-    # Show state
-    info "State: $(get_state)"
+    info "Firmware staged -- reboot the board to activate"
 }
 
 usage() {

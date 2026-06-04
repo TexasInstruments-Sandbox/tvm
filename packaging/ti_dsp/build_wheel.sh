@@ -141,8 +141,14 @@ build_x86() {
         cp "$ARM_SO/libc7x_arm_runtime.so" "$DATA/firmware/libc7x_arm_runtime.so"
     fi
 
-    # TIDL
+    # TIDL — copy both the TVM bridge and its runtime dependency so the
+    # dynamic linker can find tidl_model_custom_import.so when loading
+    # tidl_model_import_relax.so from the installed wheel path.
     cp "$TIDL_SO" "$DATA/tidl/"
+    TIDL_CUSTOM="$(dirname "$TIDL_SO")/tidl_model_custom_import.so"
+    if [ -f "$TIDL_CUSTOM" ]; then
+        cp "$TIDL_CUSTOM" "$DATA/tidl/"
+    fi
 
     # Build infrastructure
     cp "$DSP_RT/cmake/toolchain-j722s-c7x.cmake" "$DATA/cmake/"

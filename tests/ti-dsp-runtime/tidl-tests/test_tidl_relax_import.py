@@ -38,6 +38,8 @@ TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
 @pytest.fixture(scope="module", autouse=True)
 def load_relax_so():
     """Load the TIDL Relax import .so once per module."""
+    if tvm.get_global_func("TIDL_relaxInit", allow_missing=True) is not None:
+        return  # already loaded by a prior test module in this session
     if not os.path.isfile(RELAX_SO_PATH):
         pytest.skip(f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}")
     tvm.runtime.load_module(RELAX_SO_PATH)

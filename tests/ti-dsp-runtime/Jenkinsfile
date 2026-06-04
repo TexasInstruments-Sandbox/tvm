@@ -59,9 +59,9 @@
 pipeline {
     agent { label 'relax-c7x' }
 
-    triggers {
-        cron('H 1 * * *')
-    }
+    // triggers {
+    //     cron('H 1 * * *')
+    // }
 
     options {
         timestamps()
@@ -73,7 +73,7 @@ pipeline {
     parameters {
         string(
             name: 'BRANCH',
-            defaultValue: 'mmalib-offload',
+            defaultValue: 'tidl-bugfix',
             description: 'Branch to build and test'
         )
         booleanParam(
@@ -213,6 +213,7 @@ pipeline {
                             test -d .venv || uv venv .venv
                             uv pip install numpy pytest scipy psutil ml_dtypes build pandas tqdm seaborn transformers
                             uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --extra-index-url https://download.pytorch.org/whl/cpu
+                            uv pip install "torchao==0.16.0" --extra-index-url https://download.pytorch.org/whl/cpu
                             uv pip install ultralytics
                             uv pip install -e 3rdparty/tvm-ffi
                         '''
@@ -324,6 +325,22 @@ pipeline {
                         sh '''
                             cd src/runtime/ti_dsp/firmware/c7x/arm
                             ./build.sh deploy
+                        '''
+                        // Reboot so remoteproc autostart loads the new firmware.
+                        // Copying while the board is running avoids the EBUSY
+                        // error from stopping remoteproc mid-vdev-negotiation.
+                        sh '''
+                            ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+                                root@${AM67A_TARGET} reboot || true
+                            sleep 30
+                            for i in $(seq 1 12); do
+                                ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+                                    root@${AM67A_TARGET} true 2>/dev/null && break
+                                echo "Waiting for EVM to come back up... ($i/12)"
+                                sleep 10
+                            done
+                            ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+                                root@${AM67A_TARGET} true
                         '''
                     }
                 }
@@ -444,6 +461,7 @@ pipeline {
                                 --ignore=tidl-tests/test_tidl_import_e2e.py \
                                 --ignore=tidl-tests/test_tidl_new_ops.py \
                                 --ignore=tidl-tests/test_tidl_resnet_e2e.py \
+                                -k "not TestLayerHardware" \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/tidl_host_quick.xml
                         '''
@@ -459,6 +477,7 @@ pipeline {
                             mkdir -p results
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. tidl-tests/ \
+                                -m "not quick" \
                                 --dsp-mode=c7x_host \
                                 --ignore=tidl-tests/test_tidl_import_e2e.py \
                                 --ignore=tidl-tests/test_tidl_new_ops.py \
@@ -659,6 +678,7 @@ pipeline {
                             mkdir -p results
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. tidl-tests/ \
+                                -m "not quick" \
                                 --dsp-mode=c7x_dload \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/tidl_hw_full.xml
