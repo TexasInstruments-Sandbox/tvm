@@ -398,7 +398,7 @@ class TestYOLOTIDL:
         YOLO_TIDL_MODELS,
         ids=[m[0] for m in YOLO_TIDL_MODELS],
     )
-    def test_yolo_tidl(self, tmp_path, model_spec):
+    def test_yolo_tidl(self, tmp_path, model_spec, dsp_mode):
         """TIDL offload: c7x_host smoke test then c7x_dload correctness.
 
         Pipeline:
@@ -408,10 +408,10 @@ class TestYOLOTIDL:
           3. c7x_host smoke: build with stub bridge (TIDL outputs zeroed)
              and run via TI Host Emulation.  Verifies the pipeline end-to-
              end without hardware.  Fails fast if codegen or non-TIDL ops
-             are broken.
+             are broken.  Skipped if PC TIDL libs are absent.
           4. c7x_dload correctness: build with real TIDL bridge, deploy to
              AM67A, compare output to PyTorch with cosine similarity > 0.94.
-             Only runs if c7x_host passes.
+             Only runs when --dsp-mode=c7x_dload.
         """
         import tarfile  # noqa: PLC0415,I001
 
@@ -427,6 +427,9 @@ class TestYOLOTIDL:
             get_default_pipeline,
         )
         from tvm.relax.backend.tidl import TIDLOffloadCompiler  # noqa: PLC0415
+
+        if dsp_mode not in ("c7x_host", "c7x_dload"):
+            pytest.skip(f"--dsp-mode=c7x_host or c7x_dload required, got {dsp_mode!r}")
 
         model_name, version = model_spec
         _skip_yolo_if_no_ultralytics(model_name)
@@ -521,85 +524,93 @@ class TestYOLOTIDL:
 
         # ------------------------------------------------------------------
         # Step 4: c7x_dload correctness (real TIDL bridge, AM67A hardware).
+        # Only runs when --dsp-mode=c7x_dload.
         # ------------------------------------------------------------------
-        # Re-use the real bridge generated in Step 3 if present; otherwise
-        # generate it now (allows running Step 4 without PC TIDL libs).
-        real_bridge_dload = str(gen_dir / "tidl_bridge.c")
-        if not Path(real_bridge_dload).exists():
-            TIDLOffloadCompiler.generate_bridge(
-                lowered,
-                real_bridge_dload,
-                stub=False,
-                artifacts_dir=compiler._artifacts_dir,
-            )
-
-        dload_build_dir = tmp_path / "dload_build"
-        weights_path = gen_dir / "weights.bin"
-        # fp_reassoc_off=True guards against cl7x reordering FP operations.
-        # The c7x_dload NaN (0/0 in YOLO DFL softmax) is a calibration
-        # accuracy issue: per-subgraph calibration uses image pixels [0,1]
-        # for all subgraphs but intermediate activations at the DFL boundary
-        # are in a different range.  DSP MMA TIDL produces slightly lower
-        # INT8 values than PC AVX, causing all exp(x_i) to underflow to 0.0
-        # → sum=0 → 0/0=NaN.  The test marks this path xfail at runtime.
-        module_path = build_dsp_dynmod(
-            generated_dir=gen_dir,
-            build_dir=dload_build_dir,
-            weights_file=weights_path,
-            tidl_bridge=real_bridge_dload,
-            use_tidl=True,
-            tidl_artifacts_dir=compiler._artifacts_dir,
-            fp_reassoc_off=True,
-        )
-
-        try:
-            output, stdout, cycles = run_dsp_dload(
-                module_path,
-                weights_path,
-                [input_data],
-                embedded_weights=True,
-            )
-
-            flat_ref = torch_out.flatten()
-            flat_dsp = output.flatten()
-            print(f"c7x_dload: ref nan={np.isnan(flat_ref).any()} inf={np.isinf(flat_ref).any()}")
-            print(f"c7x_dload: dsp nan={np.isnan(flat_dsp).any()} inf={np.isinf(flat_dsp).any()}")
-            cos_sim = float(
-                np.dot(flat_ref, flat_dsp)
-                / (np.linalg.norm(flat_ref) * np.linalg.norm(flat_dsp) + 1e-10)
-            )
-            print(f"c7x_dload: output shape={output.shape}, cos_sim={cos_sim:.6f}")
-            if cycles:
-                print(f"TIDL cycles: {cycles:,} ({cycles / 1e6:.2f} ms @ 1 GHz)")
-            if stdout:
-                print(stdout)
-
-            if not np.isfinite(cos_sim):
-                # Root cause (confirmed): PC AVX TIDL and DSP MMA TIDL apply
-                # slightly different INT8 rounding at inference time.  Even with
-                # correct per-subgraph calibration (real images, cos_sim > 0.98
-                # on c7x_host), the DSP-side dequantized DFL softmax inputs are
-                # shifted enough that exp(x_i) underflows to exactly 0.0 for all
-                # 16 elements — genuine IEEE 754 underflow, not FTZ (clearing
-                # FPCR bit 4 had no effect).  sum(0,...) = 0 → 0/0 = NaN.
-                # Fix requires eliminating the PC-DSP gap: either force float32
-                # at the TIDL subgraph boundary, or switch YOLO to the MMALIB
-                # path (C7xMMAQuantizer) which bakes scales into compiled code
-                # and has no separate PC-calibration inference step.
-                # See docs/dsp/tidl_subgraph_calibration.md for full analysis.
-                pytest.xfail(
-                    f"c7x_dload cos_sim is not finite for {model_name}: "
-                    "PC AVX vs DSP MMA INT8 rounding gap causes exp() underflow "
-                    "in YOLO DFL softmax; c7x_host passes (cos_sim > 0.98)"
+        if dsp_mode == "c7x_dload":
+            # Re-use the real bridge generated in Step 3 if present; otherwise
+            # generate it now (allows running Step 4 without PC TIDL libs).
+            real_bridge_dload = str(gen_dir / "tidl_bridge.c")
+            if not Path(real_bridge_dload).exists():
+                TIDLOffloadCompiler.generate_bridge(
+                    lowered,
+                    real_bridge_dload,
+                    stub=False,
+                    artifacts_dir=compiler._artifacts_dir,
                 )
-            assert cos_sim > 0.94, (
-                f"c7x_dload TIDL vs PyTorch cos_sim {cos_sim:.6f} < 0.94 for {model_name}"
+
+            dload_build_dir = tmp_path / "dload_build"
+            weights_path = gen_dir / "weights.bin"
+            # fp_reassoc_off=True guards against cl7x reordering FP operations.
+            # The c7x_dload NaN (0/0 in YOLO DFL softmax) is a calibration
+            # accuracy issue: per-subgraph calibration uses image pixels [0,1]
+            # for all subgraphs but intermediate activations at the DFL boundary
+            # are in a different range.  DSP MMA TIDL produces slightly lower
+            # INT8 values than PC AVX, causing all exp(x_i) to underflow to 0.0
+            # → sum=0 → 0/0=NaN.  The test marks this path xfail at runtime.
+            module_path = build_dsp_dynmod(
+                generated_dir=gen_dir,
+                build_dir=dload_build_dir,
+                weights_file=weights_path,
+                tidl_bridge=real_bridge_dload,
+                use_tidl=True,
+                tidl_artifacts_dir=compiler._artifacts_dir,
+                fp_reassoc_off=True,
             )
 
-        finally:
-            if not os.environ.get("DSP_KEEP_TEMP"):
-                shutil.rmtree(str(gen_dir), ignore_errors=True)
-                shutil.rmtree(str(dload_build_dir), ignore_errors=True)
+            try:
+                output, stdout, cycles = run_dsp_dload(
+                    module_path,
+                    weights_path,
+                    [input_data],
+                    embedded_weights=True,
+                )
+
+                flat_ref = torch_out.flatten()
+                flat_dsp = output.flatten()
+                ref_nan = np.isnan(flat_ref).any()
+                ref_inf = np.isinf(flat_ref).any()
+                dsp_nan = np.isnan(flat_dsp).any()
+                dsp_inf = np.isinf(flat_dsp).any()
+                print(f"c7x_dload: ref nan={ref_nan} inf={ref_inf}")
+                print(f"c7x_dload: dsp nan={dsp_nan} inf={dsp_inf}")
+                cos_sim = float(
+                    np.dot(flat_ref, flat_dsp)
+                    / (np.linalg.norm(flat_ref) * np.linalg.norm(flat_dsp) + 1e-10)
+                )
+                print(f"c7x_dload: output shape={output.shape}, cos_sim={cos_sim:.6f}")
+                if cycles:
+                    print(f"TIDL cycles: {cycles:,} ({cycles / 1e6:.2f} ms @ 1 GHz)")
+                if stdout:
+                    print(stdout)
+
+                if not np.isfinite(cos_sim):
+                    # Root cause (confirmed): PC AVX TIDL and DSP MMA TIDL apply
+                    # slightly different INT8 rounding at inference time.  Even with
+                    # correct per-subgraph calibration (real images, cos_sim > 0.98
+                    # on c7x_host), the DSP-side dequantized DFL softmax inputs are
+                    # shifted enough that exp(x_i) underflows to exactly 0.0 for all
+                    # 16 elements — genuine IEEE 754 underflow, not FTZ (clearing
+                    # FPCR bit 4 had no effect).  sum(0,...) = 0 → 0/0 = NaN.
+                    # Fix requires eliminating the PC-DSP gap: either force float32
+                    # at the TIDL subgraph boundary, or switch YOLO to the MMALIB
+                    # path (C7xMMAQuantizer) which bakes scales into compiled code
+                    # and has no separate PC-calibration inference step.
+                    # See docs/dsp/tidl_subgraph_calibration.md for full analysis.
+                    pytest.xfail(
+                        f"c7x_dload cos_sim is not finite for {model_name}: "
+                        "PC AVX vs DSP MMA INT8 rounding gap causes exp() underflow "
+                        "in YOLO DFL softmax; c7x_host passes (cos_sim > 0.98)"
+                    )
+                assert cos_sim > 0.94, (
+                    f"c7x_dload TIDL vs PyTorch cos_sim {cos_sim:.6f} < 0.94 for {model_name}"
+                )
+
+            finally:
+                if not os.environ.get("DSP_KEEP_TEMP"):
+                    shutil.rmtree(str(dload_build_dir), ignore_errors=True)
+
+        if not os.environ.get("DSP_KEEP_TEMP"):
+            shutil.rmtree(str(gen_dir), ignore_errors=True)
 
 
 # -----------------------------------------------------------------------------
