@@ -1171,8 +1171,12 @@ def _build_dynmod(
     Path
         Path to the built lib0.out module.
     """
-    # Resolve DSP build infrastructure: bundled package first, source tree fallback
-    tvm_home = Path(__file__).resolve().parents[5]
+    # Resolve DSP build infrastructure: bundled package first, source tree fallback.
+    # tvm_home: prefer TVM_HOME env var (set in CI and local dev), fall back to
+    # parents[5] which is correct for source-tree imports (python/tvm/relax/backend/tidl/)
+    # but wrong for pip-installed wheels (.venv/lib/python3.12/site-packages/tvm/...).
+    _tvm_home_env = os.environ.get("TVM_HOME")
+    tvm_home = Path(_tvm_home_env) if _tvm_home_env else Path(__file__).resolve().parents[5]
     try:
         from tvm.data.ti_dsp.paths import find_dsp_runtime_dir
 
@@ -1195,10 +1199,15 @@ def _build_dynmod(
     build_dir = Path(build_dir).resolve()
     build_dir.mkdir(parents=True, exist_ok=True)
 
-    # Configure cmake
+    # Configure cmake. Pass DSP_RUNTIME_DIR explicitly so the dynmod CMakeLists
+    # does not need to re-derive it from TVM_HOME. This is the load-bearing fix
+    # for pip-installed wheels: find_dsp_runtime_dir() returns the bundled data
+    # path correctly, but TVM_HOME from parents[5] would point into .venv/ on
+    # an installed wheel, causing cmake to silently miss dlpack and model.h.
     cmake_cmd = [
         "cmake",
         f"-DTVM_HOME={tvm_home}",
+        f"-DDSP_RUNTIME_DIR={dsp_runtime_dir}",
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_TOOLCHAIN_FILE={toolchain_file}",
         f"-DGENERATED_CODE_DIR={generated_dir}",
