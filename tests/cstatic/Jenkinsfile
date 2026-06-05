@@ -41,7 +41,7 @@ pipeline {
     parameters {
         string(
             name: 'BRANCH',
-            defaultValue: 'relax-tidl',
+            defaultValue: 'tidl-bugfix',
             description: 'Branch to build and test'
         )
         booleanParam(
@@ -145,6 +145,7 @@ pipeline {
                             uv pip install numpy pytest pytest-xdist scipy psutil tqdm pandas PyYAML
                             uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" \
                                 --extra-index-url https://download.pytorch.org/whl/cpu
+                            uv pip install "torchao==0.16.0" --extra-index-url https://download.pytorch.org/whl/cpu
                             uv pip install onnx Pillow opencv-python requests ultralytics seaborn matplotlib
                             uv pip install -e 3rdparty/tvm-ffi
                         '''

@@ -229,8 +229,7 @@ def _check_reshape(ctx: PatternCheckContext) -> bool:
 def _check_matmul(ctx: PatternCheckContext) -> bool:
     """Validate matmul constraints for TIDL (InnerProduct layer).
 
-    - Supported dtypes
-    - Both inputs must be tensors
+    - Supported dtypes on data and weight
     """
     for key in ("data", "weight"):
         expr = ctx.annotated_expr.get(key)
