@@ -46,7 +46,10 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
 # === Path Configuration ===
 if(DEFINED ENV{TVM_HOME})
-    set(TVM_HOME "$ENV{TVM_HOME}" CACHE PATH "Path to TVM")
+    # FORCE so ENV{TVM_HOME} wins even when -DTVM_HOME=<wrong-path> is passed
+    # by a pip-installed caller whose parents[5] points into .venv/lib/pythonX.Y/.
+    # Mirrors the FORCE already present in dsp-cpp/CMakeLists.txt.
+    set(TVM_HOME "$ENV{TVM_HOME}" CACHE PATH "Path to TVM" FORCE)
 elseif(UNIX)
     set(TVM_HOME "$ENV{HOME}/ml/tvm" CACHE PATH "Path to TVM")
 endif()
