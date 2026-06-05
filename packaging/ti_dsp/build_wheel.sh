@@ -149,11 +149,16 @@ build_x86() {
     if [ -f "$TIDL_CUSTOM" ]; then
         cp "$TIDL_CUSTOM" "$DATA/tidl/"
     fi
+    # TIDL API C sources compiled into lib0.out when USE_TIDL=ON.
+    # dynmod/CMakeLists.txt references ${DSP_RUNTIME_DIR}/tidl/*.c directly.
+    cp "$DSP_RT/tidl/"*.c "$DATA/tidl/"
 
     # Build infrastructure
     cp "$DSP_RT/cmake/toolchain-j722s-c7x.cmake" "$DATA/cmake/"
     cp -a "$DSP_RT/dynmod/." "$DATA/dynmod/"
     rm -rf "$DATA/dynmod/build-dynmod" "$DATA/dynmod/build" 2>/dev/null || true
+    mkdir -p "$DATA/scripts"
+    cp "$DSP_RT/scripts/bin_to_asm.py" "$DATA/scripts/"
     DLPACK="$TVM_HOME/3rdparty/tvm-ffi/3rdparty/dlpack/include/dlpack"
     if [ -d "$DLPACK" ]; then
         cp "$DLPACK"/*.h "$DATA/include/dlpack/"
@@ -161,6 +166,20 @@ build_x86() {
     if [ -d "$DSP_RT/include" ]; then
         cp -a "$DSP_RT/include/." "$DATA/include/"
     fi
+    # Copy all DSP runtime headers needed by generated lib0.c at compile time.
+    # The dynmod CMakeLists adds -I${DSP_RUNTIME_DIR} so every header
+    # subdirectory reachable via #include "subdir/header.h" must be present.
+    # Firmware internals (dload, compute_service) are excluded — they are only
+    # needed to build the firmware binary, not to compile generated code.
+    find "$DSP_RT" -name "*.h" \
+        ! -path "*/build*" \
+        ! -path "*/firmware/c7x/dsp/src/*" \
+        ! -path "*/firmware/c7x/arm/*" \
+        | while read -r f; do
+            rel="${f#$DSP_RT/}"
+            mkdir -p "$DATA/$(dirname "$rel")"
+            cp "$f" "$DATA/$rel"
+        done
 
     # --- pyproject.toml + version ---
     cp "$SCRIPT_DIR/pyproject.toml" "$STAGING/"
