@@ -126,6 +126,21 @@ pipeline {
             defaultValue: false,
             description: 'Skip wheel packaging tests (compile + inference e2e on board)'
         )
+        booleanParam(
+            name: 'SKIP_DSP_FULL_TESTS',
+            defaultValue: false,
+            description: 'Skip c7x_dload Full stage (4-hour DSP regression)'
+        )
+        booleanParam(
+            name: 'SKIP_QUANTIZED_TESTS',
+            defaultValue: false,
+            description: 'Skip quantized c7x_dload and quantized MMALIB c7x_dload stages'
+        )
+        booleanParam(
+            name: 'SKIP_SMOLLM_TESTS',
+            defaultValue: false,
+            description: 'Skip SmolLM Chat e2e stage'
+        )
     }
 
     environment {
@@ -563,7 +578,7 @@ pipeline {
 
                 stage('c7x_dload Full') {
                     when {
-                        expression { return !params.SKIP_LONG_TESTS }
+                        expression { return !params.SKIP_LONG_TESTS && !params.SKIP_DSP_FULL_TESTS }
                     }
                     options {
                         timeout(time: 4, unit: 'HOURS')
@@ -599,6 +614,9 @@ pipeline {
                 }
 
                 stage('Quantized c7x_dload') {
+                    when {
+                        expression { return !params.SKIP_QUANTIZED_TESTS }
+                    }
                     steps {
                         sh '''
                             mkdir -p results
@@ -615,7 +633,7 @@ pipeline {
 
                 stage('Quantized MMALIB c7x_dload') {
                     when {
-                        expression { return !params.SKIP_MMALIB_TESTS }
+                        expression { return !params.SKIP_MMALIB_TESTS && !params.SKIP_QUANTIZED_TESTS }
                     }
                     steps {
                         sh '''
@@ -633,6 +651,9 @@ pipeline {
                 }
 
                 stage('SmolLM Chat e2e') {
+                    when {
+                        expression { return !params.SKIP_SMOLLM_TESTS }
+                    }
                     options {
                         timeout(time: 30, unit: 'MINUTES')
                     }
