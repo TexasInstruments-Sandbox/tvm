@@ -59,9 +59,9 @@
 pipeline {
     agent { label 'relax-c7x' }
 
-    // triggers {
-    //     cron('H 1 * * *')
-    // }
+    triggers {
+        cron('H 1 * * *')
+    }
 
     options {
         timestamps()
@@ -475,7 +475,6 @@ pipeline {
                                 --dsp-mode=c7x_host \
                                 --ignore=tidl-tests/test_tidl_import_e2e.py \
                                 --ignore=tidl-tests/test_tidl_new_ops.py \
-                                --ignore=tidl-tests/test_tidl_resnet_e2e.py \
                                 -k "not TestLayerHardware" \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/tidl_host_quick.xml
@@ -496,7 +495,6 @@ pipeline {
                                 --dsp-mode=c7x_host \
                                 --ignore=tidl-tests/test_tidl_import_e2e.py \
                                 --ignore=tidl-tests/test_tidl_new_ops.py \
-                                --ignore=tidl-tests/test_tidl_resnet_e2e.py \
                                 -k "not TestLayerHardware" \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/tidl_host_full.xml
