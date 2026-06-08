@@ -65,7 +65,7 @@ pipeline {
 
     options {
         timestamps()
-        timeout(time: 8, unit: 'HOURS')
+        timeout(time: 9, unit: 'HOURS')
         buildDiscarder(logRotator(numToKeepStr: '20'))
         disableConcurrentBuilds()
     }
@@ -531,15 +531,33 @@ pipeline {
                                 root@${AM67A_TARGET} \
                                 "/usr/local/bin/c7x_compute status" \
                             || {
-                                echo "Board unresponsive -- attempting recovery"
+                                echo "Board unresponsive -- attempting stop/start recovery"
                                 cd src/runtime/ti_dsp/firmware/c7x
-                                ./deploy-c7x.sh --stop  || true
+                                ./deploy-c7x.sh --stop || true
                                 sleep 3
                                 ./deploy-c7x.sh --start
                                 sleep 3
                                 ssh -o ConnectTimeout=10 \
+                                    -o StrictHostKeyChecking=no \
                                     root@${AM67A_TARGET} \
-                                    "/usr/local/bin/c7x_compute status"
+                                    "/usr/local/bin/c7x_compute status" \
+                                || {
+                                    echo "Stop/start failed -- rebooting board"
+                                    ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+                                        root@${AM67A_TARGET} reboot || true
+                                    sleep 30
+                                    for i in $(seq 1 12); do
+                                        ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+                                            root@${AM67A_TARGET} true 2>/dev/null && break
+                                        echo "Waiting for board to come back up... ($i/12)"
+                                        sleep 10
+                                    done
+                                    ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+                                        root@${AM67A_TARGET} true
+                                    ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+                                        root@${AM67A_TARGET} \
+                                        "/usr/local/bin/c7x_compute status"
+                                }
                             }
                         '''
                     }
