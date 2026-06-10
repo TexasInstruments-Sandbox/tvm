@@ -370,6 +370,19 @@ def _build_strided_slice_model():
     return Model
 
 
+def _build_strided_slice_to_end_model():
+    """Strided slice x[:,1:,:,:] — end is INT64_MAX, TVM's 'slice to end' sentinel."""
+    x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x]):
+        with bb.dataflow():
+            # 2**63 - 1 == INT64_MAX: the sentinel the C++ parser must preserve
+            out = bb.emit(relax.op.strided_slice(x, axes=[1], begin=[1], end=[2**63 - 1]))
+            gv = bb.emit_output(out)
+        bb.emit_func_output(gv)
+    return bb.get()
+
+
 def _build_cast_model():
     """Cast float32 -> int8."""
 
@@ -933,6 +946,18 @@ class TestLayerPartition:
         partitioned = partition_for_tidl(mod)
         assert _has_composite(partitioned, "tidl.strided_slice")
 
+    def test_strided_slice_to_end(self):
+        """Strided slice x[:,1:] (INT64_MAX end sentinel) should be partitioned.
+
+        Verifies the Python pattern accepts INT64_MAX as a valid end value —
+        the C++ fix (INT64_MAX → INT32_MAX) is exercised during import.
+        """
+        mod = _build_strided_slice_to_end_model()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.strided_slice"), (
+            f"Expected tidl.strided_slice. Found: {_find_composites_in_module(partitioned)}"
+        )
+
     def test_cast(self):
         """Cast (astype) should be partitioned."""
         mod = _build_cast_model()
@@ -959,6 +984,81 @@ class TestLayerPartition:
         partitioned = partition_for_tidl(mod)
         assert _has_composite(partitioned, composite), (
             f"Expected {composite}. Found: {_find_composites_in_module(partitioned)}"
+        )
+
+    def test_reduce_max_multi_axis_rejected(self):
+        """Multi-axis reduce_max must not be partitioned (TIDL supports one axis)."""
+        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        bb = relax.BlockBuilder()
+        with bb.function("main", [x]):
+            with bb.dataflow():
+                out = bb.emit(relax.op.max(x, axis=[2, 3]))
+                gv = bb.emit_output(out)
+            bb.emit_func_output(gv)
+        mod = bb.get()
+        partitioned = partition_for_tidl(mod)
+        assert not _has_composite(partitioned, "tidl.reduce_max"), (
+            "Multi-axis reduce_max should not be offloaded to TIDL"
+        )
+
+    def test_reduce_max_no_axis_rejected(self):
+        """Global reduce_max (no axis) must not be partitioned."""
+        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        bb = relax.BlockBuilder()
+        with bb.function("main", [x]):
+            with bb.dataflow():
+                out = bb.emit(relax.op.max(x))
+                gv = bb.emit_output(out)
+            bb.emit_func_output(gv)
+        mod = bb.get()
+        partitioned = partition_for_tidl(mod)
+        assert not _has_composite(partitioned, "tidl.reduce_max"), (
+            "No-axis (global) reduce_max should not be offloaded to TIDL"
+        )
+
+    def test_reduce_min_multi_axis_rejected(self):
+        """Multi-axis reduce_min must not be partitioned (TIDL supports one axis)."""
+        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        bb = relax.BlockBuilder()
+        with bb.function("main", [x]):
+            with bb.dataflow():
+                out = bb.emit(relax.op.min(x, axis=[2, 3]))
+                gv = bb.emit_output(out)
+            bb.emit_func_output(gv)
+        mod = bb.get()
+        partitioned = partition_for_tidl(mod)
+        assert not _has_composite(partitioned, "tidl.reduce_min"), (
+            "Multi-axis reduce_min should not be offloaded to TIDL"
+        )
+
+    def test_reduce_min_no_axis_rejected(self):
+        """Global reduce_min (no axis) must not be partitioned."""
+        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        bb = relax.BlockBuilder()
+        with bb.function("main", [x]):
+            with bb.dataflow():
+                out = bb.emit(relax.op.min(x))
+                gv = bb.emit_output(out)
+            bb.emit_func_output(gv)
+        mod = bb.get()
+        partitioned = partition_for_tidl(mod)
+        assert not _has_composite(partitioned, "tidl.reduce_min"), (
+            "No-axis (global) reduce_min should not be offloaded to TIDL"
+        )
+
+    def test_global_avg_pool_via_mean(self):
+        """Spatial mean over axes=[2,3] should be partitioned as tidl.mean."""
+        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        bb = relax.BlockBuilder()
+        with bb.function("main", [x]):
+            with bb.dataflow():
+                out = bb.emit(relax.op.mean(x, axis=[2, 3], keepdims=True))
+                gv = bb.emit_output(out)
+            bb.emit_func_output(gv)
+        mod = bb.get()
+        partitioned = partition_for_tidl(mod)
+        assert _has_composite(partitioned, "tidl.mean"), (
+            f"Expected tidl.mean. Found: {_find_composites_in_module(partitioned)}"
         )
 
     # --- Advanced ops ---
@@ -1471,6 +1571,56 @@ class ConvSliceModel(nn.Module):
         return x
 
 
+class ConvSliceToEndModel(nn.Module):
+    """Conv → slice x[:,1:,:,:] using INT64_MAX end sentinel.
+
+    Verifies the fix for strided_slice extract_prim: INT64_MAX must be
+    mapped to INT32_MAX (TIDL's 'to end' sentinel) rather than truncating
+    to -1.  Output is channels 1–7 of 8, shape (1, 7, 16, 16).
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        # end=INT64_MAX means "to the end of the axis"
+        y = wrap_nested(
+            _op.strided_slice(x._expr, axes=[1], begin=[1], end=[2**63 - 1]),
+            "slice_to_end",
+        )
+        return y
+
+
+class ConvGlobalAvgPoolModel(nn.Module):
+    """Conv → global average pool via mean(axes=[2,3], keepdims=True).
+
+    Verifies the mean parser fixes: avgDims=2, kernelH/W=0 (TIDL sentinel),
+    storage_order=0.  Output shape is (1, 8, 1, 1).
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        y = wrap_nested(
+            _op.mean(x._expr, axis=[2, 3], keepdims=True),
+            "global_avg_pool",
+        )
+        return y
+
+
 class ConvPermuteModel(nn.Module):
     """Conv + ReLU + permute_dims (NCHW → NHWC)."""
 
@@ -1647,6 +1797,31 @@ class ConvDepthToSpaceModel(nn.Module):
         x = self.conv(x)
         y = _op.nn.pixel_shuffle(x._expr, upscale_factor=2)
         return wrap_nested(y, "depth_to_space")
+
+
+class ConvConvTransposeModel(nn.Module):
+    """Conv + conv2d_transpose (deconvolution).
+
+    Tests the IOHW→OIHW weight permutation fix.  The deconv weight is a
+    module parameter (IOHW layout as stored by Relax); TIDL expects OIHW,
+    so the import parser must permute before writing net.bin.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+        # IOHW layout: in_ch=8, out_ch=4, kH=3, kW=3
+        self.deconv_weight = nn.Parameter((8, 4, 3, 3))
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        # conv2d_transpose: (1,8,H,W) -> (1,4,H,W) with stride=1, pad=1
+        y = _op.nn.conv2d_transpose(x._expr, self.deconv_weight._expr, strides=(1, 1), padding=(1, 1))
+        return wrap_nested(y, "deconv_out")
 
 
 @pytest.mark.skipif(not _has_full_tidl_env(), reason="needs .so + compiler + AM67A")
@@ -1832,6 +2007,39 @@ class TestLayerHardware:
         assert n >= 1
         assert np.isfinite(output).all()
 
+    def test_strided_slice_to_end_hw(self, dsp_mode, tmp_path):
+        """Strided slice x[:,1:] (INT64_MAX end sentinel) offloaded to TIDL.
+
+        Verifies the C++ fix: INT64_MAX must be mapped to INT32_MAX before
+        passing to TIDL.  If the sentinel is corrupted to -1 instead, TIDL
+        interprets end=-1 as "one before the last element", producing shape
+        (1, 6, 16, 16) instead of (1, 7, 16, 16).
+        """
+        output, n = self._run(
+            ConvSliceToEndModel,
+            tmp_path,
+            dsp_mode,
+            expected_shape=(1, 7, 16, 16),  # channels 1–7 of 8
+        )
+        assert n >= 1
+        assert np.isfinite(output).all()
+
+    def test_mean_global_avg_pool_hw(self, dsp_mode, tmp_path):
+        """Global average pool via mean(axes=[2,3]) offloaded to TIDL.
+
+        Verifies the mean parser fixes: avgDims=2, kernelH/W=0 sentinel,
+        storage_order=0.  If kernelH/W were wrong, TIDL would either reject
+        the layer or produce a (1,8,H,W) output instead of (1,8,1,1).
+        """
+        output, n = self._run(
+            ConvGlobalAvgPoolModel,
+            tmp_path,
+            dsp_mode,
+            expected_shape=(1, 8, 1, 1),  # spatial dims fully reduced
+        )
+        assert n >= 1
+        assert np.isfinite(output).all()
+
     def test_permute_dims_hw(self, dsp_mode, tmp_path):
         """permute_dims (NCHW→NHWC transpose) offloaded to TIDL on AM67A."""
         output, n = self._run(
@@ -1913,6 +2121,24 @@ class TestLayerHardware:
             tmp_path,
             dsp_mode,
             expected_shape=(1, 8, 32, 32),  # 32ch -> 8ch, 16x16 -> 32x32
+        )
+        assert n >= 1
+        assert np.isfinite(output).all()
+
+    def test_conv2d_transpose_hw(self, dsp_mode, tmp_path):
+        """conv2d_transpose offloaded to TIDL on AM67A.
+
+        Validates the IOHW→OIHW weight permutation fix: if the parser omits
+        the permutation, the deconv output is numerically wrong (not just
+        non-finite, but wrong values).  We verify shape and finiteness here;
+        end-to-end numerical accuracy is implicitly covered by any model that
+        uses deconvolution (e.g. decoder/upsample networks).
+        """
+        output, n = self._run(
+            ConvConvTransposeModel,
+            tmp_path,
+            dsp_mode,
+            expected_shape=(1, 4, 16, 16),  # conv2d 3->8, deconv 8->4, pad keeps HW
         )
         assert n >= 1
         assert np.isfinite(output).all()

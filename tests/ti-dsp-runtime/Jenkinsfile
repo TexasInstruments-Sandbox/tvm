@@ -281,7 +281,7 @@ pipeline {
                     steps {
                         sh '''
                             cd ${C7X_MMA_TIDL_PATH}
-                            bash build_j722s.sh
+                            bash build_j722s.sh clean
                         '''
                     }
                 }
