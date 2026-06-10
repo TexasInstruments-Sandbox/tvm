@@ -161,6 +161,42 @@ class ConvBiasReluModel(nn.Module):
         return nn.relu(self.conv1(x))
 
 
+class ConvTransposeModel(nn.Module):
+    """Conv2D followed by conv2d_transpose with a learnable deconv weight."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+        # IOHW layout: in_ch=8, out_ch=4, kH=3, kW=3
+        self.deconv_weight = nn.Parameter((8, 4, 3, 3))
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        y = _op.nn.conv2d_transpose(x._expr, self.deconv_weight._expr, strides=(1, 1), padding=(1, 1))
+        return wrap_nested(y, "deconv_out")
+
+
+class ConvMeanModel(nn.Module):
+    """Conv2D followed by global average pool via mean(axes=[2,3])."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        y = wrap_nested(_op.mean(x._expr, axis=[2, 3], keepdims=True), "global_avg")
+        return y
+
+
 # ---------------------------------------------------------------------------
 # Tests: FFI registration
 # ---------------------------------------------------------------------------
@@ -363,6 +399,65 @@ class TestTIDLImport:
 
         mod_out, artifacts = compiler.tidl_import(mod)
         assert len(artifacts) > 0
+
+    def test_import_conv2d_transpose(self, tmp_path):
+        """tidl_import() must produce artifacts for conv2d_transpose.
+
+        Before fixes 1-3, the parser left tensorHeight/tensorWidth
+        uninitialised and outPadH/W uninitialised; the allowlisting checker
+        may have evaluated garbage values and silently rejected the layer.
+        This test verifies the import completes and produces a net.bin.
+        """
+        _init_tidl()
+        compiler = self._make_compiler(tmp_path)
+        mod = self._prepare_and_partition(
+            compiler,
+            ConvTransposeModel,
+            {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
+        )
+
+        tidl_funcs = [
+            gv
+            for gv, f in mod.functions.items()
+            if isinstance(f, relax.Function) and f.attrs and f.attrs.get("Codegen") == "tidl"
+        ]
+        if not tidl_funcs:
+            pytest.skip("No TIDL subgraphs found after partition — check pattern matching")
+
+        mod_out, artifacts = compiler.tidl_import(mod)
+        assert len(artifacts) > 0, "Expected at least one TIDL artifact"
+        for _sg, paths in artifacts.items():
+            assert "net_bin" in paths, "net.bin missing from artifacts"
+            assert os.path.getsize(paths["net_bin"]) > 0, "net.bin is empty"
+
+    def test_import_global_avg_pool_via_mean(self, tmp_path):
+        """tidl_import() must produce artifacts for mean(axes=[2,3]).
+
+        Verifies that the spatial-mean parser correctly populates avgDims,
+        kernelH/W (0-sentinel), and storage_order.  If these fields were
+        wrong the import would either crash or produce an unusable net.bin.
+        """
+        _init_tidl()
+        compiler = self._make_compiler(tmp_path)
+        mod = self._prepare_and_partition(
+            compiler,
+            ConvMeanModel,
+            {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
+        )
+
+        tidl_funcs = [
+            gv
+            for gv, f in mod.functions.items()
+            if isinstance(f, relax.Function) and f.attrs and f.attrs.get("Codegen") == "tidl"
+        ]
+        if not tidl_funcs:
+            pytest.skip("No TIDL subgraphs found after partition — check pattern matching")
+
+        mod_out, artifacts = compiler.tidl_import(mod)
+        assert len(artifacts) > 0, "Expected at least one TIDL artifact"
+        for _sg, paths in artifacts.items():
+            assert "net_bin" in paths, "net.bin missing from artifacts"
+            assert os.path.getsize(paths["net_bin"]) > 0, "net.bin is empty"
 
 
 if __name__ == "__main__":

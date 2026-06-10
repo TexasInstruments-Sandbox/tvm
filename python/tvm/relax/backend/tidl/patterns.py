@@ -434,22 +434,23 @@ def _check_reduce_max_min(ctx: PatternCheckContext) -> bool:
         attrs = root.attrs
         if attrs is not None:
             axis = getattr(attrs, "axis", None)
-            if axis is not None:
-                if len(axis) > 1:
-                    return False  # TIDL only supports single-axis reduction
-                if len(axis) == 1:
-                    ax = int(axis[0])
-                    data = ctx.annotated_expr.get("data")
-                    ndim = 4
-                    if data is not None:
-                        shape = _get_shape(data)
-                        if shape is not None:
-                            ndim = len(shape)
-                    if ax < 0:
-                        ax += ndim
-                    # TIDL ReduceLayer only supports HEIGHT (axis 2 in 4D NCHW)
-                    if ax != 2:
-                        return False
+            # Reject global reduce (no axis) — TIDL requires exactly one axis.
+            if axis is None or len(axis) == 0:
+                return False
+            if len(axis) > 1:
+                return False  # TIDL only supports single-axis reduction
+            ax = int(axis[0])
+            data = ctx.annotated_expr.get("data")
+            ndim = 4
+            if data is not None:
+                shape = _get_shape(data)
+                if shape is not None:
+                    ndim = len(shape)
+            if ax < 0:
+                ax += ndim
+            # TIDL ReduceLayer only supports HEIGHT (axis 2 in 4D NCHW)
+            if ax != 2:
+                return False
     data = ctx.annotated_expr.get("data")
     if data is not None and not _check_dtype(data):
         return False
