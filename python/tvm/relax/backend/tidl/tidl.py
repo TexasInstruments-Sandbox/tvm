@@ -1291,8 +1291,15 @@ def _build_c7x_host(
     Path
         Path to the built cg_dsp executable.
     """
-    tvm_home = Path(__file__).resolve().parents[5]
+    _tvm_home_env = os.environ.get("TVM_HOME")
+    tvm_home = Path(_tvm_home_env) if _tvm_home_env else Path(__file__).resolve().parents[5]
     dsp_cpp_dir = tvm_home / "tests" / "ti-dsp-runtime" / "dsp-cpp"
+
+    if not dsp_cpp_dir.exists():
+        raise FileNotFoundError(
+            f"dsp-cpp source directory not found: {dsp_cpp_dir}. "
+            "Set TVM_HOME to the TVM source root."
+        )
 
     generated_dir = Path(generated_dir).resolve()
     build_dir = Path(build_dir).resolve()
