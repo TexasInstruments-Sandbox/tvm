@@ -9,7 +9,7 @@ import warnings
 import pytest
 import torch
 import torch.nn as nn
-from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+from pt2e_utils import quantize_pt2e  # noqa: E402
 
 from tvm.relax.frontend.torch import C7xMMAQuantizer
 
@@ -64,18 +64,6 @@ class AddmmModel(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-def _quantize(model: nn.Module, example_inputs: tuple, quantizer: C7xMMAQuantizer):
-    """Export → prepare → calibrate → convert. Returns the converted GraphModule."""
-    model.eval()
-    exported = torch.export.export(model, example_inputs).module()
-    prepared = prepare_pt2e(exported, quantizer)
-    with torch.no_grad():
-        prepared(*example_inputs)
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="erase_node")
-        return convert_pt2e(prepared)
-
-
 def _call_function_targets(gm) -> list[str]:
     return [str(n.target) for n in gm.graph.nodes if n.op == "call_function"]
 
@@ -95,7 +83,7 @@ def _has_dequantize(targets: list[str]) -> bool:
 
 @pytest.mark.quick
 def test_conv_int8_sym_produces_qdq():
-    q = _quantize(ConvModel(), (torch.randn(1, 3, 8, 8),), C7xMMAQuantizer("int8", True))
+    q = quantize_pt2e(ConvModel(), (torch.randn(1, 3, 8, 8),), C7xMMAQuantizer("int8", True))
     targets = _call_function_targets(q)
     assert _has_quantize(targets), f"missing quantize_per_tensor in {targets}"
     assert _has_dequantize(targets), f"missing dequantize in {targets}"
@@ -103,7 +91,7 @@ def test_conv_int8_sym_produces_qdq():
 
 @pytest.mark.quick
 def test_conv_int8_affine_produces_qdq():
-    q = _quantize(ConvModel(), (torch.randn(1, 3, 8, 8),), C7xMMAQuantizer("int8", False))
+    q = quantize_pt2e(ConvModel(), (torch.randn(1, 3, 8, 8),), C7xMMAQuantizer("int8", False))
     targets = _call_function_targets(q)
     assert _has_quantize(targets)
     assert _has_dequantize(targets)
@@ -111,7 +99,7 @@ def test_conv_int8_affine_produces_qdq():
 
 @pytest.mark.quick
 def test_linear_int8_produces_qdq():
-    q = _quantize(LinearModel(), (torch.randn(1, 16),), C7xMMAQuantizer("int8"))
+    q = quantize_pt2e(LinearModel(), (torch.randn(1, 16),), C7xMMAQuantizer("int8"))
     targets = _call_function_targets(q)
     assert _has_quantize(targets)
     assert _has_dequantize(targets)
@@ -120,7 +108,7 @@ def test_linear_int8_produces_qdq():
 @pytest.mark.quick
 def test_depthwise_conv_int8_produces_qdq():
     # depthwise conv2d uses the same aten.conv2d.default op; groups handled by TVM passes
-    q = _quantize(
+    q = quantize_pt2e(
         DepthwiseConvModel(), (torch.randn(1, 8, 8, 8),), C7xMMAQuantizer("int8")
     )
     targets = _call_function_targets(q)
@@ -142,7 +130,7 @@ def _get_per_channel_zp(gm, node) -> torch.Tensor:
 
 @pytest.mark.quick
 def test_conv_weight_zero_point_is_zero():
-    q = _quantize(ConvModel(), (torch.randn(1, 3, 8, 8),), C7xMMAQuantizer("int8"))
+    q = quantize_pt2e(ConvModel(), (torch.randn(1, 3, 8, 8),), C7xMMAQuantizer("int8"))
     found = False
     for node in q.graph.nodes:
         if "dequantize_per_channel" in str(node.target):
@@ -154,7 +142,7 @@ def test_conv_weight_zero_point_is_zero():
 
 @pytest.mark.quick
 def test_linear_weight_zero_point_is_zero():
-    q = _quantize(LinearModel(), (torch.randn(1, 16),), C7xMMAQuantizer("int8"))
+    q = quantize_pt2e(LinearModel(), (torch.randn(1, 16),), C7xMMAQuantizer("int8"))
     found = False
     for node in q.graph.nodes:
         if "dequantize_per_channel" in str(node.target):
@@ -181,7 +169,7 @@ def test_int16_force_symmetric_warning():
 
 @pytest.mark.quick
 def test_int16_produces_int16_quantize_nodes():
-    q = _quantize(ConvModel(), (torch.randn(1, 3, 8, 8),), C7xMMAQuantizer("int16"))
+    q = quantize_pt2e(ConvModel(), (torch.randn(1, 3, 8, 8),), C7xMMAQuantizer("int16"))
     int16_found = False
     for node in q.graph.nodes:
         if "quantize_per_tensor" in str(node.target):
@@ -319,7 +307,7 @@ def test_add_tensor_both_inputs_annotated():
 @pytest.mark.quick
 def test_add_tensor_produces_qdq():
     """Residual model: Q/DQ ops appear on both add inputs after convert_pt2e."""
-    q = _quantize(ResidualModel(), (torch.randn(1, 8, 8, 8),), C7xMMAQuantizer("int8"))
+    q = quantize_pt2e(ResidualModel(), (torch.randn(1, 8, 8, 8),), C7xMMAQuantizer("int8"))
     targets = _call_function_targets(q)
     assert _has_quantize(targets)
     assert _has_dequantize(targets)

@@ -14,7 +14,17 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""C7x MMA quantizer for the torchao PT2E quantization flow."""
+"""C7x MMA quantizer for the torchao PT2E quantization flow.
+
+PT2E ("Post-Training Export 2E") is PyTorch's graph-level quantization pipeline:
+a Quantizer subclass annotates an FX graph with quantization specs; prepare_pt2e
+inserts calibration observers at those points; after calibration, convert_pt2e
+replaces the observers with explicit Q/DQ (quantize/dequantize) nodes.  TVM then
+imports the Q/DQ graph and its c_static backend fuses the Q/DQ sequences with
+MMALIB kernel calls.
+
+See docs/dsp/c7x_mma_quantizer.md for the full pipeline and usage examples.
+"""
 
 import logging
 import warnings
@@ -34,6 +44,8 @@ _INT8_MIN, _INT8_MAX = -128, 127
 _INT16_MIN, _INT16_MAX = -32768, 32767
 
 # torch.export produces conv2d.default, not convolution.default.
+# These ops have a weight tensor at args[1]; the quantizer assigns a per-channel
+# spec to that arg (args[0] gets the activation spec, args[2] bias stays float32).
 _WEIGHT_OPS = frozenset(
     [torch.ops.aten.conv2d.default, torch.ops.aten.linear.default]
 )
@@ -52,9 +64,22 @@ _ACT_ONLY_OPS = frozenset(
 class C7xMMAQuantizer(Quantizer):
     """torchao PT2E quantizer targeting TI C7x MMALIB.
 
-    Produces Q/DQ patterns consumed by TVM c_static lowering passes:
-    FuseMMALIBQDQConv2d, FuseMMALIBQDQFC, FuseMMALIBQDQDwConv2d,
-    FuseInt8ResidualAdd.
+    Lifecycle (called in this order by the PT2E helpers):
+
+    1. ``prepare_pt2e(model, quantizer)`` calls ``annotate()``, which writes a
+       ``QuantizationAnnotation`` into each relevant node's ``node.meta`` dict.
+       The annotation specifies *what kind* of quantization to apply to each
+       input tensor and the output — but inserts nothing into the graph yet.
+    2. ``prepare_pt2e`` then reads those annotations and inserts observer modules
+       (``MinMaxObserver`` / ``PerChannelMinMaxObserver``) next to each annotated
+       tensor.  Run calibration data through the prepared model to fill in the
+       observed min/max ranges.
+    3. ``convert_pt2e`` replaces the observers with explicit Q/DQ (quantize /
+       dequantize) nodes, producing a graph of the form
+       ``q → dq → op → q → dq → ...``.
+    4. TVM imports the Q/DQ graph; its c_static backend fuses Q/DQ sequences with
+       MMALIB kernel calls via passes: FuseMMALIBQDQConv2d, FuseMMALIBQDQDwConv2d,
+       FuseMMALIBQDQFC, FuseInt8ResidualAdd.
 
     Args:
         dtype: "int8" or "int16".
@@ -77,6 +102,16 @@ class C7xMMAQuantizer(Quantizer):
         self.symmetric_activations = symmetric_activations
 
     def _act_spec(self) -> QuantizationSpec:
+        """Return the QuantizationSpec for activation tensors (per-tensor, MinMaxObserver).
+
+        QuantizationSpec bundles the observer class, dtype, numeric range, and
+        quantization scheme into one object.  prepare_pt2e reads these fields to
+        decide which observer module to insert and how to configure it.
+
+        MinMaxObserver must come from torchao.quantization.pt2e, not torch.ao —
+        torchao's convert_pt2e only recognises torchao observer classes; torch.ao
+        observers would be left as opaque call_module nodes after conversion.
+        """
         if self.dtype == "int8":
             torch_dtype, quant_min, quant_max = torch.int8, _INT8_MIN, _INT8_MAX
         else:
@@ -95,6 +130,14 @@ class C7xMMAQuantizer(Quantizer):
         )
 
     def _weight_spec(self) -> QuantizationSpec:
+        """Return the QuantizationSpec for weight tensors (per-channel symmetric).
+
+        MMALIB requires one scale per output channel and zero_point=0 for weights.
+        ch_axis=0 selects the output-channel dimension, which is axis 0 for all
+        standard weight layouts (conv2d: [out_ch, in_ch, kH, kW]; linear: [out, in]).
+        Per-channel quantization produces tighter ranges than per-tensor, which
+        reduces clipping error on weights whose per-channel distributions differ.
+        """
         if self.dtype == "int8":
             torch_dtype, quant_min, quant_max = torch.int8, _INT8_MIN, _INT8_MAX
         else:
@@ -109,6 +152,17 @@ class C7xMMAQuantizer(Quantizer):
         )
 
     def annotate(self, model: GraphModule) -> GraphModule:
+        """Annotate FX graph nodes with quantization specs.
+
+        "Annotation" means writing a QuantizationAnnotation object into
+        node.meta["quantization_annotation"] for each supported op.  The
+        annotation holds an input_qspec_map (Node → QuantizationSpec for each
+        input that should be quantized) and an output_qspec for the op's output.
+
+        Nothing is inserted into the graph here.  prepare_pt2e reads the
+        annotations after this method returns and inserts the actual observer
+        modules.
+        """
         act_spec = self._act_spec()
         weight_spec = self._weight_spec()
 
@@ -144,12 +198,19 @@ class C7xMMAQuantizer(Quantizer):
             node.meta["quantization_annotation"] = QuantizationAnnotation(
                 input_qspec_map=input_qspec_map,  # type: ignore[arg-type]
                 output_qspec=act_spec,
-                _annotated=True,
+                _annotated=True,  # prevents double-annotation when composed with another quantizer
             )
 
         return model
 
     def validate(self, model: GraphModule) -> None:
+        """Warn if any weight was annotated with a per-tensor spec.
+
+        prepare_pt2e calls validate() after annotate().  If a composed quantizer
+        replaced the per-channel weight spec set by annotate() with a per-tensor
+        one, MMALIB would receive weights quantized incorrectly and silently
+        produce wrong results.  This check makes that misconfiguration visible.
+        """
         for node in model.graph.nodes:
             if node.op != "call_function" or node.target not in _WEIGHT_OPS:
                 continue
