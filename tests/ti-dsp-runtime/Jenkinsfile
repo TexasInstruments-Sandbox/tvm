@@ -73,7 +73,7 @@ pipeline {
     parameters {
         string(
             name: 'BRANCH',
-            defaultValue: 'tidl-bugfix',
+            defaultValue: 'relax-tidl',
             description: 'Branch to build and test'
         )
         booleanParam(
