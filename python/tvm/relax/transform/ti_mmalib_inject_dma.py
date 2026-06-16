@@ -43,8 +43,17 @@ logger = logging.getLogger(__name__)
 _MMALIB_CONV2D_I8 = "mmalib_conv2d_i8"
 _MMALIB_CONV2D_I16 = "mmalib_conv2d_i16"
 _MMALIB_DWCONV2D_I8 = "mmalib_depthwise_conv2d_i8"
+_MMALIB_DWCONV2D_I16 = "mmalib_depthwise_conv2d_i16"
 _MMALIB_FC_I8 = "mmalib_matmul_bias_i8"
-_SUPPORTED = {_MMALIB_CONV2D_I8, _MMALIB_CONV2D_I16, _MMALIB_DWCONV2D_I8, _MMALIB_FC_I8}
+_MMALIB_FC_I16 = "mmalib_matmul_bias_i16"
+_SUPPORTED = {
+    _MMALIB_CONV2D_I8,
+    _MMALIB_CONV2D_I16,
+    _MMALIB_DWCONV2D_I8,
+    _MMALIB_DWCONV2D_I16,
+    _MMALIB_FC_I8,
+    _MMALIB_FC_I16,
+}
 
 
 def _find_mmalib_call(body):
@@ -96,18 +105,21 @@ def _extract_dims_conv2d_i8(call_args):
 def _extract_dims_conv2d_i16(call_args):
     """Extract dimensions from mmalib_conv2d_i16 call_extern args.
 
-    Args: (name, input, kernel, output,
-           C_in, H_in, W_in, C_out, KH, KW, ...)
+    Args: (name, input, kernel, bias, scale, shift, output,
+           C_in, H_in, W_in, C_out, KH, KW, stride_h, stride_w, ...)
+
+    Note: bias/scale/shift were added in Phase 2b to match the i8 interface.
+    The dimension indices now match mmalib_conv2d_i8 exactly.
     """
     return {
         "input_arg_idx": 1,
         "weight_arg_idx": 2,
-        "c_in": int(call_args[4].value),
-        "h_in": int(call_args[5].value),
-        "w_in": int(call_args[6].value),
-        "c_out": int(call_args[7].value),
-        "kh": int(call_args[8].value),
-        "kw": int(call_args[9].value),
+        "c_in": int(call_args[7].value),
+        "h_in": int(call_args[8].value),
+        "w_in": int(call_args[9].value),
+        "c_out": int(call_args[10].value),
+        "kh": int(call_args[11].value),
+        "kw": int(call_args[12].value),
     }
 
 
@@ -155,6 +167,57 @@ def _extract_dims_fc_i8(call_args):
     }
 
 
+def _extract_dims_dwconv2d_i16(call_args):
+    """Extract dimensions from mmalib_depthwise_conv2d_i16 call_extern args.
+
+    Same argument layout as mmalib_depthwise_conv2d_i8 (same signature),
+    so the geometry mapping is identical — only elem_bytes differs (2 vs 1).
+
+    Args: (name, input, weights, bias, scale, shift, output,
+           channels, H_in, W_in, KH, KW, stride_h, stride_w,
+           pad_top, pad_bottom, pad_left, pad_right, num_groups)
+    """
+    channels = int(call_args[7].value)
+    h_in = int(call_args[8].value)
+    w_in = int(call_args[9].value)
+    kh = int(call_args[10].value)
+    kw = int(call_args[11].value)
+    return {
+        "input_arg_idx": 1,
+        "weight_arg_idx": 2,
+        "c_in": channels,
+        "h_in": h_in,
+        "w_in": w_in,
+        "c_out": channels,
+        "kh": kh,
+        "kw": kw,
+    }
+
+
+def _extract_dims_fc_i16(call_args):
+    """Extract dimensions from mmalib_matmul_bias_i16 call_extern args.
+
+    Args: (name, input, weights, bias, scale, shift, output, M, K, N)
+
+    Same arg layout as mmalib_matmul_bias_i8 but elem_bytes=2 for int16.
+    The geometry mapping (K→c_in, M→h_in, N→c_out) treats the FC as a
+    1×1 spatial convolution for the purpose of DMA budget calculation.
+    """
+    m = int(call_args[7].value)
+    k = int(call_args[8].value)
+    n = int(call_args[9].value)
+    return {
+        "input_arg_idx": 1,
+        "weight_arg_idx": 2,
+        "c_in": k,
+        "h_in": m,
+        "w_in": 1,
+        "c_out": n,
+        "kh": 1,
+        "kw": 1,
+    }
+
+
 def _inject_dma(func, l2_budget):
     """Transform a MMALIB PrimFunc to prefetch data into L2 via DMA."""
     _, call_node, extern_name = _find_mmalib_call(func.body)
@@ -173,6 +236,12 @@ def _inject_dma(func, l2_budget):
     elif extern_name == _MMALIB_FC_I8:
         dims = _extract_dims_fc_i8(call_node.args)
         elem_bytes = 1
+    elif extern_name == _MMALIB_DWCONV2D_I16:
+        dims = _extract_dims_dwconv2d_i16(call_node.args)
+        elem_bytes = 2
+    elif extern_name == _MMALIB_FC_I16:
+        dims = _extract_dims_fc_i16(call_node.args)
+        elem_bytes = 2
     else:
         return func
 
@@ -201,8 +270,18 @@ def _inject_dma(func, l2_budget):
     zero_inflight = tir.const(0, "int32")
     stmts = []
 
-    # Guard: prevents SE backward prefetch from underflowing L2 start
-    pad_top = int(call_node.args[13].value) if extern_name == _MMALIB_CONV2D_I8 else 0
+    # Guard: prevents SE backward prefetch from underflowing L2 start.
+    # For conv2d kernels (i8 and i16), pad_top is at args[15] in both:
+    #   (name, input, kernel, bias, scale, shift, output, C_in, H_in, W_in,
+    #    C_out, KH, KW, stride_h, stride_w, pad_top, ...)
+    if extern_name in (_MMALIB_CONV2D_I8, _MMALIB_CONV2D_I16):
+        # args[15] is pad_top for both i8 and i16 conv2d.  Guard against
+        # symbolic values (e.g. from dynamic-padding graphs) that have no
+        # .value attribute — fall back to the safe 128-byte default.
+        arg15 = call_node.args[15]
+        pad_top = int(arg15.value) if isinstance(arg15, tir.IntImm) else 0
+    else:
+        pad_top = 0
     guard_bytes = pad_top * w_in * elem_bytes if pad_top > 0 else 128
     l2_guard_var = tir.Var("l2_guard", PointerType(PrimType("int8"), "global.l2sram"))
 

@@ -200,8 +200,69 @@ def _is_const_zero(expr) -> bool:
     return False
 
 
+def _check_dwconv2d_geometry(ctx, allowed_kh_sizes, max_kh_stride2=5) -> bool:
+    """Shared depthwise geometry validation used by both i8 and i16 check functions.
+
+    Validates spatial/layout constraints that are identical across dtypes:
+      - groups == C_in (true depthwise)
+      - square kernel in `allowed_kh_sizes`
+      - stride 1 or 2, symmetric
+      - stride==2 requires kh <= `max_kh_stride2`
+      - dilation == 1x1
+      - N == 1
+      - all spatial shapes static
+
+    Dtype checks (int8 vs int16) and zero-point checks are left to callers.
+    """
+    conv = ctx.annotated_expr["conv"]
+    if not isinstance(conv, relax.Call):
+        return False
+
+    attrs = conv.attrs
+    data = ctx.annotated_expr["data"]
+    w = ctx.annotated_expr["w_int8"]  # shared annotation key
+
+    if not (hasattr(data, "struct_info") and data.struct_info.shape is not None):
+        return False
+    data_shape = data.struct_info.shape
+    data_layout = tir.layout(attrs.data_layout)
+    c_in = int(data_shape[data_layout.index_of("C")])
+    if attrs.groups != c_in:
+        return False
+
+    if isinstance(w, relax.Constant):
+        kernel_shape = w.data.shape
+    elif hasattr(w, "struct_info") and w.struct_info.shape is not None:
+        kernel_shape = [int(s) for s in w.struct_info.shape]
+    else:
+        return False
+
+    kernel_layout = tir.layout(attrs.kernel_layout)
+    kh = int(kernel_shape[kernel_layout.index_of("H")])
+    kw = int(kernel_shape[kernel_layout.index_of("W")])
+
+    if kh != kw or kh not in allowed_kh_sizes:
+        return False
+
+    strides = [int(s) for s in attrs.strides]
+    if strides[0] != strides[1] or strides[0] not in (1, 2):
+        return False
+    if strides[0] == 2 and kh > max_kh_stride2:
+        return False
+
+    if list(attrs.dilation) != [1, 1]:
+        return False
+    if int(data_shape[data_layout.index_of("N")]) != 1:
+        return False
+    for s in data_shape:
+        if not isinstance(s, tir.IntImm):
+            return False
+
+    return True
+
+
 def _check_mmalib_qdq_dwconv2d(ctx) -> bool:
-    """Validate MMALIB depthwise eligibility for a QDQ conv2d pattern match."""
+    """Validate MMALIB int8 depthwise eligibility for a QDQ conv2d pattern match."""
     w_zp = ctx.annotated_expr["w_zp"]
     if not _is_const_zero(w_zp):
         return False
@@ -223,63 +284,8 @@ def _check_mmalib_qdq_dwconv2d(ctx) -> bool:
         if str(data.struct_info.dtype) != "int8":
             return False
 
-    conv = ctx.annotated_expr["conv"]
-    if not isinstance(conv, relax.Call):
-        return False
-
-    attrs = conv.attrs
-    # Must be depthwise: groups == C_in
-    if hasattr(data, "struct_info") and data.struct_info.shape is not None:
-        data_shape = data.struct_info.shape
-    else:
-        return False
-    data_layout = tir.layout(attrs.data_layout)
-    c_in = int(data_shape[data_layout.index_of("C")])
-    if attrs.groups != c_in:
-        return False
-
-    # Kernel shape from weight
-    if isinstance(w, relax.Constant):
-        kernel_shape = w.data.shape
-    elif hasattr(w, "struct_info") and w.struct_info.shape is not None:
-        kernel_shape = [int(s) for s in w.struct_info.shape]
-    else:
-        return False
-
-    kernel_layout = tir.layout(attrs.kernel_layout)
-    kh = int(kernel_shape[kernel_layout.index_of("H")])
-    kw = int(kernel_shape[kernel_layout.index_of("W")])
-
-    # Supported kernel sizes: 3x3, 5x5, 7x7; must be square
-    if kh != kw:
-        return False
-    if kh not in (3, 5, 7):
-        return False
-
-    # Strides: 1 or 2, symmetric
-    strides = [int(s) for s in attrs.strides]
-    if strides[0] != strides[1]:
-        return False
-    if strides[0] not in (1, 2):
-        return False
-    # stride==2 requires kernel 3x3 or 5x5
-    if strides[0] == 2 and kh > 5:
-        return False
-
-    # Dilation must be 1x1
-    if list(attrs.dilation) != [1, 1]:
-        return False
-
-    # N must be 1
-    if int(data_shape[data_layout.index_of("N")]) != 1:
-        return False
-
-    # All shapes must be static
-    for s in data_shape:
-        if not isinstance(s, tir.IntImm):
-            return False
-
-    return True
+    # Geometry constraints shared with i16 path (3x3/5x5/7x7, stride-2 ≤ 5x5)
+    return _check_dwconv2d_geometry(ctx, allowed_kh_sizes=(3, 5, 7), max_kh_stride2=5)
 
 
 # =========================================================================

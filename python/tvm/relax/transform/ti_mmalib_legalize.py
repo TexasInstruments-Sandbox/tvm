@@ -224,14 +224,30 @@ def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
     H_out = (H_in + pad_top + pad_bottom - KH) // stride_h + 1
     W_out = (W_in + pad_left + pad_right - KW) // stride_w + 1
 
-    def te_mmalib_conv2d(data: te.Tensor, weight: te.Tensor) -> te.Tensor:
+    # Identity params: zero bias, scale=1, shift=0 for all channels.
+    # The QDQ fusion pass (FuseMMALIBQDQConv2dI16) will pass real per-channel
+    # values; this legalize path handles plain float32 conv2d with no requant.
+    bias_const = relax.Constant(np.zeros(C_out, dtype=np.int64))
+    scale_const = relax.Constant(np.ones(C_out, dtype=np.uint8))
+    shift_const = relax.Constant(np.zeros(C_out, dtype=np.uint8))
+
+    def te_mmalib_conv2d(
+        data: te.Tensor,
+        weight: te.Tensor,
+        bias_t: te.Tensor,
+        scale_t: te.Tensor,
+        shift_t: te.Tensor,
+    ) -> te.Tensor:
         def fcompute(ins, outs):
             return tir.call_extern(
                 "int32",
                 "mmalib_conv2d_i16",
-                ins[0].data,
-                ins[1].data,
-                outs[0].data,
+                ins[0].data,  # input
+                ins[1].data,  # kernel
+                ins[2].data,  # bias  (int64[C_out])
+                ins[3].data,  # scale (uint8[C_out])
+                ins[4].data,  # shift (uint8[C_out])
+                outs[0].data,  # output
                 C_in,
                 H_in,
                 W_in,
@@ -244,12 +260,11 @@ def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
                 pad_bottom,
                 pad_left,
                 pad_right,
-                0,
             )
 
         return te.extern(
             (1, C_out, H_out, W_out),
-            [data, weight],
+            [data, weight, bias_t, scale_t, shift_t],
             fcompute,
             name="mmalib_conv2d",
             dtype="int16",
@@ -259,6 +274,9 @@ def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
         te_mmalib_conv2d,
         call.args[0],
         call.args[1],
+        bias_const,
+        scale_const,
+        shift_const,
         primfunc_name_hint="mmalib_conv2d",
     )
 

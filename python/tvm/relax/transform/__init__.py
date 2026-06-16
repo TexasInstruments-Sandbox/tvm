@@ -16,6 +16,11 @@
 # under the License.
 """Relax transformations."""
 
+# isort: skip_file
+# .transform must be imported FIRST — it loads the C extension and defines
+# core symbols (function_pass, FuseOpsByPattern, etc.) that all downstream
+# TI modules depend on at import time.
+
 from .transform import (
     AdjustMatmulOrder,
     AllocateWorkspace,
@@ -73,6 +78,7 @@ from .transform import (
     RewriteCUDAGraph,
     RewriteDataflowReshape,
     RunCodegen,
+    SpecializePrimFuncBasedOnCallSite,
     SplitCallTIRByPattern,
     SplitLayoutRewritePreproc,
     StaticPlanBlockMemory,
@@ -83,33 +89,34 @@ from .transform import (
     UpdateVDevice,
     VMBuiltinLower,
     VMShapeLower,
-    SpecializePrimFuncBasedOnCallSite,
     dataflowblock_pass,
     function_pass,
 )
 
+# Import to register the legalization functions.
+from . import legalize_ops
 from .attach_external_modules import AttachExternModules
+from .eliminate_qdq_roundtrip import EliminateQDQRoundTrip
 from .fast_math import FastMathTransform
+from .fold_batch_norm_to_conv2d_for_inference import FoldBatchnormToConv2D
 from .fuse_dequantize_matmul import FuseDequantizeMatmul
+from .fuse_qdq_to_int8 import FuseQDQToInt8Conv2D
 from .fuse_transpose_matmul import FuseTransposeMatmul
 from .ipc_allreduce_rewrite import IPCAllReduceRewrite
 from .lazy_transform_params import LazyTransformParams
 from .lower_gpu_ipc_alloc_storage import LowerGPUIPCAllocStorage
 from .optimize_layout_transform import OptimizeLayoutTransform
-from .fold_batch_norm_to_conv2d_for_inference import FoldBatchnormToConv2D
 from .remove_redundant_reshape import RemoveRedundantReshape
-
-# Import to register the legalization functions.
-from . import legalize_ops
-
-from .eliminate_qdq_roundtrip import EliminateQDQRoundTrip
-from .fuse_qdq_to_int8 import FuseQDQToInt8Conv2D
 from .rewrite_dequantize import RewriteDequantize
 from .schedule_c7x_dma import ScheduleC7xDMATiling
 from .ti_eliminate_qdq_transparent import EliminateQDQTransparent
-from .ti_int8_residual_add import FuseInt8ResidualAdd
+from .ti_residual_add import FuseInt8ResidualAdd, FuseInt16ResidualAdd
+from .ti_mmalib_i16_fc import LegalizeMLPToMMALIBInt16
 from .ti_mmalib_inject_dma import InjectMMALIBDMA
 from .ti_mmalib_legalize import MMALIBLegalize
+from .ti_mmalib_passes import get_mmalib_i16_fc_pass, get_mmalib_legalize_map, get_mmalib_qdq_passes
 from .ti_mmalib_qdq_dwconv import FuseMMALIBQDQDwConv2d
-from .ti_mmalib_qdq_fc import FuseMMALIBQDQFC
+from .ti_mmalib_qdq_fc import FuseMMALIBQDQFC, FuseMMALIBQDQFCI16
 from .ti_mmalib_qdq_fusion import FuseMMALIBQDQConv2d
+from .ti_mmalib_qdq_i16_conv import FuseMMALIBQDQConv2dI16
+from .ti_mmalib_qdq_i16_dwconv import FuseMMALIBQDQDwConv2dI16

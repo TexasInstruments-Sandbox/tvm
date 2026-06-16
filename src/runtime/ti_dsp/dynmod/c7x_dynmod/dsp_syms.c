@@ -126,6 +126,7 @@ __declspec(dllexport) void TVMDSPGetAllConstants() {}
 __declspec(dllexport) void tvm_dsp_dma_copy() {}
 __declspec(dllexport) void tvm_dsp_dma_wait() {}
 __declspec(dllexport) void tvm_int8_residual_add_relu() {}
+__declspec(dllexport) void tvm_int16_residual_add_relu() {}
 __declspec(dllexport) void tvm_dequantize_vecmatmul() {}
 __declspec(dllexport) void tvm_sdpa_decode() {}
 
@@ -180,5 +181,6 @@ __declspec(dllexport) int32_t mmalib_conv2d_i16() { return 0; }
 __declspec(dllexport) int32_t mmalib_matmul_i8() { return 0; }
 __declspec(dllexport) int32_t mmalib_matmul_i16() { return 0; }
 __declspec(dllexport) int32_t mmalib_depthwise_conv2d_i8() { return 0; }
+__declspec(dllexport) int32_t mmalib_depthwise_conv2d_i16() { return 0; }
 __declspec(dllexport) int32_t mmalib_matmul_bias_i8() { return 0; }
 __declspec(dllexport) int32_t mmalib_matmul_bias_i16() { return 0; }

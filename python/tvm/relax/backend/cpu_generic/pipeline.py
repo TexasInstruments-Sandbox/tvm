@@ -77,13 +77,12 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
 
     # MMALIB QDQ fusion runs FIRST — matches the original PT2E QDQ pattern
     # (dequant→conv→quantize) before FuseQDQToInt8Conv2D rewrites it.
-    # Int8 residual add fusion runs after MMALIB conv2d fusion to catch
-    # the remaining dequant+add+relu+quant between MMALIB layers.
+    # All MMALIB pass definitions live in ti_mmalib_passes.py; add new
+    # passes there rather than here.
     if is_c7x and target.attrs.get("mmalib", False):
-        passes.append(tvm.relax.transform.FuseMMALIBQDQConv2d())
-        passes.append(tvm.relax.transform.FuseMMALIBQDQDwConv2d())
-        passes.append(tvm.relax.transform.FuseMMALIBQDQFC())
-        passes.append(tvm.relax.transform.FuseInt8ResidualAdd())
+        from tvm.relax.transform.ti_mmalib_passes import get_mmalib_qdq_passes
+
+        passes.extend(get_mmalib_qdq_passes())
 
     # Simplify tuple indices (e.g., TupleGetItem(Tuple(a,b),0) → a)
     # before QDQ elimination — PyTorch export artifacts like pool indices
@@ -113,9 +112,9 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # Runs BEFORE FuseDequantizeMatmul so MLP layers are captured here;
     # remaining layers (attention) fall through to FuseDequantizeMatmul.
     if is_c7x and target.attrs.get("mmalib", False):
-        from tvm.relax.transform.ti_mmalib_i16_fc import LegalizeMLPToMMALIBInt16
+        from tvm.relax.transform.ti_mmalib_passes import get_mmalib_i16_fc_pass
 
-        passes.append(LegalizeMLPToMMALIBInt16())
+        passes.append(get_mmalib_i16_fc_pass())
 
     passes += [
         tvm.relax.transform.FuseDequantizeMatmul(),
@@ -132,17 +131,11 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # MMALIB path: skip NHWC, custom int16 legalization.
     # Non-MMALIB path: convert to NHWC, default legalization.
     if is_c7x and target.attrs.get("mmalib", False):
-        from tvm.relax.transform.ti_mmalib_legalize import (
-            _mmalib_conv2d_legalize,
-            _mmalib_matmul_legalize,
-        )
+        from tvm.relax.transform.ti_mmalib_passes import get_mmalib_legalize_map
 
         passes.append(
             tvm.relax.transform.LegalizeOps(
-                customize_legalize_map={
-                    "relax.matmul": _mmalib_matmul_legalize,
-                    "relax.nn.conv2d": _mmalib_conv2d_legalize,
-                }
+                customize_legalize_map=get_mmalib_legalize_map()
             )
         )
     else:

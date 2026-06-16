@@ -39,6 +39,61 @@
 
 #include <stdint.h>
 
+/*
+ * tvm_int16_residual_add_relu — int16 variant of the residual add kernel.
+ *
+ * Identical algorithm to tvm_int8_residual_add_relu; only the element type
+ * and saturation range differ.  The packed params layout is unchanged:
+ *   [0..3]   M_x      (int32)
+ *   [4..7]   M_skip   (int32)
+ *   [8..11]  shift    (int32)
+ *   [12]     zp_x     (int8)  — always 0 for symmetric int16 quant
+ *   [13]     zp_skip  (int8)  — always 0 for symmetric int16 quant
+ *   [14]     zp_out   (int8)  — always 0 for symmetric int16 quant
+ *   [15]     reserved
+ *
+ * Saturation: clamp to [-32768, 32767] instead of [-128, 127].
+ *
+ * Accumulator: int64_t.  int16 inputs × int32 M values can produce up to
+ * 32767 × 2^31 ≈ 7×10^13 before shifting, which overflows int32.  Using
+ * int64 for the accumulator prevents silent wrap-around when
+ * (x_scale + skip_scale) / o_scale > 2.0.  The final shifted result fits
+ * comfortably in int32 before clamping to int16.
+ */
+int32_t tvm_int16_residual_add_relu(
+    const void* x_ptr, const void* skip_ptr,
+    const void* params, void* output_ptr,
+    int32_t num_elements, int32_t has_relu)
+{
+    const int16_t* x    = (const int16_t*)x_ptr;
+    const int16_t* skip = (const int16_t*)skip_ptr;
+    int16_t* output     = (int16_t*)output_ptr;
+    const int32_t* p32  = (const int32_t*)params;
+    const int8_t*  p8   = (const int8_t*)params;
+
+    int32_t M_x    = p32[0];
+    int32_t M_skip = p32[1];
+    int32_t shift  = p32[2];
+    int32_t zp_x    = (int32_t)p8[12];
+    int32_t zp_skip = (int32_t)p8[13];
+    int32_t zp_out  = (int32_t)p8[14];
+
+    int32_t i;
+    for (i = 0; i < num_elements; i++) {
+        /* int64 accumulator: 32767 * M (up to 2^31) * 2 operands can exceed INT32_MAX */
+        int64_t acc = ((int64_t)x[i] - zp_x) * (int64_t)M_x
+                    + ((int64_t)skip[i] - zp_skip) * (int64_t)M_skip;
+        int32_t result = (int32_t)(acc >> shift) + zp_out;
+        if (has_relu && result < 0) {
+            result = 0;
+        }
+        if (result < -32768) result = -32768;
+        if (result >  32767) result =  32767;
+        output[i] = (int16_t)result;
+    }
+    return 0;
+}
+
 int32_t tvm_int8_residual_add_relu(
     const void* x_ptr, const void* skip_ptr,
     const void* params, void* output_ptr,
