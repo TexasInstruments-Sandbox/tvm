@@ -322,19 +322,18 @@ int32_t mmalib_conv2d_i8(void* input, void* kernel,
         stride_h, stride_w, pad_top, pad_bottom, pad_left, pad_right);
 }
 
-int32_t mmalib_conv2d_i16(void* input, void* kernel, void* output,
+int32_t mmalib_conv2d_i16(void* input, void* kernel,
+                          void* bias, void* scale, void* shift,
+                          void* output,
                           int32_t C_in, int32_t H_in, int32_t W_in,
                           int32_t C_out, int32_t KH, int32_t KW,
                           int32_t stride_h, int32_t stride_w,
                           int32_t pad_top, int32_t pad_bottom,
-                          int32_t pad_left, int32_t pad_right,
-                          int32_t shift) {
-    Workspace wshift;
-    if (!wshift.alloc(C_out)) return -1;
-    memset(wshift.ptr, (uint8_t)shift, C_out);
-
+                          int32_t pad_left, int32_t pad_right) {
+    // conv2d_impl handles NULL bias/scale/shift by substituting identity values
+    // (zero bias, scale=1, shift=0), so callers may pass NULL for any of them.
     return conv2d_impl<int16_t, MMALIB_INT16, MMALIB_INT64, -32768, 32767, MMA_SIZE_I16>(
-        input, kernel, NULL, NULL, wshift.ptr, output,
+        input, kernel, bias, scale, shift, output,
         C_in, H_in, W_in, C_out, KH, KW,
         stride_h, stride_w, pad_top, pad_bottom, pad_left, pad_right);
 }
@@ -558,6 +557,267 @@ int32_t mmalib_depthwise_conv2d_i8(void* input, void* weights,
                 memcpy(dst, src, W_out);
                 src += out_stride_y;
                 dst += W_out;
+            }
+        }
+    }
+
+    return (int32_t)MMALIB_SUCCESS;
+}
+
+/* =========================================================================
+ * Int16 depthwise conv2d — same algorithm as mmalib_depthwise_conv2d_i8,
+ * adapted for 16-bit elements.
+ *
+ * IMPORTANT: MMALIB only supports 3×3 kernels for INT16 depthwise
+ * (convolve_col_smallNo_highPrecision).  5×5 and 7×7 are not implemented
+ * (tracked as MMALIB-882).  The TVM FuseMMALIBQDQDwConv2dI16 pass
+ * enforces this constraint at compile time; this wrapper returns -1 if
+ * KH != 3 as a runtime safeguard.
+ *
+ * Key differences from the int8 version:
+ *   - MMA vector width is 16 elements (vs 32 for int8) because each int16
+ *     element is 2 bytes and the MMA reads 32-byte vectors.
+ *   - All MMALIB_bufParams stride fields are in BYTES, not elements, so
+ *     every stride involving element size must be multiplied by elem_size=2.
+ *   - Bias is int64 (wider accumulator matches int16 × int16 → int32+ path).
+ *   - Saturation bounds: [-32768, 32767] instead of [-128, 127].
+ *   - Output row alignment: 32 int16 elements = 64 bytes (same physical
+ *     alignment as i8's 64 elements = 64 bytes, but fewer elements).
+ *   - groupOffset and blockFeaturePitch also scale by elem_size.
+ * ========================================================================= */
+int32_t mmalib_depthwise_conv2d_i16(void* input, void* weights,
+                                    void* bias, void* scale, void* shift,
+                                    void* output,
+                                    int32_t channels, int32_t H_in, int32_t W_in,
+                                    int32_t KH, int32_t KW,
+                                    int32_t stride_h, int32_t stride_w,
+                                    int32_t pad_top, int32_t pad_bottom,
+                                    int32_t pad_left, int32_t pad_right,
+                                    int32_t num_groups) {
+    if (!input || !weights || !output) {
+        return -1;
+    }
+    // Only 3×3 kernels are supported for INT16 (MMALIB-882: 5×5/7×7 not implemented)
+    if (KH != 3 || KW != 3) {
+        return -1;
+    }
+
+    // MMA_SIZE_I16 = 16: the MMA reads/writes 16 int16 elements per vector
+    // (MMA_SIZE_I8 = 32 for int8; both equal one 32-byte hardware vector).
+    const int32_t mma_size = MMA_SIZE_I16;
+    const int32_t elem_size = (int32_t)sizeof(int16_t);  // 2 bytes
+
+    int32_t H_out = (H_in + pad_top + pad_bottom - KH) / stride_h + 1;
+    int32_t W_out = (W_in + pad_left + pad_right - KW) / stride_w + 1;
+
+    // NULL-default bias/scale/shift to identity values.
+    // Bias is int64 (8 bytes per group) because the int16 accumulator is wider.
+    Workspace wb, ws, wsh;
+    if (!bias) {
+        if (!wb.alloc(num_groups * 8)) return -1;
+        memset(wb.ptr, 0, num_groups * 8);
+        bias = wb.ptr;
+    }
+    if (!scale) {
+        if (!ws.alloc(num_groups)) return -1;
+        memset(ws.ptr, 1, num_groups);  // uint8 value 1 → scale factor = 1
+        scale = ws.ptr;
+    }
+    if (!shift) {
+        if (!wsh.alloc(num_groups)) return -1;
+        memset(wsh.ptr, 0, num_groups);  // uint8 value 0 → no right-shift
+        shift = wsh.ptr;
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 1: Runtime weight reorder
+    //
+    // MMALIB requires weights in a column-interleaved internal format.
+    // The reorderWeights API transforms our natural [G, 1, KH, KW] layout.
+    // Setting dataType=MMALIB_INT16 makes MMALIB use the int16 reorder path.
+    // -------------------------------------------------------------------------
+    MMALIB_CNN_convolve_col_smallNo_highPrecision_reorderWeights_Args rw_args;
+    memset(&rw_args, 0, sizeof(rw_args));
+    rw_args.dataType = MMALIB_INT16;  // int16 weights (vs MMALIB_INT8 for i8)
+    rw_args.Ni = 1;                   // depthwise: 1 input channel per group
+    rw_args.No = 1;                   // depthwise: 1 output channel per group
+    rw_args.Fr = KH;
+    rw_args.Fc = KW;
+    rw_args.strideX = stride_w;
+    rw_args.strideY = stride_h;
+    rw_args.dilationX = 1;
+    rw_args.featureWidth = W_in;
+    rw_args.blockFeatureHeight = H_in;
+    rw_args.topPad = pad_top;
+    rw_args.bottomPad = pad_bottom;
+    rw_args.leftPad = pad_left;
+    rw_args.rightPad = pad_right;
+    rw_args.numGroupsPerKernel = num_groups;
+
+    int32_t reorder_size =
+        MMALIB_CNN_convolve_col_smallNo_highPrecision_reorderWeights_getMemorySize(&rw_args);
+    if (reorder_size <= 0) return -1;
+
+    Workspace wreorder;
+    if (!wreorder.alloc(reorder_size)) return -1;
+
+    // fillBufParams fills src0_addr with the reordered-weight buffer descriptor.
+    MMALIB_bufParams3D_t src0_addr;
+    memset(&src0_addr, 0, sizeof(src0_addr));
+    MMALIB_CNN_convolve_col_smallNo_highPrecision_reorderWeights_fillBufParams(
+        &rw_args, &src0_addr);
+
+    // Natural weight layout: [num_groups, 1, KH, KW] in row-major int16.
+    // stride_y and stride_z are in BYTES: multiply by elem_size.
+    MMALIB_bufParams3D_t nat_weights_addr;
+    nat_weights_addr.data_type = MMALIB_INT16;
+    nat_weights_addr.dim_x    = (uint32_t)(1 * KH * KW);
+    nat_weights_addr.dim_y    = 1;
+    nat_weights_addr.stride_y = 1 * KH * KW * elem_size;   // bytes per row
+    nat_weights_addr.dim_z    = (uint32_t)num_groups;
+    nat_weights_addr.stride_z = 1 * nat_weights_addr.stride_y;
+
+    // Bias descriptor for the reorder call — we pass NULL data but MMALIB
+    // still uses the descriptor type to size its internal structures.
+    MMALIB_bufParams2D_t bias_rw_addr;
+    memset(&bias_rw_addr, 0, sizeof(bias_rw_addr));
+    bias_rw_addr.data_type = MMALIB_INT64;  // int64 bias for int16 path
+    bias_rw_addr.dim_x     = 1;
+    bias_rw_addr.dim_y     = (uint32_t)num_groups;
+    bias_rw_addr.stride_y  = 1;
+
+    MMALIB_STATUS status =
+        MMALIB_CNN_convolve_col_smallNo_highPrecision_reorderWeights_exec(
+            HIGHPRECISION_REORDERWEIGHTS,
+            &rw_args,
+            &nat_weights_addr,
+            weights,
+            &bias_rw_addr,
+            NULL,          // bias not needed in the reorder step
+            &src0_addr,
+            wreorder.ptr);
+    if (status != MMALIB_SUCCESS) return (int32_t)status;
+
+    // -------------------------------------------------------------------------
+    // Step 2: Depthwise convolution
+    // -------------------------------------------------------------------------
+
+    // Output row stride must be 64-byte aligned so pair-writes (at offset
+    // outPairOffset = mma_size elements) don't spill into the next row.
+    // For int16: 32 elements × 2 bytes = 64 bytes per aligned row.
+    // (Int8 version uses 64 elements × 1 byte = 64 bytes — same constraint.)
+    int32_t out_stride_y = (W_out + 31) & ~31;
+    bool needs_compact = (out_stride_y != W_out);
+
+    // src1: input feature map [C×H_in, W_in] — rows are contiguous channels
+    MMALIB_bufParams2D_t src1_addr;
+    src1_addr.data_type = MMALIB_INT16;
+    src1_addr.dim_x     = (uint32_t)W_in;
+    src1_addr.dim_y     = (uint32_t)(H_in * num_groups);
+    src1_addr.stride_y  = W_in * elem_size;     // bytes per input row
+
+    // src2: per-group bias [num_groups, 1] int64.
+    // stride_y is in ELEMENTS (not bytes) — confirmed by real-world MMALIB usage:
+    // stride_y = 1 regardless of whether bias is INT32 or INT64.
+    MMALIB_bufParams2D_t src2_addr;
+    src2_addr.data_type = MMALIB_INT64;
+    src2_addr.dim_x     = 1;
+    src2_addr.dim_y     = (uint32_t)num_groups;
+    src2_addr.stride_y  = 1;
+
+    // src3: per-group scale [num_groups] uint8
+    MMALIB_bufParams1D_t src3_addr;
+    src3_addr.data_type = MMALIB_UINT8;
+    src3_addr.dim_x     = (uint32_t)(num_groups * 1);
+
+    // dst: output feature map [num_groups, H_out, out_stride_y] int16
+    MMALIB_bufParams3D_t dst_addr;
+    dst_addr.data_type = MMALIB_INT16;
+    dst_addr.dim_x     = (uint32_t)W_out;
+    dst_addr.dim_y     = (uint32_t)H_out;
+    dst_addr.stride_y  = out_stride_y * elem_size;          // bytes per output row
+    dst_addr.dim_z     = (uint32_t)num_groups;
+    dst_addr.stride_z  = H_out * out_stride_y * elem_size;  // bytes per group
+
+    MMALIB_CNN_convolve_col_smallNo_highPrecision_InitArgs init_args;
+    memset(&init_args, 0, sizeof(init_args));
+    init_args.funcStyle       = MMALIB_FUNCTION_OPTIMIZED;
+    init_args.Ni              = 1;
+    init_args.No              = 1;
+    init_args.Fr              = KH;
+    init_args.Fc              = KW;
+    init_args.shift           = 0;  // per-group shift from src3 (shiftMethod=1)
+    init_args.shiftMethod     = 1;  // use per-group shift vector in src3
+    init_args.strideX         = stride_w;
+    init_args.strideY         = stride_h;
+    init_args.dilationX       = 1;
+    init_args.dilationY       = 1;
+    init_args.topPad          = pad_top;
+    init_args.bottomPad       = pad_bottom;
+    init_args.leftPad         = pad_left;
+    init_args.rightPad        = pad_right;
+    init_args.activationType  = MMALIB_SATURATION;
+    init_args.pSatMin         = -32768;  // int16 range (vs -128 for int8)
+    init_args.pSatMax         =  32767;
+    init_args.featureWidth    = W_in;
+    init_args.blockFeatureHeight = H_in;
+    // blockFeaturePitch: row stride in the input feature map, in BYTES.
+    init_args.blockFeaturePitch = W_in * elem_size;
+
+    // inChOffset and groupOffset: in ELEMENTS (not bytes) per MMALIB header docs.
+    // For i8 (elem_size=1), elements == bytes so the values look the same as i8.
+    init_args.inChOffset  = W_in;         // elements between rows in one group
+    init_args.groupOffset = H_in * W_in;  // elements between groups in input
+
+    // MMA column/pair offsets: in ELEMENTS. mma_size=16 for int16.
+    init_args.columnOffset    = mma_size * 2 * stride_w;
+    init_args.inPairOffset    = mma_size * stride_w;
+    init_args.outPairOffset   = mma_size;
+    init_args.numGroupsPerKernel = num_groups;
+
+    int32_t handle_size =
+        MMALIB_CNN_convolve_col_smallNo_highPrecision_getHandleSize(&init_args);
+    Workspace whandle;
+    if (!whandle.alloc(handle_size)) return -1;
+
+    // Allocate a padded output buffer when W_out is not 32-element aligned.
+    // After exec, compact the padded output into the caller's contiguous buffer.
+    Workspace wpadded;
+    void* dst_ptr = output;
+    if (needs_compact) {
+        int32_t padded_size = num_groups * H_out * out_stride_y * elem_size;
+        if (!wpadded.alloc(padded_size)) return -1;
+        dst_ptr = wpadded.ptr;
+    }
+
+    status = MMALIB_CNN_convolve_col_smallNo_highPrecision_init(
+        whandle.ptr, &src0_addr, &src1_addr, &src2_addr, &src3_addr,
+        &dst_addr, &init_args);
+    if (status != MMALIB_SUCCESS) return (int32_t)status;
+
+    MMALIB_CNN_convolve_col_smallNo_highPrecision_ExecInArgs exec_in;
+    memset(&exec_in, 0, sizeof(exec_in));
+    exec_in.blockFeatureWidth = W_in;
+    exec_in.padFillValue      = 0;
+
+    MMALIB_CNN_convolve_col_smallNo_highPrecision_ExecOutArgs exec_out;
+    memset(&exec_out, 0, sizeof(exec_out));
+
+    status = MMALIB_CNN_convolve_col_smallNo_highPrecision_exec(
+        whandle.ptr, wreorder.ptr, input, bias, scale,
+        (uint8_t*)shift, dst_ptr, &exec_in, &exec_out);
+    if (status != MMALIB_SUCCESS) return (int32_t)status;
+
+    // Remove row padding: copy W_out int16 elements per row, skipping the
+    // out_stride_y - W_out padding elements at the end of each padded row.
+    if (needs_compact) {
+        uint16_t* src = (uint16_t*)dst_ptr;
+        uint16_t* dst = (uint16_t*)output;
+        for (int32_t g = 0; g < num_groups; g++) {
+            for (int32_t r = 0; r < H_out; r++) {
+                memcpy(dst, src, W_out * elem_size);
+                src += out_stride_y;  // advance by padded row width (elements)
+                dst += W_out;         // advance by actual row width (elements)
             }
         }
     }

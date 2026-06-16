@@ -132,13 +132,22 @@ int32_t mmalib_conv2d_i8(void* input, void* kernel,
                          int32_t pad_left, int32_t pad_right);
 
 /**
- * @brief Int16 2D convolution with uniform shift (compatibility entry point).
+ * @brief Int16 2D convolution with per-channel bias, scale, and shift.
  *
- * Simplified interface: no per-channel bias/scale; a single shift value is
- * broadcast to all output channels. Bias defaults to zero, scale to 1.
+ * Matches the int8 variant but with wider types:
+ *   - bias:  int64 per-channel (accumulator is 64-bit for int16 inputs)
+ *   - scale: uint8 per-channel (same as int8 variant)
+ *   - shift: uint8 per-channel (same as int8 variant)
+ *
+ * Passing NULL for bias, scale, or shift applies the identity value
+ * (zero bias, scale=1, shift=0) for all channels, matching the prior
+ * simplified uniform-shift interface.
  *
  * @param input   Input tensor [1, C_in, H_in, W_in], int16, 64-byte aligned
  * @param kernel  Weight tensor [C_out, C_in, KH, KW], int16, 64-byte aligned
+ * @param bias    Per-channel bias [C_out], int64. NULL defaults to zero.
+ * @param scale   Per-channel scale [C_out], uint8. NULL defaults to 1.
+ * @param shift   Per-channel shift [C_out], uint8. NULL defaults to 0.
  * @param output  Output tensor [1, C_out, H_out, W_out], int16, 64-byte aligned
  * @param C_in    Number of input channels
  * @param H_in    Input spatial height
@@ -152,17 +161,17 @@ int32_t mmalib_conv2d_i8(void* input, void* kernel,
  * @param pad_bottom Bottom padding
  * @param pad_left   Left padding
  * @param pad_right  Right padding
- * @param shift   Uniform right-shift applied to all channels
  * @return 0 on success, non-zero MMALIB error code on failure
  */
 TVM_MMALIB_EXPORT
-int32_t mmalib_conv2d_i16(void* input, void* kernel, void* output,
+int32_t mmalib_conv2d_i16(void* input, void* kernel,
+                          void* bias, void* scale, void* shift,
+                          void* output,
                           int32_t C_in, int32_t H_in, int32_t W_in,
                           int32_t C_out, int32_t KH, int32_t KW,
                           int32_t stride_h, int32_t stride_w,
                           int32_t pad_top, int32_t pad_bottom,
-                          int32_t pad_left, int32_t pad_right,
-                          int32_t shift);
+                          int32_t pad_left, int32_t pad_right);
 
 /* =========================================================================
  * Depthwise Convolution (groups == channels)
@@ -216,6 +225,47 @@ int32_t mmalib_depthwise_conv2d_i8(void* input, void* reordered_weights,
                                    int32_t pad_top, int32_t pad_bottom,
                                    int32_t pad_left, int32_t pad_right,
                                    int32_t num_groups);
+
+/**
+ * @brief Int16 depthwise convolution with per-group bias, scale, and shift.
+ *
+ * Same as mmalib_depthwise_conv2d_i8 but with int16 precision:
+ *   - input/weights/output: int16
+ *   - bias: int64 per-group (wider accumulator for int16 inputs)
+ *   - scale/shift: uint8 per-group (same as int8 variant)
+ *
+ * Supports kernel sizes 3×3, 5×5, 7×7; strides 1 or 2; dilation 1 only.
+ *
+ * @param input    Input tensor [1, channels, H_in, W_in], int16, 64-byte aligned
+ * @param weights  Weight tensor [num_groups, 1, KH, KW] natural order, int16
+ * @param bias     Per-group bias [num_groups], int64. NULL defaults to zero.
+ * @param scale    Per-group scale [num_groups], uint8. NULL defaults to 1.
+ * @param shift    Per-group shift [num_groups], uint8. NULL defaults to 0.
+ * @param output   Output tensor [1, channels, H_out, W_out], int16, 64-byte aligned
+ * @param channels Number of input/output channels
+ * @param H_in     Input spatial height
+ * @param W_in     Input spatial width
+ * @param KH       Kernel height (3, 5, or 7)
+ * @param KW       Kernel width (3, 5, or 7)
+ * @param stride_h Vertical stride (1 or 2)
+ * @param stride_w Horizontal stride (1 or 2)
+ * @param pad_top    Top padding
+ * @param pad_bottom Bottom padding
+ * @param pad_left   Left padding
+ * @param pad_right  Right padding
+ * @param num_groups Number of groups (must equal channels for depthwise)
+ * @return 0 on success, non-zero MMALIB error code on failure
+ */
+TVM_MMALIB_EXPORT
+int32_t mmalib_depthwise_conv2d_i16(void* input, void* weights,
+                                    void* bias, void* scale, void* shift,
+                                    void* output,
+                                    int32_t channels, int32_t H_in, int32_t W_in,
+                                    int32_t KH, int32_t KW,
+                                    int32_t stride_h, int32_t stride_w,
+                                    int32_t pad_top, int32_t pad_bottom,
+                                    int32_t pad_left, int32_t pad_right,
+                                    int32_t num_groups);
 
 /* =========================================================================
  * Matrix Multiply with Bias (fully-connected layer)

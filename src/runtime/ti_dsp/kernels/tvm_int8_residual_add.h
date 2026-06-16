@@ -26,7 +26,15 @@
 extern "C" {
 #endif
 
+/* Int8 variant: saturation to [-128, 127]. */
 int32_t tvm_int8_residual_add_relu(
+    const void* x, const void* skip,
+    const void* params, void* output,
+    int32_t num_elements, int32_t has_relu);
+
+/* Int16 variant: same params layout, saturation to [-32768, 32767].
+ * Used by FuseInt16ResidualAdd for int16 PT2E quantized skip connections. */
+int32_t tvm_int16_residual_add_relu(
     const void* x, const void* skip,
     const void* params, void* output,
     int32_t num_elements, int32_t has_relu);

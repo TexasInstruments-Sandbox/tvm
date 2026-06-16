@@ -138,6 +138,8 @@ extern int   tvm_dsp_dma_wait(int, int);
 /* TVM DSP Runtime - Kernels */
 extern int   tvm_int8_residual_add_relu(const void *, const void *,
                                         const void *, void *, int, int);
+extern int   tvm_int16_residual_add_relu(const void *, const void *,
+                                         const void *, void *, int, int);
 extern int   tvm_dequantize_vecmatmul(const void *, const void *,
                                       const void *, void *,
                                       int32_t, int32_t, int32_t);
@@ -318,6 +320,7 @@ static const DspSymEntry dsp_syms[] = {
     SYM(tvm_dsp_dma_wait),
     /* TVM kernels */
     SYM(tvm_int8_residual_add_relu),
+    SYM(tvm_int16_residual_add_relu),
     SYM(tvm_dequantize_vecmatmul),
     SYM(tvm_sdpa_decode),
 
@@ -372,6 +375,7 @@ static const DspSymEntry dsp_syms[] = {
     SYM(mmalib_matmul_i8),
     SYM(mmalib_matmul_i16),
     SYM(mmalib_depthwise_conv2d_i8),
+    SYM(mmalib_depthwise_conv2d_i16),
     SYM(mmalib_matmul_bias_i8),
     SYM(mmalib_matmul_bias_i16),
 };

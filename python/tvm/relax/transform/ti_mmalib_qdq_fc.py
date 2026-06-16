@@ -40,7 +40,7 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
-from .ti_mmalib_constants import MMA_SIZE_I8
+from .ti_mmalib_constants import MMA_SIZE_I8, MMA_SIZE_I16
 from .ti_mmalib_legalize import _float_to_scale_shift
 
 logger = logging.getLogger(__name__)
@@ -545,6 +545,291 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
 # =========================================================================
 # Public pass
 # =========================================================================
+
+
+# =========================================================================
+# Int16 FC — check function
+# =========================================================================
+
+
+def _check_mmalib_qdq_fc_i16(ctx) -> bool:
+    """Validate MMALIB matmul_bias_i16 eligibility.
+
+    Additional int16-specific constraint:
+      - d_zp must be 0 (int16 activations are always symmetric).
+    """
+    w_zp = ctx.annotated_expr["w_zp"]
+    if not _is_const_zero(w_zp):
+        return False
+
+    # int16 activation zero-point must be 0 (symmetric only)
+    d_zp = ctx.annotated_expr["d_zp"]
+    if not _is_const_zero(d_zp):
+        return False
+
+    # Output zero-point must be 0.  The i16 lowerer does not fold o_zp
+    # into bias_i64; a non-zero value would shift all outputs incorrectly.
+    # Direct [] access: all FC patterns include "o_zp" in annotations.
+    if not _is_const_zero(ctx.annotated_expr["o_zp"]):
+        return False
+
+    w = ctx.annotated_expr["w_int8"]  # keyed "w_int8" for compat with _extract_roles
+    if isinstance(w, relax.Constant):
+        if w.data.dtype != "int16":
+            return False
+    elif hasattr(w, "struct_info") and hasattr(w.struct_info, "dtype"):
+        if str(w.struct_info.dtype) != "int16":
+            return False
+    else:
+        return False
+
+    data = ctx.annotated_expr["data"]
+    if isinstance(data, relax.Constant):
+        return False
+    if hasattr(data, "struct_info") and hasattr(data.struct_info, "dtype"):
+        if str(data.struct_info.dtype) != "int16":
+            return False
+
+    # Weight shape [N_out, K] — both must be multiples of MMA_SIZE_I16 (16 on C7504)
+    if isinstance(w, relax.Constant):
+        w_shape = w.data.shape
+    elif hasattr(w, "struct_info") and w.struct_info.shape is not None:
+        w_shape = [int(s) for s in w.struct_info.shape]
+    else:
+        return False
+
+    if len(w_shape) != 2:
+        return False
+    n_out, k = w_shape[0], w_shape[1]
+    if k % MMA_SIZE_I16 != 0 or n_out % MMA_SIZE_I16 != 0:
+        return False
+
+    w_perm = ctx.annotated_expr["w_perm"]
+    if isinstance(w_perm, relax.Call):
+        if w_perm.attrs.axes is not None:
+            expected = list(range(len(w_shape)))
+            expected[-1], expected[-2] = expected[-2], expected[-1]
+            if list(w_perm.attrs.axes) != expected:
+                return False
+
+    if "bias" in ctx.annotated_expr:
+        b = ctx.annotated_expr["bias"]
+        if not isinstance(b, relax.Constant):
+            return False
+
+    return True
+
+
+# =========================================================================
+# Int16 FC — pattern factories (same structure as i8; check fn differs)
+# =========================================================================
+
+
+def _qdq_fc_i16_bias_pattern():
+    pat, annotations, _ = _qdq_fc_bias_pattern()
+    return pat, annotations, _check_mmalib_qdq_fc_i16
+
+
+def _qdq_fc_i16_pattern():
+    pat, annotations, _ = _qdq_fc_pattern()
+    return pat, annotations, _check_mmalib_qdq_fc_i16
+
+
+def _qdq_fc_i16_reshape_bias_pattern():
+    pat, annotations, _ = _qdq_fc_reshape_bias_pattern()
+    return pat, annotations, _check_mmalib_qdq_fc_i16
+
+
+def _qdq_fc_i16_reshape_pattern():
+    pat, annotations, _ = _qdq_fc_reshape_pattern()
+    return pat, annotations, _check_mmalib_qdq_fc_i16
+
+
+# =========================================================================
+# Int16 FC — composite lowering
+# =========================================================================
+
+_I16_FC_PATTERN_REGISTRY = [
+    ("mmalib.fc_i16_qdq_reshape_bias", _qdq_fc_i16_reshape_bias_pattern),
+    ("mmalib.fc_i16_qdq_reshape", _qdq_fc_i16_reshape_pattern),
+    ("mmalib.fc_i16_qdq_bias", _qdq_fc_i16_bias_pattern),
+    ("mmalib.fc_i16_qdq", _qdq_fc_i16_pattern),
+]
+_I16_FC_COMPOSITE_NAMES = frozenset(name for name, _ in _I16_FC_PATTERN_REGISTRY)
+
+
+@mutator
+class _MMALIB_QDQI16FCLowerer(PyExprMutator):
+    """Replace MMALIB int16 FC composite functions with call_tir to mmalib_matmul_bias_i16."""
+
+    def __init__(self, mod: IRModule):
+        super().__init__(mod)
+        self.count = 0
+
+    def visit_call_(self, call: relax.Call):
+        if not isinstance(call.op, relax.GlobalVar):
+            return super().visit_call_(call)
+        func = self.builder_.get()[call.op]
+        if not isinstance(func, relax.Function):
+            return super().visit_call_(call)
+        if "Composite" not in func.attrs:
+            return super().visit_call_(call)
+        name = str(func.attrs["Composite"])
+        if name not in _I16_FC_COMPOSITE_NAMES:
+            return super().visit_call_(call)
+        has_bias = "bias" in name
+        return self._lower(call, func, has_bias=has_bias)
+
+    def _lower(self, call, func, has_bias):
+        """Lower composite to call_tir with mmalib_matmul_bias_i16."""
+        param_to_arg = dict(zip(func.params, call.args))
+        # Reuse the i8 lowerer's _extract_roles — it's dtype-independent
+        roles = _MMALIBQDQFCLowerer._extract_roles(func, has_bias)
+
+        required = ["data", "w_int8", "w_scale", "d_scale", "o_scale"]
+        if any(r not in roles for r in required):
+            logger.warning("Could not identify roles in MMALIB i16 FC composite")
+            return super().visit_call_(call)
+
+        data_arg = param_to_arg[roles["data"]]
+
+        w_i16_arg = param_to_arg[roles["w_int8"]]
+        w_i16_np = w_i16_arg.data.numpy() if isinstance(w_i16_arg, relax.Constant) else None
+        if w_i16_np is None:
+            return super().visit_call_(call)
+
+        w_scale_arg = param_to_arg[roles["w_scale"]]
+        if not isinstance(w_scale_arg, relax.Constant):
+            return super().visit_call_(call)
+        w_scale_np = w_scale_arg.data.numpy().flatten()
+
+        d_scale_arg = param_to_arg[roles["d_scale"]]
+        if not isinstance(d_scale_arg, relax.Constant):
+            return super().visit_call_(call)
+        d_scale_val = float(d_scale_arg.data.numpy())
+
+        o_scale_arg = param_to_arg[roles["o_scale"]]
+        if not isinstance(o_scale_arg, relax.Constant):
+            return super().visit_call_(call)
+        o_scale_val = float(o_scale_arg.data.numpy())
+
+        # int16 always uses symmetric activation (d_zp=0), so no ZP correction.
+
+        bias_np = None
+        if has_bias and "bias" in roles:
+            bias_arg = param_to_arg[roles["bias"]]
+            if isinstance(bias_arg, relax.Constant):
+                bias_np = bias_arg.data.numpy().flatten()
+
+        N_out, K = w_i16_np.shape
+        data_sinfo = data_arg.struct_info
+        data_shape = [int(s) for s in data_sinfo.shape]
+        M = 1
+        for d in data_shape[:-1]:
+            M *= d
+
+        # --- Compute MMALIB int16 parameters ---
+
+        dw_scale = d_scale_val * w_scale_np[:N_out]
+        # Bias in int64 accumulator scale (wider than int8's int32)
+        if bias_np is not None:
+            bias_i64 = np.round(bias_np[:N_out] / dw_scale).astype(np.int64)
+        else:
+            bias_i64 = np.zeros(N_out, dtype=np.int64)
+
+        combined_rescale = dw_scale / o_scale_val
+        scale_u8, shift_u8 = _float_to_scale_shift(combined_rescale)
+
+        weight_relax = relax.Constant(w_i16_np)
+        bias_relax = relax.Constant(bias_i64)
+        scale_relax = relax.Constant(scale_u8)
+        shift_relax = relax.Constant(shift_u8)
+
+        def te_mmalib_fc_i16(
+            data_t: te.Tensor,
+            weight_t: te.Tensor,
+            bias_t: te.Tensor,
+            scale_t: te.Tensor,
+            shift_t: te.Tensor,
+        ) -> te.Tensor:
+            def fcompute(ins, outs):
+                return tir.call_extern(
+                    "int32",
+                    "mmalib_matmul_bias_i16",
+                    ins[0].data,  # input  [M, K], int16
+                    ins[1].data,  # weight [N, K], int16 (transposed internally)
+                    ins[2].data,  # bias   [N],    int64
+                    ins[3].data,  # scale  [N],    uint8
+                    ins[4].data,  # shift  [N],    uint8
+                    outs[0].data,  # output [M, N], int16
+                    M,
+                    K,
+                    N_out,
+                )
+
+            return te.extern(
+                data_shape[:-1] + [N_out],
+                [data_t, weight_t, bias_t, scale_t, shift_t],
+                fcompute,
+                name="mmalib_fc_i16",
+                dtype="int16",
+            )
+
+        result = self.builder_.call_te(
+            te_mmalib_fc_i16,
+            data_arg,
+            weight_relax,
+            bias_relax,
+            scale_relax,
+            shift_relax,
+            primfunc_name_hint="mmalib_fc_i16",
+        )
+
+        self.count += 1
+        logger.info(
+            "MMALIB i16 FC fusion #%d: %dx%d%s",
+            self.count,
+            K,
+            N_out,
+            " +bias" if has_bias else "",
+        )
+        return result
+
+
+# =========================================================================
+# Int16 FC — public pass
+# =========================================================================
+
+
+@tvm.transform.module_pass(opt_level=0, name="FuseMMALIBQDQFCI16")
+class FuseMMALIBQDQFCI16:
+    """Fuse PT2E int16 QDQ linear/FC patterns into MMALIB matmul_bias_i16 calls.
+
+    Mirrors FuseMMALIBQDQFC for int16 precision.  Requires weight zero-points
+    to be 0 (symmetric) and activation zero-points to be 0 (int16 activations
+    are always symmetric in C7xMMAQuantizer).
+
+    Dimension constraints: K % 16 == 0, N_out % 16 == 0 (vs 64 for int8).
+    """
+
+    def transform_module(self, mod: IRModule, _ctx: PassContext) -> IRModule:
+        patterns = [(name, *factory()) for name, factory in _I16_FC_PATTERN_REGISTRY]
+        mod = relax.transform.FuseOpsByPattern(patterns, bind_constants=False)(mod)
+
+        lowerer = _MMALIB_QDQI16FCLowerer(mod)
+        for gv, func in mod.functions_items():
+            if isinstance(func, relax.Function):
+                if "Composite" in (func.attrs or {}):
+                    continue
+                func = lowerer.visit_expr(func)
+                lowerer.builder_.update_func(gv, func)
+        mod = lowerer.builder_.get()
+
+        if lowerer.count > 0:
+            logger.info("FuseMMALIBQDQFCI16: fused %d layers", lowerer.count)
+            mod = relax.transform.DeadCodeElimination()(mod)
+
+        return mod
 
 
 @tvm.transform.module_pass(opt_level=0, name="FuseMMALIBQDQFC")

@@ -154,6 +154,7 @@ SECTIONS
 --import=tvm_dsp_dma_wait
 /* TVM kernels */
 --import=tvm_int8_residual_add_relu
+--import=tvm_int16_residual_add_relu
 --import=tvm_dequantize_vecmatmul
 --import=tvm_sdpa_decode
 
@@ -212,6 +213,7 @@ SECTIONS
 --import=mmalib_matmul_i8
 --import=mmalib_matmul_i16
 --import=mmalib_depthwise_conv2d_i8
+--import=mmalib_depthwise_conv2d_i16
 --import=mmalib_matmul_bias_i8
 --import=mmalib_matmul_bias_i16
 
