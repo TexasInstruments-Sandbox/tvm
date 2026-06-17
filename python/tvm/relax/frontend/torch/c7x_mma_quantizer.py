@@ -184,6 +184,11 @@ class C7xMMAQuantizer(Quantizer):
                 torch.ops.aten.mm.default,
                 torch.ops.aten.add.Tensor,
             ):
+                # Skip if either argument is a scalar (not an FX Node).
+                # This happens for ops like `x + 0` in attention masking;
+                # only Tensor + Tensor residual adds should be quantized.
+                if not isinstance(node.args[0], Node) or not isinstance(node.args[1], Node):
+                    continue
                 input_qspec_map = {
                     node.args[0]: act_spec,  # type: ignore[index]
                     node.args[1]: act_spec,  # type: ignore[index]
