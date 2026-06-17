@@ -20,10 +20,8 @@ Usage:
 import pytest
 import torch
 import torch.nn as nn
-
 from pt2e_utils import e2e_quantize_and_import as _e2e_quantize_and_import
 from pt2e_utils import run_and_check as _run_and_check
-
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -114,3 +112,87 @@ def test_e2e_linear_3d_i8(dsp_mode, record_cycles):
     example = (torch.randn(1, 4, 64),)
     mod, input_np, ref_np = _e2e_quantize_and_import(model, example)
     _run_and_check(mod, input_np, ref_np, dsp_mode, record_cycles, "e2e_linear_3d_i8")
+
+
+# ---------------------------------------------------------------------------
+# Int16 end-to-end tests
+#
+# Tolerance is higher than int8 because uint8 scale/shift requantization has
+# coarser precision for int16 accumulators (error scales with √K).
+# max_diff=10 is conservative for typical layer sizes; single layers are ≤6.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.quick
+@pytest.mark.c7x_only
+def test_e2e_conv2d_i16(dsp_mode, record_cycles):
+    """Conv2d int16: C7xMMAQuantizer(int16) → mmalib_conv2d_i16."""
+    if dsp_mode is None:
+        pytest.skip("--dsp-mode not set")
+
+    # C_in and C_out must be multiples of 16 (MMA_SIZE_I16)
+    model = nn.Sequential(nn.Conv2d(32, 32, 3, padding=1)).eval()
+    example = (torch.randn(1, 32, 28, 28),)
+    mod, input_np, ref_np = _e2e_quantize_and_import(model, example, dtype="int16")
+    _run_and_check(
+        mod, input_np, ref_np, dsp_mode, record_cycles,
+        "e2e_conv2d_i16", max_diff=10,
+    )
+
+
+@pytest.mark.quick
+@pytest.mark.c7x_only
+def test_e2e_depthwise_conv2d_i16(dsp_mode, record_cycles):
+    """Depthwise conv2d int16 (3×3 only): C7xMMAQuantizer(int16) → mmalib_depthwise_conv2d_i16."""
+    if dsp_mode is None:
+        pytest.skip("--dsp-mode not set")
+
+    # MMALIB only supports 3×3 for int16 depthwise (MMALIB-882)
+    model = nn.Sequential(nn.Conv2d(32, 32, 3, padding=1, groups=32)).eval()
+    example = (torch.randn(1, 32, 28, 28),)
+    mod, input_np, ref_np = _e2e_quantize_and_import(model, example, dtype="int16")
+    _run_and_check(
+        mod, input_np, ref_np, dsp_mode, record_cycles,
+        "e2e_dwconv2d_i16", max_diff=10,
+    )
+
+
+@pytest.mark.quick
+@pytest.mark.c7x_only
+def test_e2e_linear_i16(dsp_mode, record_cycles):
+    """Linear int16: C7xMMAQuantizer(int16) → mmalib_matmul_bias_i16."""
+    if dsp_mode is None:
+        pytest.skip("--dsp-mode not set")
+
+    # K and N must be multiples of 16 (MMA_SIZE_I16)
+    model = nn.Sequential(nn.Linear(64, 64)).eval()
+    example = (torch.randn(1, 64),)
+    mod, input_np, ref_np = _e2e_quantize_and_import(model, example, dtype="int16")
+    _run_and_check(
+        mod, input_np, ref_np, dsp_mode, record_cycles,
+        "e2e_linear_i16", max_diff=10,
+    )
+
+
+@pytest.mark.quick
+@pytest.mark.c7x_only
+def test_e2e_residual_add_i16(dsp_mode, record_cycles):
+    """Residual add int16: C7xMMAQuantizer(int16) → tvm_int16_residual_add_relu."""
+    if dsp_mode is None:
+        pytest.skip("--dsp-mode not set")
+
+    class ResidualBlock(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv = nn.Conv2d(32, 32, 3, padding=1)
+
+        def forward(self, x):
+            return self.conv(x) + x
+
+    model = ResidualBlock().eval()
+    example = (torch.randn(1, 32, 16, 16),)
+    mod, input_np, ref_np = _e2e_quantize_and_import(model, example, dtype="int16")
+    _run_and_check(
+        mod, input_np, ref_np, dsp_mode, record_cycles,
+        "e2e_residual_add_i16", max_diff=10,
+    )
