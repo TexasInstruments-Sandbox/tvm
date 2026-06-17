@@ -1199,7 +1199,11 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         data = args[0]
         scale = relax.const(args[1], "float32")
         out_dtype = BaseFXGraphImporter._convert_data_type(args[5])
-        zero_point = relax.const(args[2], out_dtype)
+        # relax.dequantize/quantize only accept int8 or float16 zero_points
+        # (enforced by src/relax/op/tensor/qdq.cc). Zero-points are always
+        # small integers that fit in int8, including int16 symmetric quant
+        # where zp is always 0.
+        zero_point = relax.const(args[2], "int8")
         return self.block_builder.emit(
             relax.op.quantize(data, scale, zero_point, axis=0, out_dtype=out_dtype)
         )
@@ -1208,9 +1212,10 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         args = self.retrieve_args(node)
         data = args[0]
         scale = relax.const(args[1], "float32")
-        # zero_point dtype must match the quantized input dtype
-        in_dtype = data.struct_info.dtype
-        zero_point = relax.const(args[2], in_dtype)
+        # relax.dequantize requires zero_point to be int8 (not the quantized
+        # data dtype). For symmetric schemes (int16) zp is always 0; for int8
+        # asymmetric quant the value fits in int8 by construction.
+        zero_point = relax.const(args[2], "int8")
         return self.block_builder.emit(
             relax.op.dequantize(data, scale, zero_point, axis=0, out_dtype="float32")
         )
@@ -1222,14 +1227,13 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         args = self.retrieve_args(node)
         data = args[0]
         scale = args[1]
-        in_dtype = data.struct_info.dtype
         zero_point = args[2]
         axis = int(args[3])
-        # PT2E emits zp as int64; TVM dequantize requires it to match
-        # the quantized data dtype. Rebuild as a correctly-typed constant.
-        if hasattr(zero_point, "struct_info") and zero_point.struct_info.dtype != in_dtype:
-            n_channels = int(zero_point.struct_info.shape[0])
-            zero_point = relax.Constant(np.zeros(n_channels, dtype=in_dtype))
+        n_channels = int(zero_point.struct_info.shape[0])
+        # relax.dequantize requires int8 zero_point. Per-channel zp from PT2E
+        # may arrive as int64; always rebuild as int8 (values fit by construction).
+        if not (hasattr(zero_point, "struct_info") and zero_point.struct_info.dtype == "int8"):
+            zero_point = relax.Constant(np.zeros(n_channels, dtype=np.int8))
         return self.block_builder.emit(
             relax.op.dequantize(data, scale, zero_point, axis=axis, out_dtype="float32")
         )
