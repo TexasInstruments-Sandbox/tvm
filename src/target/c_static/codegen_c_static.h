@@ -143,8 +143,10 @@ class CodeGenCStatic final : public CodeGenC {
   void VisitStmt_(const ForNode* op) override;
 
   ffi::Array<ffi::String> GetMainFunctionNames() const { return main_function_names_; }
-  ffi::Array<ffi::String> GetKernelFunctionNames() const { return kernel_function_names_; }
-  std::string FinishKernels();
+  const std::vector<ffi::Array<ffi::String>>& GetKernelFunctionNamesVec() const {
+    return kernel_function_names_vec_;
+  }
+  std::vector<std::string> FinishKernels();
 
   void DumpCGFunctionInfo() const;
   void EmitWrapperFunctions();
@@ -248,10 +250,13 @@ class CodeGenCStatic final : public CodeGenC {
   std::unordered_map<std::string, std::string> declared_globals_;
   /* \brief function names for the main source file (non-kernel) */
   ffi::Array<ffi::String> main_function_names_;
-  /* \brief function names for the kernel source file */
-  ffi::Array<ffi::String> kernel_function_names_;
-  /* \brief stream for kernel function bodies (split into separate source file) */
-  std::ostringstream kernel_stream_;
+  /* \brief target source size per kernel chunk (~150 KB keeps cl7x -O3 in fast regime) */
+  static constexpr size_t kKernelFileSizeTarget = 150 * 1024;
+  /* \brief one stream and name list per kernel chunk */
+  std::vector<std::ostringstream> kernel_streams_;
+  std::vector<ffi::Array<ffi::String>> kernel_function_names_vec_;
+  /* \brief accumulated source bytes in the current kernel chunk */
+  size_t current_kernel_file_size_{0};
   /* \brief current function being processed */
   std::string current_function_name_;
   /* \brief mapping function names to codegen information */

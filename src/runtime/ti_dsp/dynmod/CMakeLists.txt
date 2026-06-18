@@ -174,14 +174,16 @@ if(EXISTS "${WEIGHTS_FILE}")
 
     add_custom_command(
         OUTPUT "${WEIGHTS_ASM}"
-        COMMAND python3 "${BIN_TO_ASM_SCRIPT}"
+        COMMAND ${CMAKE_COMMAND} -E time
+            python3 "${BIN_TO_ASM_SCRIPT}"
             "${WEIGHTS_FILE}" "${WEIGHTS_ASM}" "weights_bin"
         DEPENDS "${WEIGHTS_FILE}" "${BIN_TO_ASM_SCRIPT}"
         COMMENT "Stage 1.75a: Generating weights assembly"
     )
     add_custom_command(
         OUTPUT "${WEIGHTS_OBJ_FILE}"
-        COMMAND ${CMAKE_C_COMPILER}
+        COMMAND ${CMAKE_COMMAND} -E time
+            ${CMAKE_C_COMPILER}
             -mv7524 --abi=eabi
             --compile_only
             --output_file="${WEIGHTS_OBJ_FILE}"
@@ -395,7 +397,8 @@ foreach(LIB_SRC ${LIB_SRCS})
     set(LIB_OBJ "${CMAKE_CURRENT_BINARY_DIR}/${LIB_NAME_WE}.obj")
     add_custom_command(
         OUTPUT "${LIB_OBJ}"
-        COMMAND ${CMAKE_CXX_COMPILER}
+        COMMAND ${CMAKE_COMMAND} -E time
+            ${CMAKE_CXX_COMPILER}
             ${CXX_FLAGS_LIST}
             ${LIB0_EXTRA_FLAGS}
             ${DYNMOD_LANG_FLAGS}
@@ -431,7 +434,8 @@ endif()
 # Link lib*.obj + dsp_syms.out.obj [+ TIDL objs] -> lib0.out
 add_custom_command(
     OUTPUT "${LIB0_OUT}"
-    COMMAND ${CMAKE_LINKER}
+    COMMAND ${CMAKE_COMMAND} -E time
+        ${CMAKE_LINKER}
         ${LIB_OBJS}
         ${BRIDGE_OBJ_FILE}
         ${WEIGHTS_OBJ_FILE}

@@ -21,6 +21,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,21 @@ from tvm.contrib import tar
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
+
+
+def _run_timed(cmd, cwd, log_f, label):
+    """Run a subprocess, log elapsed wall-clock time to log_f and stdout."""
+    t0 = time.perf_counter()
+    result = subprocess.run(
+        cmd, cwd=str(cwd), stdout=log_f, stderr=subprocess.STDOUT, check=False
+    )
+    elapsed = time.perf_counter() - t0
+    msg = f"[timing] {label}: {elapsed:.1f}s\n"
+    log_f.write(msg)
+    log_f.flush()
+    print(f"    {msg}", end="")
+    return result
+
 
 # Tensor file format constants
 TVM_TENSOR_FILE_MAGIC = 0x54564D54  # "TVMT" in ASCII
@@ -359,9 +375,13 @@ def compile_for_dsp(
 
         relax_pipeline = get_default_pipeline(target)
 
+    from tvm.ir.instrument import PassTimingInstrument
+
+    timing_inst = PassTimingInstrument()
+    t_build = time.perf_counter()
     logger.debug("Building Relax module...")
     with target:
-        with tvm.transform.PassContext(opt_level=3):
+        with tvm.transform.PassContext(opt_level=3, instruments=[timing_inst]):
             executable = relax.build(
                 mod,
                 target,
@@ -370,12 +390,22 @@ def compile_for_dsp(
                 relax_pipeline=relax_pipeline,
                 tir_pipeline=None,  # use target-aware TIR pipeline
             )
-    logger.debug("Relax module build complete")
+            # render() must be called before PassContext exits — exit_pass_ctx
+            # clears the TLS profile store on context __exit__.
+            pass_timing = timing_inst.render()
+    t_build = time.perf_counter() - t_build
+    logger.info(f"[timing] relax.build: {t_build:.1f}s")
+    print(f"    [timing] relax.build: {t_build:.1f}s")
+    if pass_timing:
+        print("    [passes]\n" + pass_timing)
 
-    # Export to tar and extract
+    t_export = time.perf_counter()
     tar_path = output_dir / "model_library.tar"
     logger.debug(f"Exporting library to: {tar_path}")
     executable.export_library(str(tar_path), target=target)
+    t_export = time.perf_counter() - t_export
+    logger.info(f"[timing] export_library: {t_export:.1f}s")
+    print(f"    [timing] export_library: {t_export:.1f}s")
 
     # Extract generated files
     logger.debug(f"Extracting generated files to: {output_dir}")
@@ -791,24 +821,13 @@ def build_dsp_dynmod(
     logger.debug(f"Running CMake: {' '.join(cmake_cmd)}")
 
     with open(log_path, "w") as f:
-        result = subprocess.run(
-            cmake_cmd,
-            cwd=str(build_dir),
-            stdout=f,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
+        result = _run_timed(cmake_cmd, build_dir, f, "cmake configure")
         if result.returncode != 0:
             raise RuntimeError(f"CMake configuration failed. Check {log_path} for details.")
 
-        # Build
         logger.debug("Building c7x_dynmod target...")
-        result = subprocess.run(
-            ["cmake", "--build", ".", "--parallel"],
-            cwd=str(build_dir),
-            stdout=f,
-            stderr=subprocess.STDOUT,
-            check=False,
+        result = _run_timed(
+            ["cmake", "--build", ".", "--parallel"], build_dir, f, "cmake build (all stages)"
         )
         if result.returncode != 0:
             raise RuntimeError(f"Build failed. Check {log_path} for details.")
