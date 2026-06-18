@@ -164,16 +164,14 @@ void CodeGenCStatic::Init(bool output_ssa, bool emit_asserts, bool emit_fwd_func
 void CodeGenCStatic::PrintTrailer() {
 }
 
-std::string CodeGenCStatic::FinishKernels() {
-  std::string kernel_body = kernel_stream_.str();
-  if (kernel_body.empty()) {
-    return "";
+std::vector<std::string> CodeGenCStatic::FinishKernels() {
+  std::vector<std::string> chunks;
+  std::string header = decl_stream.str() + fwd_decl_stream.str();
+  for (auto& ks : kernel_streams_) {
+    std::string body = ks.str();
+    if (!body.empty()) chunks.push_back(header + body);
   }
-  std::ostringstream code;
-  code << decl_stream.str();
-  code << fwd_decl_stream.str();
-  code << kernel_body;
-  return code.str();
+  return chunks;
 }
 
 void CodeGenCStatic::AddFunction(const GlobalVar& gvar, const PrimFunc& func) {
@@ -222,12 +220,25 @@ void CodeGenCStatic::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
 
   emit_fwd_func_decl_ = emit_fwd_func_decl;
 
-  // For kernel (was_private) functions, emit directly into kernel_stream_
+  // For kernel (was_private) functions, emit into a size-bounded chunk.
+  // Generate into a temporary stream first to measure the function's source
+  // size before routing it, then start a new chunk if needed.
   if (it->second.was_private) {
-    std::swap(stream, kernel_stream_);
+    std::ostringstream tmp;
+    std::swap(stream, tmp);
     CodeGenC::AddFunction(gvar, func);
-    std::swap(stream, kernel_stream_);
-    kernel_function_names_.push_back(global_symbol.value());
+    std::swap(stream, tmp);
+    std::string func_code = tmp.str();
+
+    if (kernel_streams_.empty() ||
+        current_kernel_file_size_ + func_code.size() > kKernelFileSizeTarget) {
+      kernel_streams_.emplace_back();
+      kernel_function_names_vec_.emplace_back();
+      current_kernel_file_size_ = 0;
+    }
+    kernel_streams_.back() << func_code;
+    kernel_function_names_vec_.back().push_back(global_symbol.value());
+    current_kernel_file_size_ += func_code.size();
   } else {
     CodeGenC::AddFunction(gvar, func);
     main_function_names_.push_back(global_symbol.value());
@@ -2030,10 +2041,13 @@ ffi::Module BuildCStatic(IRModule mod, Target target) {
   std::string main_code = cg.Finish();
   auto main_mod = CSourceModuleCreate(main_code, "c", cg.GetMainFunctionNames());
 
-  std::string kernel_code = cg.FinishKernels();
-  if (!kernel_code.empty()) {
-    auto kernel_mod = CSourceModuleCreate(kernel_code, "c", cg.GetKernelFunctionNames());
-    main_mod->ImportModule(kernel_mod);
+  auto kernel_chunks = cg.FinishKernels();
+  const auto& kernel_names = cg.GetKernelFunctionNamesVec();
+  ICHECK_EQ(kernel_chunks.size(), kernel_names.size())
+      << "BUG: kernel chunk count mismatch — a kernel stream was created but generated no code";
+  for (size_t i = 0; i < kernel_chunks.size(); ++i) {
+    auto chunk_mod = CSourceModuleCreate(kernel_chunks[i], "c", kernel_names[i]);
+    main_mod->ImportModule(chunk_mod);
   }
 
   return main_mod;
