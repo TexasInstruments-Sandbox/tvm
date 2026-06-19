@@ -1370,7 +1370,7 @@ class ConvTranspose(OnnxOpConverter):
 
         return conv_out
 
-
+#Begin TI
 class GridSample(OnnxOpConverter):
     """Converts an onnx GridSample node into an equivalent Relax expression."""
 
@@ -1387,6 +1387,7 @@ class GridSample(OnnxOpConverter):
         align_corners = attr.get("align_corners", 0) != 0
 
         return bb.emit(relax.op.image.grid_sample(data=data, grid=grid, method=method, layout="NCHW", padding_mode=padding_mode, align_corners=align_corners))
+#End TI
 
 class Erf(OnnxOpConverter):
     """Converts an onnx Erf node into an equivalent Relax expression."""
