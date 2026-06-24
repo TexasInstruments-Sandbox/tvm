@@ -64,17 +64,6 @@ def pytest_configure(config):
         "requires_c7x_firmware: test requires c7x_compute firmware running "
         "(on AM67A locally, or reachable via --board-target)",
     )
-    # Suppress torch.ao.quantization deprecation warnings.
-    # torch 2.10 deprecates these in favor of torchao, but torchao 0.16
-    # doesn't ship XNNPACKQuantizer yet.  Suppress until migration.
-    config.addinivalue_line(
-        "filterwarnings",
-        "ignore:.*torch.ao.quantization is deprecated.*:DeprecationWarning",
-    )
-    config.addinivalue_line(
-        "filterwarnings",
-        "ignore:.*XNNPACKQuantizer is deprecated.*:DeprecationWarning",
-    )
     config.addinivalue_line(
         "filterwarnings",
         "ignore:.*erase_node.*:UserWarning",

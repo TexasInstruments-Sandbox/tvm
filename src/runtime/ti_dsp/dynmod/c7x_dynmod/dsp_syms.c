@@ -129,6 +129,13 @@ __declspec(dllexport) void tvm_int8_residual_add_relu() {}
 __declspec(dllexport) void tvm_int16_residual_add_relu() {}
 __declspec(dllexport) void tvm_dequantize_vecmatmul() {}
 __declspec(dllexport) void tvm_sdpa_decode() {}
+__declspec(dllexport) int32_t tidl_int8_gelu() { return 0; }
+__declspec(dllexport) int32_t tidl_int8_silu() { return 0; }
+__declspec(dllexport) int32_t tidl_int8_hardsigmoid() { return 0; }
+__declspec(dllexport) int32_t tidl_int8_hardswish() { return 0; }
+__declspec(dllexport) int32_t tidl_int8_global_avg_pool() { return 0; }
+__declspec(dllexport) int32_t tidl_int8_avg_pool() { return 0; }
+__declspec(dllexport) int32_t tidl_int8_layer_norm() { return 0; }
 
 /* ========================================================================
  * MCU+ SDK cache operations

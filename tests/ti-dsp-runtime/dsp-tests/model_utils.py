@@ -14,7 +14,6 @@ Usage:
     # example_input: numpy array for test input
 """
 
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -527,7 +526,7 @@ def create_quantized_conv2d_stack_model(seed: int = 42) -> tuple:
     """
     Create INT8 quantized Conv2D stack model for DSP testing.
 
-    Uses PT2E static quantization with XNNPACKQuantizer to produce
+    Uses PT2E static quantization with C7xMMAQuantizer to produce
     a QDQ graph with per-tensor quantization over the same 4-layer
     conv2d + batch_norm + relu stack as create_conv2d_stack_model().
 
@@ -540,21 +539,9 @@ def create_quantized_conv2d_stack_model(seed: int = 42) -> tuple:
         - quantized_gm: PyTorch quantized GraphModule for reference
         - input_data: numpy array for test input [1, 3, 56, 56]
     """
-    import warnings
+    from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 
-    # torch.ao.quantization is deprecated in torch 2.10 in favor of
-    # torchao, but torchao 0.16 doesn't ship XNNPACKQuantizer yet.
-    # Suppress the warnings until we can migrate.
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        from torch.ao.quantization.quantize_pt2e import (
-            convert_pt2e,
-            prepare_pt2e,
-        )
-        from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-            XNNPACKQuantizer,
-            get_symmetric_quantization_config,
-        )
+    from tvm.relax.frontend.torch import C7xMMAQuantizer
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -571,7 +558,7 @@ def create_quantized_conv2d_stack_model(seed: int = 42) -> tuple:
     model_gm = exported_program.module()
 
     # Step 2: PT2E quantization
-    quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+    quantizer = C7xMMAQuantizer(dtype="int8", symmetric_activations=True)
     prepared = prepare_pt2e(model_gm, quantizer)
 
     # Calibrate with random inputs
@@ -579,9 +566,7 @@ def create_quantized_conv2d_stack_model(seed: int = 42) -> tuple:
         for _ in range(10):
             prepared(torch.randn(1, 3, 56, 56, dtype=torch.float32))
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="erase_node")
-        quantized_gm = convert_pt2e(prepared)
+    quantized_gm = convert_pt2e(prepared)
 
     # Step 3: Re-export the quantized model and import to TVM
     with torch.no_grad():

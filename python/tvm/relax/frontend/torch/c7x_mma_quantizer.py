@@ -36,6 +36,7 @@ from torchao.quantization.pt2e.quantizer import (
     QuantizationAnnotation,
     QuantizationSpec,
     Quantizer,
+    SharedQuantizationSpec,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,53 @@ _ACT_ONLY_OPS = frozenset(
         torch.ops.aten.mm.default,
         torch.ops.aten.addmm.default,
         torch.ops.aten.add.Tensor,
+    ]
+)
+
+# Single-input activation ops that require independent output quantization.
+# These map to tidl_int8_* kernels via FuseQDQToTIDLActivation.
+# NOTE: group_norm is excluded — no TIDL kernel available; needs a custom
+# C7x implementation.
+_TIDL_ACT_OPS = frozenset(
+    [
+        torch.ops.aten.gelu.default,
+        torch.ops.aten.silu.default,
+        torch.ops.aten.hardsigmoid.default,
+        torch.ops.aten.hardswish.default,
+    ]
+)
+
+# Normalization ops: input is annotated as int8; weight/bias stay float32.
+# The normalization itself runs in float32 internally. Handled by FuseQDQToTIDLLayerNorm.
+# NOTE: group_norm excluded — no TIDL kernel; needs a custom C7x implementation.
+_NORM_OPS = frozenset(
+    [
+        torch.ops.aten.layer_norm.default,
+    ]
+)
+
+# Average pooling ops: not scale-transparent (averaging changes the range),
+# so need full requantization. Handled by FuseQDQToTIDLAvgPool.
+_AVG_POOL_OPS = frozenset(
+    [
+        torch.ops.aten.adaptive_avg_pool2d.default,
+        torch.ops.aten.avg_pool2d.default,
+    ]
+)
+
+# Single-input ops that are quantization-transparent: the output range equals
+# the input range, so EliminateQDQTransparent can remove the QDQ wrappers.
+# Output uses SharedQuantizationSpec pointing to the input to guarantee
+# matching scales after calibration.
+# NOTE: aten.cat.default is intentionally excluded — concatenating tensors with
+# different per-input scales requires requantization, which EliminateQDQTransparent
+# does not currently implement.
+_TRANSPARENT_OPS = frozenset(
+    [
+        torch.ops.aten.max_pool2d.default,
+        torch.ops.aten.view.default,
+        torch.ops.aten.permute.default,
+        torch.ops.aten.flatten.using_ints,
     ]
 )
 
@@ -169,10 +217,16 @@ class C7xMMAQuantizer(Quantizer):
         for node in model.graph.nodes:
             if node.op != "call_function":
                 continue
-            if node.target not in _WEIGHT_OPS and node.target not in _ACT_ONLY_OPS:
+            all_ops = (
+                _WEIGHT_OPS | _ACT_ONLY_OPS | _TRANSPARENT_OPS
+                | _TIDL_ACT_OPS | _AVG_POOL_OPS | _NORM_OPS
+            )
+            if node.target not in all_ops:
                 continue
             if node.meta.get("quantization_annotation") is not None:
                 continue  # already annotated by a composed quantizer
+
+            output_qspec: QuantizationSpec | SharedQuantizationSpec = act_spec
 
             if node.target in _WEIGHT_OPS:
                 # bias (args[2]) stays float32 — not annotated
@@ -180,6 +234,18 @@ class C7xMMAQuantizer(Quantizer):
                     node.args[0]: act_spec,  # type: ignore[index]
                     node.args[1]: weight_spec,  # type: ignore[index]
                 }
+            elif node.target in (_TIDL_ACT_OPS | _AVG_POOL_OPS | _NORM_OPS):
+                # Single activation input; weight/bias (if any) stay float32.
+                if not isinstance(node.args[0], Node):
+                    continue
+                input_qspec_map = {node.args[0]: act_spec}  # type: ignore[index]
+            elif node.target in _TRANSPARENT_OPS:
+                # Single activation input; output shares scale with input so
+                # EliminateQDQTransparent can remove the QDQ wrappers.
+                if not isinstance(node.args[0], Node):
+                    continue
+                input_qspec_map = {node.args[0]: act_spec}  # type: ignore[index]
+                output_qspec = SharedQuantizationSpec(node.args[0])  # type: ignore[arg-type]
             elif node.target in (
                 torch.ops.aten.mm.default,
                 torch.ops.aten.add.Tensor,
@@ -202,7 +268,7 @@ class C7xMMAQuantizer(Quantizer):
 
             node.meta["quantization_annotation"] = QuantizationAnnotation(
                 input_qspec_map=input_qspec_map,  # type: ignore[arg-type]
-                output_qspec=act_spec,
+                output_qspec=output_qspec,
                 _annotated=True,  # prevents double-annotation when composed with another quantizer
             )
 

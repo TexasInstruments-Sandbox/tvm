@@ -71,6 +71,9 @@ constexpr const char* kDSPHeaders = R"(
 #include "cpp/vm_builtins.h"
 #include "dma/tvm_dsp_dma.h"
 #include "kernels/tvm_int8_residual_add.h"
+#include "kernels/tidl_activation_wrappers.h"
+#include "kernels/tidl_avgpool_wrappers.h"
+#include "kernels/tidl_norm_wrappers.h"
 #include "kernels/tvm_dequantize_vecmatmul.h"
 #include "kernels/tvm_sdpa_decode.h"
 #include <cstdint>

@@ -26,7 +26,6 @@ Usage:
 import re
 import subprocess
 import sys
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -78,30 +77,22 @@ class _SingleConv(nn.Module):
 
 def _make_model(ic, oc, ih, iw):
     """Return (tvm_mod, input_np) for a single INT8 conv2d layer."""
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
-        from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-            XNNPACKQuantizer,
-            get_symmetric_quantization_config,
-        )
-        from torch.export import export
-        from tvm import relax
-        from tvm.relax.frontend.torch import from_exported_program
+    from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+    from torch.export import export
+    from tvm import relax
+    from tvm.relax.frontend.torch import C7xMMAQuantizer, from_exported_program
 
     torch.manual_seed(42)
     model = _SingleConv(ic, oc).eval()
     example = (torch.randn(1, ic, ih, iw),)
 
     exported = export(model, example)
-    quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+    quantizer = C7xMMAQuantizer(dtype="int8", symmetric_activations=True)
     prepared = prepare_pt2e(exported.module(), quantizer)
     with torch.no_grad():
         for _ in range(10):
             prepared(torch.randn(1, ic, ih, iw))
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="erase_node")
-        quantized = convert_pt2e(prepared)
+    quantized = convert_pt2e(prepared)
 
     with torch.no_grad():
         exported_q = export(quantized, example)

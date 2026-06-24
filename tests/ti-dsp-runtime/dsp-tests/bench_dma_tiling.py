@@ -47,13 +47,9 @@ def _create_qresnet18():
     import torch
     from torch.export import export
     from torchvision.models.resnet import ResNet18_Weights, resnet18
-    from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
-    from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-        XNNPACKQuantizer,
-        get_symmetric_quantization_config,
-    )
+    from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
     from tvm import relax
-    from tvm.relax.frontend.torch import from_exported_program
+    from tvm.relax.frontend.torch import C7xMMAQuantizer, from_exported_program
 
     torch_model = resnet18(weights=ResNet18_Weights.DEFAULT).eval()
     example_args = (torch.randn(1, 3, 224, 224, dtype=torch.float32),)
@@ -62,7 +58,7 @@ def _create_qresnet18():
         exported_program = export(torch_model, example_args)
     model_gm = exported_program.module()
 
-    quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+    quantizer = C7xMMAQuantizer(dtype="int8", symmetric_activations=True)
     prepared = prepare_pt2e(model_gm, quantizer)
     with torch.no_grad():
         for _ in range(10):
