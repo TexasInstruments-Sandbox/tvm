@@ -34,14 +34,6 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "filterwarnings",
-        "ignore:.*torch.ao.quantization is deprecated.*:DeprecationWarning",
-    )
-    config.addinivalue_line(
-        "filterwarnings",
-        "ignore:.*XNNPACKQuantizer is deprecated.*:DeprecationWarning",
-    )
-    config.addinivalue_line(
-        "filterwarnings",
         "ignore:.*erase_node.*:UserWarning",
     )
 

@@ -4,7 +4,7 @@ Quantized Conv2D Stack DSP test.
 
 Tests an INT8 quantized 4-layer conv2d + batch_norm + relu stack on DSP
 comparing against PyTorch quantized reference. Uses PT2E static
-quantization with XNNPACKQuantizer to produce a QDQ graph.
+quantization with C7xMMAQuantizer to produce a QDQ graph.
 
 The model isolates the most expensive conv2d configurations from
 ResNet18 without skip connections, making the generated code easy to

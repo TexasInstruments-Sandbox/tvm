@@ -311,3 +311,88 @@ def test_add_tensor_produces_qdq():
     targets = _call_function_targets(q)
     assert _has_quantize(targets)
     assert _has_dequantize(targets)
+
+
+# ---------------------------------------------------------------------------
+# Transparent ops (Category 1 annotation gaps)
+# ---------------------------------------------------------------------------
+
+
+class TransparentOpsModel(nn.Module):
+    """Model that exercises max_pool2d, view, permute, flatten."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(4, 8, 3, padding=1)
+
+    def forward(self, x):
+        x = self.conv(x)                          # annotated weight op
+        x = torch.nn.functional.max_pool2d(x, 2)  # transparent
+        b, c = x.shape[:2]
+        x = x.view(b, c, -1)                      # transparent (view)
+        x = x.permute(0, 2, 1)                    # transparent (permute)
+        x = torch.flatten(x, 1)                   # transparent (flatten)
+        return x
+
+
+@pytest.mark.quick
+def test_transparent_ops_get_annotated():
+    """max_pool2d, view, permute, flatten are annotated with input act_spec."""
+    model = TransparentOpsModel().eval()
+    example = (torch.randn(1, 4, 8, 8),)
+    exported = torch.export.export(model, example).module()
+    quantizer = C7xMMAQuantizer("int8")
+    quantizer.annotate(exported)
+
+    transparent_targets = {
+        torch.ops.aten.max_pool2d.default,
+        torch.ops.aten.view.default,
+        torch.ops.aten.permute.default,
+        torch.ops.aten.flatten.using_ints,
+    }
+    annotated = set()
+    for node in exported.graph.nodes:
+        if node.op == "call_function" and node.target in transparent_targets:
+            ann = node.meta.get("quantization_annotation")
+            assert ann is not None, f"{node.target} not annotated"
+            assert node.args[0] in ann.input_qspec_map, f"{node.target} args[0] missing"
+            annotated.add(node.target)
+
+    assert annotated == transparent_targets, f"missing annotations for: {transparent_targets - annotated}"
+
+
+@pytest.mark.quick
+def test_transparent_ops_output_uses_shared_spec():
+    """Transparent ops use SharedQuantizationSpec for output so scales match."""
+    from torchao.quantization.pt2e.quantizer import SharedQuantizationSpec
+
+    model = TransparentOpsModel().eval()
+    example = (torch.randn(1, 4, 8, 8),)
+    exported = torch.export.export(model, example).module()
+    quantizer = C7xMMAQuantizer("int8")
+    quantizer.annotate(exported)
+
+    transparent_targets = {
+        torch.ops.aten.max_pool2d.default,
+        torch.ops.aten.view.default,
+        torch.ops.aten.permute.default,
+        torch.ops.aten.flatten.using_ints,
+    }
+    for node in exported.graph.nodes:
+        if node.op == "call_function" and node.target in transparent_targets:
+            ann = node.meta.get("quantization_annotation")
+            assert isinstance(ann.output_qspec, SharedQuantizationSpec), (
+                f"{node.target} output_qspec should be SharedQuantizationSpec, "
+                f"got {type(ann.output_qspec)}"
+            )
+
+
+@pytest.mark.quick
+def test_transparent_ops_produce_qdq():
+    """After convert_pt2e, transparent ops get QDQ wrappers (for EliminateQDQTransparent)."""
+    q = quantize_pt2e(
+        TransparentOpsModel(), (torch.randn(1, 4, 8, 8),), C7xMMAQuantizer("int8")
+    )
+    targets = _call_function_targets(q)
+    assert _has_quantize(targets), "no quantize nodes after convert_pt2e"
+    assert _has_dequantize(targets), "no dequantize nodes after convert_pt2e"

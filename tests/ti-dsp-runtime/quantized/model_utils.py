@@ -2,18 +2,17 @@
 Quantized model creation utilities for DSP tests.
 
 Each function creates a quantized TorchVision model using PT2E static
-quantization (XNNPACKQuantizer, symmetric INT8, QDQ graph) and returns
+quantization (C7xMMAQuantizer, symmetric INT8, QDQ graph) and returns
 a tuple of (tvm_mod, quantized_gm, input_data).
 """
-
-import warnings
 
 import numpy as np
 import torch
 from torch.export import export
+from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 
 from tvm import relax
-from tvm.relax.frontend.torch import from_exported_program
+from tvm.relax.frontend.torch import C7xMMAQuantizer, from_exported_program
 
 
 def _pt2e_quantize(torch_model, example_args):
@@ -21,28 +20,18 @@ def _pt2e_quantize(torch_model, example_args):
 
     Returns (tvm_mod, quantized_gm) with parameters bound.
     """
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
-        from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-            XNNPACKQuantizer,
-            get_symmetric_quantization_config,
-        )
-
     with torch.no_grad():
         exported_program = export(torch_model, example_args)
     model_gm = exported_program.module()
 
-    quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+    quantizer = C7xMMAQuantizer(dtype="int8", symmetric_activations=True)
     prepared = prepare_pt2e(model_gm, quantizer)
 
     with torch.no_grad():
         for _ in range(10):
             prepared(torch.randn_like(example_args[0]))
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="erase_node")
-        quantized_gm = convert_pt2e(prepared)
+    quantized_gm = convert_pt2e(prepared)
 
     with torch.no_grad():
         exported_program_q = export(quantized_gm, example_args)

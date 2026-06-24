@@ -143,6 +143,29 @@ extern int   tvm_int16_residual_add_relu(const void *, const void *,
 extern int   tvm_dequantize_vecmatmul(const void *, const void *,
                                       const void *, void *,
                                       int32_t, int32_t, int32_t);
+/* TIDL activation kernels */
+extern int32_t tidl_int8_gelu(const void *, void *, int32_t,
+                               int32_t, float, int32_t, float);
+extern int32_t tidl_int8_silu(const void *, void *, int32_t,
+                               int32_t, float, int32_t, float);
+extern int32_t tidl_int8_hardsigmoid(const void *, void *, int32_t,
+                                     int32_t, float, int32_t, float);
+extern int32_t tidl_int8_hardswish(const void *, void *, int32_t,
+                                   int32_t, float, int32_t, float);
+/* TIDL pooling kernels */
+extern int32_t tidl_int8_global_avg_pool(const void *, void *,
+                                         int32_t, int32_t, int32_t, int32_t,
+                                         int32_t, float, int32_t, float);
+extern int32_t tidl_int8_avg_pool(const void *, void *,
+                                  int32_t, int32_t, int32_t, int32_t,
+                                  int32_t, int32_t, int32_t, int32_t,
+                                  int32_t, int32_t, int32_t, int32_t,
+                                  int32_t, float, int32_t, float);
+/* TIDL normalization kernels */
+extern int32_t tidl_int8_layer_norm(const void *, const void *,
+                                    const void *, void *,
+                                    int32_t, int32_t, float,
+                                    int32_t, float, int32_t, float);
 extern int   tvm_sdpa_decode(const void *, const void *,
                              const void *, const void *, void *,
                              int32_t, int32_t, int32_t, int32_t);
@@ -323,6 +346,16 @@ static const DspSymEntry dsp_syms[] = {
     SYM(tvm_int16_residual_add_relu),
     SYM(tvm_dequantize_vecmatmul),
     SYM(tvm_sdpa_decode),
+    /* TIDL activation kernels */
+    SYM(tidl_int8_gelu),
+    SYM(tidl_int8_silu),
+    SYM(tidl_int8_hardsigmoid),
+    SYM(tidl_int8_hardswish),
+    /* TIDL pooling kernels */
+    SYM(tidl_int8_global_avg_pool),
+    SYM(tidl_int8_avg_pool),
+    /* TIDL normalization kernels */
+    SYM(tidl_int8_layer_norm),
 
     /* TVM L2 SRAM bump allocator (getter functions) */
     SYM(tvm_dsp_get_l2_base),
