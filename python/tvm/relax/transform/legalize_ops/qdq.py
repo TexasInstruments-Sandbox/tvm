@@ -50,8 +50,18 @@ def _quantize(bb: BlockBuilder, call: Call) -> Expr:
         zp: Union[te.Tensor, tir.IntImm, tir.FloatImm],
     ):
         def quantize_compute(*indices):
-            scale_value = scale if is_const_scalar(scale) else scale[indices[axis]]
-            zp_value = zp if is_const_scalar(zp) else zp[indices[axis]]
+            if is_const_scalar(scale):
+                scale_value = scale
+            elif len(scale.shape) == 0:
+                scale_value = scale[()]
+            else:
+                scale_value = scale[indices[axis]]
+            if is_const_scalar(zp):
+                zp_value = zp
+            elif len(zp.shape) == 0:
+                zp_value = zp[()]
+            else:
+                zp_value = zp[indices[axis]]
             scaled = data[indices] / scale_value
             round_val = (te.round(scaled) if "int" in out_dtype else scaled) + zp_value
             return clip_cast(round_val, out_dtype)
@@ -98,8 +108,21 @@ def _dequantize(bb: BlockBuilder, call: Call) -> Expr:
         zp: Union[te.Tensor, tir.IntImm, tir.FloatImm],
     ):
         def dequantize_compute(*indices):
-            scale_value = scale if is_const_scalar(scale) else scale[indices[axis]]
-            zp_value = zp if is_const_scalar(zp) else zp[indices[axis]]
+            # scale/zp can be: a TIR scalar const (is_const_scalar), a 0-D TE
+            # tensor (per-tensor, arising when FuseOpsByPattern leaves a Var
+            # binding for the scale), or a 1-D+ TE tensor (per-channel).
+            if is_const_scalar(scale):
+                scale_value = scale
+            elif len(scale.shape) == 0:
+                scale_value = scale[()]
+            else:
+                scale_value = scale[indices[axis]]
+            if is_const_scalar(zp):
+                zp_value = zp
+            elif len(zp.shape) == 0:
+                zp_value = zp[()]
+            else:
+                zp_value = zp[indices[axis]]
             dtype = "float32" if "float" in data.dtype else "int32"
             sub = te.subtract(data[indices].astype(dtype), zp_value)
             out = te.multiply(sub, scale_value.astype("float32"))

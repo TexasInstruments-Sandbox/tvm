@@ -52,12 +52,14 @@ _WEIGHT_OPS = frozenset(
 )
 
 # Both inputs are activations; no per-channel weight spec applies.
-# add.Tensor produces the dq(x)+dq(skip)->q pattern consumed by FuseInt8ResidualAdd.
+# add.Tensor / add_.Tensor produce the dq(x)+dq(skip)->q pattern consumed by
+# FuseInt8ResidualAdd. add_ is the in-place variant (used by ResNet shortcuts).
 _ACT_ONLY_OPS = frozenset(
     [
         torch.ops.aten.mm.default,
         torch.ops.aten.addmm.default,
         torch.ops.aten.add.Tensor,
+        torch.ops.aten.add_.Tensor,
     ]
 )
 
@@ -99,8 +101,14 @@ _AVG_POOL_OPS = frozenset(
 # NOTE: aten.cat.default is intentionally excluded — concatenating tensors with
 # different per-input scales requires requantization, which EliminateQDQTransparent
 # does not currently implement.
+# relu/relu_ clip negatives but the post-relu range is still covered by the
+# same observer that sees the conv2d output (calibration learns [0, max]).
+# Including them here lets SharedQuantizationSpec chain correctly through
+# conv2d → relu_ → max_pool2d without a KeyError in prepare_pt2e.
 _TRANSPARENT_OPS = frozenset(
     [
+        torch.ops.aten.relu.default,
+        torch.ops.aten.relu_.default,
         torch.ops.aten.max_pool2d.default,
         torch.ops.aten.view.default,
         torch.ops.aten.permute.default,
@@ -242,13 +250,20 @@ class C7xMMAQuantizer(Quantizer):
             elif node.target in _TRANSPARENT_OPS:
                 # Single activation input; output shares scale with input so
                 # EliminateQDQTransparent can remove the QDQ wrappers.
+                # SharedQuantizationSpec(n) requires n to already be annotated;
+                # fall back to independent act_spec when it isn't (e.g. relu_
+                # after cat, or relu_ after an unannotated in-place op).
                 if not isinstance(node.args[0], Node):
                     continue
                 input_qspec_map = {node.args[0]: act_spec}  # type: ignore[index]
-                output_qspec = SharedQuantizationSpec(node.args[0])  # type: ignore[arg-type]
+                input_node = node.args[0]
+                if input_node.meta.get("quantization_annotation") is not None:
+                    output_qspec = SharedQuantizationSpec(input_node)  # type: ignore[arg-type]
+                # else: output_qspec stays act_spec (independent observer)
             elif node.target in (
                 torch.ops.aten.mm.default,
                 torch.ops.aten.add.Tensor,
+                torch.ops.aten.add_.Tensor,
             ):
                 # Skip if either argument is a scalar (not an FX Node).
                 # This happens for ops like `x + 0` in attention masking;
