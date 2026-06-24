@@ -129,6 +129,10 @@ def _dequantize(bb: BlockBuilder, call: Call) -> Expr:
         zp_singleton = _is_singleton_qparam(zp) if isinstance(zp, te.Tensor) else False
 
         def dequantize_compute(*indices):
+            # scale/zp can be: a TIR scalar const (is_const_scalar), a singleton
+            # TE tensor (0-D per-tensor, arising when FuseOpsByPattern leaves a Var
+            # binding for the scale, or all-ones shape), or a 1-D+ TE tensor
+            # (per-channel).
             if is_const_scalar(scale):
                 scale_value = scale
             elif scale_singleton:
