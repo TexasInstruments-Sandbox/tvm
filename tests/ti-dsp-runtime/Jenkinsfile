@@ -122,6 +122,11 @@ pipeline {
             description: 'Skip MMALIB tests (host and hardware)'
         )
         booleanParam(
+            name: 'SKIP_PT2E_TESTS',
+            defaultValue: false,
+            description: 'Skip PT2E quantizer tests (C7xMMAQuantizer annotation, TIDL activation/pool/norm fusion, e2e)'
+        )
+        booleanParam(
             name: 'SKIP_WHEEL_TESTS',
             defaultValue: false,
             description: 'Skip wheel packaging tests (compile + inference e2e on board)'
@@ -443,6 +448,23 @@ pipeline {
                     }
                 }
 
+                stage('PT2E Host') {
+                    when {
+                        expression { return !params.SKIP_PT2E_TESTS }
+                    }
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/ti-dsp-runtime
+                            pytest -p no:tvm.testing.plugin --rootdir=. pt2e-tests/ \
+                                -m quick \
+                                --dsp-mode=c7x_host \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/pt2e_host.xml
+                        '''
+                    }
+                }
+
                 stage('Quantized Host') {
                     steps {
                         sh '''
@@ -625,6 +647,23 @@ pipeline {
                                 --dsp-mode=c7x_dload \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/mmalib_dload.xml
+                        '''
+                    }
+                }
+
+                stage('PT2E c7x_dload') {
+                    when {
+                        expression { return !params.SKIP_PT2E_TESTS }
+                    }
+                    steps {
+                        sh '''
+                            mkdir -p results
+                            cd tests/ti-dsp-runtime
+                            pytest -p no:tvm.testing.plugin --rootdir=. pt2e-tests/ \
+                                -m quick \
+                                --dsp-mode=c7x_dload \
+                                -v \
+                                --junit-xml=${WORKSPACE}/results/pt2e_dload.xml
                         '''
                     }
                 }
