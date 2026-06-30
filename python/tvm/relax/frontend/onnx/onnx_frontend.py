@@ -1546,6 +1546,91 @@ class GridSample(OnnxOpConverter):
         return bb.emit(relax.op.image.grid_sample(data=data, grid=grid, method=method, layout="NCHW", padding_mode=padding_mode, align_corners=align_corners))
 #End TI
 
+#Begin TI
+class ConvInteger(OnnxOpConverter):
+    """Converts an onnx ConvInteger node into an equivalent Relax expression.
+
+    ConvInteger performs convolution on quantized integer inputs by dequantizing
+    using zero points, then performing standard convolution:
+    ConvInteger(x, w, x_zp, w_zp) = Conv(x - x_zp, w - w_zp)
+    """
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        weight = inputs[1]
+        data_zp = inputs[2] if len(inputs) > 2 else None
+        weight_zp = inputs[3] if len(inputs) > 3 else None
+
+        if hasattr(data.struct_info, "ndim"):
+            ndim = data.struct_info.ndim
+        else:
+            ndim = len(data.struct_info.shape)
+
+        if "kernel_shape" not in attr:
+            attr["kernel_shape"] = weight.struct_info.shape.values[2:]
+
+        data_zp_const = relax.const(0, dtype="int32") if data_zp is None else relax.op.astype(data_zp, "int32")
+        weight_zp_const = relax.const(0, dtype="int32") if weight_zp is None else relax.op.astype(weight_zp, "int32")
+
+        data_adj = bb.emit(relax.op.subtract(relax.op.astype(data, "int32"), data_zp_const))
+        weight_adj = bb.emit(relax.op.subtract(relax.op.astype(weight, "int32"), weight_zp_const))
+
+        if "auto_pad" in attr:
+            attr["auto_pad"] = attr["auto_pad"].decode("utf-8")
+            if attr["auto_pad"] in ("SAME_UPPER", "SAME_LOWER"):
+                data_adj = autopad(
+                    bb,
+                    data_adj,
+                    attr.get("strides", [1] * (ndim - 2)),
+                    attr["kernel_shape"],
+                    attr.get("dilations", [1] * (ndim - 2)),
+                    mode=attr["auto_pad"],
+                    deconv=False,
+                )
+            elif attr["auto_pad"] == "VALID":
+                attr["pads"] = [0 for _ in range(ndim - 2)]
+            elif attr["auto_pad"] == "NOTSET":
+                pass
+            else:
+                msg = (
+                    f'Value {attr["auto_pad"]} in attribute "auto_pad" of operator ConvInteger '
+                    f"is invalid."
+                )
+                raise tvm.error.OpAttributeInvalid(msg)
+            attr.pop("auto_pad")
+
+        if ndim == 3:
+            op = relax.op.nn.conv1d
+            data_layout = "NCW"
+            kernel_layout = "OIW"
+        elif ndim == 4:
+            op = relax.op.nn.conv2d
+            data_layout = "NCHW"
+            kernel_layout = "OIHW"
+        elif ndim == 5:
+            op = relax.op.nn.conv3d
+            data_layout = "NCDHW"
+            kernel_layout = "OIDHW"
+        else:
+            raise NotImplementedError("Ndim > 5 not supported for convolution.")
+
+        conv_out = bb.normalize(
+            op(
+                data=data_adj,
+                weight=weight_adj,
+                strides=attr.get("strides", 1),
+                padding=attr.get("pads", 0),
+                dilation=attr.get("dilations", 1),
+                groups=attr.get("group", 1),
+                data_layout=data_layout,
+                kernel_layout=kernel_layout,
+            )
+        )
+
+        return conv_out
+#End TI
+
 class Erf(OnnxOpConverter):
     """Converts an onnx Erf node into an equivalent Relax expression."""
 
@@ -4521,6 +4606,7 @@ def _get_convert_map():
         "MaxUnpool": MaxUnpool,
         "Conv": Conv,
         "ConvTranspose": ConvTranspose,
+        "ConvInteger": ConvInteger,
         "Flatten": Flatten,
         "Identity": Identity,
         "Resize": Resize,
