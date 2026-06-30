@@ -67,8 +67,12 @@ Type InferTypeQuantize(const Call& call, const BlockBuilder& ctx) {
       attrs->out_dtype != DLDataType{kDLUInt, 16, 1} &&
       attrs->out_dtype != DLDataType{static_cast<uint8_t>(kDLFloat8_e4m3fn),
                                      static_cast<uint8_t>(8), static_cast<uint16_t>(1)} &&
+      attrs->out_dtype != DLDataType{static_cast<uint8_t>(kDLFloat8_e4m3fnuz),
+                                     static_cast<uint8_t>(8), static_cast<uint16_t>(1)} &&
       attrs->out_dtype != DLDataType{static_cast<uint8_t>(kDLFloat8_e5m2), static_cast<uint8_t>(8),
-                                     static_cast<uint16_t>(1)}) {
+                                     static_cast<uint16_t>(1)} &&
+      attrs->out_dtype != DLDataType{static_cast<uint8_t>(kDLFloat8_e5m2fnuz),
+                                     static_cast<uint8_t>(8), static_cast<uint16_t>(1)}) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "Unsupported output datatype attribute for operation: '" << attrs->out_dtype;
   }
@@ -83,8 +87,9 @@ Type InferTypeQuantize(const Call& call, const BlockBuilder& ctx) {
   PrimType scale_dtype = scale_ty->dtype.value();
   PrimType zp_dtype = zp_ty->dtype.value();
 
-  // Check input datatype:
-  if (input_dtype != PrimType::Float(16) && input_dtype != PrimType::Float(32)) {
+  // Check input datatype: float, float16, bfloat16, int32
+  if (input_dtype != PrimType::Float(16) && input_dtype != PrimType::Float(32) &&
+      input_dtype != PrimType::BFloat(16) && input_dtype != PrimType::Int(32)) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "Unsupported input datatype for operation: " << input_ty->dtype;
   }
@@ -99,17 +104,37 @@ Type InferTypeQuantize(const Call& call, const BlockBuilder& ctx) {
   if (zp_dtype != PrimType::Int(8) && zp_dtype != PrimType::UInt(8) &&
       zp_dtype != PrimType::Int(16) && zp_dtype != PrimType::UInt(16) &&
       zp_dtype != PrimType::Int(32) && zp_dtype != PrimType::UInt(32) &&
-      zp_dtype != PrimType::Float(16)) {
+      zp_dtype != PrimType::Float(16) &&
+      zp_dtype != PrimType(DLDataType{static_cast<uint8_t>(kDLFloat8_e4m3fn), static_cast<uint8_t>(8), static_cast<uint16_t>(1)}) &&
+      zp_dtype != PrimType(DLDataType{static_cast<uint8_t>(kDLFloat8_e4m3fnuz), static_cast<uint8_t>(8), static_cast<uint16_t>(1)}) &&
+      zp_dtype != PrimType(DLDataType{static_cast<uint8_t>(kDLFloat8_e5m2), static_cast<uint8_t>(8), static_cast<uint16_t>(1)}) &&
+      zp_dtype != PrimType(DLDataType{static_cast<uint8_t>(kDLFloat8_e5m2fnuz), static_cast<uint8_t>(8), static_cast<uint16_t>(1)})) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "zero_point param datatype should be one of "
-        << "['int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32', 'float16'], "
+        << "['int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32', 'float16', "
+        << "'float8e4m3fn', 'float8e4m3fnuz', 'float8e5m2', 'float8e5m2fnuz'], "
         << "but got " << zp_ty->dtype;
   }
+
+  // A scalar or all-ones tensor broadcasts, so it is treated as per-tensor.
+  auto is_scalar_or_singleton_vector = [&](const TensorType& param_ty) {
+    if (IsScalarTensor(param_ty)) return true;
+    if (param_ty->shape.has_value() && param_ty->shape.value()->IsInstance<ShapeExprNode>()) {
+      const auto& values = param_ty->shape.as<ShapeExprNode>()->values;
+      if (!values.empty()) {
+        return std::all_of(values.begin(), values.end(), [&](const PrimExpr& dim) {
+          return ctx->GetAnalyzer()->CanProveEqual(dim, 1);
+        });
+      }
+    }
+    return false;
+  };
 
   // For per-tensor quantization (scalar scale and zp), axis is irrelevant, so only
   // validate it for per-channel quantization.
   int axis = (attrs->axis < 0) ? (input_ty->ndim + attrs->axis) : attrs->axis;
-  bool is_per_tensor = IsScalarTensor(scale_ty) && IsScalarTensor(zp_ty);
+  bool is_per_tensor =
+      is_scalar_or_singleton_vector(scale_ty) && is_scalar_or_singleton_vector(zp_ty);
   if (!is_per_tensor && input_ty->ndim != 0 && (axis < 0 || axis > input_ty->ndim - 1)) {
     TVM_FFI_VISIT_THROW(ValueError, call)
         << "relax.quantize: axis param is out of range (" << attrs->axis << ")";
@@ -124,19 +149,6 @@ Type InferTypeQuantize(const Call& call, const BlockBuilder& ctx) {
           << "Size mismatch: " << call->op << ": the input shape at dim " << attrs->axis << " is '"
           << input_dim << "', but size of " << param_name << " param is '" << param_dim << "'";
     }
-  };
-
-  auto is_scalar_or_singleton_vector = [&](const TensorType& param_ty) {
-    if (IsScalarTensor(param_ty)) return true;
-    if (param_ty->shape.has_value() && param_ty->shape.value()->IsInstance<ShapeExprNode>()) {
-      const auto& values = param_ty->shape.as<ShapeExprNode>()->values;
-      if (!values.empty()) {
-        return std::all_of(values.begin(), values.end(), [&](const PrimExpr& dim) {
-          return ctx->GetAnalyzer()->CanProveEqual(dim, 1);
-        });
-      }
-    }
-    return false;
   };
 
   if (input_ty->ndim == 0) {
@@ -228,7 +240,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 Type InferTypeDequantize(const Call& call, const BlockBuilder& ctx) {
   const auto* attrs = call->attrs.as<QuantizeAttrs>();
   if (attrs->out_dtype != DLDataType{kDLFloat, 16, 1} &&
-      attrs->out_dtype != DLDataType{kDLFloat, 32, 1}) {
+      attrs->out_dtype != DLDataType{kDLFloat, 32, 1} &&
+      attrs->out_dtype != DLDataType{kDLBfloat, 16, 1}) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "Unsupported output datatype attribute for operation: " << attrs->out_dtype;
   }
@@ -249,7 +262,11 @@ Type InferTypeDequantize(const Call& call, const BlockBuilder& ctx) {
       input_dtype != PrimType::Int(32) &&
       input_dtype != PrimType(DLDataType{static_cast<uint8_t>(kDLFloat8_e4m3fn),
                                          static_cast<uint8_t>(8), static_cast<uint16_t>(1)}) &&
+      input_dtype != PrimType(DLDataType{static_cast<uint8_t>(kDLFloat8_e4m3fnuz),
+                                         static_cast<uint8_t>(8), static_cast<uint16_t>(1)}) &&
       input_dtype != PrimType(DLDataType{static_cast<uint8_t>(kDLFloat8_e5m2),
+                                         static_cast<uint8_t>(8), static_cast<uint16_t>(1)}) &&
+      input_dtype != PrimType(DLDataType{static_cast<uint8_t>(kDLFloat8_e5m2fnuz),
                                          static_cast<uint8_t>(8), static_cast<uint16_t>(1)}) &&
       input_dtype != PrimType::Float(16) && input_dtype != PrimType::Float(32)) {
     TVM_FFI_VISIT_THROW(TypeError, call)
@@ -257,9 +274,11 @@ Type InferTypeDequantize(const Call& call, const BlockBuilder& ctx) {
   }
 
   // Check datatype of scale param:
-  if (scale_dtype != PrimType::Float(32) && scale_dtype != PrimType::Float(16)) {
+  if (scale_dtype != PrimType::Float(32) && scale_dtype != PrimType::Float(16) &&
+      scale_dtype != PrimType::BFloat(16)) {
     TVM_FFI_VISIT_THROW(TypeError, call)
-        << "scale param datatype should be one of [float16, float32], but got " << scale_ty->dtype;
+        << "scale param datatype should be one of [float16, bfloat16, float32], but got "
+        << scale_ty->dtype;
   }
 
   // Check datatype of zero_point param:
@@ -273,10 +292,25 @@ Type InferTypeDequantize(const Call& call, const BlockBuilder& ctx) {
         << "but got " << zp_ty->dtype;
   }
 
+  // A scalar or all-ones tensor broadcasts, so it is treated as per-tensor.
+  auto is_scalar_or_singleton_vector = [&](const TensorType& param_ty) {
+    if (IsScalarTensor(param_ty)) return true;
+    if (param_ty->shape.has_value() && param_ty->shape.value()->IsInstance<ShapeExprNode>()) {
+      const auto& values = param_ty->shape.as<ShapeExprNode>()->values;
+      if (!values.empty()) {
+        return std::all_of(values.begin(), values.end(), [&](const PrimExpr& dim) {
+          return ctx->GetAnalyzer()->CanProveEqual(dim, 1);
+        });
+      }
+    }
+    return false;
+  };
+
   // For per-tensor quantization (scalar scale and zp), axis is irrelevant, so only
   // validate it for per-channel quantization.
   int axis = (attrs->axis < 0) ? (input_ty->ndim + attrs->axis) : attrs->axis;
-  bool is_per_tensor = IsScalarTensor(scale_ty) && IsScalarTensor(zp_ty);
+  bool is_per_tensor =
+      is_scalar_or_singleton_vector(scale_ty) && is_scalar_or_singleton_vector(zp_ty);
   if (!is_per_tensor && input_ty->ndim != 0 && (axis < 0 || axis > input_ty->ndim - 1)) {
     TVM_FFI_VISIT_THROW(ValueError, call)
         << "relax.dequantize: axis param is out of range (" << attrs->axis << ")";
@@ -291,19 +325,6 @@ Type InferTypeDequantize(const Call& call, const BlockBuilder& ctx) {
           << "Size mismatch: " << call->op << ": the input shape at dim " << attrs->axis << " is '"
           << input_dim << "', but size of " << param_name << " param is '" << param_dim << "'";
     }
-  };
-
-  auto is_scalar_or_singleton_vector = [&](const TensorType& param_ty) {
-    if (IsScalarTensor(param_ty)) return true;
-    if (param_ty->shape.has_value() && param_ty->shape.value()->IsInstance<ShapeExprNode>()) {
-      const auto& values = param_ty->shape.as<ShapeExprNode>()->values;
-      if (!values.empty()) {
-        return std::all_of(values.begin(), values.end(), [&](const PrimExpr& dim) {
-          return ctx->GetAnalyzer()->CanProveEqual(dim, 1);
-        });
-      }
-    }
-    return false;
   };
 
   if (input_ty->ndim == 0) {
