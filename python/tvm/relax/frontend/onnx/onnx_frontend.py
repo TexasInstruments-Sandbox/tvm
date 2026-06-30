@@ -645,6 +645,20 @@ class Hardmax(OnnxOpConverter):
         one_hot = relax.op.one_hot(argmax, on_value, off_value, axis_len, axis)
         return one_hot
 
+# Begin TI
+class ReverseSequence(OnnxOpConverter):
+    """Convert an onnx ReverseSequence node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        seq_lengths = inputs[1]
+        seq_axis = attr.get("time_axis", 0)
+        batch_axis = attr.get("batch_axis", 1)
+        return bb.emit_te(
+            topi.reverse_sequence, data, seq_lengths, seq_axis=seq_axis, batch_axis=batch_axis
+        )
+# End TI
 
 class Transpose(OnnxOpConverter):
     """Converts an onnx Transpose node into an equivalent Relax expression."""
@@ -4534,6 +4548,7 @@ def _get_convert_map():
         "ConcatFromSequence": ConcatFromSequence,
         "SplitToSequence": SplitToSequence,
         "SequenceAt": SequenceAt,
+        "ReverseSequence": ReverseSequence,
         # RNN operators
         #Begin TI
         "RNN": RNN,

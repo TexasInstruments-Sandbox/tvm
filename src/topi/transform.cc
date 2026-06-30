@@ -59,7 +59,11 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .def_packed("topi.reverse_sequence",
                   [](ffi::PackedArgs args, ffi::Any* rv) {
                     *rv = reverse_sequence(args[0].cast<te::Tensor>(), args[1].cast<te::Tensor>(),
-                                           args[2].cast<int>());
+                                           args[2].cast<int>()
+                                           // Begin TI
+                                           , args[3].cast<int>()
+                                           // End TI
+                                          );
                   })
       .def_packed("topi.reshape",
                   [](ffi::PackedArgs args, ffi::Any* rv) {
