@@ -4338,6 +4338,34 @@ class DequantizeLinear(OnnxOpConverter):
         return relax.op.dequantize(data, scale, zp, axis)
 #End TI
 
+#Begin TI
+class DynamicQuantizeLinear(OnnxOpConverter):
+    """Converts an onnx DynamicQuantizeLinear node to equivalent relax expression"""
+
+    @classmethod
+    def _impl_v11(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        data_dtype = data.struct_info.dtype
+        zero = relax.const(0, dtype=data_dtype)
+        maximum = relax.op.maximum(zero, relax.op.max(data))
+        minimum = relax.op.minimum(zero, relax.op.min(data))
+        scale = relax.op.divide(
+            relax.op.subtract(maximum, minimum),
+            relax.const(255.0, dtype=data_dtype),
+        )
+        zp = relax.op.divide(
+            relax.op.subtract(zero, minimum),
+            scale,
+        )
+        zp = relax.op.clip(zp, 0.0, 255.0)
+        zp = relax.op.round(zp)
+        zp = relax.op.astype(zp, "uint8")
+
+        quantized = relax.op.quantize(data, scale, relax.op.astype(zp, "int32"), 0, "uint8")
+
+        return relax.expr.Tuple([quantized, scale, zp])
+#End TI
+
 def _get_convert_map():
     return {
         # defs/experimental
@@ -4399,7 +4427,6 @@ def _get_convert_map():
         "Gelu": Gelu,
         "FastGelu": FastGelu,
         "BiasGelu": BiasGelu,
-        "Celu": Celu,
         "Celu": Celu,
         "HardSigmoid": HardSigmoid,
         "HardSwish": HardSwish,
@@ -4512,7 +4539,8 @@ def _get_convert_map():
         "RNN": RNN,
         #End TI
         "QuantizeLinear": QuantizeLinear,
-        "DequantizeLinear": DequantizeLinear
+        "DequantizeLinear": DequantizeLinear,
+        "DynamicQuantizeLinear": DynamicQuantizeLinear,
     }
 
 
