@@ -785,6 +785,114 @@ class Cast(OnnxOpConverter):
             return relax.PrimValue(inputs[0].value.astype(to_type))
         return relax.op.astype(inputs[0], to_type)
 
+#Begin TI
+class CastLike(OnnxOpConverter):
+    """Convert an onnx CastLike node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v15(cls, bb, inputs, attr, params):
+        to_cast = inputs[0]
+        like_tensor = inputs[1]
+
+        target_dtype = like_tensor.struct_info.dtype
+        if isinstance(to_cast, relax.ShapeExpr):
+            shape = to_cast
+            if all([isinstance(x, tir.IntImm) for x in shape]):
+                shape = [int(x) for x in shape]
+                return relax.const(shape, target_dtype)
+        if isinstance(to_cast, relax.Constant):
+            output = to_cast.data.numpy().astype(str(target_dtype))
+            return relax.const(output, target_dtype)
+        if isinstance(to_cast, relax.PrimValue):
+            return relax.PrimValue(to_cast.value.astype(str(target_dtype)))
+        return relax.op.astype(to_cast, target_dtype)
+    
+    @classmethod
+    def _impl_v19(cls, bb, inputs, attr, params):
+        """CastLike v19: adds 'saturate' attribute for float8 conversion control.
+
+        The saturate parameter (default=1) controls overflow behavior for float8 types:
+        - saturate=1: Infinities and out-of-range values are clamped to FLT_MAX/-FLT_MAX
+        - saturate=0: Infinities and out-of-range values become NaN
+        """
+        to_cast = inputs[0]
+        like_tensor = inputs[1]
+        saturate = attr.get("saturate", 1)
+
+        target_dtype = like_tensor.struct_info.dtype
+        target_dtype_str = str(target_dtype)
+
+        if isinstance(to_cast, relax.ShapeExpr):
+            shape = to_cast
+            if all([isinstance(x, tir.IntImm) for x in shape]):
+                shape = [int(x) for x in shape]
+                return relax.const(shape, target_dtype)
+
+        if isinstance(to_cast, relax.Constant):
+            output = to_cast.data.numpy().astype(target_dtype_str)
+
+            # Apply saturate=False rules for float8 types on constant data
+            # Note: TVM uses "float8_e5m2" format (with underscore), normalize it
+            normalized_dtype = target_dtype_str.replace("_", "")
+
+            if not saturate and normalized_dtype in {
+                "float8e4m3fn", "float8e4m3fnuz", "float8e5m2", "float8e5m2fnuz"
+            }:
+                output = cls._apply_float8_no_saturate(output, normalized_dtype)
+
+            return relax.const(output, target_dtype)
+
+        if isinstance(to_cast, relax.PrimValue):
+            return relax.PrimValue(to_cast.value.astype(target_dtype_str))
+
+        return relax.op.astype(to_cast, target_dtype)
+
+    @classmethod
+    def _apply_float8_no_saturate(cls, data, target_dtype):
+        """Apply ONNX saturate=False conversion rules for float8 types.
+
+        When saturate=False, infinities and out-of-range values become NaN
+        instead of being clamped to FLT_MAX. The behavior differs per type:
+
+        - E4M3FN/E4M3FNUZ/E5M2FNUZ: All Inf and out-of-range → NaN
+        - E5M2: Positive Inf preserved, negative Inf and negative out-of-range → NaN
+
+        Args:
+            data: NumPy array to convert
+            target_dtype: Float8 type string, e.g., "float8e5m2" (without underscore)
+        """
+        import numpy as _np
+
+        data = data.copy()
+
+        # Float8 max values (NumPy doesn't have native float8 support)
+        # These are the maximum representable values for each type per ONNX spec
+        FLOAT8_MAX_VALUES = {
+            "float8e4m3fn": 240.0,
+            "float8e4m3fnuz": 240.0,
+            "float8e5m2": 57344.0,
+            "float8e5m2fnuz": 57344.0,
+        }
+
+        # Normalize dtype string (remove underscores: float8_e5m2 → float8e5m2)
+        normalized_dtype = target_dtype.replace("_", "")
+
+        flt_max = FLOAT8_MAX_VALUES.get(normalized_dtype)
+        if flt_max is None:
+            # Not a float8 type, return as-is
+            return data
+
+        if normalized_dtype == "float8e5m2":
+            # E5M2: Keep positive Inf, convert negative Inf and values < -FLT_MAX to NaN
+            mask = (_np.isneginf(data)) | (data < -flt_max)
+            data[mask] = _np.nan
+        else:
+            # E4M3FN, E4M3FNUZ, E5M2FNUZ: Convert all Inf and out-of-range to NaN
+            mask = (_np.isinf(data)) | (_np.abs(data) > flt_max)
+            data[mask] = _np.nan
+
+        return data
+#End TI
 
 class Gather(OnnxOpConverter):
     """Convert an onnx Gather node into an equivalent Relax expression."""
@@ -4114,6 +4222,7 @@ def _get_convert_map():
         "FastGelu": FastGelu,
         "BiasGelu": BiasGelu,
         "Celu": Celu,
+        "Celu": Celu,
         "HardSigmoid": HardSigmoid,
         "HardSwish": HardSwish,
         "Sign": Sign,
@@ -4126,6 +4235,7 @@ def _get_convert_map():
         "Max": Max,
         "Mean": Mean,
         "Cast": Cast,
+        "CastLike": CastLike,
         "Gemm": Gemm,
         "MatMul": MatMul,
         # "MatMulInteger": MatMulInteger,
