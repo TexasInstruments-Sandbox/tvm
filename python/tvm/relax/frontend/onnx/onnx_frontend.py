@@ -6433,6 +6433,7 @@ class MatMulInteger(OnnxOpConverter):
         return relax.op.matmul(a, b, out_dtype="int32")  # Output is int32 per ONNX spec
 
 
+
 def _get_convert_map():
     return {
         # defs/experimental
@@ -6494,7 +6495,6 @@ def _get_convert_map():
         "Gelu": Gelu,
         "FastGelu": FastGelu,
         "BiasGelu": BiasGelu,
-        "Celu": Celu,
         "Celu": Celu,
         "HardSigmoid": HardSigmoid,
         "HardSwish": HardSwish,
