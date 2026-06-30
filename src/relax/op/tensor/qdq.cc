@@ -55,7 +55,8 @@ StructInfo InferStructInfoQuantize(const Call& call, const BlockBuilder& ctx) {
   const auto* attrs = call->attrs.as<QuantizeAttrs>();
   if (attrs->out_dtype != DataType::Int(8) && attrs->out_dtype != DataType::UInt(8) &&
       attrs->out_dtype != DataType::Int(16) && attrs->out_dtype != DataType::UInt(16) &&
-      attrs->out_dtype != DataType::Float8E4M3FN() && attrs->out_dtype != DataType::Float8E5M2()) {
+      attrs->out_dtype != DataType::Float8E4M3FN() && attrs->out_dtype != DataType::Float8E4M3FNUZ() &&
+      attrs->out_dtype != DataType::Float8E5M2() && attrs->out_dtype != DataType::Float8E5M2FNUZ()) {
     ctx->ReportFatal(Diagnostic::Error(call)
                      << "Unsupported output datatype attribute for operation: '"
                      << attrs->out_dtype);
@@ -65,8 +66,9 @@ StructInfo InferStructInfoQuantize(const Call& call, const BlockBuilder& ctx) {
   TensorStructInfo scale_sinfo = GetInputTensorStructInfo(call, ctx)[1];
   TensorStructInfo zp_sinfo = GetInputTensorStructInfo(call, ctx)[2];
 
-  // Check input datatype:
-  if (input_sinfo->dtype != DataType::Float(16) && input_sinfo->dtype != DataType::Float(32)) {
+  // Check input datatype: float, float16, bfloat16, int32
+  if (input_sinfo->dtype != DataType::Float(16) && input_sinfo->dtype != DataType::Float(32) &&
+      input_sinfo->dtype != DataType::BFloat(16) && input_sinfo->dtype != DataType::Int(32)) {
     ctx->ReportFatal(Diagnostic::Error(call)
                      << "Unsupported input datatype for operation: " << input_sinfo->dtype);
   }
@@ -78,16 +80,28 @@ StructInfo InferStructInfoQuantize(const Call& call, const BlockBuilder& ctx) {
                      << scale_sinfo->dtype);
   }
 
-  // Check datatype of zero_point param:
-  if (zp_sinfo->dtype != DataType::Int(8) && zp_sinfo->dtype != DataType::Float(16)) {
+  // Check datatype of zero_point param: int8, uint8, float8 types
+  if (zp_sinfo->dtype != DataType::Int(8) && zp_sinfo->dtype != DataType::UInt(8) &&
+      zp_sinfo->dtype != DataType::Float8E4M3FN() && zp_sinfo->dtype != DataType::Float8E4M3FNUZ() &&
+      zp_sinfo->dtype != DataType::Float8E5M2() && zp_sinfo->dtype != DataType::Float8E5M2FNUZ()) {
     ctx->ReportFatal(Diagnostic::Error(call)
-                     << "zero_point param datatype should be 'int8' or 'float16', but got "
-                     << zp_sinfo->dtype);
+                     << "zero_point param datatype should be one of [int8, uint8, float8e4m3fn, "
+                     << "float8e4m3fnuz, float8e5m2, float8e5m2fnuz], but got " << zp_sinfo->dtype);
   }
 
-  // For per-tensor quantization (scalar scale and zp), axis is irrelevant.
+  // Helper to check if a tensor is broadcastable (scalar or 1-element tensor).
+  auto is_broadcastable = [&](const TensorStructInfo& param_sinfo) -> bool {
+    if (IsScalarTensor(param_sinfo)) return true;
+    if (param_sinfo->ndim == 1) {
+      const PrimExpr& param_dim = param_sinfo->GetShape().value()[0];
+      if (ctx->GetAnalyzer()->CanProveEqual(param_dim, 1)) return true;
+    }
+    return false;
+  };
+
+  // For per-tensor quantization (broadcastable scale and zp), axis is irrelevant.
   // Only validate axis and check size matching for per-channel quantization.
-  bool is_per_tensor = IsScalarTensor(scale_sinfo) && IsScalarTensor(zp_sinfo);
+  bool is_per_tensor = is_broadcastable(scale_sinfo) && is_broadcastable(zp_sinfo);
   int axis = 0;
   if (!is_per_tensor) {
     // Check that "axis" attribute is not out of range:
@@ -187,7 +201,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 StructInfo InferStructInfoDequantize(const Call& call, const BlockBuilder& ctx) {
   const auto* attrs = call->attrs.as<QuantizeAttrs>();
-  if (attrs->out_dtype != DataType::Float(16) && attrs->out_dtype != DataType::Float(32)) {
+  if (attrs->out_dtype != DataType::Float(16) && attrs->out_dtype != DataType::Float(32) &&
+      attrs->out_dtype != DataType::BFloat(16)) {
     ctx->ReportFatal(Diagnostic::Error(call)
                      << "Unsupported output datatype attribute for operation: "
                      << attrs->out_dtype);
@@ -197,33 +212,44 @@ StructInfo InferStructInfoDequantize(const Call& call, const BlockBuilder& ctx) 
   TensorStructInfo scale_sinfo = GetInputTensorStructInfo(call, ctx)[1];
   TensorStructInfo zp_sinfo = GetInputTensorStructInfo(call, ctx)[2];
 
-  // Check input datatype:
+  // Check input datatype: int8, uint8, int32, float8 types
   if (input_sinfo->dtype != DataType::Int(8) && input_sinfo->dtype != DataType::UInt(8) &&
-      input_sinfo->dtype != DataType::Int(16) && input_sinfo->dtype != DataType::UInt(16) &&
       input_sinfo->dtype != DataType::Int(32) && input_sinfo->dtype != DataType::Float8E4M3FN() &&
-      input_sinfo->dtype != DataType::Float8E5M2() && input_sinfo->dtype != DataType::Float(16) &&
-      input_sinfo->dtype != DataType::Float(32)) {
+      input_sinfo->dtype != DataType::Float8E4M3FNUZ() && input_sinfo->dtype != DataType::Float8E5M2() &&
+      input_sinfo->dtype != DataType::Float8E5M2FNUZ()) {
     ctx->ReportFatal(Diagnostic::Error(call)
-                     << "Unsupported input datatype for operation: " << attrs->out_dtype);
+                     << "Unsupported input datatype for operation: " << input_sinfo->dtype);
   }
 
-  // Check datatype of scale param:
-  if (scale_sinfo->dtype != DataType::Float(32) && scale_sinfo->dtype != DataType::Float(16)) {
+  // Check datatype of scale param: float, float16, bfloat16
+  if (scale_sinfo->dtype != DataType::Float(32) && scale_sinfo->dtype != DataType::Float(16) &&
+      scale_sinfo->dtype != DataType::BFloat(16)) {
     ctx->ReportFatal(Diagnostic::Error(call)
-                     << "scale param datatype should be one of [float16, float32], but got "
+                     << "scale param datatype should be one of [float16, bfloat16, float32], but got "
                      << scale_sinfo->dtype);
   }
 
-  // Check datatype of zero_point param:
-  if (zp_sinfo->dtype != DataType::Int(8) && zp_sinfo->dtype != DataType::Float(16)) {
+  // Check datatype of zero_point param: int8, uint8, int32
+  if (zp_sinfo->dtype != DataType::Int(8) && zp_sinfo->dtype != DataType::UInt(8) &&
+      zp_sinfo->dtype != DataType::Int(32)) {
     ctx->ReportFatal(Diagnostic::Error(call)
-                     << "zero_point param datatype should be 'int8' or 'float16', but got "
+                     << "zero_point param datatype should be one of [int8, uint8, int32], but got "
                      << zp_sinfo->dtype);
   }
 
-  // For per-tensor quantization (scalar scale and zp), axis is irrelevant.
+  // Helper to check if a tensor is broadcastable (scalar or 1-element tensor).
+  auto is_broadcastable = [&](const TensorStructInfo& param_sinfo) -> bool {
+    if (IsScalarTensor(param_sinfo)) return true;
+    if (param_sinfo->ndim == 1) {
+      const PrimExpr& param_dim = param_sinfo->GetShape().value()[0];
+      if (ctx->GetAnalyzer()->CanProveEqual(param_dim, 1)) return true;
+    }
+    return false;
+  };
+
+  // For per-tensor quantization (broadcastable scale and zp), axis is irrelevant.
   // Only validate axis and check size matching for per-channel quantization.
-  bool is_per_tensor = IsScalarTensor(scale_sinfo) && IsScalarTensor(zp_sinfo);
+  bool is_per_tensor = is_broadcastable(scale_sinfo) && is_broadcastable(zp_sinfo);
   int axis = 0;
   if (!is_per_tensor) {
     // Check that "axis" attribute is not out of range:

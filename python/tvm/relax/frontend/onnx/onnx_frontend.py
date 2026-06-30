@@ -4160,6 +4160,184 @@ class RNN(OnnxOpConverter):
         return cls._impl_common(inputs, attr, layout)
 #End TI
 
+#Begin TI
+class QuantizeLinear(OnnxOpConverter):
+    """Converts an onnx QuantizeLinear node to equivalent relax expression"""
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        scale = inputs[1]
+        zp = inputs[2] if len(inputs) > 2 else None
+
+        if zp is None:
+            zp = relax.const(0, dtype="uint8")
+
+        out_dtype = zp.struct_info.dtype
+        return relax.op.quantize(data, scale, zp, -1, out_dtype)
+
+    @classmethod
+    def _impl_v13(cls, bb, inputs, attr, params):
+        data, scale = inputs[:2]
+        zp = inputs[2] if len(inputs) > 2 else None
+
+        if zp is None:
+            zp = relax.const(0, dtype="uint8")
+
+        out_dtype = zp.struct_info.dtype
+        axis = attr.get("axis", 1)
+        if data.struct_info.ndim < 2:
+            axis = 0
+        else:
+            ndim = data.struct_info.ndim
+            if axis < 0:
+                axis = ndim + axis
+        return relax.op.quantize(data, scale, zp, axis, out_dtype)
+
+    @classmethod
+    def _impl_v19(cls, bb, inputs, attr, params):
+        """QuantizeLinear v19: adds 'saturate' attribute for float8 quantization control.
+
+        The saturate parameter (default=1) controls overflow behavior for float8 types:
+        - saturate=1: Infinities and out-of-range values are clamped to FLT_MAX/-FLT_MAX
+        - saturate=0: Infinities and out-of-range values become NaN
+        """
+        data, scale = inputs[:2]
+        zp = inputs[2] if len(inputs) > 2 else None
+
+        if zp is None:
+            zp = relax.const(0, dtype="uint8")
+
+        out_dtype = zp.struct_info.dtype
+        saturate = attr.get("saturate", 1)
+        axis = attr.get("axis", 1)
+        if data.struct_info.ndim < 2:
+            axis = 0
+        else:
+            ndim = data.struct_info.ndim
+            if axis < 0:
+                axis = ndim + axis
+
+        # For constant inputs with saturate=0 float8: apply spec-compliant conversion
+        if isinstance(data, relax.Constant):
+            data_np = data.data.numpy()
+            scale_np = scale.data.numpy() if isinstance(scale, relax.Constant) else None
+            zp_np = zp.data.numpy() if isinstance(zp, relax.Constant) else None
+
+            # All inputs must be constant for constant folding
+            if scale_np is not None and zp_np is not None:
+                out_dtype_str = str(out_dtype)
+                normalized_dtype = out_dtype_str.replace("_", "")
+
+                if (not saturate and normalized_dtype in {
+                    "float8e4m3fn", "float8e4m3fnuz", "float8e5m2", "float8e5m2fnuz"
+                }):
+                    # Apply ONNX quantization with saturate=0 rules for float8
+                    output = cls._apply_float8_quantize_no_saturate(
+                        data_np, scale_np, zp_np, axis, normalized_dtype
+                    )
+                    return relax.const(output, out_dtype)
+
+        # For dynamic tensors or non-float8: use standard quantize
+        return relax.op.quantize(data, scale, zp, axis, out_dtype)
+
+    @classmethod
+    def _apply_float8_quantize_no_saturate(cls, data, scale, zp, axis, normalized_dtype):
+        """Apply ONNX saturate=False quantization rules for float8 types.
+
+        Quantization: Q = clamp(round(input/scale) + zp, float8_min, float8_max)
+        With saturate=0: overflow → NaN per ONNX spec.
+
+        Args:
+            data: NumPy array to quantize
+            scale: Scale factor (NumPy scalar or array)
+            zp: Zero-point (NumPy scalar or array)
+            axis: Quantization axis (-1 for per-tensor)
+            normalized_dtype: Float8 type string without underscores
+        """
+        import numpy as _np
+
+        # Float8 max values per ONNX spec
+        FLOAT8_MAX_VALUES = {
+            "float8e4m3fn": 240.0,
+            "float8e4m3fnuz": 240.0,
+            "float8e5m2": 57344.0,
+            "float8e5m2fnuz": 57344.0,
+        }
+
+        flt_max = FLOAT8_MAX_VALUES.get(normalized_dtype)
+        if flt_max is None:
+            # Not a float8 type, use standard quantize formula
+            return _np.round(data / scale) + zp
+
+        # Standard quantization: Q = round(input/scale) + zp
+        quantized = _np.round(data / scale) + zp
+
+        # Apply saturate=0 NaN masking for float8
+        if normalized_dtype == "float8e5m2":
+            # E5M2: Keep +inf representable, convert negative overflow to NaN
+            mask = (_np.isinf(quantized) & (quantized < 0)) | (quantized < -flt_max)
+            quantized = quantized.astype(float)  # Ensure float for NaN assignment
+            quantized[mask] = _np.nan
+        else:
+            # E4M3FN, E4M3FNUZ, E5M2FNUZ: All Inf and overflow → NaN
+            mask = (_np.isinf(quantized)) | (_np.abs(quantized) > flt_max)
+            quantized = quantized.astype(float)
+            quantized[mask] = _np.nan
+
+        return quantized
+
+
+class DequantizeLinear(OnnxOpConverter):
+    """Converts an onnx DequantizeLinear node to equivalent relax expression"""
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        scale = inputs[1]
+        zp = inputs[2] if len(inputs) > 2 else None
+        if zp is None:
+            zp = relax.const(0, dtype=data.struct_info.dtype)
+        return relax.op.dequantize(data, scale, zp, -1)
+
+    @classmethod
+    def _impl_v13(cls, bb, inputs, attr, params):
+        data, scale = inputs[:2]
+        zp = inputs[2] if len(inputs) > 2 else None
+        axis = attr.get("axis", 1)
+        if data.struct_info.ndim < 2:
+            axis = 0
+        else:
+            ndim = data.struct_info.ndim
+            if axis < 0:
+                axis = ndim + axis
+
+        if zp is None:
+            zp = relax.const(0, dtype=data.struct_info.dtype)
+        return relax.op.dequantize(data, scale, zp, axis)
+
+    @classmethod
+    def _impl_v19(cls, bb, inputs, attr, params):
+        """DequantizeLinear v19: relaxed type constraints for float8 support.
+
+        ONNX v19 extends input/output types to include all four float8 variants
+        (float8e4m3fn, float8e4m3fnuz, float8e5m2, float8e5m2fnuz) and bfloat16.
+        """
+        data, scale = inputs[:2]
+        zp = inputs[2] if len(inputs) > 2 else None
+        axis = attr.get("axis", 1)
+        if data.struct_info.ndim < 2:
+            axis = 0
+        else:
+            ndim = data.struct_info.ndim
+            if axis < 0:
+                axis = ndim + axis
+
+        if zp is None:
+            zp = relax.const(0, dtype=data.struct_info.dtype)
+        return relax.op.dequantize(data, scale, zp, axis)
+#End TI
+
 def _get_convert_map():
     return {
         # defs/experimental
@@ -4333,6 +4511,8 @@ def _get_convert_map():
         #Begin TI
         "RNN": RNN,
         #End TI
+        "QuantizeLinear": QuantizeLinear,
+        "DequantizeLinear": DequantizeLinear
     }
 
 
