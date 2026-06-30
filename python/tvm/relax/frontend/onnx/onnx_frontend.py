@@ -1244,6 +1244,35 @@ class BiasGelu(OnnxOpConverter):
         inp = relax.op.add(inputs[0], inputs[1])
         return relax.op.nn.gelu(inp)
 
+#Begin TI
+class Celu(OnnxOpConverter):
+    """Converts an ONNX Celu node into an equivalent Relax expression.
+    
+    celu(x) = x for x >= 0, alpha * (exp(x/alpha) - 1) otherwise
+    """
+
+    @classmethod
+    def _impl_v12(cls, bb, inputs, attr, params):
+        alpha = attr.get("alpha", 1.0)
+        x = inputs[0]
+        dtype = x.struct_info.dtype
+
+        zero = relax.const(0.0, dtype=dtype)
+        alpha_const = relax.const(alpha, dtype=dtype)
+        one = relax.const(1.0, dtype=dtype)
+
+        scaled = relax.op.divide(x, alpha_const)
+        exp_result = relax.op.exp(scaled)
+        negative_branch = relax.op.multiply(
+            alpha_const, 
+            relax.op.subtract(exp_result, one)
+        )
+
+        condition = relax.op.greater_equal(x, zero)
+        result = relax.op.where(condition, x, negative_branch)
+        
+        return result
+#End TI
 
 class Shrink(OnnxOpConverter):
     """Converts an onnx Shrink node into an equivalent Relax expression.
@@ -4084,6 +4113,7 @@ def _get_convert_map():
         "Gelu": Gelu,
         "FastGelu": FastGelu,
         "BiasGelu": BiasGelu,
+        "Celu": Celu,
         "HardSigmoid": HardSigmoid,
         "HardSwish": HardSwish,
         "Sign": Sign,
