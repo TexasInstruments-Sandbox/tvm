@@ -20,6 +20,7 @@ from typing import Dict, List, Tuple
 import numpy as _np
 
 import tvm
+from tvm import relax
 from tvm import topi
 
 
@@ -125,3 +126,79 @@ def autopad(
     else:
         # edge mode - replicate border values
         return bb.emit_te(topi.nn.replicate_pad, data, pad[:, 0].tolist(), pad[:, 1].tolist())
+
+#Begin TI
+def unbind(data, axis=0):
+    """Unbind operation removes a tensor dimension and returns a list of all slices along a given dimension, with specified axis removed"""
+    shape = data.struct_info.shape
+    if axis >= len(shape):
+        raise AttributeError("Please check input dim, it shouldn't be greater than or equal to rank.")
+
+    selections = int(shape[axis])
+    if selections == 1:
+        return [relax.op.squeeze(data, axis=[axis])]
+
+    res_split = relax.op.split(data, selections, axis)
+    ret = []
+    for i in range(selections):
+        ret.append(relax.op.squeeze(res_split[i], axis=[axis]))
+    return ret
+
+
+def rnn_cell(input_seqs, hidden_state, w_inp, w_hid, b_inp=None, b_hid=None, backwards=False, act=None, sequence_lens=None, input_dtype=None, hidden_shape=None, clip=None):
+    """RNN cell implementation for Relax."""
+    if act is None:
+        act = relax.op.tanh
+
+    outputs_list = []
+    seq_len = len(input_seqs)
+
+    mask_seqs = None
+    if sequence_lens is not None:
+        seq_len_dtype = sequence_lens.struct_info.dtype
+
+        arange = relax.op.arange(0, seq_len, dtype=seq_len_dtype)
+        arange = relax.op.expand_dims(arange, 1)
+
+        seq_len_shape = sequence_lens.struct_info.shape
+        sequence_lens_broadcast = relax.op.broadcast_to(sequence_lens, [seq_len, seq_len_shape[0]])
+
+        mask = relax.op.less(arange, sequence_lens_broadcast)
+
+        dtype = input_dtype if input_dtype is not None else "float32"
+        mask_float = relax.op.astype(mask, dtype=dtype)
+
+        mask_tensor = relax.op.expand_dims(mask_float, 2)
+        mask_seqs = []
+        for i in range(seq_len):
+            mask_seqs.append(relax.op.take(mask_tensor, relax.const(i), axis=0))
+
+    seq_order = reversed(range(seq_len)) if backwards else range(seq_len)
+
+    for idx in seq_order:
+        x_t = input_seqs[idx]
+        xwt = relax.op.matmul(x_t, relax.op.permute_dims(w_inp, axes=(1, 0)))
+        hwt = relax.op.matmul(hidden_state, relax.op.permute_dims(w_hid, axes=(1, 0)))
+        if b_inp is not None:
+            xwt = xwt + b_inp
+        if b_hid is not None:
+            hwt = hwt + b_hid
+        new_hidden = act(xwt + hwt)
+
+        if clip is not None:
+            new_hidden = relax.op.clip(new_hidden, -clip, clip)
+
+        if mask_seqs is not None:
+            mask_idx = mask_seqs[idx]
+            one = relax.const(1.0)
+            hidden_state = mask_idx * new_hidden + (one - mask_idx) * hidden_state
+            outputs_list.append(mask_idx * hidden_state)
+        else:
+            hidden_state = new_hidden
+            outputs_list.append(hidden_state)
+
+    if backwards:
+        outputs_list = list(reversed(outputs_list))
+
+    return outputs_list, hidden_state
+#End TI

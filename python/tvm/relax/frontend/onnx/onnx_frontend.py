@@ -50,7 +50,13 @@ from tvm.ir.supply import NameSupply
 from tvm.tir.generic import cast
 from tvm.topi.utils import get_const_tuple
 
-from ..common import autopad
+from ..common import (
+    autopad,
+    #Begin TI
+    rnn_cell,
+    #End TI
+    unbind,
+)
 
 
 def get_type(elem_type: Union[str, int]) -> str:
@@ -3829,6 +3835,193 @@ class AllClassNMS(OnnxOpConverter):
 
         return nms_out
 
+#Begin TI
+class RNN(OnnxOpConverter):
+    """Converts an onnx RNN node into equivalent Relax expression"""
+
+    @classmethod
+    def _activation_helper(cls, activation, alpha, beta):
+        act_name = activation.decode("utf-8")
+        activation_ops = {
+            "Sigmoid": relax.op.sigmoid,
+            "Tanh": relax.op.tanh,
+            "Relu": relax.op.nn.relu,
+            "Softplus": relax.op.nn.softplus,
+            "HardSigmoid": lambda x: relax.op.clip(
+                relax.op.add(
+                    relax.op.multiply(relax.const(alpha if alpha is not None else 0.2, dtype="float32"), x),
+                    relax.const(beta if beta is not None else 0.5, dtype="float32"),
+                ),
+                0,
+                1,
+            ),
+            "Elu": lambda x: relax.expr.const(-(alpha if alpha is not None else 1.0), dtype="float32") * relax.op.nn.relu(relax.expr.const(1.0, dtype="float32") - relax.op.exp(x)) + relax.op.nn.relu(x),
+            "LeakyRelu": lambda x: relax.op.nn.leakyrelu(x, alpha=alpha if alpha is not None else 0.01),
+        }
+        if act_name not in activation_ops:
+            raise NotImplementedError(f"Activation {act_name} is not supported in RNN")
+        return activation_ops[act_name]
+
+    @classmethod
+    def _activation_needs_alpha(cls, activation: bytes) -> bool:
+        needs_alpha = ["Affine", "LeakyRelu", "ThresholdedRelu", "ScaledTanh", "HardSigmoid", "Elu"]
+        return activation.decode("utf-8") in needs_alpha
+
+    @classmethod
+    def _activation_needs_beta(cls, activation: bytes) -> bool:
+        needs_beta = ["Affine", "ScaledTanh", "HardSigmoid"]
+        return activation.decode("utf-8") in needs_beta
+
+    @classmethod
+    def _default_activations(cls, num_directions):
+        return [relax.op.tanh] * num_directions
+
+    @classmethod
+    def _get_activations(cls, attr, multiplier, num_directions, rnn_type):
+        """Get activation functions for RNN."""
+
+        if "activations" in attr:
+            activations = attr["activations"]
+            if len(activations) != multiplier * num_directions:
+                raise NotImplementedError(
+                    f"{rnn_type} assumes {multiplier} * num_directions activation functions are provided"
+                )
+            alpha_loc = 0
+            alphas = attr.get("activation_alpha", [])
+            if isinstance(alphas, float):
+                alphas = [alphas]
+            beta_loc = 0
+            betas = attr.get("activation_beta", [])
+            if isinstance(betas, float):
+                betas = [betas]
+            acts = []
+            for i in range(multiplier * num_directions):
+                alpha = None
+                beta = None
+                activation = activations[i]
+                if cls._activation_needs_alpha(activation) and len(alphas) > alpha_loc:
+                    alpha = alphas[alpha_loc]
+                    alpha_loc += 1
+                if cls._activation_needs_beta(activation) and len(betas) > beta_loc:
+                    beta = betas[beta_loc]
+                    beta_loc += 1
+                acts.append(cls._activation_helper(activation, alpha, beta))
+        else:
+            acts = cls._default_activations(num_directions)
+        return acts
+
+    @classmethod
+    def _inputs_helper(cls, inputs, layout):
+        """Process inputs for RNN."""
+        X = inputs[0]
+        Wp = inputs[1]
+        Rp = inputs[2]
+        Bp = inputs[3] if len(inputs) > 3 else None
+        sequence_lens = inputs[4] if len(inputs) > 4 else None
+        Hp_0 = inputs[5] if len(inputs) > 5 else None
+
+        Wp_shape = Wp.struct_info.shape
+        num_directions = int(Wp_shape[0])
+
+        if num_directions not in [1, 2]:
+            raise ValueError("num_directions must be either 1 or 2!")
+
+        if layout == 1:
+            X = relax.op.permute_dims(X, axes=(1, 0, 2))
+
+        if Hp_0 is None:
+            W_dtype = Wp.struct_info.dtype
+            X_shape = X.struct_info.shape
+            Rp_shape = Rp.struct_info.shape
+            hidden_size = Rp_shape[-1]
+            batch_size = X_shape[1]
+            Hp_0 = relax.op.zeros(relax.ShapeExpr([num_directions, batch_size, hidden_size]), W_dtype)
+        elif layout == 1:
+            Hp_0 = relax.op.permute_dims(Hp_0, axes=(1, 0, 2))
+
+        X_steps = unbind(X, axis=0)
+
+        if num_directions == 1:
+            H_ts = [Hp_0]
+            Ws = [Wp]
+            Rs = [Rp]
+            Bs = [Bp] if Bp is not None else None
+        else:
+            H_ts = relax.op.split(Hp_0, num_directions)
+            Ws = relax.op.split(Wp, num_directions)
+            Rs = relax.op.split(Rp, num_directions)
+            Bs = relax.op.split(Bp, num_directions) if Bp is not None else None
+        return X_steps, H_ts, Ws, Rs, Bs, num_directions, sequence_lens
+
+    @classmethod
+    def bidir_rnn_cell(cls, input_seqs, weight_dicts, acts, sequence_lens=None, clip=None):
+        """Bidirectional RNN cell."""
+        seq_len = len(input_seqs)
+        forward_outputs, fw_H_t = rnn_cell(input_seqs, **weight_dicts[0], act=acts[0], sequence_lens=sequence_lens, clip=clip)
+
+        reverse_outputs, rev_H_t = rnn_cell(
+            input_seqs, **weight_dicts[1], act=acts[1], backwards=True, sequence_lens=sequence_lens, clip=clip
+        )
+
+        final_outputs = []
+        for i in range(seq_len):
+            final_outputs.append(
+                relax.op.stack([forward_outputs[i], reverse_outputs[i]], axis=0)
+            )
+
+        return (relax.op.stack(final_outputs, axis=0), relax.op.stack([fw_H_t, rev_H_t], axis=0))
+
+    @classmethod
+    def _impl_common(cls, inputs, attr, layout):
+        """Common implementation for RNN."""
+        X_steps, H_ts, Ws, Rs, Bs, num_directions, sequence_lens = cls._inputs_helper(inputs, layout)
+        acts = cls._get_activations(attr, 1, num_directions, "RNN")
+
+        # Extract clip attribute (optional)
+        clip = attr.get("clip", None)
+
+        weights_dicts = []
+        for i in range(num_directions):
+            weights_dict = {}
+
+            weights_dict["hidden_state"] = relax.op.squeeze(H_ts[i], axis=[0])
+            weights_dict["w_inp"] = relax.op.squeeze(Ws[i], axis=[0])
+            weights_dict["w_hid"] = relax.op.squeeze(Rs[i], axis=[0])
+            if Bs is not None:
+                b_split = relax.op.split(Bs[i], 2, -1)
+                weights_dict["b_inp"] = relax.op.squeeze(b_split[0], axis=[0])
+                weights_dict["b_hid"] = relax.op.squeeze(b_split[1], axis=[0])
+            weights_dicts.append(weights_dict)
+
+        direction = attr.get("direction", b"forward")
+        if isinstance(direction, bytes):
+            direction = direction.decode("utf-8")
+
+        if num_directions == 2:
+            output, H = RNN.bidir_rnn_cell(
+                input_seqs=X_steps, weight_dicts=weights_dicts, acts=acts, sequence_lens=sequence_lens, clip=clip
+            )
+        else:
+            backwards = direction == "reverse"
+            outputs, H = rnn_cell(input_seqs=X_steps, **weights_dicts[0], act=acts[0], backwards=backwards, sequence_lens=sequence_lens, clip=clip)
+            output = relax.op.expand_dims(relax.op.stack(outputs, axis=0), axis=1)
+            H = relax.op.expand_dims(H, axis=0)
+
+        if layout == 1:
+            output = relax.op.permute_dims(output, axes=(1, 0, 2))
+            H = relax.op.permute_dims(H, axes=(1, 0, 2))
+
+        return relax.Tuple((output, H))
+
+    @classmethod
+    def _impl_v7(cls, bb, inputs, attr, params):
+        return cls._impl_common(inputs, attr, 0)
+
+    @classmethod
+    def _impl_v14(cls, bb, inputs, attr, params):
+        layout = attr.get("layout", 0)
+        return cls._impl_common(inputs, attr, layout)
+#End TI
 
 def _get_convert_map():
     return {
@@ -3996,6 +4189,10 @@ def _get_convert_map():
         "ConcatFromSequence": ConcatFromSequence,
         "SplitToSequence": SplitToSequence,
         "SequenceAt": SequenceAt,
+        # RNN operators
+        #Begin TI
+        "RNN": RNN,
+        #End TI
     }
 
 
