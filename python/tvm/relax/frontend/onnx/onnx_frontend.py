@@ -591,7 +591,6 @@ class QLinearMatMul(OnnxOpConverter):
 
         return result
 #End TI
-
 class MatMulInteger16(OnnxOpConverter):
     """Converts an ONNX MatMulInteger16 node into an equivalent Relax expression."""
 
