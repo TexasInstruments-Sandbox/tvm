@@ -101,3 +101,4 @@ int32_t c7x_int8_relu(
 
     return 0;
 }
+
