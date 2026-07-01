@@ -202,3 +202,109 @@ def rnn_cell(input_seqs, hidden_state, w_inp, w_hid, b_inp=None, b_hid=None, bac
 
     return outputs_list, hidden_state
 #End TI
+
+#Begin TI
+def lstm_cell(input_seqs, hidden_state, cell_state, w_inp, w_hid, b_inp=None, b_hid=None,
+              backwards=False, f_act=None, g_act=None, h_act=None, p_i=None, p_f=None, p_o=None, sequence_lens=None, input_dtype=None, hidden_shape=None, clip=None, input_forget=0):
+    """LSTM cell implementation for Relax."""
+    if f_act is None:
+        f_act = relax.op.sigmoid
+    if g_act is None:
+        g_act = relax.op.tanh
+    if h_act is None:
+        h_act = relax.op.tanh
+
+    outputs_list = []
+    seq_len = len(input_seqs)
+
+    mask_seqs = None
+    if sequence_lens is not None:
+        seq_len_dtype = sequence_lens.struct_info.dtype
+
+        arange = relax.op.arange(0, seq_len, dtype=seq_len_dtype)
+        arange = relax.op.expand_dims(arange, 1)
+
+        seq_len_shape = sequence_lens.struct_info.shape
+        sequence_lens_broadcast = relax.op.broadcast_to(sequence_lens, [seq_len, seq_len_shape[0]])
+
+        mask = relax.op.less(arange, sequence_lens_broadcast)
+
+        dtype = input_dtype if input_dtype is not None else "float32"
+        mask_float = relax.op.astype(mask, dtype=dtype)
+
+        mask_tensor = relax.op.expand_dims(mask_float, 2)
+        mask_seqs = []
+        for i in range(seq_len):
+            mask_seqs.append(relax.op.take(mask_tensor, relax.const(i), axis=0))
+
+    seq_order = reversed(range(seq_len)) if backwards else range(seq_len)
+
+    for idx in seq_order:
+        x_t = input_seqs[idx]
+        # Compute gates
+        xwt = relax.op.matmul(x_t, relax.op.permute_dims(w_inp, axes=(1, 0)))
+        hwt = relax.op.matmul(hidden_state, relax.op.permute_dims(w_hid, axes=(1, 0)))
+
+        # Add biases
+        if b_inp is not None:
+            xwt = xwt + b_inp
+        if b_hid is not None:
+            hwt = hwt + b_hid
+
+        gates = xwt + hwt
+
+        # Split into 4 gates (input, forget, cell, output)
+        gate_splits = relax.op.split(gates, 4, axis=-1)
+        inp_gate = gate_splits[0]
+        fgt_gate = gate_splits[1]
+        cell_gate = gate_splits[2]
+        otp_gate = gate_splits[3]
+
+        # Apply peephole connections (before activations for input/forget gates)
+        if p_i is not None and p_f is not None:
+            inp_gate = f_act(inp_gate + p_i * cell_state)
+            if input_forget:
+                # When input_forget=1, forget gate is complement of input gate
+                fgt_gate = relax.const(1.0) - inp_gate
+            else:
+                fgt_gate = f_act(fgt_gate + p_f * cell_state)
+        else:
+            inp_gate = f_act(inp_gate)
+            if input_forget:
+                # When input_forget=1, forget gate is complement of input gate
+                fgt_gate = relax.const(1.0) - inp_gate
+            else:
+                fgt_gate = f_act(fgt_gate)
+
+        cell_gate = g_act(cell_gate)
+
+        # Update cell state: c_t = forget_gate * c_t-1 + input_gate * cell_gate
+        new_cell_state = fgt_gate * cell_state + inp_gate * cell_gate
+
+        # Apply output gate activation with peephole
+        if p_o is not None:
+            otp_gate = f_act(otp_gate + p_o * new_cell_state)
+        else:
+            otp_gate = f_act(otp_gate)
+
+        new_hidden_state = otp_gate * h_act(new_cell_state)
+
+        if clip is not None:
+            new_hidden_state = relax.op.clip(new_hidden_state, -clip, clip)
+
+        if mask_seqs is not None:
+            mask_idx = mask_seqs[idx]
+            one = relax.const(1.0)
+            hidden_state = mask_idx * new_hidden_state + (one - mask_idx) * hidden_state
+            cell_state = mask_idx * new_cell_state + (one - mask_idx) * cell_state
+            outputs_list.append(mask_idx * hidden_state)
+        else:
+            hidden_state = new_hidden_state
+            cell_state = new_cell_state
+            outputs_list.append(hidden_state)
+
+    if backwards:
+        outputs_list = list(reversed(outputs_list))
+
+    return outputs_list, hidden_state, cell_state
+#End TI
