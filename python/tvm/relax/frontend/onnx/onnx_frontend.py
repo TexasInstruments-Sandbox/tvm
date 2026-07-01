@@ -321,6 +321,58 @@ class MatMul(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         return relax.op.matmul(inputs[0], inputs[1])
 
+#Begin TI
+class QLinearMatMul(OnnxOpConverter):
+    """Converts ONNX QLinearMatMul node into quantized matrix multiplication.
+
+    QLinearMatMul performs quantized matrix multiplication with separate scale and
+    zero-point parameters for inputs and output. Uses linear quantization scheme:
+      output = requantize((A - zp_a) * (B - zp_b), a_scale*b_scale -> y_scale, zp=y_zp)
+    """
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        a, a_scale, a_zp, b, b_scale, b_zp, y_scale, y_zp = inputs
+
+        a_dtype = a.struct_info.dtype
+        b_dtype = b.struct_info.dtype
+
+        assert a_dtype in ["int8", "uint8"], f"QLinearMatMul: a dtype must be int8/uint8, got {a_dtype}"
+        assert b_dtype in ["int8", "uint8"], f"QLinearMatMul: b dtype must be int8/uint8, got {b_dtype}"
+
+        a_scale = get_constant(a_scale, params)
+        a_zp = get_constant(a_zp, params)
+        b_scale = get_constant(b_scale, params)
+        b_zp = get_constant(b_zp, params)
+        y_scale = get_constant(y_scale, params)
+        y_zp = get_constant(y_zp, params)
+
+        a_i32 = relax.op.astype(a, "int32")
+        b_i32 = relax.op.astype(b, "int32")
+        a_zp_i32 = relax.op.astype(a_zp, "int32")
+        b_zp_i32 = relax.op.astype(b_zp, "int32")
+
+        a_sub_zp = relax.op.subtract(a_i32, a_zp_i32)
+        b_sub_zp = relax.op.subtract(b_i32, b_zp_i32)
+
+        matmul_result_i32 = relax.op.matmul(a_sub_zp, b_sub_zp)
+
+        a_scale_f32 = relax.op.astype(a_scale, "float32")
+        b_scale_f32 = relax.op.astype(b_scale, "float32")
+
+        matmul_result_f32 = relax.op.astype(matmul_result_i32, "float32")
+
+        combined_scale = relax.op.multiply(a_scale_f32, b_scale_f32)
+        result_scaled = relax.op.multiply(matmul_result_f32, combined_scale)
+
+        y_dtype = y_zp.struct_info.dtype
+
+        # Requantize using relax.op.quantize: divides by y_scale, rounds to nearest
+        # ties-to-even per ONNX spec, adds y_zp, and clamps to y_dtype range.
+        result = relax.op.quantize(result_scaled, y_scale, y_zp, -1, y_dtype)
+
+        return result
+#End TI
 
 def _to_numpy(x):
     if isinstance(x, relax.PrimValue):
@@ -4878,6 +4930,7 @@ def _get_convert_map():
         "CastLike": CastLike,
         "Gemm": Gemm,
         "MatMul": MatMul,
+        "QLinearMatMul": QLinearMatMul,
         # "MatMulInteger": MatMulInteger,
         # "MatMulInteger16": MatMulInteger16,
         "Reshape": Reshape,
