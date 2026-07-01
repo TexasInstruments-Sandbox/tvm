@@ -373,6 +373,52 @@ class QLinearMatMul(OnnxOpConverter):
 
         return result
 #End TI
+#Begin TI
+class MatMulInteger(OnnxOpConverter):
+    """Converts ONNX MatMulInteger node into integer matrix multiplication.
+
+    MatMulInteger performs matrix multiplication on quantized integer inputs,
+    returning int32 output per ONNX spec. Unlike QLinearMatMul, it doesn't use
+    explicit scales or perform requantization—it directly returns the int32 matmul result.
+    """
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        a = inputs[0]
+        b = inputs[1]
+
+        a_dtype = a.struct_info.dtype
+        b_dtype = b.struct_info.dtype
+
+        assert a_dtype in ["int8", "uint8"], f"MatMulInteger: a dtype must be int8/uint8, got {a_dtype}"
+        assert b_dtype in ["int8", "uint8"], f"MatMulInteger: b dtype must be int8/uint8, got {b_dtype}"
+
+        a_zp = relax.const(0, dtype=a_dtype)
+        b_zp = relax.const(0, dtype=b_dtype)
+
+        if len(inputs) == 4:
+            if inputs[2] is not None:
+                a_zp = inputs[2]
+            if inputs[3] is not None:
+                b_zp = inputs[3]
+        elif len(inputs) == 3:
+            if inputs[2] is not None:
+                a_zp = inputs[2]
+        elif len(inputs) != 2:
+            raise ValueError(f"MatMulInteger op takes 2, 3 or 4 inputs, {len(inputs)} given")
+
+        # Convert inputs to int32 and subtract zero-points
+        a_i32 = relax.op.astype(a, "int32")
+        b_i32 = relax.op.astype(b, "int32")
+        a_zp_i32 = relax.op.astype(a_zp, "int32")
+        b_zp_i32 = relax.op.astype(b_zp, "int32")
+
+        a_sub = relax.op.subtract(a_i32, a_zp_i32)
+        b_sub = relax.op.subtract(b_i32, b_zp_i32)
+
+        # MatMulInteger output is int32
+        return relax.op.matmul(a_sub, b_sub)
+#End TI
 
 #Begin TI
 class QLinearConv(OnnxOpConverter):
@@ -5060,7 +5106,7 @@ def _get_convert_map():
         "Gemm": Gemm,
         "MatMul": MatMul,
         "QLinearMatMul": QLinearMatMul,
-        # "MatMulInteger": MatMulInteger,
+        "MatMulInteger": MatMulInteger,
         # "MatMulInteger16": MatMulInteger16,
         "QLinearConv": QLinearConv,
         "Reshape": Reshape,
