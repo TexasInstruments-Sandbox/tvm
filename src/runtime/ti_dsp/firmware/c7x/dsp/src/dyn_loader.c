@@ -161,6 +161,17 @@ extern int32_t tidl_int8_avg_pool(const void *, void *,
                                   int32_t, int32_t, int32_t, int32_t,
                                   int32_t, int32_t, int32_t, int32_t,
                                   int32_t, float, int32_t, float);
+/* C7x-native max-pool and relu — transparent ops, no float conversion at runtime */
+extern int32_t c7x_int8_max_pool(const void *, void *,
+                                 int32_t, int32_t, int32_t, int32_t,
+                                 int32_t, int32_t, int32_t, int32_t,
+                                 int32_t, int32_t, int32_t, int32_t);
+/* TIDL-backed max pool — wraps TIDL_spatialMaxPool_ixX_oxX_init/exec */
+extern int32_t c7x_int8_max_pool_tidl(const void *, void *,
+                                      int32_t, int32_t, int32_t, int32_t,
+                                      int32_t, int32_t, int32_t, int32_t,
+                                      int32_t, int32_t, int32_t, int32_t);
+extern int32_t c7x_int8_relu(const void *, void *, int32_t, int32_t);
 /* TIDL normalization kernels */
 extern int32_t tidl_int8_layer_norm(const void *, const void *,
                                     const void *, void *,
@@ -354,6 +365,10 @@ static const DspSymEntry dsp_syms[] = {
     /* TIDL pooling kernels */
     SYM(tidl_int8_global_avg_pool),
     SYM(tidl_int8_avg_pool),
+    /* C7x-native max-pool and relu — transparent ops, no float conversion at runtime */
+    SYM(c7x_int8_max_pool),
+    SYM(c7x_int8_max_pool_tidl),
+    SYM(c7x_int8_relu),
     /* TIDL normalization kernels */
     SYM(tidl_int8_layer_norm),
 

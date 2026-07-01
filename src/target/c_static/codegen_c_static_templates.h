@@ -74,6 +74,8 @@ constexpr const char* kDSPHeaders = R"(
 #include "kernels/tidl_activation_wrappers.h"
 #include "kernels/tidl_avgpool_wrappers.h"
 #include "kernels/tidl_norm_wrappers.h"
+#include "kernels/c7x_pool_relu_wrappers.h"
+#include "mmalib/tidl_maxpool_wrapper.h"
 #include "kernels/tvm_dequantize_vecmatmul.h"
 #include "kernels/tvm_sdpa_decode.h"
 #include <cstdint>

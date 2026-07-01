@@ -323,16 +323,34 @@ if(USE_TIDL_RUNTIME)
         --retain=mmalib_matmul_i16
     )
 
-    # MMALIB wrappers: compiled into firmware, exported to DLOAD modules.
+    # MMALIB wrappers + TIDL max pool wrapper: compiled into firmware, exported
+    # to DLOAD modules.  Both live in mmalib/ and require TIDL + MMALIB at link.
     # Resolve MMALIB include path from MMALIB_LIB_PATH (go up to root).
     get_filename_component(_MMALIB_ROOT "${MMALIB_LIB_PATH}/../../../" ABSOLUTE)
+    # Resolve TIDL source root for include headers.  TIDL_LIB_PATH goes deep
+    # into the lib tree so we derive it from C7X_MMA_TIDL_PATH directly.
+    if(DEFINED ENV{C7X_MMA_TIDL_PATH})
+        set(_TIDL_SRC_ROOT "$ENV{C7X_MMA_TIDL_PATH}/ti_dl")
+    else()
+        set(_TIDL_SRC_ROOT "${PSDK_PATH}/c7x-mma-tidl/ti_dl")
+    endif()
     target_sources(${PROJECT_NAME}.out PRIVATE
         ${TVM_DSP_RUNTIME_DIR}/mmalib/mmalib_wrappers.cpp
+        ${TVM_DSP_RUNTIME_DIR}/mmalib/tidl_maxpool_wrapper.cpp
     )
     target_include_directories(${PROJECT_NAME}.out PRIVATE
         ${TVM_DSP_RUNTIME_DIR}/mmalib
         ${_MMALIB_ROOT}/ti/mmalib/src
         ${_MMALIB_ROOT}/ti/mmalib/src/common
+        # TIDL headers needed by tidl_maxpool_wrapper.cpp
+        ${_TIDL_SRC_ROOT}/inc
+        ${_TIDL_SRC_ROOT}/algo/inc
+        ${_TIDL_SRC_ROOT}/algo/src/tidsp/inc
+        # ivision.h is included by itidl_ti.h (TI IVISION interface)
+        ${PSDK_PATH}/ivision
+    )
+    target_link_options(${PROJECT_NAME}.out PRIVATE
+        --retain=c7x_int8_max_pool_tidl
     )
 
     message(STATUS "TIDL Runtime: ENABLED")

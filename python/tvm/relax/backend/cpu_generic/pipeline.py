@@ -89,7 +89,17 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # create dead tuple patterns that block pattern matching.
     passes.append(tvm.relax.transform.CanonicalizeBindings())
     passes.append(tvm.relax.transform.DeadCodeElimination())
-    # Eliminate redundant QDQ around transparent ops (pool, reshape, etc.)
+    # FuseQDQToTIDLMaxPool and FuseQDQToTIDLRelu MUST run before
+    # EliminateQDQTransparent.  max_pool2d and relu are transparent ops
+    # (monotone, so dq→op→q == op(int8) when scales match), which means
+    # EliminateQDQTransparent removes their Q/DQ wrappers — leaving bare
+    # int8 ops that LegalizeOps lowers to slow scalar TIR loops.  Running
+    # these passes first intercepts the QDQ-wrapped forms and replaces them
+    # with call_extern to vectorizable C kernels before the Q/DQ context
+    # is discarded.
+    passes.append(tvm.relax.transform.FuseQDQToTIDLMaxPool())
+    passes.append(tvm.relax.transform.FuseQDQToTIDLRelu())
+    # Eliminate redundant QDQ around remaining transparent ops (reshape, etc.)
     passes.append(tvm.relax.transform.EliminateQDQTransparent())
     # Fuse QDQ-wrapped non-linear activations into tidl_int8_* kernels.
     # Must run after EliminateQDQTransparent (which may have simplified inputs)

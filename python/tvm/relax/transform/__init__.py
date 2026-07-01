@@ -113,6 +113,8 @@ from .ti_eliminate_qdq_transparent import EliminateQDQTransparent
 from .ti_fuse_qdq_tidl_activation import FuseQDQToTIDLActivation
 from .ti_fuse_qdq_tidl_avgpool import FuseQDQToTIDLAvgPool
 from .ti_fuse_qdq_tidl_layernorm import FuseQDQToTIDLLayerNorm
+from .ti_fuse_qdq_tidl_maxpool import FuseQDQToTIDLMaxPool
+from .ti_fuse_qdq_tidl_relu import FuseQDQToTIDLRelu
 from .ti_residual_add import FuseInt8ResidualAdd, FuseInt16ResidualAdd
 from .ti_mmalib_i16_fc import LegalizeMLPToMMALIBInt16
 from .ti_mmalib_inject_dma import InjectMMALIBDMA
