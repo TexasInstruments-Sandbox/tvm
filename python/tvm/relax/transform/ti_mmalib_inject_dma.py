@@ -38,6 +38,8 @@ import tvm
 from tvm import tir
 from tvm.ir import PointerType, PrimType
 
+from .ti_mmalib_constants import MMA_SIZE_I8
+
 logger = logging.getLogger(__name__)
 
 _MMALIB_CONV2D_I8 = "mmalib_conv2d_i8"
@@ -265,6 +267,23 @@ def _inject_dma(func, l2_budget):
 
     cache_weight = (input_bytes + weight_bytes) <= l2_budget
 
+    # OC-tiling: when weights don't fit whole but input fits and we can tile
+    # by output channel.  Only for int8 conv2d (not i16, dwconv, or FC):
+    # mmalib_conv2d_i8_sliced hardcodes int8 element sizes for output (1 byte)
+    # and int32 bias (4 bytes); i16 uses different sizes and needs its own
+    # sliced wrapper before OC-tiling can be enabled for it.
+    oc_tile = None
+    weight_tile_bytes = None
+    if not cache_weight and extern_name == _MMALIB_CONV2D_I8:
+        weight_per_oc = c_in * kh * kw * elem_bytes
+        avail = l2_budget - input_bytes
+        if avail > 0 and weight_per_oc > 0:
+            raw_tile = avail // weight_per_oc
+            raw_tile = (raw_tile // MMA_SIZE_I8) * MMA_SIZE_I8
+            if raw_tile >= MMA_SIZE_I8:
+                oc_tile = min(raw_tile, c_out)
+                weight_tile_bytes = oc_tile * weight_per_oc
+
     queue_id = tir.const(0, "int32")
     bypass = tir.const(0, "int32")
     zero_inflight = tir.const(0, "int32")
@@ -286,6 +305,90 @@ def _inject_dma(func, l2_budget):
     l2_guard_var = tir.Var("l2_guard", PointerType(PrimType("int8"), "global.l2sram"))
 
     l2_vars = {}  # arg_idx -> (l2_var, nbytes)
+
+    # -------------------------------------------------------------------------
+    # OC-tiled path: DMA input once, loop over OC tiles loading one weight
+    # tile per iteration and calling mmalib_conv2d_i8_sliced.
+    # -------------------------------------------------------------------------
+    if oc_tile is not None:
+        l2_input_var  = tir.Var("l2_input",       PointerType(PrimType("int8"), "global.l2sram"))
+        l2_weight_var = tir.Var("l2_weight_tile",  PointerType(PrimType("int8"), "global.l2sram"))
+
+        # DMA full input once (stays in L2 for all OC tiles)
+        stmts.append(tir.Evaluate(tir.call_extern(
+            "int32", "tvm_dsp_dma_copy",
+            queue_id, l2_input_var,
+            call_node.args[dims["input_arg_idx"]],
+            tir.const(input_bytes, "int32"), bypass)))
+        stmts.append(tir.Evaluate(tir.call_extern(
+            "int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)))
+
+        # Build For loop: one weight-tile DMA + sliced call per iteration
+        oc_idx       = tir.Var("oc_chunk", "int32")
+        n_tiles      = (c_out + oc_tile - 1) // oc_tile
+        oc_start     = tir.Mul(oc_idx, tir.const(oc_tile, "int32"))
+        tile_c_out   = tir.Min(tir.const(oc_tile, "int32"),
+                               tir.Sub(tir.const(c_out, "int32"), oc_start))
+        actual_dma   = tir.Mul(tile_c_out,
+                               tir.const(c_in * kh * kw * elem_bytes, "int32"))
+
+        # weight DDR pointer + oc_idx * weight_tile_bytes via tvm_ptr_add
+        # (direct handle arithmetic is not valid in TVM TIR; use a C helper).
+        wt_base      = call_node.args[dims["weight_arg_idx"]]
+        wt_byte_off  = tir.Mul(oc_idx, tir.const(weight_tile_bytes, "int32"))
+        wt_tile_src  = tir.call_extern("handle", "tvm_ptr_add", wt_base, wt_byte_off)
+
+        # mmalib_conv2d_i8_sliced args: matches mmalib_conv2d_i8 minus C_out,
+        # plus oc_start at the end.  Bias/scale/shift/output stay as DDR ptrs;
+        # the wrapper advances them by oc_start internally.
+        sliced_args  = [
+            tir.StringImm("mmalib_conv2d_i8_sliced"),
+            l2_input_var,               # input  (L2)
+            l2_weight_var,              # kernel (L2 tile)
+            call_node.args[3],          # bias   (DDR full)
+            call_node.args[4],          # scale  (DDR full)
+            call_node.args[5],          # shift  (DDR full)
+            call_node.args[6],          # output (DDR full)
+            call_node.args[7],          # C_in
+            call_node.args[8],          # H_in
+            call_node.args[9],          # W_in
+            tile_c_out,                 # C_out_tile
+            call_node.args[11],         # KH
+            call_node.args[12],         # KW
+            call_node.args[13],         # stride_h
+            call_node.args[14],         # stride_w
+            call_node.args[15],         # pad_top
+            call_node.args[16],         # pad_bottom
+            call_node.args[17],         # pad_left
+            call_node.args[18],         # pad_right
+            oc_start,                   # oc_start
+        ]
+        tile_body = tir.SeqStmt([
+            tir.Evaluate(tir.call_extern(
+                "int32", "tvm_dsp_dma_copy",
+                queue_id, l2_weight_var, wt_tile_src, actual_dma, bypass)),
+            tir.Evaluate(tir.call_extern(
+                "int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)),
+            tir.Evaluate(tir.Call(call_node.dtype, call_node.op, sliced_args)),
+        ])
+        stmts.append(tir.For(oc_idx, 0, n_tiles, tir.ForKind.SERIAL, tile_body))
+
+        body = tir.SeqStmt(stmts)
+        body = tir.Allocate(l2_weight_var, "int8",
+                            [tir.const(weight_tile_bytes, "int64")],
+                            tir.const(1, "bool"), body)
+        body = tir.Allocate(l2_input_var, "int8",
+                            [tir.const(input_bytes, "int64")],
+                            tir.const(1, "bool"), body)
+        body = tir.Allocate(l2_guard_var, "int8",
+                            [tir.const(guard_bytes, "int64")],
+                            tir.const(1, "bool"), body)
+        logger.info(
+            "InjectMMALIBDMA OC-tiled: %s [input=%dKB, oc_tile=%d, n_tiles=%d, "
+            "weight_tile=%dKB]",
+            extern_name, input_bytes // 1024, oc_tile, n_tiles, weight_tile_bytes // 1024)
+        return func.with_body(body)
+    # -------------------------------------------------------------------------
 
     l2_input_var = tir.Var("l2_input", PointerType(PrimType("int8"), "global.l2sram"))
     l2_vars[dims["input_arg_idx"]] = (l2_input_var, input_bytes)

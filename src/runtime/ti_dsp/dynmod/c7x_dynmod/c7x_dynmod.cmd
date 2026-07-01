@@ -220,6 +220,7 @@ SECTIONS
 
 /* MMALIB wrappers */
 --import=mmalib_conv2d_i8
+--import=mmalib_conv2d_i8_sliced
 --import=mmalib_conv2d_i16
 --import=mmalib_matmul_i8
 --import=mmalib_matmul_i16
