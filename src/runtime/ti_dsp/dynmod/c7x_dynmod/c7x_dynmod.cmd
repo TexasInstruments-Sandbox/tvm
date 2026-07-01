@@ -162,6 +162,9 @@ SECTIONS
 --import=tidl_int8_hardswish
 --import=tidl_int8_global_avg_pool
 --import=tidl_int8_avg_pool
+--import=c7x_int8_max_pool
+--import=c7x_int8_max_pool_tidl
+--import=c7x_int8_relu
 --import=tidl_int8_layer_norm
 --import=tvm_sdpa_decode
 
