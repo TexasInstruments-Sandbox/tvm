@@ -212,8 +212,9 @@ StructInfo InferStructInfoDequantize(const Call& call, const BlockBuilder& ctx) 
   TensorStructInfo scale_sinfo = GetInputTensorStructInfo(call, ctx)[1];
   TensorStructInfo zp_sinfo = GetInputTensorStructInfo(call, ctx)[2];
 
-  // Check input datatype: int8, uint8, int32, float8 types
+  // Check input datatype: int8, uint8, int16, uint16, int32, float8 types
   if (input_sinfo->dtype != DataType::Int(8) && input_sinfo->dtype != DataType::UInt(8) &&
+      input_sinfo->dtype != DataType::Int(16) && input_sinfo->dtype != DataType::UInt(16) &&
       input_sinfo->dtype != DataType::Int(32) && input_sinfo->dtype != DataType::Float8E4M3FN() &&
       input_sinfo->dtype != DataType::Float8E4M3FNUZ() && input_sinfo->dtype != DataType::Float8E5M2() &&
       input_sinfo->dtype != DataType::Float8E5M2FNUZ()) {
