@@ -114,6 +114,12 @@ extern "C" uint32_t tvm_dsp_get_l2_size(void);
 static uint8_t* tvm_l2_ptr;
 static uint32_t tvm_l2_avail;
 
+/* Byte-offset a void* pointer — used by InjectMMALIBDMA OC-tiling for
+ * weight tile DMA source pointers inside a TIR For loop. */
+static inline void* tvm_ptr_add(const void* p, int32_t off) {
+    return (void*)((const char*)p + off);
+}
+
 static inline void* tvm_l2_alloc(uint32_t nbytes) {
     nbytes = (nbytes + 127u) & ~127u;  // 128-byte align
     if (nbytes <= tvm_l2_avail) {

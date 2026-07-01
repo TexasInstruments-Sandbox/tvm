@@ -322,6 +322,34 @@ int32_t mmalib_conv2d_i8(void* input, void* kernel,
         stride_h, stride_w, pad_top, pad_bottom, pad_left, pad_right);
 }
 
+int32_t mmalib_conv2d_i8_sliced(void* input,       /* L2: already DMA'd by caller */
+                                 void* kernel_tile, /* L2: weight slice for this OC tile */
+                                 void* bias,        /* DDR: full bias; offset by oc_start */
+                                 void* scale,       /* DDR: full scale; offset by oc_start */
+                                 void* shift,       /* DDR: full shift; offset by oc_start */
+                                 void* output,      /* DDR: full output; offset by oc_start */
+                                 int32_t C_in, int32_t H_in, int32_t W_in,
+                                 int32_t C_out_tile,
+                                 int32_t KH, int32_t KW,
+                                 int32_t stride_h, int32_t stride_w,
+                                 int32_t pad_top, int32_t pad_bottom,
+                                 int32_t pad_left, int32_t pad_right,
+                                 int32_t oc_start) {
+    int32_t H_out    = (H_in + pad_top + pad_bottom - KH) / stride_h + 1;
+    int32_t W_out    = (W_in + pad_left + pad_right  - KW) / stride_w + 1;
+
+    /* Advance per-channel DDR pointers to the start of this OC tile. */
+    bias   = (uint8_t*)bias   + (int64_t)oc_start * 4; /* int32 bias */
+    scale  = (uint8_t*)scale  + oc_start;               /* uint8 scale */
+    shift  = (uint8_t*)shift  + oc_start;               /* uint8 shift */
+    output = (uint8_t*)output + (int64_t)oc_start * H_out * W_out; /* int8 output */
+
+    return conv2d_impl<int8_t, MMALIB_INT8, MMALIB_INT32, -128, 127, MMA_SIZE_I8>(
+        input, kernel_tile, bias, scale, shift, output,
+        C_in, H_in, W_in, C_out_tile, KH, KW,
+        stride_h, stride_w, pad_top, pad_bottom, pad_left, pad_right);
+}
+
 int32_t mmalib_conv2d_i16(void* input, void* kernel,
                           void* bias, void* scale, void* shift,
                           void* output,

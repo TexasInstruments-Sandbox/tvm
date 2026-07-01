@@ -131,6 +131,25 @@ int32_t mmalib_conv2d_i8(void* input, void* kernel,
                          int32_t pad_top, int32_t pad_bottom,
                          int32_t pad_left, int32_t pad_right);
 
+/** OC-sliced int8 conv2d for InjectMMALIBDMA OC tiling.
+ *
+ * input and kernel_tile must already be in L2 (DMA'd by the caller).
+ * bias, scale, shift, output are full DDR buffers; oc_start is applied
+ * internally so the caller passes the original unsliced pointers.
+ *
+ * C_out_tile may be smaller than oc_tile for the last tile when
+ * C_out is not divisible by oc_tile.
+ */
+int32_t mmalib_conv2d_i8_sliced(void* input, void* kernel_tile,
+                                 void* bias, void* scale, void* shift,
+                                 void* output,
+                                 int32_t C_in, int32_t H_in, int32_t W_in,
+                                 int32_t C_out_tile, int32_t KH, int32_t KW,
+                                 int32_t stride_h, int32_t stride_w,
+                                 int32_t pad_top, int32_t pad_bottom,
+                                 int32_t pad_left, int32_t pad_right,
+                                 int32_t oc_start);
+
 /**
  * @brief Int16 2D convolution with per-channel bias, scale, and shift.
  *
