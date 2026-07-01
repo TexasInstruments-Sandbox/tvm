@@ -172,6 +172,7 @@ extern int32_t c7x_int8_max_pool_tidl(const void *, void *,
                                       int32_t, int32_t, int32_t, int32_t,
                                       int32_t, int32_t, int32_t, int32_t);
 extern int32_t c7x_int8_relu(const void *, void *, int32_t, int32_t);
+extern int32_t c7x_int8_quantize(const float *, int8_t *, int32_t, float, int32_t);
 /* TIDL normalization kernels */
 extern int32_t tidl_int8_layer_norm(const void *, const void *,
                                     const void *, void *,
@@ -369,6 +370,7 @@ static const DspSymEntry dsp_syms[] = {
     SYM(c7x_int8_max_pool),
     SYM(c7x_int8_max_pool_tidl),
     SYM(c7x_int8_relu),
+    SYM(c7x_int8_quantize),
     /* TIDL normalization kernels */
     SYM(tidl_int8_layer_norm),
 

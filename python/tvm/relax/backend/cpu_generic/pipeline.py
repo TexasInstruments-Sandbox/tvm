@@ -97,6 +97,9 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # these passes first intercepts the QDQ-wrapped forms and replaces them
     # with call_extern to vectorizable C kernels before the Q/DQ context
     # is discarded.
+    # FuseInputQuantize intercepts R.quantize(float32→int8) before LegalizeOps
+    # lowers it to a scalar TIR loop.  Must run before EliminateQDQTransparent.
+    passes.append(tvm.relax.transform.FuseInputQuantize())
     passes.append(tvm.relax.transform.FuseQDQToTIDLMaxPool())
     passes.append(tvm.relax.transform.FuseQDQToTIDLRelu())
     # Eliminate redundant QDQ around remaining transparent ops (reshape, etc.)

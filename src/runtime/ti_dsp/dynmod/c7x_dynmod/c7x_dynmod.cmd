@@ -165,6 +165,7 @@ SECTIONS
 --import=c7x_int8_max_pool
 --import=c7x_int8_max_pool_tidl
 --import=c7x_int8_relu
+--import=c7x_int8_quantize
 --import=tidl_int8_layer_norm
 --import=tvm_sdpa_decode
 
