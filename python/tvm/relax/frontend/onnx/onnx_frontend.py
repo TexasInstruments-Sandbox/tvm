@@ -1859,6 +1859,102 @@ class ConvInteger(OnnxOpConverter):
         return conv_out
 #End TI
 
+#Begin TI
+class RoiAlign(OnnxOpConverter):
+    """Converts an onnx RoiAlign node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        if len(inputs) != 3:
+            raise ValueError("RoiAlign expects 3 inputs (input, rois, batch_indices)")
+
+        data = inputs[0]
+        rois = inputs[1]
+        batch_indices = inputs[2]
+
+        mode = attr.get("mode", b"avg")
+        if mode not in (b"avg", b"max"):
+            raise NotImplementedError("RoiAlign only supports avg and max modes")
+
+        output_height = attr.get("output_height", 1)
+        output_width = attr.get("output_width", 1)
+        sampling_ratio = attr.get("sampling_ratio", 0)
+        spatial_scale = attr.get("spatial_scale", 1.0)
+
+        # Convert mode to integer: 0 for avg, 1 for max
+        mode_int = 0 if mode in (b"avg", "avg") else 1
+
+        # Expand batch_indices to (num_roi, 1) and concatenate with rois
+        batch_indices = bb.emit(relax.op.expand_dims(batch_indices, axis=1))
+        batch_indices = bb.emit(
+            relax.op.astype(batch_indices, rois.struct_info.dtype)
+        )
+        rois_with_batch = bb.emit(relax.op.concat([batch_indices, rois], axis=1))
+
+        result = bb.emit_te(
+            relax.op.vision.roi_align,
+            data,
+            rois_with_batch,
+            (output_height, output_width),
+            spatial_scale,
+            sampling_ratio,
+            mode_int,
+            0.5,
+        )
+        return result
+
+    @classmethod
+    def _impl_v16(cls, bb, inputs, attr, params):
+        if len(inputs) != 3:
+            raise ValueError("RoiAlign expects 3 inputs (input, rois, batch_indices)")
+
+        data = inputs[0]
+        rois = inputs[1]
+        batch_indices = inputs[2]
+
+        mode = attr.get("mode", b"avg")
+        if mode not in (b"avg", b"max"):
+            raise NotImplementedError("RoiAlign only supports avg and max modes")
+
+        output_height = attr.get("output_height", 1)
+        output_width = attr.get("output_width", 1)
+        sampling_ratio = attr.get("sampling_ratio", 0)
+        spatial_scale = attr.get("spatial_scale", 1.0)
+        coordinate_transformation_mode = attr.get("coordinate_transformation_mode", b"half_pixel")
+
+        # Convert mode to integer: 0 for avg, 1 for max
+        mode_int = 0 if mode in (b"avg", "avg") else 1
+
+        # Expand batch_indices to (num_roi, 1) and concatenate with rois
+        batch_indices = bb.emit(relax.op.expand_dims(batch_indices, axis=1))
+        batch_indices = bb.emit(
+            relax.op.astype(batch_indices, rois.struct_info.dtype)
+        )
+        rois_with_batch = bb.emit(relax.op.concat([batch_indices, rois], axis=1))
+
+        # Pixel shift for half_pixel coordinate transformation mode
+        if coordinate_transformation_mode in (b"half_pixel", "half_pixel"):
+            spatial_offset = 0.5
+        elif coordinate_transformation_mode in (b"output_half_pixel", "output_half_pixel"):
+            spatial_offset = 0.0
+        else:
+            raise NotImplementedError(
+                f"coordinate_transformation_mode {coordinate_transformation_mode} not supported"
+            )
+
+        result = bb.emit_te(
+            relax.op.vision.roi_align,
+            data,
+            rois_with_batch,
+            (output_height, output_width),
+            spatial_scale,
+            sampling_ratio,
+            mode_int,
+            spatial_offset,
+        )
+        return result
+#End TI
+
 class Erf(OnnxOpConverter):
     """Converts an onnx Erf node into an equivalent Relax expression."""
 
@@ -5183,7 +5279,7 @@ def _get_convert_map():
         "NonZero": NonZero,
         # "If": If,
         # "MaxRoiPool": MaxRoiPool,
-        # "RoiAlign": RoiAlign,
+        "RoiAlign": RoiAlign,
         "NonMaxSuppression": NonMaxSuppression,
         "AllClassNMS": AllClassNMS,
         "GridSample": GridSample,

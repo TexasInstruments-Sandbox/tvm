@@ -16,3 +16,6 @@
 # under the License.
 """VISION operators."""
 from .nms import *
+#Begin TI
+from .roi_align import roi_align
+#End TI
