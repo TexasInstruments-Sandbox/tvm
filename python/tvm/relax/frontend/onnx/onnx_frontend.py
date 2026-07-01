@@ -374,6 +374,135 @@ class QLinearMatMul(OnnxOpConverter):
         return result
 #End TI
 
+#Begin TI
+class QLinearConv(OnnxOpConverter):
+    """Operator converter for QLinearConv."""
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        x_scale = get_constant(inputs[1], params)
+        x_zero_point = get_constant(inputs[2], params)
+        weight = inputs[3]
+        w_scale = get_constant(inputs[4], params)
+        w_zero_point = get_constant(inputs[5], params)
+        y_scale = get_constant(inputs[6], params)
+        y_zero_point = get_constant(inputs[7], params)
+
+        # Get shape info
+        data_shape = data.struct_info.shape
+        weight_shape = weight.struct_info.shape
+        if hasattr(data.struct_info, "ndim"):
+            ndim = data.struct_info.ndim
+        else:
+            ndim = len(data_shape)
+
+        # Select appropriate conv operation based on input dimensionality
+        if ndim == 3:
+            op = relax.op.nn.conv1d
+            data_layout = "NCW"
+            kernel_layout = "OIW"
+        elif ndim == 4:
+            op = relax.op.nn.conv2d
+            data_layout = "NCHW"
+            kernel_layout = "OIHW"
+        elif ndim == 5:
+            op = relax.op.nn.conv3d
+            data_layout = "NCDHW"
+            kernel_layout = "OIDHW"
+        else:
+            raise NotImplementedError("Ndim > 5 not supported for QLinearConv.")
+
+        # Extract kernel shape
+        if "kernel_shape" not in attr:
+            attr["kernel_shape"] = weight_shape.values[2:]
+
+        # Convert scales and zero-points to appropriate dtypes
+        x_scale_f32 = relax.op.astype(x_scale, "float32")
+        w_scale_f32 = relax.op.astype(w_scale, "float32")
+        x_zero_point_i32 = relax.op.astype(x_zero_point, "int32")
+        w_zero_point_i32 = relax.op.astype(w_zero_point, "int32")
+
+        # Convert data and weight to int32 for convolution
+        data_i32 = relax.op.astype(data, "int32")
+        weight_i32 = relax.op.astype(weight, "int32")
+
+        # Subtract zero-points first (dequantize), then pad
+        data_sub_zp = relax.op.subtract(data_i32, x_zero_point_i32)
+        weight_sub_zp = relax.op.subtract(weight_i32, w_zero_point_i32)
+
+        # Handle auto_pad after dequantization
+        if "auto_pad" in attr:
+            attr["auto_pad"] = attr["auto_pad"].decode("utf-8")
+            if attr["auto_pad"] in ("SAME_UPPER", "SAME_LOWER"):
+                # Pad with 0 in dequantized space
+                data_sub_zp = autopad(
+                    bb,
+                    data_sub_zp,
+                    attr.get("strides", [1] * (ndim - 2)),
+                    attr["kernel_shape"],
+                    attr.get("dilations", [1] * (ndim - 2)),
+                    pad_value=0,
+                    mode=attr["auto_pad"],
+                    deconv=False,
+                )
+            elif attr["auto_pad"] == "VALID":
+                attr["pads"] = tuple([0 for _ in range(ndim - 2)])
+            elif attr["auto_pad"] == "NOTSET":
+                pass
+            else:
+                msg = (
+                    f'Value {attr["auto_pad"]} in attribute "auto_pad" of operator Conv '
+                    f"is invalid."
+                )
+                raise tvm.error.OpAttributeInvalid(msg)
+            attr.pop("auto_pad")
+
+        # Perform convolution
+        strides = attr.get("strides", [1] * (ndim - 2))
+        padding = attr.get("pads", 0)
+        dilation = attr.get("dilations", [1] * (ndim - 2))
+        groups = attr.get("group", 1)
+
+        conv_out = op(
+            data_sub_zp,
+            weight_sub_zp,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            data_layout=data_layout,
+            kernel_layout=kernel_layout,
+        )
+        conv_out = bb.normalize(conv_out)
+
+        # Handle bias if present
+        if len(inputs) == 9:
+            bias = inputs[8]
+            # Reshape bias from [channels] to [1, channels, 1, ...] for proper broadcasting
+            # This allows bias to broadcast across batch and spatial dimensions
+            bias_shape = [1, bias.struct_info.shape[0]] + [1] * (ndim - 2)
+            bias_reshaped = relax.op.reshape(bias, bias_shape)
+            conv_out = relax.op.add(conv_out, bias_reshaped)
+            conv_out = bb.normalize(conv_out)
+
+        # Determine output dtype from y_zero_point
+        out_dtype = y_zero_point.struct_info.dtype
+
+        # Convert convolution output to float32
+        conv_out_f32 = relax.op.astype(conv_out, "float32")
+
+        # Combined scale is x_scale * w_scale
+        combined_scale = relax.op.multiply(x_scale_f32, w_scale_f32)
+
+        # Dequantize: multiply by combined scale
+        dequantized = relax.op.multiply(conv_out_f32, combined_scale)
+
+        # Quantize: divide by y_scale, round, add zero-point, and clamp
+        result = relax.op.quantize(dequantized, y_scale, y_zero_point, -1, out_dtype)
+        return result
+#End TI
+
 def _to_numpy(x):
     if isinstance(x, relax.PrimValue):
         x = x.value
@@ -4933,6 +5062,7 @@ def _get_convert_map():
         "QLinearMatMul": QLinearMatMul,
         # "MatMulInteger": MatMulInteger,
         # "MatMulInteger16": MatMulInteger16,
+        "QLinearConv": QLinearConv,
         "Reshape": Reshape,
         "Sigmoid": Sigmoid,
         "Softmax": Softmax,
