@@ -3985,6 +3985,159 @@ class NonMaxSuppression(OnnxOpConverter):
 
         return selected_indices
 
+#Begin TI
+class DFT(OnnxOpConverter):
+    """Converts an onnx DFT node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v17(cls, bb, inputs, attr, params):
+        axis = attr.get("axis", 1)
+        inverse = attr.get("inverse", 0)
+        onesided = attr.get("onesided", 0)
+
+        input_tensor = inputs[0]
+        dft_length = inputs[1] if len(inputs) > 1 else None
+
+        t1 = ["float16", "float32", "float64"]
+        t2 = ["int32", "int64"]
+
+        input_dtype = input_tensor.struct_info.dtype
+        assert input_dtype in t1, f"DFT input dtype must be in {t1}, got {input_dtype}"
+
+        input_shape = input_tensor.struct_info.shape
+        assert len(input_shape) >= 3, f"DFT input must have rank >= 3, got {len(input_shape)}"
+
+        if axis < 0:
+            axis = len(input_shape) + axis
+        assert 0 <= axis < len(input_shape) - 1, "axis is out of bounds"
+
+        if dft_length is None:
+            if inverse and onesided:
+                signal_dim = input_shape[axis].value if isinstance(input_shape[axis], tir.IntImm) else input_shape[axis]
+                dft_length = 2 * (signal_dim - 1)
+            else:
+                dft_length = input_shape[axis]
+        else:
+            dft_length = get_constant(dft_length, params)
+            if isinstance(dft_length, relax.Constant):
+                dft_length_dtype = dft_length.struct_info.dtype
+                assert dft_length_dtype in t2, f"dft_length dtype must be in {t2}, got {dft_length_dtype}"
+                dft_length = int(dft_length.data.numpy())
+            else:
+                raise ValueError("Dynamic dft_length is not supported")
+
+        input_tensor = cls._maybe_crop_or_pad(bb, input_tensor, axis, dft_length)
+        if isinstance(input_tensor, relax.expr.Call):
+            input_tensor = bb.normalize(input_tensor)
+
+        swap_axis = -1
+        re_input_tensor, im_input_tensor = cls._split_real_and_imag_parts(
+            bb, input_tensor
+        )
+
+        re_input_tensor = bb.emit(
+            cls._swap_axes(re_input_tensor, axis, swap_axis)
+        )
+        im_input_tensor = bb.emit(
+            cls._swap_axes(im_input_tensor, axis, swap_axis)
+        )
+
+        re_output_tensor, im_output_tensor = bb.emit_te(
+            topi.signal.dft, re_input_tensor, im_input_tensor, inverse
+        )
+
+        re_output_tensor = bb.normalize(re_output_tensor)
+        im_output_tensor = bb.normalize(im_output_tensor)
+
+        re_output_tensor = bb.normalize(bb.emit(
+            cls._swap_axes(re_output_tensor, axis, swap_axis)
+        ))
+        im_output_tensor = bb.normalize(bb.emit(
+            cls._swap_axes(im_output_tensor, axis, swap_axis)
+        ))
+
+        if onesided:
+            re_output_tensor = bb.normalize(bb.emit(
+                cls._crop_onesided(re_output_tensor, axis)
+            ))
+            im_output_tensor = bb.normalize(bb.emit(
+                cls._crop_onesided(im_output_tensor, axis)
+            ))
+
+        return bb.normalize(bb.emit(
+            cls._merge_real_and_imag_parts(re_output_tensor, im_output_tensor)
+        ))
+
+    @classmethod
+    def _crop_axis(cls, tensor, axis, new_dim):
+        shape = tensor.struct_info.shape
+        slices_begin = [0] * len(shape)
+        slices_end = [s.value if isinstance(s, tir.IntImm) else int(s)
+                      if isinstance(s, int) else s
+                      for s in shape]
+        slices_end[axis] = new_dim
+        return relax.op.strided_slice(
+            tensor,
+            axes=list(range(len(shape))),
+            begin=slices_begin,
+            end=slices_end,
+        )
+
+    @classmethod
+    def _maybe_crop_or_pad(cls, bb, input_tensor, axis, n_fft):
+        shape = input_tensor.struct_info.shape
+        shape_val = shape[axis].value if isinstance(shape[axis], tir.IntImm) else shape[axis]
+
+        if isinstance(shape_val, int):
+            if shape_val != n_fft:
+                if shape_val > n_fft:
+                    return cls._crop_axis(input_tensor, axis, n_fft)
+                else:
+                    pad_before = [0] * len(shape)
+                    pad_after = [0] * len(shape)
+                    pad_after[axis] = n_fft - shape_val
+                    return bb.emit_te(topi.nn.pad, input_tensor, pad_before, pad_after)
+        return input_tensor
+
+    @classmethod
+    def _swap_axes(cls, tensor, axis1, axis2):
+        shape_len = len(tensor.struct_info.shape)
+        permutation = list(range(shape_len))
+        permutation[axis1] = axis2
+        permutation[axis2] = axis1
+        return relax.op.permute_dims(tensor, permutation)
+
+    @classmethod
+    def _split_real_and_imag_parts(cls, bb, tensor):
+        shape = tensor.struct_info.shape
+        last_dim = shape[-1].value if isinstance(shape[-1], tir.IntImm) else shape[-1]
+
+        if isinstance(last_dim, int) and last_dim == 1:
+            re = tensor
+            im = bb.normalize(bb.emit(relax.op.zeros_like(tensor)))
+        else:
+            splits = bb.emit(relax.op.split(tensor, 2, axis=-1))
+            re = splits[0]
+            im = splits[1]
+
+        re = bb.normalize(bb.emit(relax.op.squeeze(re, axis=-1)))
+        im = bb.normalize(bb.emit(relax.op.squeeze(im, axis=-1)))
+        return re, im
+
+    @classmethod
+    def _merge_real_and_imag_parts(cls, re, im):
+        re = relax.op.expand_dims(re, axis=-1)
+        im = relax.op.expand_dims(im, axis=-1)
+        return relax.op.concat([re, im], axis=-1)
+
+    @classmethod
+    def _crop_onesided(cls, tensor, axis):
+        shape = tensor.struct_info.shape
+        shape_val = shape[axis].value if isinstance(shape[axis], tir.IntImm) else shape[axis]
+        new_dim = shape_val // 2 + 1
+        return cls._crop_axis(tensor, axis, new_dim)
+#End TI
+
 
 class AllClassNMS(OnnxOpConverter):
     """Converts an onnx AllClassNMS node into an equivalent Relax expression."""
@@ -4794,6 +4947,7 @@ def _get_convert_map():
         "Identity": Identity,
         "Resize": Resize,
         "Einsum": Einsum,
+        "DFT": DFT,
         "Range": Range,
         "OneHot": OneHot,
         "Unique": Unique,
