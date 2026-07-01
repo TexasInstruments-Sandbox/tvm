@@ -53,6 +53,7 @@ from tvm.topi.utils import get_const_tuple
 from ..common import (
     autopad,
     #Begin TI
+    lstm_cell,
     rnn_cell,
     #End TI
     unbind,
@@ -4260,6 +4261,188 @@ class RNN(OnnxOpConverter):
 #End TI
 
 #Begin TI
+class LSTM(RNN):
+    """Converts an onnx LSTM node into equivalent relax expression"""
+
+    @classmethod
+    def _default_activations(cls, num_directions):
+        return [relax.op.sigmoid, relax.op.tanh, relax.op.tanh] * num_directions
+
+    @classmethod
+    def bidir_lstm_cell(cls, input_seqs, weight_dicts, acts, sequence_lens=None, clip=None, input_forget=0):
+        """Bidirectional LSTM cell."""
+        seq_len = len(input_seqs)
+        forward_outputs, fw_H_t, fw_C_t = lstm_cell(
+            input_seqs, **weight_dicts[0], f_act=acts[0], g_act=acts[1], h_act=acts[2], sequence_lens=sequence_lens, clip=clip, input_forget=input_forget
+        )
+
+        reverse_outputs, rev_H_t, rev_C_t = lstm_cell(
+            input_seqs,
+            **weight_dicts[1],
+            f_act=acts[3],
+            g_act=acts[4],
+            h_act=acts[5],
+            backwards=True,
+            sequence_lens=sequence_lens,
+            clip=clip,
+            input_forget=input_forget,
+        )
+
+        final_outputs = []
+        for i in range(seq_len):
+            final_outputs.append(
+                relax.op.stack([forward_outputs[i], reverse_outputs[i]], axis=0)
+            )
+
+        return (
+            relax.op.stack(final_outputs, axis=0),
+            relax.op.stack([fw_H_t, rev_H_t], axis=0),
+            relax.op.stack([fw_C_t, rev_C_t], axis=0),
+        )
+
+    @classmethod
+    def _impl_common(cls, inputs, attr, layout):
+        X_steps, H_ts, Ws, Rs, Bs, num_directions, sequence_lens = cls._inputs_helper(inputs, layout)
+        acts = cls._get_activations(attr, 3, num_directions, "LSTM")
+
+        # Extract clip attribute (optional)
+        clip = attr.get("clip", None)
+
+        # Extract input_forget attribute (optional)
+        input_forget = attr.get("input_forget", 0)
+
+        # Extract direction attribute
+        direction = attr.get("direction", b"forward")
+        if isinstance(direction, bytes):
+            direction = direction.decode("utf-8")
+
+        # Get batch size and hidden size from input shapes
+        X = inputs[0]
+        Wp = inputs[1]
+        Hp_0 = inputs[5] if len(inputs) > 5 else None
+        Wp_shape = Wp.struct_info.shape
+        # Wp shape: (num_directions, 4*hidden_size, feature_size)
+
+        # Get batch_size from Hp_0 if available, otherwise from X
+        if Hp_0 is not None:
+            Hp_shape = Hp_0.struct_info.shape
+            # Hp_0 shape: (num_directions, batch_size, hidden_size)
+        else:
+            X_shape = X.struct_info.shape
+            # X shape: (seq_len, batch_size, feature_size) for layout==0
+            # or (batch_size, seq_len, feature_size) for layout==1
+
+        # Cell state
+        Cp_0 = inputs[6] if len(inputs) > 6 else None
+        if Cp_0 is None:
+            C_ts = [relax.op.zeros_like(H_ts[i]) for i in range(num_directions)]
+        else:
+            if layout == 1:
+                Cp_0 = relax.op.permute_dims(Cp_0, axes=(1, 0))
+            if num_directions == 1:
+                C_ts = [Cp_0]
+            else:
+                C_ts = relax.op.split(Cp_0, num_directions, axis=0)
+
+        # Peepholes
+        Pp = inputs[7] if len(inputs) > 7 else None
+        p_is = None
+        p_fs = None
+        p_os = None
+        if Pp is not None:
+            p_split = relax.op.split(Pp, 3, axis=1)
+            p_i, p_o, p_f = p_split[0], p_split[1], p_split[2]
+            if num_directions == 1:
+                p_is = [p_i]
+                p_fs = [p_f]
+                p_os = [p_o]
+            else:
+                p_is_split = relax.op.split(p_i, num_directions, axis=0)
+                p_fs_split = relax.op.split(p_f, num_directions, axis=0)
+                p_os_split = relax.op.split(p_o, num_directions, axis=0)
+                # Convert to list for consistent indexing
+                p_is = [p_is_split[j] for j in range(num_directions)]
+                p_fs = [p_fs_split[j] for j in range(num_directions)]
+                p_os = [p_os_split[j] for j in range(num_directions)]
+
+        weights_dicts = []
+        for i in range(num_directions):
+            weights_dict = {}
+
+            weights_dict["hidden_state"] = relax.op.squeeze(H_ts[i], axis=[0])
+            weights_dict["cell_state"] = relax.op.squeeze(C_ts[i], axis=[0])
+
+            # Weights permutation: onnx format i-o-f-c, lstm cell format i-f-c-o
+            w_split = relax.op.split(relax.op.squeeze(Ws[i], axis=[0]), 4, axis=0)
+            mati, mato, matf, matc = w_split[0], w_split[1], w_split[2], w_split[3]
+            weights_dict["w_inp"] = relax.op.concat([mati, matf, matc, mato], axis=0)
+            r_split = relax.op.split(relax.op.squeeze(Rs[i], axis=[0]), 4, axis=0)
+            mati, mato, matf, matc = r_split[0], r_split[1], r_split[2], r_split[3]
+            weights_dict["w_hid"] = relax.op.concat([mati, matf, matc, mato], axis=0)
+            if Bs is not None:
+                if num_directions == 1:
+                    b_split = relax.op.split(Bs[i], 2, -1)
+                    Bi, Bh = b_split[0], b_split[1]
+                else:
+                    Bs_squeezed = relax.op.squeeze(Bs[i], axis=[0])
+                    b_split = relax.op.split(Bs_squeezed, 2, axis=0)
+                    Bi, Bh = b_split[0], b_split[1]
+                    Bi = relax.op.expand_dims(Bi, axis=0)
+                    Bh = relax.op.expand_dims(Bh, axis=0)
+                bi_split = relax.op.split(relax.op.squeeze(Bi, axis=[0]), 4, axis=0)
+                mati, mato, matf, matc = bi_split[0], bi_split[1], bi_split[2], bi_split[3]
+                weights_dict["b_inp"] = relax.op.concat([mati, matf, matc, mato], axis=0)
+                bh_split = relax.op.split(relax.op.squeeze(Bh, axis=[0]), 4, axis=0)
+                mati, mato, matf, matc = bh_split[0], bh_split[1], bh_split[2], bh_split[3]
+                weights_dict["b_hid"] = relax.op.concat([mati, matf, matc, mato], axis=0)
+            else:
+                W_dtype = Wp.struct_info.dtype
+                # Create zero biases: 4*hidden_size for each of b_inp and b_hid
+                # Use Wp shape directly since Ws[i] may not have struct_info populated after split
+                Wp_shape = Wp.struct_info.shape
+                bias_size = int(Wp_shape[1])  # Wp shape: (num_directions, 4*hidden_size, feature_size)
+                weights_dict["b_inp"] = relax.op.zeros([bias_size], W_dtype)
+                weights_dict["b_hid"] = relax.op.zeros([bias_size], W_dtype)
+            if Pp is not None:
+                weights_dict["p_i"] = relax.op.squeeze(p_is[i], axis=[0])
+                weights_dict["p_f"] = relax.op.squeeze(p_fs[i], axis=[0])
+                weights_dict["p_o"] = relax.op.squeeze(p_os[i], axis=[0])
+            weights_dicts.append(weights_dict)
+
+        if num_directions == 2:
+            output, H, C = LSTM.bidir_lstm_cell(
+                input_seqs=X_steps, weight_dicts=weights_dicts, acts=acts, sequence_lens=sequence_lens, clip=clip, input_forget=input_forget
+            )
+        else:
+            # outputs shape = [seqs_num, (batch_size, hidden_size)]
+            backwards = direction == "reverse"
+            outputs, H, C = lstm_cell(
+                input_seqs=X_steps, **weights_dicts[0], f_act=acts[0], g_act=acts[1], h_act=acts[2], backwards=backwards, sequence_lens=sequence_lens, clip=clip, input_forget=input_forget
+            )
+
+            # output shape = (seqs_num, num_directions, batch_size, hidden_size)
+            output = relax.op.expand_dims(relax.op.stack(outputs, axis=0), axis=1)
+            H = relax.op.expand_dims(H, axis=0)
+            C = relax.op.expand_dims(C, axis=0)
+
+        if layout == 1:
+            output = relax.op.permute_dims(output, axes=(1, 0))
+            H = relax.op.permute_dims(H, axes=(1, 0))
+            C = relax.op.permute_dims(C, axes=(1, 0))
+        return relax.Tuple((output, H, C))
+
+    @classmethod
+    def _impl_v7(cls, bb, inputs, attr, params):
+        return cls._impl_common(inputs, attr, 0)
+
+    @classmethod
+    def _impl_v14(cls, bb, inputs, attr, params):
+        layout = attr.get("layout", 0)
+        return cls._impl_common(inputs, attr, layout)
+
+#End TI
+
+#Begin TI
 class QuantizeLinear(OnnxOpConverter):
     """Converts an onnx QuantizeLinear node to equivalent relax expression"""
 
@@ -4642,6 +4825,7 @@ def _get_convert_map():
         "QuantizeLinear": QuantizeLinear,
         "DequantizeLinear": DequantizeLinear,
         "DynamicQuantizeLinear": DynamicQuantizeLinear,
+        "LSTM": LSTM,
     }
 
 
