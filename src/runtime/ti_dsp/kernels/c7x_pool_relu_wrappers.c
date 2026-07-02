@@ -88,6 +88,41 @@ int32_t c7x_int8_max_pool(
     return 0;
 }
 
+int32_t c7x_int8_requantize_clamp(
+        const void* in, void* out,
+        int32_t n, float combined_scale,
+        int32_t clip_lo, int32_t clip_hi) {
+    /* Non-transparent dq→clip→q: rescale int8 input and clamp.
+     * combined_scale = d_scale / o_scale (precomputed by compiler pass).
+     * out[i] = clamp(round(in[i] * combined_scale), clip_lo, clip_hi) */
+    const int8_t* restrict p = (const int8_t*)in;
+    int8_t*       restrict q = (int8_t*)out;
+
+    for (int32_t i = 0; i < n; i++) {
+        float v = (float)p[i] * combined_scale;
+        int32_t qi = (int32_t)(v >= 0.0f ? v + 0.5f : v - 0.5f);
+        q[i] = (int8_t)(qi < clip_lo ? clip_lo : (qi > clip_hi ? clip_hi : qi));
+    }
+    return 0;
+}
+
+int32_t c7x_int8_clamp(
+        const void* in, void* out,
+        int32_t n, int32_t clip_lo, int32_t clip_hi) {
+    const int8_t* p = (const int8_t*)in;
+    int8_t* q = (int8_t*)out;
+    int8_t lo = (int8_t)clip_lo;
+    int8_t hi = (int8_t)clip_hi;
+
+    /* Flat loop — cl7x auto-vectorizes clamp(x, lo, hi) over int8 vectors.
+     * Handles ReLU6 (lo=0, hi=round(6/scale)) and any general clip. */
+    for (int32_t i = 0; i < n; i++) {
+        int8_t v = p[i];
+        q[i] = (v < lo) ? lo : ((v > hi) ? hi : v);
+    }
+    return 0;
+}
+
 int32_t c7x_int8_relu(
         const void* in, void* out,
         int32_t n, int32_t clip_lo) {

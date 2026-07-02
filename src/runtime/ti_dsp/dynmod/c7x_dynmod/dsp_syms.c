@@ -138,6 +138,8 @@ __declspec(dllexport) int32_t tidl_int8_avg_pool() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_max_pool() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_max_pool_tidl() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_relu() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_clamp() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_requantize_clamp() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_quantize() { return 0; }
 __declspec(dllexport) int32_t tidl_int8_layer_norm() { return 0; }
 
