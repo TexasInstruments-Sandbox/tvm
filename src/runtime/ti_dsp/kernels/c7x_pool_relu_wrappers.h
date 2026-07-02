@@ -69,6 +69,29 @@ int32_t c7x_int8_max_pool(
  * @param n       Total number of elements
  * @param clip_lo int8 value corresponding to float 0.0 (= input zero_point)
  */
+/**
+ * @brief Rescale int8 and clamp: out[i] = clamp(round(in[i] * combined_scale), lo, hi).
+ *
+ * For non-transparent dq→clip→q patterns (d_scale ≠ o_scale).
+ * combined_scale = d_scale / o_scale is precomputed by the compiler pass.
+ * clip_lo/hi are the int8 representations of the float clip bounds in the
+ * output quantization domain.  Requires d_zp == o_zp == 0.
+ */
+int32_t c7x_int8_requantize_clamp(
+    const void* in, void* out,
+    int32_t n, float combined_scale,
+    int32_t clip_lo, int32_t clip_hi);
+
+/**
+ * @brief Two-sided clamp on int8: out[i] = clamp(in[i], clip_lo, clip_hi).
+ *
+ * Handles ReLU6 and any transparent dq→clip→q pattern.  clip_lo and clip_hi
+ * are int8 representations of the float bounds: round(bound / scale) + zp.
+ */
+int32_t c7x_int8_clamp(
+    const void* in, void* out,
+    int32_t n, int32_t clip_lo, int32_t clip_hi);
+
 int32_t c7x_int8_relu(
     const void* in, void* out,
     int32_t n, int32_t clip_lo);

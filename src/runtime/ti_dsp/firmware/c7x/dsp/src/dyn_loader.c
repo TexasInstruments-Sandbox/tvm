@@ -172,6 +172,8 @@ extern int32_t c7x_int8_max_pool_tidl(const void *, void *,
                                       int32_t, int32_t, int32_t, int32_t,
                                       int32_t, int32_t, int32_t, int32_t);
 extern int32_t c7x_int8_relu(const void *, void *, int32_t, int32_t);
+extern int32_t c7x_int8_clamp(const void *, void *, int32_t, int32_t, int32_t);
+extern int32_t c7x_int8_requantize_clamp(const void *, void *, int32_t, float, int32_t, int32_t);
 extern int32_t c7x_int8_quantize(const float *, int8_t *, int32_t, float, int32_t);
 extern int32_t mmalib_conv2d_i8_sliced(void *, void *, void *, void *, void *, void *,
                                         int32_t, int32_t, int32_t, int32_t,
@@ -374,6 +376,8 @@ static const DspSymEntry dsp_syms[] = {
     SYM(c7x_int8_max_pool),
     SYM(c7x_int8_max_pool_tidl),
     SYM(c7x_int8_relu),
+    SYM(c7x_int8_clamp),
+    SYM(c7x_int8_requantize_clamp),
     SYM(c7x_int8_quantize),
     /* TIDL normalization kernels */
     SYM(tidl_int8_layer_norm),
