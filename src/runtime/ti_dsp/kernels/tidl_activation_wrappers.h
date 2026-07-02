@@ -67,6 +67,15 @@ int32_t tidl_int8_hardswish(
     const void* in, void* out, int32_t n,
     int32_t zx, float sx, int32_t zy, float sy);
 
+/* SE-block broadcast multiply: excitation[C] × feature_map[C×H_W] → out[C×H_W].
+ * All shapes are NCHW with the excitation having trailing [1,1] spatial dims. */
+int32_t tidl_int8_channel_scale_multiply(
+    const void* excitation, const void* feature_map, void* out,
+    int32_t C, int32_t H_W,
+    float s_exc,  int32_t z_exc,
+    float s_feat, int32_t z_feat,
+    float s_out,  int32_t z_out);
+
 #ifdef __cplusplus
 }
 #endif

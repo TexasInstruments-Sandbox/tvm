@@ -79,7 +79,7 @@ if(TVM_DSP_TARGET STREQUAL "host")
         platform/common/memory_pool.c
         dma/tvm_dsp_dma_host.c
         kernels/tvm_int8_residual_add.cpp
-        kernels/tidl_activation_wrappers.c
+        kernels/tidl_activation_wrappers.cpp
         kernels/tidl_avgpool_wrappers.c
         kernels/tidl_norm_wrappers.c
         kernels/c7x_pool_relu_wrappers.cpp
@@ -127,7 +127,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x")
         platform/common/memory_pool.c
         dma/tvm_dsp_dma.c
         kernels/tvm_int8_residual_add.cpp
-        kernels/tidl_activation_wrappers.c
+        kernels/tidl_activation_wrappers.cpp
         kernels/tidl_avgpool_wrappers.c
         kernels/tidl_norm_wrappers.c
         kernels/c7x_pool_relu_wrappers.cpp
@@ -164,7 +164,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
         platform/common/memory_pool.c
         dma/tvm_dsp_dma_host.c
         kernels/tvm_int8_residual_add.cpp
-        kernels/tidl_activation_wrappers.c
+        kernels/tidl_activation_wrappers.cpp
         kernels/tidl_avgpool_wrappers.c
         kernels/tidl_norm_wrappers.c
         kernels/c7x_pool_relu_wrappers.cpp
