@@ -160,6 +160,7 @@ SECTIONS
 --import=tidl_int8_silu
 --import=tidl_int8_hardsigmoid
 --import=tidl_int8_hardswish
+--import=tidl_int8_channel_scale_multiply
 --import=tidl_int8_global_avg_pool
 --import=tidl_int8_avg_pool
 --import=c7x_int8_max_pool

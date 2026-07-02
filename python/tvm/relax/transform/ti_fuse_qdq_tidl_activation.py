@@ -99,15 +99,77 @@ def _make_hardswish_pattern():
     return q, {"x": x, "d_scale": d_s, "d_zp": d_z, "o_scale": o_s, "o_zp": o_z}
 
 
+def _make_hardswish_pattern_commuted():
+    """Same as _make_hardswish_pattern but with multiply operands swapped.
+
+    PT2E exports some layers as multiply(clip, dq) rather than multiply(dq, clip).
+    FuseOpsByPattern is non-commutative so both orderings must be registered.
+    """
+    x, d_s, d_z = wildcard(), wildcard(), wildcard()
+    dq = is_op("relax.dequantize")(x, d_s, d_z)
+    added = is_op("relax.add")(dq, wildcard())
+    clipped1 = is_op("relax.clip")(added, wildcard(), wildcard())
+    clipped2 = is_op("relax.clip")(clipped1, wildcard(), wildcard())
+    mul = is_op("relax.multiply")(clipped2, dq)  # operands swapped vs canonical
+    divided = is_op("relax.divide")(mul, wildcard())
+    o_s, o_z = wildcard(), wildcard()
+    q = is_op("relax.quantize")(divided, o_s, o_z)
+    return q, {"x": x, "d_scale": d_s, "d_zp": d_z, "o_scale": o_s, "o_zp": o_z}
+
+
+def _make_channel_scale_multiply_pattern():
+    """dq(in1) * dq(in2) → q — SE-block excitation × feature-map multiply.
+
+    One input has trailing [1,1] spatial dims (excitation from hardsigmoid);
+    the other is the full [C,H,W] feature map.  The check function verifies
+    this shape constraint and the lowerer determines which is which at compile
+    time.
+    """
+    in1, s1, z1 = wildcard(), wildcard(), wildcard()
+    in2, s2, z2 = wildcard(), wildcard(), wildcard()
+    dq1 = is_op("relax.dequantize")(in1, s1, z1)
+    dq2 = is_op("relax.dequantize")(in2, s2, z2)
+    mul = is_op("relax.multiply")(dq1, dq2)
+    o_s, o_z = wildcard(), wildcard()
+    q = is_op("relax.quantize")(mul, o_s, o_z)
+    return q, {"in1": in1, "s1": s1, "z1": z1,
+               "in2": in2, "s2": s2, "z2": z2,
+               "o_scale": o_s, "o_zp": o_z}
+
+
+def _make_channel_scale_multiply_pattern_commuted():
+    """Same as _make_channel_scale_multiply_pattern with swapped multiply operands."""
+    in1, s1, z1 = wildcard(), wildcard(), wildcard()
+    in2, s2, z2 = wildcard(), wildcard(), wildcard()
+    dq1 = is_op("relax.dequantize")(in1, s1, z1)
+    dq2 = is_op("relax.dequantize")(in2, s2, z2)
+    mul = is_op("relax.multiply")(dq2, dq1)  # operands swapped
+    o_s, o_z = wildcard(), wildcard()
+    q = is_op("relax.quantize")(mul, o_s, o_z)
+    return q, {"in1": in1, "s1": s1, "z1": z1,
+               "in2": in2, "s2": s2, "z2": z2,
+               "o_scale": o_s, "o_zp": o_z}
+
+
 # (composite_name, pattern_factory)
 _PATTERN_REGISTRY = [
     ("tidl_act.gelu", _make_gelu_pattern),
     ("tidl_act.silu", _make_silu_pattern),
     ("tidl_act.hardsigmoid", _make_hardsigmoid_pattern),
     ("tidl_act.hardswish", _make_hardswish_pattern),
+    ("tidl_act.hardswish_commuted", _make_hardswish_pattern_commuted),
+    ("tidl_act.channel_scale_multiply", _make_channel_scale_multiply_pattern),
+    ("tidl_act.channel_scale_multiply_commuted",
+     _make_channel_scale_multiply_pattern_commuted),
 ]
 
 _COMPOSITE_NAMES = frozenset(name for name, _ in _PATTERN_REGISTRY)
+
+# Composite names that use the two-input channel_scale_multiply lowering path.
+_CHANNEL_SCALE_MULTIPLY_NAMES = frozenset({
+    "tidl_act.channel_scale_multiply",
+    "tidl_act.channel_scale_multiply_commuted",
+})
 
 
 def _check_activation(ctx) -> bool:
@@ -126,6 +188,46 @@ def _check_activation(ctx) -> bool:
         if not isinstance(ctx.annotated_expr[name], relax.Constant):
             return False
     return True
+
+
+def _check_channel_scale_multiply(ctx) -> bool:
+    """Require two int8 inputs, compile-time QDQ constants, and one input with
+    trailing [1,1] spatial dims (excitation) and the other with H×W > 1."""
+    for inp_name in ("in1", "in2"):
+        inp = ctx.annotated_expr[inp_name]
+        if isinstance(inp, relax.Constant):
+            if inp.data.dtype != "int8":
+                return False
+        elif hasattr(inp, "struct_info") and hasattr(inp.struct_info, "dtype"):
+            if str(inp.struct_info.dtype) != "int8":
+                return False
+        else:
+            return False
+
+    for name in ("s1", "z1", "s2", "z2", "o_scale", "o_zp"):
+        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+            return False
+
+    # Verify shape constraint: exactly one input has trailing [1, 1] dims.
+    in1 = ctx.annotated_expr["in1"]
+    in2 = ctx.annotated_expr["in2"]
+    in1_si = getattr(in1, "struct_info", None)
+    in2_si = getattr(in2, "struct_info", None)
+    if in1_si is None or in2_si is None:
+        return False
+    in1_shape = getattr(in1_si, "shape", None)
+    in2_shape = getattr(in2_si, "shape", None)
+    if in1_shape is None or in2_shape is None:
+        return False
+    if len(in1_shape) < 4 or len(in2_shape) < 4:
+        return False
+    for s in [*in1_shape, *in2_shape]:
+        if not isinstance(s, tir.IntImm):
+            return False
+    s1_last2 = (int(in1_shape[-2]) == 1 and int(in1_shape[-1]) == 1)
+    s2_last2 = (int(in2_shape[-2]) == 1 and int(in2_shape[-1]) == 1)
+    # XOR: exactly one has trailing [1,1]
+    return s1_last2 != s2_last2
 
 
 # =========================================================================
@@ -155,14 +257,14 @@ class _ActivationLowerer(PyExprMutator):
         if name not in _COMPOSITE_NAMES:
             return super().visit_call_(call)
 
-        return self._lower(call, func, name)
+        if name in _CHANNEL_SCALE_MULTIPLY_NAMES:
+            return self._lower_channel_scale_multiply(call, func)
+        return self._lower_single_input(call, func, name)
 
-    def _lower(self, call, func, composite_name):
+    def _lower_single_input(self, call, func, composite_name):
+        """Lower single-input activation composites (gelu/silu/hardsigmoid/hardswish)."""
         param_to_arg = dict(zip(func.params, call.args))
 
-        # Walk the composite body to extract the single dq and q parameters.
-        # For all activation patterns there is exactly one dequantize (entry)
-        # and one quantize (exit); the intermediate ops vary by activation type.
         x_arg = None
         d_scale_val = d_zp_val = o_scale_val = o_zp_val = None
 
@@ -198,8 +300,9 @@ class _ActivationLowerer(PyExprMutator):
         for s in output_shape:
             n_elem *= s
 
-        # "tidl_act.gelu" → "tidl_int8_gelu"
+        # "tidl_act.hardswish_commuted" → "hardswish_commuted" → "tidl_int8_hardswish"
         act_suffix = composite_name[len(_COMPOSITE_PREFIX):]
+        act_suffix = act_suffix.removesuffix("_commuted")
         extern_name = f"tidl_int8_{act_suffix}"
 
         d_zp_v = int(d_zp_val)  # type: ignore[arg-type]
@@ -229,12 +332,102 @@ class _ActivationLowerer(PyExprMutator):
         self.count += 1
         logger.debug(
             "Fused %s: n=%d d_zp=%d d_scale=%.6g o_zp=%d o_scale=%.6g",
-            extern_name,
-            n_elem,
-            d_zp_v,
-            d_scale_v,
-            o_zp_v,
-            o_scale_v,
+            extern_name, n_elem, d_zp_v, d_scale_v, o_zp_v, o_scale_v,
+        )
+        return result
+
+    def _lower_channel_scale_multiply(self, call, func):
+        """Lower channel_scale_multiply composites to tidl_int8_channel_scale_multiply."""
+        param_to_arg = dict(zip(func.params, call.args))
+
+        # Collect the two dequantize ops and one quantize op from the composite.
+        dq_entries = []  # list of (input_arg, scale_val, zp_val)
+        o_scale_val = o_zp_val = None
+
+        for binding in func.body.blocks[0].bindings:
+            val = binding.value
+            if not isinstance(val, relax.Call) or not hasattr(val.op, "name"):
+                continue
+            op_name = str(val.op.name)
+            if "dequantize" in op_name:
+                inp = param_to_arg.get(val.args[0], val.args[0])
+                s   = param_to_arg.get(val.args[1], val.args[1])
+                z   = param_to_arg.get(val.args[2], val.args[2])
+                dq_entries.append((inp, float(s.data.numpy()), int(z.data.numpy())))
+            elif "quantize" in op_name and dq_entries:
+                s = param_to_arg.get(val.args[1], val.args[1])
+                z = param_to_arg.get(val.args[2], val.args[2])
+                o_scale_val = float(s.data.numpy())
+                o_zp_val = int(z.data.numpy())
+
+        if len(dq_entries) < 2 or o_scale_val is None:
+            return super().visit_call_(call)
+
+        call_sinfo = call.struct_info
+        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+            return super().visit_call_(call)
+
+        # Determine which dq input is excitation [1,C,1,1] and which is feature map.
+        (arg0, s0, z0), (arg1, s1, z1) = dq_entries[0], dq_entries[1]
+        shape0 = [int(x) for x in arg0.struct_info.shape]
+        shape1 = [int(x) for x in arg1.struct_info.shape]
+
+        if shape0[-2] == 1 and shape0[-1] == 1:
+            exc_arg, fm_arg = arg0, arg1
+            s_exc, z_exc, s_fm, z_fm = s0, z0, s1, z1
+            fm_shape = shape1
+        else:
+            exc_arg, fm_arg = arg1, arg0
+            s_exc, z_exc, s_fm, z_fm = s1, z1, s0, z0
+            fm_shape = shape0
+
+        # C is the channel dimension; H_W is the product of remaining spatial dims.
+        C   = fm_shape[1]
+        H_W = 1
+        for d in fm_shape[2:]:
+            H_W *= d
+
+        output_shape = [int(s) for s in call_sinfo.shape]
+
+        s_exc_v  = float(s_exc)
+        z_exc_v  = int(z_exc)
+        s_fm_v   = float(s_fm)
+        z_fm_v   = int(z_fm)
+        s_out_v  = float(o_scale_val)
+        z_out_v  = int(o_zp_val)
+        C_v      = int(C)
+        H_W_v    = int(H_W)
+
+        def te_channel_scale_multiply(exc_t, fm_t):
+            def fcompute(ins, outs):
+                return tir.call_extern(
+                    "int32",
+                    "tidl_int8_channel_scale_multiply",
+                    ins[0].data,
+                    ins[1].data,
+                    outs[0].data,
+                    tir.IntImm("int32", C_v),
+                    tir.IntImm("int32", H_W_v),
+                    tir.FloatImm("float32", s_exc_v),
+                    tir.IntImm("int32", z_exc_v),
+                    tir.FloatImm("float32", s_fm_v),
+                    tir.IntImm("int32", z_fm_v),
+                    tir.FloatImm("float32", s_out_v),
+                    tir.IntImm("int32", z_out_v),
+                )
+            return te.extern(
+                output_shape, [exc_t, fm_t], fcompute,
+                name="channel_scale_mul_out", dtype="int8",
+            )
+
+        result = self.builder_.call_te(
+            te_channel_scale_multiply, exc_arg, fm_arg,
+            primfunc_name_hint="tidl_int8_channel_scale_multiply",
+        )
+        self.count += 1
+        logger.debug(
+            "Fused tidl_int8_channel_scale_multiply: C=%d H_W=%d",
+            C_v, H_W_v,
         )
         return result
 
@@ -259,7 +452,12 @@ class FuseQDQToTIDLActivation:
         patterns = []
         for composite_name, factory in _PATTERN_REGISTRY:
             pat, annotations = factory()
-            patterns.append((composite_name, pat, annotations, _check_activation))
+            check = (
+                _check_channel_scale_multiply
+                if composite_name in _CHANNEL_SCALE_MULTIPLY_NAMES
+                else _check_activation
+            )
+            patterns.append((composite_name, pat, annotations, check))
 
         mod = relax.transform.FuseOpsByPattern(patterns, bind_constants=False)(mod)
 
