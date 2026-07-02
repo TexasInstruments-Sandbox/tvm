@@ -261,11 +261,7 @@ def _check_mmalib_qdq_conv2d(ctx) -> bool:
     except Exception:
         return False
 
-    from .ti_mmalib_constants import MMA_SIZE_I8
-
-    return _check_conv2d_mmalib_constraints(
-        conv.attrs, data_sinfo, kernel_sinfo, mma_size=MMA_SIZE_I8
-    )
+    return _check_conv2d_mmalib_constraints(conv.attrs, data_sinfo, kernel_sinfo)
 
 
 # =========================================================================

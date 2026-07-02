@@ -33,7 +33,7 @@ requantization (uint8 scale/shift), and optional ReLU clipping.
 Key differences from the int8 version:
   - Input/output/weight dtype: int16 (not int8)
   - Bias dtype: int64 (wider accumulator)
-  - Alignment constraint: C_out % MMA_SIZE_I16 == 0 (half of i8)
+  - No C_out alignment constraint (conv2d_impl handles any C_out via chunking)
   - d_zp must be exactly 0 (int16 only supports symmetric activation quant)
   - No asymmetric zero-point correction needed (d_zp=0 always)
   - Clip bounds for optional ReLU: (-32768, 32767)
@@ -286,11 +286,7 @@ def _check_mmalib_qdq_i16_conv2d(ctx) -> bool:
     except Exception:
         return False
 
-    from .ti_mmalib_constants import MMA_SIZE_I16
-
-    return _check_conv2d_mmalib_constraints(
-        conv.attrs, data_sinfo, kernel_sinfo, mma_size=MMA_SIZE_I16
-    )
+    return _check_conv2d_mmalib_constraints(conv.attrs, data_sinfo, kernel_sinfo)
 
 
 # =========================================================================
