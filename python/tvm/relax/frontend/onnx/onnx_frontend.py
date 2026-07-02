@@ -53,6 +53,7 @@ from tvm.topi.utils import get_const_tuple
 from ..common import (
     autopad,
     #Begin TI
+    gru_cell,
     lstm_cell,
     rnn_cell,
     #End TI
@@ -5124,6 +5125,141 @@ class DynamicQuantizeLinear(OnnxOpConverter):
         return relax.expr.Tuple([quantized, scale, zp])
 #End TI
 
+#Begin TI
+class GRU(RNN):
+    """Converts an ONNX GRU node into equivalent Relax expression"""
+
+    @classmethod
+    def _default_activations(cls, num_directions):
+        return [relax.op.sigmoid, relax.op.tanh] * num_directions
+
+    @classmethod
+    def bidir_gru_cell(cls, input_seqs, weight_dicts, acts, sequence_lens=None, clip=None):
+        """Bidirectional GRU cell."""
+        seq_len = len(input_seqs)
+        forward_outputs, fw_H_t = gru_cell(
+            input_seqs,
+            **weight_dicts[0],
+            rz_act=acts[0],
+            n_act=acts[1],
+            sequence_lens=sequence_lens,
+            clip=clip,
+        )
+
+        reverse_outputs, rev_H_t = gru_cell(
+            input_seqs,
+            **weight_dicts[1],
+            rz_act=acts[2],
+            n_act=acts[3],
+            backwards=True,
+            sequence_lens=sequence_lens,
+            clip=clip,
+        )
+
+        final_outputs = []
+        for i in range(seq_len):
+            final_outputs.append(
+                relax.op.stack([forward_outputs[i], reverse_outputs[i]], axis=0)
+            )
+
+        return (relax.op.stack(final_outputs, axis=0), relax.op.stack([fw_H_t, rev_H_t], axis=0))
+
+    @classmethod
+    def _impl_common(cls, inputs, attr, layout):
+        X_steps, H_ts, Ws, Rs, Bs, num_directions, sequence_lens = cls._inputs_helper(
+            inputs, layout
+        )
+        acts = cls._get_activations(attr, 2, num_directions, "GRU")
+        linear_before_reset = attr.get("linear_before_reset", 0)
+
+        # Extract clip attribute (optional)
+        clip = attr.get("clip", None)
+
+        # Extract direction attribute
+        direction = attr.get("direction", b"forward")
+        if isinstance(direction, bytes):
+            direction = direction.decode("utf-8")
+        elif isinstance(direction, int):
+            # Handle integer direction: 0 = forward, 1 = reverse, 2 = bidirectional
+            direction = ["forward", "reverse", "bidirectional"][direction] if direction in [0, 1, 2] else "forward"
+
+        # Extract dtype and shape from inputs while they have struct_info
+        X = inputs[0]
+        Wp = inputs[1]
+        Rp = inputs[2]
+        input_dtype = Wp.struct_info.dtype
+
+        # Compute hidden_shape from X and Rp shapes (same logic as _inputs_helper)
+        if layout == 1:
+            batch_size = int(X.struct_info.shape[0])
+        else:
+            batch_size = int(X.struct_info.shape[1])
+        hidden_size = int(Rp.struct_info.shape[-1])
+        hidden_shape = [batch_size, hidden_size]
+
+        weights_dicts = []
+        for i in range(num_directions):
+            weights_dict = {}
+
+            weights_dict["hidden_state"] = relax.op.squeeze(H_ts[i], axis=[0])
+            weights_dict["linear_before_reset"] = linear_before_reset
+
+            weights_dict["w_inp"] = relax.op.squeeze(Ws[i], axis=[0])
+            weights_dict["w_hid"] = relax.op.squeeze(Rs[i], axis=[0])
+            weights_dict["input_dtype"] = input_dtype
+            weights_dict["hidden_shape"] = hidden_shape
+
+            if Bs is not None:
+                b_squeezed = relax.op.squeeze(Bs[i], axis=[0])
+                # GRU bias format: [b_iz, b_ir, b_in, b_hz, b_hr, b_hn]
+                # Split into two parts: input biases [b_iz, b_ir, b_in] and hidden biases [b_hz, b_hr, b_hn]
+                b_split = relax.op.split(b_squeezed, 2, -1)
+                weights_dict["b_inp"] = b_split[0]
+                weights_dict["b_hid"] = b_split[1]
+            else:
+                weights_dict["b_inp"] = None
+                weights_dict["b_hid"] = None
+
+            weights_dicts.append(weights_dict)
+
+        if num_directions == 2:
+            output, H = GRU.bidir_gru_cell(
+                input_seqs=X_steps,
+                weight_dicts=weights_dicts,
+                acts=acts,
+                sequence_lens=sequence_lens,
+                clip=clip,
+            )
+        else:
+            backwards = direction == "reverse"
+            outputs, H = gru_cell(
+                input_seqs=X_steps,
+                **weights_dicts[0],
+                rz_act=acts[0],
+                n_act=acts[1],
+                backwards=backwards,
+                sequence_lens=sequence_lens,
+                clip=clip,
+            )
+            output = relax.op.expand_dims(relax.op.stack(outputs, axis=0), axis=1)
+            H = relax.op.expand_dims(H, axis=0)
+
+        if layout == 1:
+            output = relax.op.permute_dims(output, axes=(1, 0))
+            H = relax.op.permute_dims(H, axes=(1, 0))
+
+        return relax.Tuple((output, H))
+
+    @classmethod
+    def _impl_v7(cls, bb, inputs, attr, params):
+        return cls._impl_common(inputs, attr, 0)
+
+    @classmethod
+    def _impl_v14(cls, bb, inputs, attr, params):
+        layout = attr.get("layout", 0)
+        return cls._impl_common(inputs, attr, layout)
+#End TI
+
 def _get_convert_map():
     return {
         # defs/experimental
@@ -5305,6 +5441,7 @@ def _get_convert_map():
         "DequantizeLinear": DequantizeLinear,
         "DynamicQuantizeLinear": DynamicQuantizeLinear,
         "LSTM": LSTM,
+        "GRU": GRU,
     }
 
 
