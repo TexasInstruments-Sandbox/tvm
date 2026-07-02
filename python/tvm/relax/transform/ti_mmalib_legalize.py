@@ -132,7 +132,7 @@ def _mmalib_matmul_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
 # =======================================================================
 
 
-def _check_conv2d_mmalib_constraints(attrs, data_sinfo, kernel_sinfo, mma_size: int) -> bool:
+def _check_conv2d_mmalib_constraints(attrs, data_sinfo, kernel_sinfo) -> bool:
     """Shared MMALIB conv2d eligibility check for both int8 and int16.
 
     MMALIB constraints:
@@ -141,7 +141,6 @@ def _check_conv2d_mmalib_constraints(attrs, data_sinfo, kernel_sinfo, mma_size: 
       - strides must be symmetric (strideX == strideY)
       - N must be 1
       - all shapes must be static
-      - C_out must be a multiple of MMA_SIZE
     """
     if list(attrs.dilation) != [1, 1]:
         return False
@@ -163,11 +162,6 @@ def _check_conv2d_mmalib_constraints(attrs, data_sinfo, kernel_sinfo, mma_size: 
     if int(data_sinfo.shape[data_layout.index_of("N")]) != 1:
         return False
 
-    kernel_layout = tir.layout(attrs.kernel_layout)
-    c_out = int(kernel_sinfo.shape[kernel_layout.index_of("O")])
-    if c_out % mma_size != 0:
-        return False
-
     return True
 
 
@@ -185,11 +179,8 @@ def _is_conv2d_mmalib_eligible(call: relax.Call) -> bool:
     if data_sinfo.ndim != 4 or kernel_sinfo.ndim != 4:
         return False
 
-    from .ti_mmalib_constants import MMA_SIZE_I16
 
-    return _check_conv2d_mmalib_constraints(
-        call.attrs, data_sinfo, kernel_sinfo, mma_size=MMA_SIZE_I16
-    )
+    return _check_conv2d_mmalib_constraints(call.attrs, data_sinfo, kernel_sinfo)
 
 
 def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.Expr:
