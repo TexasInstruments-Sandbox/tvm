@@ -308,3 +308,126 @@ def lstm_cell(input_seqs, hidden_state, cell_state, w_inp, w_hid, b_inp=None, b_
 
     return outputs_list, hidden_state, cell_state
 #End TI
+
+#Begin TI
+def gru_cell(
+    input_seqs,
+    hidden_state,
+    w_inp,
+    w_hid,
+    b_inp=None,
+    b_hid=None,
+    rz_act=None,
+    n_act=None,
+    backwards=False,
+    linear_before_reset=False,
+    sequence_lens=None,
+    input_dtype=None,
+    hidden_shape=None,
+    clip=None,
+):
+    """
+    Common implementation of GRU cell for all frontends of TVM """
+    if rz_act is None:
+        rz_act = relax.op.sigmoid
+    if n_act is None:
+        n_act = relax.op.tanh
+
+    outputs_list = []
+
+    seq_len = len(input_seqs)
+    if input_dtype is None:
+        input_dtype = w_inp.struct_info.dtype
+    if hidden_shape is None:
+        hidden_shape = list(hidden_state.struct_info.shape)
+
+    mask_seqs = None
+    if sequence_lens is not None:
+        seq_len_dtype = sequence_lens.struct_info.dtype
+
+        arange = relax.op.arange(0, seq_len, dtype=seq_len_dtype)
+        arange = relax.op.expand_dims(arange, 1)
+
+        seq_len_shape = sequence_lens.struct_info.shape
+        sequence_lens_broadcast = relax.op.broadcast_to(sequence_lens, [seq_len, seq_len_shape[0]])
+
+        mask = relax.op.less(arange, sequence_lens_broadcast)
+
+        dtype = input_dtype if input_dtype is not None else "float32"
+        mask_float = relax.op.astype(mask, dtype=dtype)
+
+        mask_tensor = relax.op.expand_dims(mask_float, 2)
+        mask_seqs = []
+        for i in range(seq_len):
+            mask_seqs.append(relax.op.take(mask_tensor, relax.const(i), axis=0))
+
+    seq_order = reversed(range(seq_len)) if backwards else range(seq_len)
+
+    for idx in seq_order:
+        x_t = input_seqs[idx]
+        xwt = relax.op.matmul(x_t, relax.op.permute_dims(w_inp, axes=(1, 0)))
+        if linear_before_reset:
+            hwt = relax.op.matmul(hidden_state, relax.op.permute_dims(w_hid, axes=(1, 0)))
+            xwt_splits = relax.op.split(xwt, 3, axis=-1)
+            hwt_splits = relax.op.split(hwt, 3, axis=-1)
+            # Gate order is [z, r, h] for update, reset, and candidate gates
+            i_z, i_r, i_n = xwt_splits[0], xwt_splits[1], xwt_splits[2]
+            h_z, h_r, h_n = hwt_splits[0], hwt_splits[1], hwt_splits[2]
+            if b_inp is not None and b_hid is not None:
+                b_inp_splits = relax.op.split(b_inp, 3, axis=-1)
+                b_hid_splits = relax.op.split(b_hid, 3, axis=-1)
+                b_iz, b_ir, b_in = b_inp_splits[0], b_inp_splits[1], b_inp_splits[2]
+                b_hz, b_hr, b_hn = b_hid_splits[0], b_hid_splits[1], b_hid_splits[2]
+                r_gate = rz_act(i_r + b_ir + h_r + b_hr)
+                z_gate = rz_act(i_z + b_iz + h_z + b_hz)
+                n_gate = n_act(i_n + b_in + r_gate * h_n + b_hn)
+            else:
+                r_gate = rz_act(i_r + h_r)
+                z_gate = rz_act(i_z + h_z)
+                n_gate = n_act(i_n + r_gate * h_n)
+        else:
+            xwt_splits = relax.op.split(xwt, 3, axis=-1)
+            w_hid_splits = relax.op.split(w_hid, 3, axis=0)
+            # Gate order is [z, r, h] for update, reset, and candidate gates
+            i_z, i_r, i_n = xwt_splits[0], xwt_splits[1], xwt_splits[2]
+            w_hz, w_hr, w_hn = w_hid_splits[0], w_hid_splits[1], w_hid_splits[2]
+            r_gate = i_r + relax.op.matmul(hidden_state, relax.op.permute_dims(w_hr, axes=(1, 0)))
+            z_gate = i_z + relax.op.matmul(hidden_state, relax.op.permute_dims(w_hz, axes=(1, 0)))
+            if b_inp is not None and b_hid is not None:
+                b_inp_splits = relax.op.split(b_inp, 3, axis=-1)
+                b_hid_splits = relax.op.split(b_hid, 3, axis=-1)
+                # Bias order is [z, r, h] for update, reset, and candidate gates
+                b_iz, b_ir, b_in = b_inp_splits[0], b_inp_splits[1], b_inp_splits[2]
+                b_hz, b_hr, b_hn = b_hid_splits[0], b_hid_splits[1], b_hid_splits[2]
+                r_gate += b_ir + b_hr
+                r_gate = rz_act(r_gate)
+                z_gate += b_iz + b_hz
+                z_gate = rz_act(z_gate)
+                i_n += b_in
+                h_n = relax.op.matmul(r_gate * hidden_state, relax.op.permute_dims(w_hn, axes=(1, 0))) + b_hn
+                n_gate = n_act(i_n + h_n)
+            else:
+                r_gate = rz_act(r_gate)
+                z_gate = rz_act(z_gate)
+                h_n = relax.op.matmul(r_gate * hidden_state, relax.op.permute_dims(w_hn, axes=(1, 0)))
+                n_gate = n_act(i_n + h_n)
+
+        new_hidden = (hidden_state - n_gate) * z_gate + n_gate
+
+        if clip is not None:
+            new_hidden = relax.op.clip(new_hidden, -clip, clip)
+
+        if mask_seqs is not None:
+            mask_idx = mask_seqs[idx]
+            one = relax.const(1.0)
+            hidden_state = mask_idx * new_hidden + (one - mask_idx) * hidden_state
+            outputs_list.append(mask_idx * hidden_state)
+        else:
+            hidden_state = new_hidden
+            outputs_list.append(hidden_state)
+
+    if backwards:
+        outputs_list = list(reversed(outputs_list))
+
+    return outputs_list, hidden_state
+#End TI
