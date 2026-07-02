@@ -292,18 +292,40 @@ class _ActivationLowerer(PyExprMutator):
             return super().visit_call_(call)
 
         call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+
+        # Determine output shape.  For hardswish layers whose float32 intermediate
+        # is shared with an SE-block multiply, FuseOpsByPattern creates a
+        # tuple-output composite: R.Tuple(int8_tensor, float32_tensor).
+        # We emit c7x_int8_hardswish for the int8 part and re-dequantize it
+        # to recover the float32 part for the downstream SE multiply.
+        is_tuple_out = isinstance(call_sinfo, relax.TupleStructInfo)
+        if is_tuple_out:
+            # Find the int8 field.
+            int8_idx = next(
+                (i for i, f in enumerate(call_sinfo.fields)
+                 if isinstance(f, relax.TensorStructInfo) and str(f.dtype) == "int8"),
+                None,
+            )
+            if int8_idx is None:
+                return super().visit_call_(call)
+            int8_sinfo = call_sinfo.fields[int8_idx]
+            if not int8_sinfo.shape:
+                return super().visit_call_(call)
+            output_shape = [int(s) for s in int8_sinfo.shape]
+        elif not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
             return super().visit_call_(call)
-        output_shape = [int(s) for s in call_sinfo.shape]
+        else:
+            output_shape = [int(s) for s in call_sinfo.shape]
 
         n_elem = 1
         for s in output_shape:
             n_elem *= s
 
-        # "tidl_act.hardswish_commuted" → "hardswish_commuted" → "tidl_int8_hardswish"
-        act_suffix = composite_name[len(_COMPOSITE_PREFIX):]
-        act_suffix = act_suffix.removesuffix("_commuted")
-        extern_name = f"tidl_int8_{act_suffix}"
+        # Map composite suffix → extern function name.
+        # hardswish was renamed from tidl_int8_ to c7x_int8_ (SE+float vectorized).
+        act_suffix = composite_name[len(_COMPOSITE_PREFIX):].removesuffix("_commuted")
+        _EXTERN_NAME: dict = {"hardswish": "c7x_int8_hardswish"}
+        extern_name = _EXTERN_NAME.get(act_suffix, f"tidl_int8_{act_suffix}")
 
         d_zp_v = int(d_zp_val)  # type: ignore[arg-type]
         d_scale_v = float(d_scale_val)  # type: ignore[arg-type]
@@ -327,14 +349,37 @@ class _ActivationLowerer(PyExprMutator):
 
             return te.extern(output_shape, [x_t], fcompute, name="tidl_act_out", dtype="int8")
 
-        result = self.builder_.call_te(te_activation, x_arg, primfunc_name_hint=extern_name)
-
+        int8_result = self.builder_.call_te(
+            te_activation, x_arg, primfunc_name_hint=extern_name
+        )
         self.count += 1
+
+        if is_tuple_out:
+            # Reconstruct the float32 output by dequantizing the int8 result.
+            # The downstream SE multiply will see dq(int8_hardswish) × dq(int8_sig),
+            # which the channel_scale_multiply pass (Round 2) can then match.
+            float32_result = self.builder_.emit(
+                relax.op.dequantize(
+                    int8_result,
+                    relax.const(o_scale_v, "float32"),
+                    relax.const(o_zp_v, "int8"),
+                )
+            )
+            out_fields = []
+            for i, f in enumerate(call_sinfo.fields):
+                if i == int8_idx:
+                    out_fields.append(int8_result)
+                else:
+                    out_fields.append(float32_result)
+            result = self.builder_.emit(relax.Tuple(out_fields))
+            logger.debug("Fused %s (tuple output): int8+float32", extern_name)
+            return result
+
         logger.debug(
             "Fused %s: n=%d d_zp=%d d_scale=%.6g o_zp=%d o_scale=%.6g",
             extern_name, n_elem, d_zp_v, d_scale_v, o_zp_v, o_scale_v,
         )
-        return result
+        return int8_result
 
     def _lower_channel_scale_multiply(self, call, func):
         """Lower channel_scale_multiply composites to tidl_int8_channel_scale_multiply."""
@@ -448,19 +493,12 @@ class FuseQDQToTIDLActivation:
     Applicable to both MMALIB and non-MMALIB C7x targets.
     """
 
-    def transform_module(self, mod: IRModule, _ctx: PassContext) -> IRModule:
-        patterns = []
-        for composite_name, factory in _PATTERN_REGISTRY:
-            pat, annotations = factory()
-            check = (
-                _check_channel_scale_multiply
-                if composite_name in _CHANNEL_SCALE_MULTIPLY_NAMES
-                else _check_activation
-            )
-            patterns.append((composite_name, pat, annotations, check))
-
-        mod = relax.transform.FuseOpsByPattern(patterns, bind_constants=False)(mod)
-
+    @staticmethod
+    def _run_patterns(mod: IRModule, pattern_list: list) -> IRModule:
+        """Run FuseOpsByPattern + lowering for one set of patterns."""
+        mod = relax.transform.FuseOpsByPattern(
+            pattern_list, bind_constants=False
+        )(mod)
         lowerer = _ActivationLowerer(mod)
         for gv, func in mod.functions_items():
             if isinstance(func, relax.Function):
@@ -469,9 +507,43 @@ class FuseQDQToTIDLActivation:
                 func = lowerer.visit_expr(func)
                 lowerer.builder_.update_func(gv, func)
         mod = lowerer.builder_.get()
-
         if lowerer.count > 0:
-            logger.info("FuseQDQToTIDLActivation: fused %d activation ops", lowerer.count)
             mod = relax.transform.DeadCodeElimination()(mod)
+        return mod, lowerer.count
+
+    def transform_module(self, mod: IRModule, _ctx: PassContext) -> IRModule:
+        # Round 1: single-input activations (gelu/silu/hardsigmoid/hardswish).
+        # Hardswish layers whose float32 intermediate is shared with an SE-block
+        # multiply produce a tuple-output composite; the lowerer handles this by
+        # emitting c7x_int8_hardswish + an explicit dequantize for the float32 part.
+        round1 = []
+        round2 = []
+        for composite_name, factory in _PATTERN_REGISTRY:
+            pat, annotations = factory()
+            check = (
+                _check_channel_scale_multiply
+                if composite_name in _CHANNEL_SCALE_MULTIPLY_NAMES
+                else _check_activation
+            )
+            entry = (composite_name, pat, annotations, check)
+            if composite_name in _CHANNEL_SCALE_MULTIPLY_NAMES:
+                round2.append(entry)
+            else:
+                round1.append(entry)
+
+        mod, n1 = self._run_patterns(mod, round1)
+
+        # Round 2: channel_scale_multiply.  After Round 1, the hardswish composite
+        # has been lowered: the tuple's float32 slot is now an explicit
+        # dq(int8_hardswish) binding.  FuseOpsByPattern can now match
+        # dq(int8_hardswish)[1,C,H,W] × dq(int8_hardsigmoid)[1,C,1,1] → q.
+        # Note: the 5 hardswish→hardsigmoid SE-multiply instances are still not
+        # matched here because their first input is accessed via TupleGetItem which
+        # the pattern matcher cannot trace through; these remain as scalar TIR.
+        mod, n2 = self._run_patterns(mod, round2)
+
+        total = n1 + n2
+        if total > 0:
+            logger.info("FuseQDQToTIDLActivation: fused %d activation ops", total)
 
         return mod

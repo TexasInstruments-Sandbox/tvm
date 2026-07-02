@@ -150,7 +150,7 @@ extern int32_t tidl_int8_silu(const void *, void *, int32_t,
                                int32_t, float, int32_t, float);
 extern int32_t tidl_int8_hardsigmoid(const void *, void *, int32_t,
                                      int32_t, float, int32_t, float);
-extern int32_t tidl_int8_hardswish(const void *, void *, int32_t,
+extern int32_t c7x_int8_hardswish(const void *, void *, int32_t,
                                    int32_t, float, int32_t, float);
 extern int32_t tidl_int8_channel_scale_multiply(
                                    const void *, const void *, void *,
@@ -373,7 +373,7 @@ static const DspSymEntry dsp_syms[] = {
     SYM(tidl_int8_gelu),
     SYM(tidl_int8_silu),
     SYM(tidl_int8_hardsigmoid),
-    SYM(tidl_int8_hardswish),
+    SYM(c7x_int8_hardswish),
     SYM(tidl_int8_channel_scale_multiply),
     /* TIDL pooling kernels */
     SYM(tidl_int8_global_avg_pool),

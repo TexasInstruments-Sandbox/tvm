@@ -63,7 +63,7 @@ int32_t tidl_int8_hardsigmoid(
     const void* in, void* out, int32_t n,
     int32_t zx, float sx, int32_t zy, float sy);
 
-int32_t tidl_int8_hardswish(
+int32_t c7x_int8_hardswish(
     const void* in, void* out, int32_t n,
     int32_t zx, float sx, int32_t zy, float sy);
 
