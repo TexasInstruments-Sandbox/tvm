@@ -82,7 +82,7 @@ if(TVM_DSP_TARGET STREQUAL "host")
         kernels/tidl_activation_wrappers.c
         kernels/tidl_avgpool_wrappers.c
         kernels/tidl_norm_wrappers.c
-        kernels/c7x_pool_relu_wrappers.c
+        kernels/c7x_pool_relu_wrappers.cpp
         kernels/c7x_quantize.cpp
         kernels/tvm_dequantize_vecmatmul.cpp
         kernels/tvm_sdpa_decode.cpp
@@ -130,7 +130,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x")
         kernels/tidl_activation_wrappers.c
         kernels/tidl_avgpool_wrappers.c
         kernels/tidl_norm_wrappers.c
-        kernels/c7x_pool_relu_wrappers.c
+        kernels/c7x_pool_relu_wrappers.cpp
         kernels/c7x_quantize.cpp
         kernels/tvm_dequantize_vecmatmul.cpp
         kernels/tvm_sdpa_decode.cpp
@@ -167,7 +167,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
         kernels/tidl_activation_wrappers.c
         kernels/tidl_avgpool_wrappers.c
         kernels/tidl_norm_wrappers.c
-        kernels/c7x_pool_relu_wrappers.c
+        kernels/c7x_pool_relu_wrappers.cpp
         kernels/c7x_quantize.cpp
         kernels/tvm_dequantize_vecmatmul.cpp
         kernels/tvm_sdpa_decode.cpp

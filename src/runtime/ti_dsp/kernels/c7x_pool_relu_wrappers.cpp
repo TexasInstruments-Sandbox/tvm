@@ -18,23 +18,28 @@
  */
 
 /**
- * @file c7x_pool_relu_wrappers.c
- * @brief C7x-native int8 max-pooling and relu kernels.
+ * @file c7x_pool_relu_wrappers.cpp
+ * @brief C7x-native int8 max-pooling, relu, and requantize kernels.
  *
- * These are plain C implementations compiled by cl7x — NOT wrappers around
- * the TIDL library.  The TVM TIR scalar back-end generates equivalent logic
- * but without the loop-form hints that let cl7x recognize the pattern, which
- * is why these purpose-written loops run significantly faster.
+ * c7x_int8_requantize_clamp uses Streaming Engine + integer fixed-point
+ * arithmetic on C7524 (256-bit vector width).  The #ifdef __C7524__ guard
+ * is required: __int8 is an 8×int32 = 256-bit container specific to this
+ * variant; wider-vector C7x parts would silently produce wrong results
+ * without the guard.  The scalar fallback in the #else branch is the safe
+ * path for non-C7524 targets.
  *
- * max_pool: 18.6M → still limited by boundary-check branches in the pw loop
- * that prevent full vectorization.  Interior/border split is the next step
- * (see docs/dsp/resnet-mmalib-opt.md §Step 2).
+ * All other kernels (max_pool, clamp, relu) are unchanged from the .c file.
  */
 
 #include "c7x_pool_relu_wrappers.h"
 
 #include <stdint.h>
 
+#ifdef __C7524__
+#include <c7x.h>
+#endif
+
+extern "C"
 int32_t c7x_int8_max_pool(
         const void* in, void* out,
         int32_t N, int32_t C, int32_t H_in, int32_t W_in,
@@ -88,24 +93,122 @@ int32_t c7x_int8_max_pool(
     return 0;
 }
 
+/* =========================================================================
+ * c7x_int8_requantize_clamp — SE + integer fixed-point vectorized path
+ *
+ * Operation: out[i] = clamp(round(in[i] * combined_scale), clip_lo, clip_hi)
+ *
+ * combined_scale = d_scale / o_scale is precomputed by the compiler pass
+ * (ti_fuse_qdq_tidl_relu.py) and passed as float32 at compile time.
+ *
+ * Vectorized implementation (C7524 only):
+ *   - Q13 fixed-point: scale_q = round(combined_scale * 8192)
+ *     Safe for combined_scale up to 255: max product = 127×8192×255 = 265M
+ *     which fits in int32 (< INT32_MAX ≈ 2147M).
+ *   - SE0 streams int8 input, sign-extends 4× to int32 (__int8 = 8×int32)
+ *   - 4× unrolled loop matching tvm_int8_residual_add.cpp:156–196
+ *     (single SE stream, no skip branch)
+ *   - __vstore_pack_byte packs int32×8 → int8×8 in one D-unit cycle
+ * ========================================================================= */
+
+#ifdef __C7524__
+
+static void requantize_clamp_vec(
+        const int8_t* __restrict__ in,
+        int8_t*       __restrict__ out,
+        int32_t n, float combined_scale,
+        int32_t clip_lo, int32_t clip_hi) {
+
+    /* combined_scale = d_scale / o_scale is always positive; + 0.5f rounds
+     * to nearest without needing <math.h> roundf(). */
+    const int32_t SHIFT   = 13;
+    const int32_t scale_q = (int32_t)(combined_scale * (float)(1 << SHIFT) + 0.5f);
+
+    const __int8 scale_v = (__int8)scale_q;
+    const __int8 lo_v    = (__int8)clip_lo;
+    const __int8 hi_v    = (__int8)clip_hi;
+
+    const int32_t nvec  = n / 8;
+    const int32_t nvec4 = nvec & ~3;
+
+    /* SE streams int8 input sign-extended to int32, same template as
+     * tvm_int8_residual_add.cpp lines 141–145. */
+    __SE_TEMPLATE_v1 se = __gen_SE_TEMPLATE_v1();
+    se.ELETYPE = __SE_ELETYPE_8BIT;
+    se.VECLEN  = __SE_VECLEN_8ELEMS;
+    se.PROMOTE = __SE_PROMOTE_4X_SIGNEXT;
+    se.ICNT0   = (uint32_t)(nvec * 8);
+
+    __SE0_OPEN(const_cast<int8_t*>(in), se);
+
+    int32_t i = 0;
+
+    /* 4× unrolled: four independent chains hide the 4–6 cycle SE latency. */
+    #pragma MUST_ITERATE(1,,)
+    for (; i < nvec4; i += 4) {
+        __int8 vx0 = __SE0ADV(int8);
+        __int8 vx1 = __SE0ADV(int8);
+        __int8 vx2 = __SE0ADV(int8);
+        __int8 vx3 = __SE0ADV(int8);
+
+        __int8 a0 = (vx0 * scale_v) >> SHIFT;
+        __int8 a1 = (vx1 * scale_v) >> SHIFT;
+        __int8 a2 = (vx2 * scale_v) >> SHIFT;
+        __int8 a3 = (vx3 * scale_v) >> SHIFT;
+
+        a0 = __max(__min(a0, hi_v), lo_v);
+        a1 = __max(__min(a1, hi_v), lo_v);
+        a2 = __max(__min(a2, hi_v), lo_v);
+        a3 = __max(__min(a3, hi_v), lo_v);
+
+        __vstore_pack_byte((__char8*)(out + (i+0)*8), a0);
+        __vstore_pack_byte((__char8*)(out + (i+1)*8), a1);
+        __vstore_pack_byte((__char8*)(out + (i+2)*8), a2);
+        __vstore_pack_byte((__char8*)(out + (i+3)*8), a3);
+    }
+
+    /* Cleanup: remaining full 8-element vectors (0–3). */
+    for (; i < nvec; ++i) {
+        __int8 vx = __SE0ADV(int8);
+        __int8 a  = __max(__min((vx * scale_v) >> SHIFT, hi_v), lo_v);
+        __vstore_pack_byte((__char8*)(out + i*8), a);
+    }
+
+    __SE0_CLOSE();
+
+    /* Scalar tail: n % 8 remaining elements. */
+    for (int32_t j = nvec * 8; j < n; ++j) {
+        int32_t v = ((int32_t)in[j] * scale_q) >> SHIFT;
+        out[j] = (int8_t)(v < clip_lo ? clip_lo : (v > clip_hi ? clip_hi : v));
+    }
+}
+
+#endif  /* __C7524__ */
+
+extern "C"
 int32_t c7x_int8_requantize_clamp(
         const void* in, void* out,
         int32_t n, float combined_scale,
         int32_t clip_lo, int32_t clip_hi) {
-    /* Non-transparent dq→clip→q: rescale int8 input and clamp.
-     * combined_scale = d_scale / o_scale (precomputed by compiler pass).
-     * out[i] = clamp(round(in[i] * combined_scale), clip_lo, clip_hi) */
-    const int8_t* restrict p = (const int8_t*)in;
-    int8_t*       restrict q = (int8_t*)out;
-
+#ifdef __C7524__
+    requantize_clamp_vec(
+        (const int8_t*)in, (int8_t*)out,
+        n, combined_scale, clip_lo, clip_hi);
+    return 0;
+#else
+    /* Scalar fallback for non-C7524 C7x variants. */
+    const int8_t* __restrict__ p = (const int8_t*)in;
+    int8_t*       __restrict__ q = (int8_t*)out;
     for (int32_t i = 0; i < n; i++) {
         float v = (float)p[i] * combined_scale;
         int32_t qi = (int32_t)(v >= 0.0f ? v + 0.5f : v - 0.5f);
         q[i] = (int8_t)(qi < clip_lo ? clip_lo : (qi > clip_hi ? clip_hi : qi));
     }
     return 0;
+#endif
 }
 
+extern "C"
 int32_t c7x_int8_clamp(
         const void* in, void* out,
         int32_t n, int32_t clip_lo, int32_t clip_hi) {
@@ -123,6 +226,7 @@ int32_t c7x_int8_clamp(
     return 0;
 }
 
+extern "C"
 int32_t c7x_int8_relu(
         const void* in, void* out,
         int32_t n, int32_t clip_lo) {
@@ -136,4 +240,3 @@ int32_t c7x_int8_relu(
 
     return 0;
 }
-
