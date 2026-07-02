@@ -21,7 +21,7 @@
  * @file tidl_activation_wrappers.cpp
  * @brief Element-wise quantized activation kernels.
  *
- * tidl_int8_hardswish: SE + float vectorized on C7524 (#ifdef __C7524__);
+ * c7x_int8_hardswish: SE + float vectorized on C7524 (#ifdef __C7524__);
  *   scalar float fallback for other targets.  SE eliminates DDR scalar-read
  *   latency (~100 cycles/elem → ~2–4 cycles/elem on C7524).
  *
@@ -125,7 +125,7 @@ int32_t tidl_int8_hardsigmoid(
 }
 
 /* =========================================================================
- * tidl_int8_hardswish — SE + float vectorized on C7524
+ * c7x_int8_hardswish — SE + float vectorized on C7524
  *
  * Operation per element:
  *   x_f  = (in[i] - zx) * sx
@@ -218,7 +218,7 @@ static void hardswish_vec(
 #endif  /* __C7524__ */
 
 extern "C"
-int32_t tidl_int8_hardswish(
+int32_t c7x_int8_hardswish(
         const void* in, void* out, int32_t n,
         int32_t zx, float sx, int32_t zy, float sy) {
 #ifdef __C7524__
