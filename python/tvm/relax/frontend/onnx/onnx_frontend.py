@@ -3445,6 +3445,10 @@ class ReduceMax(OnnxOpConverter):
     def _impl_v11(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
+        #Begin TI
+        if isinstance(axes, tuple):
+            axes = list(axes)
+        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.max(data, axes, keepdims)
 
@@ -3479,6 +3483,10 @@ class ReduceMin(OnnxOpConverter):
     def _impl_v11(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
+        #Begin TI
+        if isinstance(axes, tuple):
+            axes = list(axes)
+        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.min(data, axes, keepdims)
 
@@ -3513,6 +3521,10 @@ class ReduceSum(OnnxOpConverter):
     def _impl_v11(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
+        #Begin TI
+        if isinstance(axes, tuple):
+            axes = list(axes)
+        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sum(data, axes, keepdims)
 
@@ -3547,6 +3559,10 @@ class ReduceMean(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
+        #Begin TI
+        if isinstance(axes, tuple):
+            axes = list(axes)
+        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.mean(data, axes, keepdims)
 
@@ -3581,6 +3597,10 @@ class ReduceProd(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
+        #Begin TI
+        if isinstance(axes, tuple):
+            axes = list(axes)
+        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.prod(data, axes, keepdims)
 
@@ -3615,6 +3635,10 @@ class ReduceLogSumExp(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         x = inputs[0]
         axes = attr.get("axes", None)
+        #Begin TI
+        if isinstance(axes, tuple):
+            axes = list(axes)
+        #End TI
         keepdims = attr.get("keepdims", 1)
         max_x = relax.op.max(x, axes, True)
         exp_x = relax.op.exp(relax.op.subtract(x, max_x))
@@ -3664,6 +3688,10 @@ class ReduceLogSum(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
+        #Begin TI
+        if isinstance(axes, tuple):
+            axes = list(axes)
+        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.log(relax.op.sum(data, axes, keepdims))
 
@@ -3698,6 +3726,10 @@ class ReduceSumSquare(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
+        #Begin TI
+        if isinstance(axes, tuple):
+            axes = list(axes)
+        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sum(relax.op.multiply(data, data), axes, keepdims)
 
@@ -3732,6 +3764,10 @@ class ReduceL1(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
+        #Begin TI
+        if isinstance(axes, tuple):
+            axes = list(axes)
+        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sum(relax.op.abs(data), axes, keepdims)
 
@@ -3766,6 +3802,10 @@ class ReduceL2(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
+        #Begin TI
+        if isinstance(axes, tuple):
+            axes = list(axes)
+        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sqrt(relax.op.sum(relax.op.multiply(data, data), axes, keepdims))
 
