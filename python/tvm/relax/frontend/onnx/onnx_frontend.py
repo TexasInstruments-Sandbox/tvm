@@ -1663,13 +1663,30 @@ class PRelu(OnnxOpConverter):
 
         ndim = len(x_shape)
         s_ndim = len(slope_shape)
+        #Begin TI
+        # Helper to check if a dim is concrete 1.
+        def is_one(dim):
+            try:
+                return dim == 1
+            except TypeError:
+                return False
 
-        if all(ss == 1 for ss in slope_shape) or s_ndim == 1:
-            slope = relax.op.reshape(slope, (slope_shape[0],))
+        # Helper to check if all dims from index are 1.
+        def all_ones_from(shape, start_idx):
+            try:
+                return all(is_one(shape[i]) for i in range(start_idx, len(shape)))
+            except TypeError:
+                return False
+
+        if all(is_one(ss) for ss in slope_shape) or s_ndim == 1:
+            slope = relax.op.reshape(slope, relax.ShapeExpr([slope_shape[0]]))
+        #End TI
             return relax.op.nn.prelu(x, slope, ndim - 1)
 
         if s_ndim == ndim:
-            non_one_axes = [i for i, ss in enumerate(slope_shape) if ss != 1]
+            #Begin TI
+            non_one_axes = [i for i, ss in enumerate(slope_shape) if not is_one(ss)]
+            #End TI
 
             # Must have only ONE non-broadcast axis
             if len(non_one_axes) != 1:
@@ -1677,9 +1694,19 @@ class PRelu(OnnxOpConverter):
                     f"Invalid PRelu slope shape (multiple non-broadcast dims): {slope_shape}"
                 )
             axis = non_one_axes[0]
-
-            slope = relax.op.reshape(slope, (slope_shape[axis],))
+            #Begin TI
+            slope = relax.op.reshape(slope, relax.ShapeExpr([slope_shape[axis]]))
+            #End TI
             return relax.op.nn.prelu(x, slope, axis)
+
+        #Begin TI
+        # Handle case where slope has fewer dims but all trailing dims are 1 (e.g., [C, 1, 1]).
+        # Assuming NHWC layout
+        # TODO: Analyze impacts on other layouts
+        if s_ndim > 1 and all_ones_from(slope_shape, 1):
+            slope = relax.op.reshape(slope, relax.ShapeExpr([slope_shape[0]]))
+            return relax.op.nn.prelu(x, slope, 1)
+        #End TI
 
         raise ValueError(f"Unsupported PRelu slope shape: {slope_shape}")
 
