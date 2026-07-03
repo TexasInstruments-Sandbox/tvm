@@ -4362,9 +4362,34 @@ class Resize(OnnxOpConverter):
         ndims = len(x.ty.shape)
         assert ndims in (3, 4, 5), "Only resize1d/resize2d/resize3d are supported."
 
-        assert scales is None or sizes is None, (
-            "Only one of scales and sizes can be provided in Resize."
-        )
+        # Normalize empty arrays to None: exporters may pass an empty array to mean "not provided".
+        def is_empty(val):
+            if val is None:
+                return True
+            if isinstance(val, list | tuple):
+                return len(val) == 0
+            if isinstance(val, tvm.ir.GenericConst):
+                return val.value.numpy().size == 0
+            if hasattr(val, "size"):
+                return val.size == 0
+            return False
+
+        scales_empty = is_empty(scales)
+        sizes_empty = is_empty(sizes)
+        if scales_empty:
+            scales = None
+        if sizes_empty:
+            sizes = None
+        if is_empty(roi):
+            roi = None
+
+        # ONNX spec requires exactly one of scales or sizes to be provided.
+        # Both being non-empty is malformed ONNX.
+        if not scales_empty and not sizes_empty:
+            raise ValueError(
+                "Resize: Only one of 'scales' or 'sizes' can be provided. "
+                "Both are non-empty, which violates ONNX specification."
+            )
 
         # ROI can be a static list (for relax.image.resize*) or dynamic tensor (TOPI path).
         roi_static: list[float] | None = None
