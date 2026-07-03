@@ -323,6 +323,105 @@ class MatMul(OnnxOpConverter):
         return relax.op.matmul(inputs[0], inputs[1])
 
 #Begin TI
+class Inverse(OnnxOpConverter):
+    """Converts an ONNX Inverse node into an equivalent Relax expression.
+
+    Computes the inverse of a square matrix or batches of square matrices.
+    Input shape: [*, M, M] where * denotes zero or more batch dimensions.
+    Output shape: Same as input.
+
+    Currently supports: 2x2 matrices (more sizes can be added as needed).
+    For 2x2 matrix [[a, b], [c, d]], inverse is (1/det) * [[d, -b], [-c, a]]
+    where det = a*d - b*c
+    """
+
+    @classmethod
+    def _impl_v1(cls, bb, inputs, attr, params):
+        """Compute matrix inverse using analytical formulas for small matrices."""
+        data = inputs[0]
+
+        # Get shape info
+        data_shape = data.struct_info.shape
+        if not data_shape:
+            raise ValueError("Inverse: Cannot infer input shape")
+
+        ndim = len(data_shape)
+        if ndim < 2:
+            raise ValueError(f"Inverse: Input must be at least 2D, got {ndim}D")
+
+        # Get matrix dimensions (last two dimensions)
+        rows = data_shape[-2]
+        cols = data_shape[-1]
+
+        # Extract concrete value from symbolic dimension if needed
+        if hasattr(rows, 'value'):
+            rows = rows.value
+        if hasattr(cols, 'value'):
+            cols = cols.value
+
+        # Check if dimensions are concrete
+        if not isinstance(rows, int) or not isinstance(cols, int):
+            raise ValueError(
+                f"Inverse: Matrix dimensions must be concrete, "
+                f"got shape [{rows}, {cols}]"
+            )
+
+        if rows != cols:
+            raise ValueError(f"Inverse: Input must be square matrix, got shape [{rows}, {cols}]")
+
+        matrix_size = rows
+        axis_0 = ndim - 2
+        axis_1 = ndim - 1
+
+        if matrix_size == 2:
+            return cls._inverse_2x2(data, axis_0, axis_1)
+        else:
+            raise NotImplementedError(
+                f"Inverse: Matrix size {matrix_size}x{matrix_size} not supported. "
+                f"Currently supported: 2x2. More sizes can be added as needed."
+            )
+
+    @classmethod
+    def _inverse_2x2(cls, data, axis_0, axis_1):
+        """Compute inverse of 2x2 matrix using closed-form formula.
+
+        For matrix [[a, b], [c, d]], inverse is (1/det) * [[d, -b], [-c, a]]
+        where det = a*d - b*c
+
+        Implementation note: Closely mirrors Relay's inverse for consistency.
+        Unlike Relay, Relax's strided_slice doesn't support slice_mode="size",
+        so end indices are exclusive rather than sizes.
+        """
+        # Extract matrix elements: data[..., i, j] for i,j in {0,1}
+        # Using strided_slice with exclusive end indices
+        a = relax.op.strided_slice(data, axes=[axis_0, axis_1], begin=[0, 0], end=[1, 1])
+        b = relax.op.strided_slice(data, axes=[axis_0, axis_1], begin=[0, 1], end=[1, 2])
+        c = relax.op.strided_slice(data, axes=[axis_0, axis_1], begin=[1, 0], end=[2, 1])
+        d = relax.op.strided_slice(data, axes=[axis_0, axis_1], begin=[1, 1], end=[2, 2])
+
+        # Compute determinant: det = a*d - b*c
+        det = relax.op.subtract(
+            relax.op.multiply(a, d),
+            relax.op.multiply(b, c)
+        )
+
+        # Compute inverse determinant: inv_det = 1 / det
+        inv_det = relax.op.divide(relax.const(1.0), det)
+
+        # Compute inverse matrix elements: [[d/det, -b/det], [-c/det, a/det]]
+        a_inv = relax.op.multiply(d, inv_det)
+        b_inv = relax.op.multiply(relax.op.negative(b), inv_det)
+        c_inv = relax.op.multiply(relax.op.negative(c), inv_det)
+        d_inv = relax.op.multiply(a, inv_det)
+
+        # Reconstruct matrix by concatenating rows
+        row0 = relax.op.concat([a_inv, b_inv], axis=axis_1)
+        row1 = relax.op.concat([c_inv, d_inv], axis=axis_1)
+
+        return relax.op.concat([row0, row1], axis=axis_0)
+#End TI
+
+#Begin TI
 class QLinearMatMul(OnnxOpConverter):
     """Converts ONNX QLinearMatMul node into quantized matrix multiplication.
 
@@ -5498,6 +5597,7 @@ def _get_convert_map():
         "CastLike": CastLike,
         "Gemm": Gemm,
         "MatMul": MatMul,
+        "Inverse": Inverse,
         "QLinearMatMul": QLinearMatMul,
         "MatMulInteger": MatMulInteger,
         # "MatMulInteger16": MatMulInteger16,
