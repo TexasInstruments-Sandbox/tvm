@@ -2907,9 +2907,40 @@ class Resize(OnnxOpConverter):
         ndims = len(x.struct_info.shape)
         assert ndims in (3, 4, 5), "Only resize1d/resize2d/resize3d are supported."
 
-        assert (
-            scales is None or sizes is None
-        ), "Only one of scales and sizes can be provided in Resize."
+        #Begin TI
+        # Normalize empty arrays to None.
+        def is_empty(val):
+            if val is None:
+                return True
+            if isinstance(val, (list, tuple)):
+                return len(val) == 0
+            if isinstance(val, relax.Constant):
+                arr = val.data.numpy()
+                return arr.size == 0
+            if hasattr(val, 'size'):
+                return val.size == 0
+            return False
+
+        scales_empty = is_empty(scales)
+        sizes_empty = is_empty(sizes)
+        roi_empty = is_empty(roi)
+
+        # Normalize empty to None
+        if scales_empty:
+            scales = None
+        if sizes_empty:
+            sizes = None
+        if roi_empty:
+            roi = None
+
+        # ONNX spec requires exactly one of scales or sizes to be provided.
+        # Both being non-empty is malformed ONNX.
+        if not scales_empty and not sizes_empty:
+            raise ValueError(
+                "Resize: Only one of 'scales' or 'sizes' can be provided. "
+                "Both are non-empty, which violates ONNX specification."
+            )
+        #End TI
 
         # Define relax implementation.
         if roi is not None:
@@ -2917,6 +2948,11 @@ class Resize(OnnxOpConverter):
                 roi = roi.data.numpy().tolist()
                 if len(roi) == 2 * ndims:
                     roi = roi[2:ndims] + roi[ndims + 2 : 2 * ndims]
+                else:
+                    raise ValueError(
+                        f"Resize: ROI has incorrect length {len(roi)}, expected {2 * ndims} "
+                        f"for {ndims}D tensor."
+                    )
             else:
                 roi = relax.op.concat(
                     [
