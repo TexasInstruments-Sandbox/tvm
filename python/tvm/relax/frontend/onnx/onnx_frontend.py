@@ -4109,7 +4109,17 @@ class Upsample(OnnxOpConverter):
     @classmethod
     def _impl_v9(cls, bb, inputs, attr, params):
         scales = attr.get("scales")
-        assert len(scales) == 4
+        #Begin TI
+        # Check for scales as tensor input (for compatibility with torch.export models)
+        if scales is None:
+            if len(inputs) > 1:
+                scales = get_constant(inputs[1], params)
+                if isinstance(scales, relax.Constant):
+                    scales = scales.data.numpy()
+            if scales is None:
+                raise ValueError("Upsample requires 'scales' attribute or input")
+        assert len(scales) == 4, f"Upsample scales must have 4 elements, got {len(scales)}"
+        #End TI
         assert scales[0] == scales[1] == 1
 
         inp_shape = [int(x) for x in inputs[0].struct_info.shape]
