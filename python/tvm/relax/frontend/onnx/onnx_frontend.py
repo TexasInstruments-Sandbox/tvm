@@ -2472,7 +2472,6 @@ class PRelu(OnnxOpConverter):
 
         ndim = len(x_shape)
         s_ndim = len(slope_shape)
-
         if all(ss == 1 for ss in slope_shape):
             slope = relax.op.reshape(slope, (1,))
             return relax.op.nn.prelu(x, slope, ndim - 1)
@@ -7512,7 +7511,6 @@ def _get_convert_map():
         "Gemm": Gemm,
         "MatMul": MatMul,
         "Inverse": Inverse,
-        "QLinearMatMul": QLinearMatMul,
         "MatMulInteger": MatMulInteger,
         "MatMulInteger16": MatMulInteger16,
         "QLinearMatMul": QLinearMatMul,
