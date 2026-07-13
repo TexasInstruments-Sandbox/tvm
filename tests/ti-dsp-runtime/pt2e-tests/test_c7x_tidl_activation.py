@@ -138,7 +138,7 @@ def test_hardswish_gets_annotated():
         (GeluModel, "tidl_int8_gelu"),
         (SiluModel, "tidl_int8_silu"),
         (HardsigmoidModel, "tidl_int8_hardsigmoid"),
-        (HardswishModel, "tidl_int8_hardswish"),
+        (HardswishModel, "c7x_int8_hardswish"),
     ],
 )
 def test_activation_fusion_fires(model_cls, extern_sym):
