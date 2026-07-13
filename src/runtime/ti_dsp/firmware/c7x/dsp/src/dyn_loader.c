@@ -184,6 +184,13 @@ extern int32_t mmalib_conv2d_i8_sliced(void *, void *, void *, void *, void *, v
                                         int32_t, int32_t, int32_t, int32_t,
                                         int32_t, int32_t, int32_t, int32_t,
                                         int32_t, int32_t, int32_t, int32_t, int32_t);
+/* C7x-native concat with per-input rescaling */
+extern int32_t c7x_int8_concat_rescale(
+                                   const void *, int32_t, float, int32_t,
+                                   const void *, int32_t, float, int32_t,
+                                   const void *, int32_t, float, int32_t,
+                                   const void *, int32_t, float, int32_t,
+                                   void *, int32_t, float, int32_t);
 /* TIDL normalization kernels */
 extern int32_t tidl_int8_layer_norm(const void *, const void *,
                                     const void *, void *,
@@ -387,6 +394,7 @@ static const DspSymEntry dsp_syms[] = {
     SYM(c7x_int8_quantize),
     /* TIDL normalization kernels */
     SYM(tidl_int8_layer_norm),
+    SYM(c7x_int8_concat_rescale),
 
     /* TVM L2 SRAM bump allocator (getter functions) */
     SYM(tvm_dsp_get_l2_base),

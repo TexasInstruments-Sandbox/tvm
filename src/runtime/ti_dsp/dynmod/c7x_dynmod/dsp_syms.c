@@ -143,6 +143,7 @@ __declspec(dllexport) int32_t c7x_int8_clamp() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_requantize_clamp() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_quantize() { return 0; }
 __declspec(dllexport) int32_t tidl_int8_layer_norm() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_concat_rescale() { return 0; }
 
 /* ========================================================================
  * MCU+ SDK cache operations

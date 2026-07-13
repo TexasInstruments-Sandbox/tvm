@@ -108,6 +108,11 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # Must run after EliminateQDQTransparent (which may have simplified inputs)
     # and before FuseQDQToInt8Conv2D (which would absorb remaining QDQ nodes).
     passes.append(tvm.relax.transform.FuseQDQToTIDLActivation())
+    # Fuse QDQ-wrapped channel-axis concat into c7x_int8_concat_rescale.
+    # Non-transparent concats (input scales differ from output scale) are not
+    # eliminated by EliminateQDQTransparent and fall through to a slow scalar
+    # float32 loop without this pass.
+    passes.append(tvm.relax.transform.FuseQDQToC7xConcat())
     # Fuse QDQ-wrapped average pooling into tidl_int8_*_avg_pool kernels.
     passes.append(tvm.relax.transform.FuseQDQToTIDLAvgPool())
     # Fuse QDQ-wrapped layer_norm into tidl_int8_layer_norm kernel.

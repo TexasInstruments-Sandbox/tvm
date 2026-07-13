@@ -170,6 +170,7 @@ SECTIONS
 --import=c7x_int8_requantize_clamp
 --import=c7x_int8_quantize
 --import=tidl_int8_layer_norm
+--import=c7x_int8_concat_rescale
 --import=tvm_sdpa_decode
 
 /* TVM platform */
