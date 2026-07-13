@@ -11,6 +11,10 @@ _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "core: post-merge gate tests (larger, slower)")
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--dsp-mode",

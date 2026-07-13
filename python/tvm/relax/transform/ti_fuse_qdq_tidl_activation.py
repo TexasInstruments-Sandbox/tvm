@@ -132,9 +132,16 @@ def _make_channel_scale_multiply_pattern():
     mul = is_op("relax.multiply")(dq1, dq2)
     o_s, o_z = wildcard(), wildcard()
     q = is_op("relax.quantize")(mul, o_s, o_z)
-    return q, {"in1": in1, "s1": s1, "z1": z1,
-               "in2": in2, "s2": s2, "z2": z2,
-               "o_scale": o_s, "o_zp": o_z}
+    return q, {
+        "in1": in1,
+        "s1": s1,
+        "z1": z1,
+        "in2": in2,
+        "s2": s2,
+        "z2": z2,
+        "o_scale": o_s,
+        "o_zp": o_z,
+    }
 
 
 def _make_channel_scale_multiply_pattern_commuted():
@@ -146,9 +153,16 @@ def _make_channel_scale_multiply_pattern_commuted():
     mul = is_op("relax.multiply")(dq2, dq1)  # operands swapped
     o_s, o_z = wildcard(), wildcard()
     q = is_op("relax.quantize")(mul, o_s, o_z)
-    return q, {"in1": in1, "s1": s1, "z1": z1,
-               "in2": in2, "s2": s2, "z2": z2,
-               "o_scale": o_s, "o_zp": o_z}
+    return q, {
+        "in1": in1,
+        "s1": s1,
+        "z1": z1,
+        "in2": in2,
+        "s2": s2,
+        "z2": z2,
+        "o_scale": o_s,
+        "o_zp": o_z,
+    }
 
 
 # (composite_name, pattern_factory)
@@ -159,17 +173,18 @@ _PATTERN_REGISTRY = [
     ("tidl_act.hardswish", _make_hardswish_pattern),
     ("tidl_act.hardswish_commuted", _make_hardswish_pattern_commuted),
     ("tidl_act.channel_scale_multiply", _make_channel_scale_multiply_pattern),
-    ("tidl_act.channel_scale_multiply_commuted",
-     _make_channel_scale_multiply_pattern_commuted),
+    ("tidl_act.channel_scale_multiply_commuted", _make_channel_scale_multiply_pattern_commuted),
 ]
 
 _COMPOSITE_NAMES = frozenset(name for name, _ in _PATTERN_REGISTRY)
 
 # Composite names that use the two-input channel_scale_multiply lowering path.
-_CHANNEL_SCALE_MULTIPLY_NAMES = frozenset({
-    "tidl_act.channel_scale_multiply",
-    "tidl_act.channel_scale_multiply_commuted",
-})
+_CHANNEL_SCALE_MULTIPLY_NAMES = frozenset(
+    {
+        "tidl_act.channel_scale_multiply",
+        "tidl_act.channel_scale_multiply_commuted",
+    }
+)
 
 
 def _check_activation(ctx) -> bool:
@@ -224,8 +239,8 @@ def _check_channel_scale_multiply(ctx) -> bool:
     for s in [*in1_shape, *in2_shape]:
         if not isinstance(s, tir.IntImm):
             return False
-    s1_last2 = (int(in1_shape[-2]) == 1 and int(in1_shape[-1]) == 1)
-    s2_last2 = (int(in2_shape[-2]) == 1 and int(in2_shape[-1]) == 1)
+    s1_last2 = int(in1_shape[-2]) == 1 and int(in1_shape[-1]) == 1
+    s2_last2 = int(in2_shape[-2]) == 1 and int(in2_shape[-1]) == 1
     # XOR: exactly one has trailing [1,1]
     return s1_last2 != s2_last2
 
@@ -242,6 +257,8 @@ class _ActivationLowerer(PyExprMutator):
     def __init__(self, mod: IRModule):
         super().__init__(mod)
         self.count = 0
+        # Maps emitted Tuple Var → list of field Vars, for TupleGetItem inlining.
+        self._tuple_fields: dict = {}
 
     def visit_call_(self, call):
         if not isinstance(call.op, relax.GlobalVar):
@@ -302,8 +319,11 @@ class _ActivationLowerer(PyExprMutator):
         if is_tuple_out:
             # Find the int8 field.
             int8_idx = next(
-                (i for i, f in enumerate(call_sinfo.fields)
-                 if isinstance(f, relax.TensorStructInfo) and str(f.dtype) == "int8"),
+                (
+                    i
+                    for i, f in enumerate(call_sinfo.fields)
+                    if isinstance(f, relax.TensorStructInfo) and str(f.dtype) == "int8"
+                ),
                 None,
             )
             if int8_idx is None:
@@ -323,7 +343,7 @@ class _ActivationLowerer(PyExprMutator):
 
         # Map composite suffix → extern function name.
         # hardswish was renamed from tidl_int8_ to c7x_int8_ (SE+float vectorized).
-        act_suffix = composite_name[len(_COMPOSITE_PREFIX):].removesuffix("_commuted")
+        act_suffix = composite_name[len(_COMPOSITE_PREFIX) :].removesuffix("_commuted")
         _EXTERN_NAME: dict = {"hardswish": "c7x_int8_hardswish"}
         extern_name = _EXTERN_NAME.get(act_suffix, f"tidl_int8_{act_suffix}")
 
@@ -349,9 +369,7 @@ class _ActivationLowerer(PyExprMutator):
 
             return te.extern(output_shape, [x_t], fcompute, name="tidl_act_out", dtype="int8")
 
-        int8_result = self.builder_.call_te(
-            te_activation, x_arg, primfunc_name_hint=extern_name
-        )
+        int8_result = self.builder_.call_te(te_activation, x_arg, primfunc_name_hint=extern_name)
         self.count += 1
 
         if is_tuple_out:
@@ -372,12 +390,18 @@ class _ActivationLowerer(PyExprMutator):
                 else:
                     out_fields.append(float32_result)
             result = self.builder_.emit(relax.Tuple(out_fields))
+            self._tuple_fields[result] = out_fields
             logger.debug("Fused %s (tuple output): int8+float32", extern_name)
             return result
 
         logger.debug(
             "Fused %s: n=%d d_zp=%d d_scale=%.6g o_zp=%d o_scale=%.6g",
-            extern_name, n_elem, d_zp_v, d_scale_v, o_zp_v, o_scale_v,
+            extern_name,
+            n_elem,
+            d_zp_v,
+            d_scale_v,
+            o_zp_v,
+            o_scale_v,
         )
         return int8_result
 
@@ -396,8 +420,8 @@ class _ActivationLowerer(PyExprMutator):
             op_name = str(val.op.name)
             if "dequantize" in op_name:
                 inp = param_to_arg.get(val.args[0], val.args[0])
-                s   = param_to_arg.get(val.args[1], val.args[1])
-                z   = param_to_arg.get(val.args[2], val.args[2])
+                s = param_to_arg.get(val.args[1], val.args[1])
+                z = param_to_arg.get(val.args[2], val.args[2])
                 dq_entries.append((inp, float(s.data.numpy()), int(z.data.numpy())))
             elif "quantize" in op_name and dq_entries:
                 s = param_to_arg.get(val.args[1], val.args[1])
@@ -427,21 +451,21 @@ class _ActivationLowerer(PyExprMutator):
             fm_shape = shape0
 
         # C is the channel dimension; H_W is the product of remaining spatial dims.
-        C   = fm_shape[1]
+        C = fm_shape[1]
         H_W = 1
         for d in fm_shape[2:]:
             H_W *= d
 
         output_shape = [int(s) for s in call_sinfo.shape]
 
-        s_exc_v  = float(s_exc)
-        z_exc_v  = int(z_exc)
-        s_fm_v   = float(s_fm)
-        z_fm_v   = int(z_fm)
-        s_out_v  = float(o_scale_val)
-        z_out_v  = int(o_zp_val)
-        C_v      = int(C)
-        H_W_v    = int(H_W)
+        s_exc_v = float(s_exc)
+        z_exc_v = int(z_exc)
+        s_fm_v = float(s_fm)
+        z_fm_v = int(z_fm)
+        s_out_v = float(o_scale_val)
+        z_out_v = int(o_zp_val)
+        C_v = int(C)
+        H_W_v = int(H_W)
 
         def te_channel_scale_multiply(exc_t, fm_t):
             def fcompute(ins, outs):
@@ -460,19 +484,26 @@ class _ActivationLowerer(PyExprMutator):
                     tir.FloatImm("float32", s_out_v),
                     tir.IntImm("int32", z_out_v),
                 )
+
             return te.extern(
-                output_shape, [exc_t, fm_t], fcompute,
-                name="channel_scale_mul_out", dtype="int8",
+                output_shape,
+                [exc_t, fm_t],
+                fcompute,
+                name="channel_scale_mul_out",
+                dtype="int8",
             )
 
         result = self.builder_.call_te(
-            te_channel_scale_multiply, exc_arg, fm_arg,
+            te_channel_scale_multiply,
+            exc_arg,
+            fm_arg,
             primfunc_name_hint="tidl_int8_channel_scale_multiply",
         )
         self.count += 1
         logger.debug(
             "Fused tidl_int8_channel_scale_multiply: C=%d H_W=%d",
-            C_v, H_W_v,
+            C_v,
+            H_W_v,
         )
         return result
 
@@ -494,11 +525,13 @@ class FuseQDQToTIDLActivation:
     """
 
     @staticmethod
-    def _run_patterns(mod: IRModule, pattern_list: list) -> IRModule:
-        """Run FuseOpsByPattern + lowering for one set of patterns."""
-        mod = relax.transform.FuseOpsByPattern(
-            pattern_list, bind_constants=False
-        )(mod)
+    def _run_patterns(mod: IRModule, pattern_list: list):
+        """Run FuseOpsByPattern + lowering for one set of patterns.
+
+        Returns (mod, count, tuple_fields) where tuple_fields maps emitted
+        Tuple Vars to their field Var lists (for TupleGetItem inlining).
+        """
+        mod = relax.transform.FuseOpsByPattern(pattern_list, bind_constants=False)(mod)
         lowerer = _ActivationLowerer(mod)
         for gv, func in mod.functions_items():
             if isinstance(func, relax.Function):
@@ -509,7 +542,129 @@ class FuseQDQToTIDLActivation:
         mod = lowerer.builder_.get()
         if lowerer.count > 0:
             mod = relax.transform.DeadCodeElimination()(mod)
-        return mod, lowerer.count
+        return mod, lowerer.count, lowerer._tuple_fields
+
+    @staticmethod
+    def _inline_tuple_getitems(mod: IRModule, _ignored: dict = None) -> IRModule:
+        """Inline TupleGetItem(tuple_var, i) → direct field Var for Tuple bindings.
+
+        After Round 1, hardswish with a shared SE-multiply output is lowered to:
+          int8_hs    = c7x_int8_hardswish(...)
+          float32_hs = dequantize(int8_hs, ...)
+          result_var = Tuple([int8_hs, float32_hs])
+          tgi_1      = TupleGetItem(result_var, 1)
+          se_mul     = multiply(tgi_1, dq_sig)   # TupleGetItem blocks FuseOpsByPattern
+
+        After inlining, tgi_1 = float32_hs.  FuseOpsByPattern (Round 2) then traces
+        multiply(tgi_1, ...) → float32_hs → dequantize(...) and matches the pattern.
+
+        Scans the module directly rather than using _tuple_fields, which is stale
+        after DeadCodeElimination recreates Var objects with new Python identities.
+        Uses same_as() on vars from the same pre-mutation function, which is reliable.
+        """
+
+        @mutator
+        class _Inliner(PyExprMutator):
+            def __init__(self, m):
+                super().__init__(m)
+                # Pre-scanned per function.
+                # _tuple_map: Tuple-binding var → [field0, field1, ...]
+                # _var_vals:  all var → binding value (for one-hop resolution)
+                self._tuple_map: dict = {}
+                self._var_vals: dict = {}
+
+            def pre_scan(self, func):
+                """Populate _tuple_map and _var_vals from function bindings."""
+                self._tuple_map = {}
+                self._var_vals = {}
+                for block in func.body.blocks:
+                    for binding in block.bindings:
+                        self._var_vals[binding.var] = binding.value
+                        if isinstance(binding.value, relax.Tuple):
+                            self._tuple_map[binding.var] = list(binding.value.fields)
+
+            def _resolve_tuple_fields(self, var):
+                """Follow the Var→Var chain until a Tuple binding is found.
+
+                After Round 1, PyExprMutator emits multiple levels of indirection:
+                  result_var    = Tuple([int8_hs, float32_hs])   <- _tuple_map
+                  composite_mid = result_var                     <- Var→Var
+                  composite_out = composite_mid                  <- Var→Var
+
+                TupleGetItem accesses composite_out; we must walk the chain
+                to reach result_var before checking _tuple_map.
+                """
+                cur = var
+                for _ in range(8):
+                    for tvar, fields in self._tuple_map.items():
+                        if cur.same_as(tvar):
+                            return fields
+                    # Follow one more Var→Var hop.
+                    nxt = None
+                    for bvar, bval in self._var_vals.items():
+                        if cur.same_as(bvar):
+                            if isinstance(bval, relax.Var):
+                                nxt = bval
+                            break
+                    if nxt is None:
+                        break
+                    cur = nxt
+                return None
+
+            def visit_tuple_getitem_(self, op):
+                old_src = op.tuple_value
+                if not isinstance(old_src, relax.Var):
+                    return super().visit_tuple_getitem_(op)
+                fields = self._resolve_tuple_fields(old_src)
+                if fields is None:
+                    return super().visit_tuple_getitem_(op)
+                field = fields[op.index]
+                if not isinstance(field, relax.Var):
+                    return super().visit_tuple_getitem_(op)
+                # Only inline the float32 dequantize field (not the int8 field).
+                # Critically, emit a FRESH dequantize rather than pointing at the
+                # shared float32_hs.  float32_hs is already in the Tuple expression
+                # so it has multiple users; FuseOpsByPattern (Round 2) would see a
+                # node shared between the Tuple group and the SE-multiply group and
+                # report a cyclic-group dependency.  A fresh dequantize node (same
+                # parameters, separate allocation) is unshared and can be cleanly
+                # fused into the channel_scale_multiply composite.
+                for bvar, bval in self._var_vals.items():
+                    if not field.same_as(bvar):
+                        continue
+                    if not isinstance(bval, relax.Call):
+                        break
+                    if not (hasattr(bval.op, "name") and "dequantize" in str(bval.op.name)):
+                        break
+                    # Re-emit the dequantize with remapped args (new node, not shared).
+                    new_args = [self.visit_expr(a) for a in bval.args]
+                    return self.builder_.emit(
+                        relax.Call(bval.op, new_args, bval.attrs, bval.sinfo_args)
+                    )
+                return super().visit_tuple_getitem_(op)
+
+        inliner = _Inliner(mod)
+        changed = False
+        for gv, func in mod.functions_items():
+            if not isinstance(func, relax.Function):
+                continue
+            inliner.pre_scan(func)
+            if not inliner._tuple_map:
+                continue
+            new_func = inliner.visit_expr(func)
+            inliner.builder_.update_func(gv, new_func)
+            changed = True
+
+        if not changed:
+            return mod
+        mod = inliner.builder_.get()
+        mod = relax.transform.DeadCodeElimination()(mod)
+        # Flatten any Var→Var chains introduced by the TupleGetItem substitution
+        # (e.g. new_tgi = fresh_dq_var).  Without this, FuseOpsByPattern sees the
+        # intermediate Var in the multiply args and its group-dependency tracking
+        # produces a false cycle between the SE-multiply group and the Tuple group.
+        mod = relax.transform.CanonicalizeBindings()(mod)
+        return mod
 
     def transform_module(self, mod: IRModule, _ctx: PassContext) -> IRModule:
         # Round 1: single-input activations (gelu/silu/hardsigmoid/hardswish).
@@ -531,16 +686,19 @@ class FuseQDQToTIDLActivation:
             else:
                 round1.append(entry)
 
-        mod, n1 = self._run_patterns(mod, round1)
+        mod, n1, tuple_fields = self._run_patterns(mod, round1)
 
-        # Round 2: channel_scale_multiply.  After Round 1, the hardswish composite
-        # has been lowered: the tuple's float32 slot is now an explicit
-        # dq(int8_hardswish) binding.  FuseOpsByPattern can now match
-        # dq(int8_hardswish)[1,C,H,W] × dq(int8_hardsigmoid)[1,C,1,1] → q.
-        # Note: the 5 hardswish→hardsigmoid SE-multiply instances are still not
-        # matched here because their first input is accessed via TupleGetItem which
-        # the pattern matcher cannot trace through; these remain as scalar TIR.
-        mod, n2 = self._run_patterns(mod, round2)
+        # Round 1 hardswish composites with a shared SE-multiply output produce
+        # Tuple([int8_hs, float32_hs]).  Downstream SE multiplies access float32_hs
+        # via TupleGetItem which FuseOpsByPattern cannot trace through.  Inline those
+        # TupleGetItem bindings so Round 2 sees dq(int8_hs) directly as the multiply
+        # arg.
+        mod = self._inline_tuple_getitems(mod, tuple_fields)
+
+        # Round 2: channel_scale_multiply.  After Round 1 + TupleGetItem inlining,
+        # all SE-block multiply instances expose dq(int8_hs)[1,C,H,W] × dq(int8_sig)
+        # [1,C,1,1] → q directly, so FuseOpsByPattern can match them.
+        mod, n2, _ = self._run_patterns(mod, round2)
 
         total = n1 + n2
         if total > 0:
