@@ -124,7 +124,7 @@ error scales with √K; observed max ≤ 6 in practice):
 
 ### `test_c7x_tidl_activation.py` — TIDL activation fusion unit tests (pure Python)
 
-Tests `FuseQDQToTIDLActivation`, `FuseQDQToTIDLAvgPool`, and
+Tests `FuseQDQToTIDLActivation`, `FuseQDQToC7xAvgPool`, and
 `FuseQDQToTIDLLayerNorm` at the Relax IR level without DSP execution.
 
 **Annotation tests:**
@@ -150,7 +150,7 @@ Tests `FuseQDQToTIDLActivation`, `FuseQDQToTIDLAvgPool`, and
 ### `test_c7x_tidl_activation_e2e_dsp.py` — TIDL activation end-to-end DSP tests
 
 Runs models through the full pipeline on DSP hardware or host emulation.
-Validates `FuseQDQToTIDLActivation`, `FuseQDQToTIDLAvgPool`, and
+Validates `FuseQDQToTIDLActivation`, `FuseQDQToC7xAvgPool`, and
 `FuseQDQToTIDLLayerNorm` produce correct output.
 
 All tests: `max_diff ≤ 2` vs PyTorch quantized reference.
@@ -168,8 +168,8 @@ All tests: `max_diff ≤ 2` vs PyTorch quantized reference.
 
 | Test | Model | Kernel |
 |------|-------|--------|
-| `test_e2e_global_avg_pool_i8` | `AdaptiveAvgPool2d(1,1)` on `[1,8,16,16]` | `tidl_int8_global_avg_pool` |
-| `test_e2e_avg_pool2d_i8` | `AvgPool2d(3,stride=1,padding=1)` on `[1,8,16,16]` | `tidl_int8_avg_pool` |
+| `test_e2e_global_avg_pool_i8` | `AdaptiveAvgPool2d(1,1)` on `[1,8,16,16]` | `c7x_int8_global_avg_pool` |
+| `test_e2e_avg_pool2d_i8` | `AvgPool2d(3,stride=1,padding=1)` on `[1,8,16,16]` | `c7x_int8_avg_pool` |
 
 **Normalization test** — model: `Linear(32,32) → LayerNorm(32) → Linear(32,16)`:
 

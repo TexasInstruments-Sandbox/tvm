@@ -113,8 +113,8 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # eliminated by EliminateQDQTransparent and fall through to a slow scalar
     # float32 loop without this pass.
     passes.append(tvm.relax.transform.FuseQDQToC7xConcat())
-    # Fuse QDQ-wrapped average pooling into tidl_int8_*_avg_pool kernels.
-    passes.append(tvm.relax.transform.FuseQDQToTIDLAvgPool())
+    # Fuse QDQ-wrapped average pooling into c7x_int8_*_avg_pool kernels.
+    passes.append(tvm.relax.transform.FuseQDQToC7xAvgPool())
     # Fuse QDQ-wrapped layer_norm into tidl_int8_layer_norm kernel.
     passes.append(tvm.relax.transform.FuseQDQToTIDLLayerNorm())
 
