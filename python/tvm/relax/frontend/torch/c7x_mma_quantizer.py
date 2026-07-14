@@ -86,7 +86,7 @@ _NORM_OPS = frozenset(
 )
 
 # Average pooling ops: not scale-transparent (averaging changes the range),
-# so need full requantization. Handled by FuseQDQToTIDLAvgPool.
+# so need full requantization. Handled by FuseQDQToC7xAvgPool.
 _AVG_POOL_OPS = frozenset(
     [
         torch.ops.aten.adaptive_avg_pool2d.default,

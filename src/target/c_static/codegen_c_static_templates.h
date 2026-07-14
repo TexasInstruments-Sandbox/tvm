@@ -72,7 +72,7 @@ constexpr const char* kDSPHeaders = R"(
 #include "dma/tvm_dsp_dma.h"
 #include "kernels/tvm_int8_residual_add.h"
 #include "kernels/tidl_activation_wrappers.h"
-#include "kernels/tidl_avgpool_wrappers.h"
+#include "kernels/c7x_avgpool_wrappers.h"
 #include "kernels/tidl_norm_wrappers.h"
 #include "kernels/c7x_concat_wrappers.h"
 #include "kernels/c7x_pool_relu_wrappers.h"

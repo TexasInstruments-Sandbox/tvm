@@ -22,18 +22,23 @@ adaptive_avg_pool2d and avg_pool2d:
 
   Global avg pool (adaptive output (1,1)):
     dq(x_i8) → R.mean(axis=[-1,-2], keepdims=True) → q(out)
-    → call_extern tidl_int8_global_avg_pool(in, out, N, C, H, W, zx, sx, zy, sy)
+    → call_extern c7x_int8_global_avg_pool(in, out, N, C, H, W, zx, sx, zy, sy)
 
   Adaptive avg pool (output != (1,1)):
     dq(x_i8) → R.nn.adaptive_avg_pool2d → q(out)
-    → call_extern tidl_int8_avg_pool(in, out, N, C, H_in, W_in, H_out, W_out,
-                                     kH, kW, sH, sW, pH, pW, zx, sx, zy, sy)
+    → call_extern c7x_int8_avg_pool(in, out, N, C, H_in, W_in, H_out, W_out,
+                                    kH, kW, sH, sW, pH, pW, zx, sx, zy, sy)
 
   Spatial avg pool:
     dq(x_i8) → R.nn.avg_pool2d → q(out)
-    → call_extern tidl_int8_avg_pool(...)
+    → call_extern c7x_int8_avg_pool(...)
 
-Kernels: src/runtime/ti_dsp/kernels/tidl_avgpool_wrappers.c
+Kernels: src/runtime/ti_dsp/kernels/c7x_avgpool_wrappers.cpp
+
+Neither kernel calls into the TIDL algo library (see Step 12 in
+docs/dsp/quantized_model_optimization.md for why the equivalent
+TIDL_spatialAvgPool_ixX_oxX_* API isn't usable here), hence composite names
+and the pass itself use the `c7x_`/`C7x` prefix rather than `tidl_`.
 """
 
 import logging
@@ -47,7 +52,7 @@ from tvm.relax.expr_functor import PyExprMutator, mutator
 
 logger = logging.getLogger(__name__)
 
-_COMPOSITE_PREFIX = "tidl_pool."
+_COMPOSITE_PREFIX = "c7x_pool."
 
 
 # =========================================================================
@@ -86,9 +91,9 @@ def _make_avg_pool_pattern():
 
 
 _PATTERN_REGISTRY = [
-    ("tidl_pool.global_avg", _make_global_avg_pool_pattern),
-    ("tidl_pool.adaptive_avg", _make_adaptive_avg_pool_pattern),
-    ("tidl_pool.avg_pool2d", _make_avg_pool_pattern),
+    ("c7x_pool.global_avg", _make_global_avg_pool_pattern),
+    ("c7x_pool.adaptive_avg", _make_adaptive_avg_pool_pattern),
+    ("c7x_pool.avg_pool2d", _make_avg_pool_pattern),
 ]
 
 _COMPOSITE_NAMES = frozenset(name for name, _ in _PATTERN_REGISTRY)
@@ -119,7 +124,7 @@ def _check_pool(ctx) -> bool:
 
 @mutator
 class _AvgPoolLowerer(PyExprMutator):
-    """Lower TIDL avg pool composites to call_extern."""
+    """Lower C7x avg pool composites to call_extern."""
 
     def __init__(self, mod: IRModule):
         super().__init__(mod)
@@ -147,7 +152,7 @@ class _AvgPoolLowerer(PyExprMutator):
         x_arg = None
         d_scale_val = d_zp_val = o_scale_val = o_zp_val = None
         pool_call = None  # the pool op binding value
-        x_sinfo = None    # input tensor struct_info (for shape)
+        x_sinfo = None  # input tensor struct_info (for shape)
 
         for binding in func.body.blocks[0].bindings:
             val = binding.value
@@ -192,61 +197,89 @@ class _AvgPoolLowerer(PyExprMutator):
         N_v, C_v, H_in_v, W_in_v = in_shape
         _, _, H_out_v, W_out_v = out_shape
 
-        d_zp_v = int(d_zp_val)  # type: ignore[arg-type]
-        d_scale_v = float(d_scale_val)  # type: ignore[arg-type]
-        o_zp_v = int(o_zp_val)  # type: ignore[arg-type]
-        o_scale_v = float(o_scale_val)
-
-        if composite_name == "tidl_pool.global_avg":
+        if composite_name == "c7x_pool.global_avg":
             return self._lower_global(
-                x_arg, out_shape,
-                N_v, C_v, H_in_v, W_in_v,
-                d_zp_v, d_scale_v, o_zp_v, o_scale_v,
+                x_arg,
+                out_shape,
+                N_v,
+                C_v,
+                H_in_v,
+                W_in_v,
+                d_zp_val,
+                d_scale_val,
+                o_zp_val,
+                o_scale_val,
             )
         else:
             return self._lower_spatial(
-                x_arg, out_shape, pool_call,
-                N_v, C_v, H_in_v, W_in_v, H_out_v, W_out_v,
-                composite_name, d_zp_v, d_scale_v, o_zp_v, o_scale_v,
+                x_arg,
+                out_shape,
+                pool_call,
+                N_v,
+                C_v,
+                H_in_v,
+                W_in_v,
+                H_out_v,
+                W_out_v,
+                composite_name,
+                d_zp_val,
+                d_scale_val,
+                o_zp_val,
+                o_scale_val,
             )
 
-    def _lower_global(
-        self, x_arg, out_shape, N, C, H, W, d_zp, d_scale, o_zp, o_scale
-    ):
-        N_v, C_v, H_v, W_v = N, C, H, W
-        d_zp_v, d_scale_v, o_zp_v, o_scale_v = d_zp, d_scale, o_zp, o_scale
-
+    def _lower_global(self, x_arg, out_shape, N, C, H, W, d_zp, d_scale, o_zp, o_scale):
         def te_global_avg_pool(x_t):
             def fcompute(ins, outs):
                 return tir.call_extern(
                     "int32",
-                    "tidl_int8_global_avg_pool",
-                    ins[0].data, outs[0].data,
-                    tir.IntImm("int32", N_v), tir.IntImm("int32", C_v),
-                    tir.IntImm("int32", H_v), tir.IntImm("int32", W_v),
-                    tir.IntImm("int32", d_zp_v), tir.FloatImm("float32", d_scale_v),
-                    tir.IntImm("int32", o_zp_v), tir.FloatImm("float32", o_scale_v),
+                    "c7x_int8_global_avg_pool",
+                    ins[0].data,
+                    outs[0].data,
+                    tir.IntImm("int32", N),
+                    tir.IntImm("int32", C),
+                    tir.IntImm("int32", H),
+                    tir.IntImm("int32", W),
+                    tir.IntImm("int32", d_zp),
+                    tir.FloatImm("float32", d_scale),
+                    tir.IntImm("int32", o_zp),
+                    tir.FloatImm("float32", o_scale),
                 )
 
             return te.extern(
-                out_shape, [x_t], fcompute,
-                name="tidl_pool_out", dtype="int8",
+                out_shape,
+                [x_t],
+                fcompute,
+                name="c7x_pool_out",
+                dtype="int8",
             )
 
         result = self.builder_.call_te(
-            te_global_avg_pool, x_arg, primfunc_name_hint="tidl_int8_global_avg_pool"
+            te_global_avg_pool, x_arg, primfunc_name_hint="c7x_int8_global_avg_pool"
         )
         self.count += 1
-        logger.debug("Fused tidl_int8_global_avg_pool: N=%d C=%d H=%d W=%d", N, C, H, W)
+        logger.debug("Fused c7x_int8_global_avg_pool: N=%d C=%d H=%d W=%d", N, C, H, W)
         return result
 
     def _lower_spatial(
-        self, x_arg, out_shape, pool_call,
-        N, C, H_in, W_in, H_out, W_out,
-        composite_name, d_zp, d_scale, o_zp, o_scale,
+        self,
+        x_arg,
+        out_shape,
+        pool_call,
+        N,
+        C,
+        H_in,
+        W_in,
+        H_out,
+        W_out,
+        composite_name,
+        d_zp,
+        d_scale,
+        o_zp,
+        o_scale,
     ):
         # Extract kernel_size, stride, padding
-        if composite_name == "tidl_pool.avg_pool2d":
+        if composite_name == "c7x_pool.avg_pool2d":
             attrs = pool_call.attrs
             kH_v = int(attrs.pool_size[0])
             kW_v = int(attrs.pool_size[1])
@@ -263,38 +296,49 @@ class _AvgPoolLowerer(PyExprMutator):
             pH_v = 0
             pW_v = 0
 
-        N_v, C_v = N, C
-        H_in_v, W_in_v, H_out_v, W_out_v = H_in, W_in, H_out, W_out
-        d_zp_v, d_scale_v, o_zp_v, o_scale_v = d_zp, d_scale, o_zp, o_scale
-
         def te_avg_pool(x_t):
             def fcompute(ins, outs):
                 return tir.call_extern(
                     "int32",
-                    "tidl_int8_avg_pool",
-                    ins[0].data, outs[0].data,
-                    tir.IntImm("int32", N_v), tir.IntImm("int32", C_v),
-                    tir.IntImm("int32", H_in_v), tir.IntImm("int32", W_in_v),
-                    tir.IntImm("int32", H_out_v), tir.IntImm("int32", W_out_v),
-                    tir.IntImm("int32", kH_v), tir.IntImm("int32", kW_v),
-                    tir.IntImm("int32", sH_v), tir.IntImm("int32", sW_v),
-                    tir.IntImm("int32", pH_v), tir.IntImm("int32", pW_v),
-                    tir.IntImm("int32", d_zp_v), tir.FloatImm("float32", d_scale_v),
-                    tir.IntImm("int32", o_zp_v), tir.FloatImm("float32", o_scale_v),
+                    "c7x_int8_avg_pool",
+                    ins[0].data,
+                    outs[0].data,
+                    tir.IntImm("int32", N),
+                    tir.IntImm("int32", C),
+                    tir.IntImm("int32", H_in),
+                    tir.IntImm("int32", W_in),
+                    tir.IntImm("int32", H_out),
+                    tir.IntImm("int32", W_out),
+                    tir.IntImm("int32", kH_v),
+                    tir.IntImm("int32", kW_v),
+                    tir.IntImm("int32", sH_v),
+                    tir.IntImm("int32", sW_v),
+                    tir.IntImm("int32", pH_v),
+                    tir.IntImm("int32", pW_v),
+                    tir.IntImm("int32", d_zp),
+                    tir.FloatImm("float32", d_scale),
+                    tir.IntImm("int32", o_zp),
+                    tir.FloatImm("float32", o_scale),
                 )
 
             return te.extern(
-                out_shape, [x_t], fcompute,
-                name="tidl_pool_out", dtype="int8",
+                out_shape,
+                [x_t],
+                fcompute,
+                name="c7x_pool_out",
+                dtype="int8",
             )
 
-        result = self.builder_.call_te(
-            te_avg_pool, x_arg, primfunc_name_hint="tidl_int8_avg_pool"
-        )
+        result = self.builder_.call_te(te_avg_pool, x_arg, primfunc_name_hint="c7x_int8_avg_pool")
         self.count += 1
         logger.debug(
-            "Fused tidl_int8_avg_pool: N=%d C=%d kH=%d kW=%d sH=%d sW=%d",
-            N, C, kH_v, kW_v, sH_v, sW_v,
+            "Fused c7x_int8_avg_pool: N=%d C=%d kH=%d kW=%d sH=%d sW=%d",
+            N,
+            C,
+            kH_v,
+            kW_v,
+            sH_v,
+            sW_v,
         )
         return result
 
@@ -304,9 +348,9 @@ class _AvgPoolLowerer(PyExprMutator):
 # =========================================================================
 
 
-@tvm.transform.module_pass(opt_level=0, name="FuseQDQToTIDLAvgPool")
-class FuseQDQToTIDLAvgPool:
-    """Fuse QDQ-wrapped average pooling into tidl_int8_*_avg_pool C kernel calls.
+@tvm.transform.module_pass(opt_level=0, name="FuseQDQToC7xAvgPool")
+class FuseQDQToC7xAvgPool:
+    """Fuse QDQ-wrapped average pooling into c7x_int8_*_avg_pool C kernel calls.
 
     Handles adaptive_avg_pool2d (global and non-global) and avg_pool2d.
     Requires int8 input and compile-time quantization constants.
@@ -330,7 +374,7 @@ class FuseQDQToTIDLAvgPool:
         mod = lowerer.builder_.get()
 
         if lowerer.count > 0:
-            logger.info("FuseQDQToTIDLAvgPool: fused %d pool ops", lowerer.count)
+            logger.info("FuseQDQToC7xAvgPool: fused %d pool ops", lowerer.count)
             mod = relax.transform.DeadCodeElimination()(mod)
 
         return mod

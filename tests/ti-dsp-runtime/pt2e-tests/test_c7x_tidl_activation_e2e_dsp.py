@@ -5,7 +5,7 @@ Validates the full flow:
   → C7xMMAQuantizer (prepare_pt2e / calibrate / convert_pt2e)
   → from_exported_program (Relax QDQ IR)
   → c_static -mcpu=c7x -mmalib=1
-      (FuseQDQToTIDLActivation / FuseQDQToTIDLAvgPool / FuseQDQToTIDLLayerNorm)
+      (FuseQDQToTIDLActivation / FuseQDQToC7xAvgPool / FuseQDQToTIDLLayerNorm)
   → tidl_int8_* kernel on c7x_host / c7x_dload
 
 Correctness: DSP output is compared against the PyTorch quantized reference.
@@ -99,14 +99,14 @@ def test_e2e_hardswish_i8(dsp_mode, record_cycles):
 
 
 # ---------------------------------------------------------------------------
-# Average pooling tests (FuseQDQToTIDLAvgPool)
+# Average pooling tests (FuseQDQToC7xAvgPool)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.quick
 @pytest.mark.c7x_only
 def test_e2e_global_avg_pool_i8(dsp_mode, record_cycles):
-    """Global avg pool (adaptive 1×1) int8: → tidl_int8_global_avg_pool."""
+    """Global avg pool (adaptive 1×1) int8: → c7x_int8_global_avg_pool."""
     if dsp_mode is None:
         pytest.skip("--dsp-mode not set")
 
@@ -129,7 +129,7 @@ def test_e2e_global_avg_pool_i8(dsp_mode, record_cycles):
 @pytest.mark.quick
 @pytest.mark.c7x_only
 def test_e2e_avg_pool2d_i8(dsp_mode, record_cycles):
-    """Spatial avg_pool2d int8: → tidl_int8_avg_pool."""
+    """Spatial avg_pool2d int8: → c7x_int8_avg_pool."""
     if dsp_mode is None:
         pytest.skip("--dsp-mode not set")
 

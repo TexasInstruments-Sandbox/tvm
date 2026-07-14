@@ -18,8 +18,12 @@
  */
 
 /**
- * @file tidl_avgpool_wrappers.h
+ * @file c7x_avgpool_wrappers.h
  * @brief Quantized average-pooling kernels for int8 tensors.
+ *
+ * Pure C7x kernels — neither function calls into the TIDL algo library
+ * (hence the `c7x_` prefix, not `tidl_`; see c7x_int8_max_pool_tidl for a
+ * kernel that actually does).
  *
  * All tensors are NCHW layout.  Quantization parameters follow the
  * same convention as tidl_activation_wrappers.h:
@@ -27,8 +31,8 @@
  *   out[i]  = clamp(round(mean_float / sy) + zy, -128, 127)
  */
 
-#ifndef TVM_TIDL_AVGPOOL_WRAPPERS_H_
-#define TVM_TIDL_AVGPOOL_WRAPPERS_H_
+#ifndef TVM_C7X_AVGPOOL_WRAPPERS_H_
+#define TVM_C7X_AVGPOOL_WRAPPERS_H_
 
 #include <stdint.h>
 
@@ -48,7 +52,7 @@ extern "C" {
  * @param zx, sx Input zero-point and scale
  * @param zy, sy Output zero-point and scale
  */
-int32_t tidl_int8_global_avg_pool(
+int32_t c7x_int8_global_avg_pool(
     const void* in, void* out,
     int32_t N, int32_t C, int32_t H, int32_t W,
     int32_t zx, float sx, int32_t zy, float sy);
@@ -58,6 +62,12 @@ int32_t tidl_int8_global_avg_pool(
  *
  * Handles avg_pool2d and adaptive_avg_pool2d with output_size != (1,1).
  * count_include_pad=True (always divides by kH*kW regardless of padding).
+ *
+ * On __C7524__, the dominant stride=1/3×3/"same" case (kH=kW=3, sH=sW=1,
+ * pH=pW=1, H_in==H_out, W_in==W_out) gets a Q13 fixed-point fast path for
+ * interior output pixels (away from the 1-pixel pad border, where all 9
+ * window taps are valid); the 1-pixel border and any other kernel/stride
+ * combination use the scalar path below.
  *
  * @param in           Input  [N, C, H_in, W_in], int8, NCHW
  * @param out          Output [N, C, H_out, W_out], int8, NCHW
@@ -70,7 +80,7 @@ int32_t tidl_int8_global_avg_pool(
  * @param zx, sx       Input quantization parameters
  * @param zy, sy       Output quantization parameters
  */
-int32_t tidl_int8_avg_pool(
+int32_t c7x_int8_avg_pool(
     const void* in, void* out,
     int32_t N, int32_t C, int32_t H_in, int32_t W_in,
     int32_t H_out, int32_t W_out,
@@ -81,4 +91,4 @@ int32_t tidl_int8_avg_pool(
 }
 #endif
 
-#endif  /* TVM_TIDL_AVGPOOL_WRAPPERS_H_ */
+#endif  /* TVM_C7X_AVGPOOL_WRAPPERS_H_ */

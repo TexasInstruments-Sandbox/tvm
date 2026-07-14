@@ -157,15 +157,15 @@ extern int32_t tidl_int8_channel_scale_multiply(
                                    int32_t, int32_t,
                                    float, int32_t, float, int32_t,
                                    float, int32_t);
-/* TIDL pooling kernels */
-extern int32_t tidl_int8_global_avg_pool(const void *, void *,
-                                         int32_t, int32_t, int32_t, int32_t,
-                                         int32_t, float, int32_t, float);
-extern int32_t tidl_int8_avg_pool(const void *, void *,
-                                  int32_t, int32_t, int32_t, int32_t,
-                                  int32_t, int32_t, int32_t, int32_t,
-                                  int32_t, int32_t, int32_t, int32_t,
-                                  int32_t, float, int32_t, float);
+/* C7x-native average-pool kernels (no TIDL library calls) */
+extern int32_t c7x_int8_global_avg_pool(const void *, void *,
+                                        int32_t, int32_t, int32_t, int32_t,
+                                        int32_t, float, int32_t, float);
+extern int32_t c7x_int8_avg_pool(const void *, void *,
+                                 int32_t, int32_t, int32_t, int32_t,
+                                 int32_t, int32_t, int32_t, int32_t,
+                                 int32_t, int32_t, int32_t, int32_t,
+                                 int32_t, float, int32_t, float);
 /* C7x-native max-pool and relu — transparent ops, no float conversion at runtime */
 extern int32_t c7x_int8_max_pool(const void *, void *,
                                  int32_t, int32_t, int32_t, int32_t,
@@ -382,9 +382,9 @@ static const DspSymEntry dsp_syms[] = {
     SYM(tidl_int8_hardsigmoid),
     SYM(c7x_int8_hardswish),
     SYM(tidl_int8_channel_scale_multiply),
-    /* TIDL pooling kernels */
-    SYM(tidl_int8_global_avg_pool),
-    SYM(tidl_int8_avg_pool),
+    /* C7x-native average-pool kernels (no TIDL library calls) */
+    SYM(c7x_int8_global_avg_pool),
+    SYM(c7x_int8_avg_pool),
     /* C7x-native max-pool and relu — transparent ops, no float conversion at runtime */
     SYM(c7x_int8_max_pool),
     SYM(c7x_int8_max_pool_tidl),
