@@ -193,6 +193,7 @@ __declspec(dllexport) void dsp_trace_msg(const char *msg) {}
  * ======================================================================== */
 __declspec(dllexport) int32_t mmalib_conv2d_i8() { return 0; }
 __declspec(dllexport) int32_t mmalib_conv2d_i8_sliced() { return 0; }
+__declspec(dllexport) int32_t mmalib_conv2d_i8_grouped_loop() { return 0; }
 __declspec(dllexport) int32_t mmalib_conv2d_i16() { return 0; }
 __declspec(dllexport) int32_t mmalib_matmul_i8() { return 0; }
 __declspec(dllexport) int32_t mmalib_matmul_i16() { return 0; }

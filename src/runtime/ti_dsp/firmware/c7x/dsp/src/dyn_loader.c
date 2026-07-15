@@ -444,6 +444,7 @@ static const DspSymEntry dsp_syms[] = {
     /* MMALIB wrappers (int8/int16 matmul and conv2d) */
     SYM(mmalib_conv2d_i8),
     SYM(mmalib_conv2d_i8_sliced),
+    SYM(mmalib_conv2d_i8_grouped_loop),
     SYM(mmalib_conv2d_i16),
     SYM(mmalib_matmul_i8),
     SYM(mmalib_matmul_i16),

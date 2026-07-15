@@ -318,6 +318,7 @@ if(USE_TIDL_RUNTIME)
     target_link_options(${PROJECT_NAME}.out PRIVATE
         --retain=TIDL_VISION_FXNS
         --retain=mmalib_conv2d_i8
+        --retain=mmalib_conv2d_i8_grouped_loop
         --retain=mmalib_conv2d_i16
         --retain=mmalib_matmul_i8
         --retain=mmalib_matmul_i16

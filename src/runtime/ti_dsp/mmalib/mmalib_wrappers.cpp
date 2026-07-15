@@ -350,6 +350,73 @@ int32_t mmalib_conv2d_i8_sliced(void* input,       /* L2: already DMA'd by calle
         stride_h, stride_w, pad_top, pad_bottom, pad_left, pad_right);
 }
 
+/* =========================================================================
+ * mmalib_conv2d_i8_grouped_loop — grouped convolution via a C loop over
+ * conv2d_impl, one call per group. See mmalib_wrappers.h for the full
+ * rationale (this exists to collapse each grouped-conv layer's TVM
+ * lowering to a single call_extern, without touching MMALIB's untested
+ * numGroupsPerKernel field).
+ *
+ * PyTorch's native grouped weight layout ([C_out, C_in/groups, KH, KW])
+ * is already contiguous per group, so each group's slice of input/
+ * kernel/bias/scale/shift/output is just a flat pointer offset -- no
+ * reshuffling, no relax.op.strided_slice/concat needed by the caller.
+ * ========================================================================= */
+
+int32_t mmalib_conv2d_i8_grouped_loop(void* input, void* kernel,
+                                       void* bias, void* scale, void* shift,
+                                       void* output,
+                                       int32_t C_in, int32_t H_in, int32_t W_in,
+                                       int32_t C_out, int32_t KH, int32_t KW,
+                                       int32_t stride_h, int32_t stride_w,
+                                       int32_t pad_top, int32_t pad_bottom,
+                                       int32_t pad_left, int32_t pad_right,
+                                       int32_t groups) {
+    if (!input || !kernel || !bias || !scale || !shift || !output) {
+        return -1;
+    }
+    if (groups <= 1 || C_in % groups != 0 || C_out % groups != 0) {
+        return -1;
+    }
+    if (groups == C_in) {
+        return -1;  // true depthwise -- mmalib_depthwise_conv2d_i8's job
+    }
+
+    int32_t C_in_g = C_in / groups;
+    int32_t C_out_g = C_out / groups;
+    int32_t elem_size = (int32_t)sizeof(int8_t);
+    int32_t bias_elem_size = (int32_t)sizeof(int32_t);
+    int32_t H_out = (H_in + pad_top + pad_bottom - KH) / stride_h + 1;
+    int32_t W_out = (W_in + pad_left + pad_right - KW) / stride_w + 1;
+    int32_t in_ch_stride = H_in * W_in;
+    int32_t out_ch_stride = H_out * W_out;
+    int32_t kernel_ch_stride = C_in_g * KH * KW;
+
+    for (int32_t g = 0; g < groups; g++) {
+        uint8_t* in_ptr = (uint8_t*)input + (int64_t)g * C_in_g * in_ch_stride * elem_size;
+        uint8_t* k_ptr = (uint8_t*)kernel + (int64_t)g * C_out_g * kernel_ch_stride * elem_size;
+        uint8_t* b_ptr = (uint8_t*)bias + (int64_t)g * C_out_g * bias_elem_size;
+        uint8_t* s_ptr = (uint8_t*)scale + (int64_t)g * C_out_g;
+        uint8_t* sh_ptr = (uint8_t*)shift + (int64_t)g * C_out_g;
+        uint8_t* o_ptr = (uint8_t*)output + (int64_t)g * C_out_g * out_ch_stride * elem_size;
+
+        int32_t status = conv2d_impl<int8_t, MMALIB_INT8, MMALIB_INT32, -128, 127, MMA_SIZE_I8>(
+            in_ptr, k_ptr, b_ptr, s_ptr, sh_ptr, o_ptr,
+            C_in_g, H_in, W_in, C_out_g, KH, KW,
+            stride_h, stride_w, pad_top, pad_bottom, pad_left, pad_right);
+        if (status != 0) {
+            /* Zero the remaining, not-yet-processed groups' output instead
+             * of leaving whatever was previously in that DDR region --
+             * deterministic over leaking stale/uninitialized data. */
+            int64_t remaining_bytes =
+                (int64_t)(groups - g) * C_out_g * out_ch_stride * elem_size;
+            memset(o_ptr, 0, (size_t)remaining_bytes);
+            return status;
+        }
+    }
+    return 0;
+}
+
 int32_t mmalib_conv2d_i16(void* input, void* kernel,
                           void* bias, void* scale, void* shift,
                           void* output,

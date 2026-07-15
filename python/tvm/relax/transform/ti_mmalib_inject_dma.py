@@ -43,6 +43,7 @@ from .ti_mmalib_constants import MMA_SIZE_I8
 logger = logging.getLogger(__name__)
 
 _MMALIB_CONV2D_I8 = "mmalib_conv2d_i8"
+_MMALIB_CONV2D_I8_GROUPED_LOOP = "mmalib_conv2d_i8_grouped_loop"
 _MMALIB_CONV2D_I16 = "mmalib_conv2d_i16"
 _MMALIB_DWCONV2D_I8 = "mmalib_depthwise_conv2d_i8"
 _MMALIB_DWCONV2D_I16 = "mmalib_depthwise_conv2d_i16"
@@ -50,6 +51,7 @@ _MMALIB_FC_I8 = "mmalib_matmul_bias_i8"
 _MMALIB_FC_I16 = "mmalib_matmul_bias_i16"
 _SUPPORTED = {
     _MMALIB_CONV2D_I8,
+    _MMALIB_CONV2D_I8_GROUPED_LOOP,
     _MMALIB_CONV2D_I16,
     _MMALIB_DWCONV2D_I8,
     _MMALIB_DWCONV2D_I16,
@@ -91,6 +93,12 @@ def _extract_dims_conv2d_i8(call_args):
            stride_h, stride_w, pad_top, pad_bottom, pad_left, pad_right)
     Indices are 0-based after the return type in call_extern.
     In the Call node: args[0]=name_str, args[1]=input, ..., args[7]=C_in, ...
+
+    `groups` defaults to 1: the weight tensor is [C_out, C_in, KH, KW] for
+    this (ungrouped) kernel. See _extract_dims_conv2d_i8_grouped_loop for
+    the grouped variant, where the weight tensor is [C_out, C_in/groups,
+    KH, KW] instead and `groups` must be read from the call to size the
+    weight DMA correctly.
     """
     return {
         "input_arg_idx": 1,
@@ -101,7 +109,26 @@ def _extract_dims_conv2d_i8(call_args):
         "c_out": int(call_args[10].value),
         "kh": int(call_args[11].value),
         "kw": int(call_args[12].value),
+        "groups": 1,
     }
+
+
+def _extract_dims_conv2d_i8_grouped_loop(call_args):
+    """Extract dimensions from mmalib_conv2d_i8_grouped_loop call_extern args.
+
+    args[0..18] are identical to mmalib_conv2d_i8's (C_in/C_out are the
+    full, ungrouped channel counts -- the *input* DDR region this pass
+    prefetches into L2 is the same full C_in*H_in*W_in buffer the grouped
+    C++ loop internally slices per group). The one extra arg, `groups` at
+    args[19], is read here because it changes the *weight* tensor's real
+    size: PyTorch's native grouped-conv weight layout is
+    [C_out, C_in/groups, KH, KW], not [C_out, C_in, KH, KW] -- using the
+    full C_in to size the weight DMA would over-read past the actual
+    weight buffer.
+    """
+    dims = _extract_dims_conv2d_i8(call_args)
+    dims["groups"] = int(call_args[19].value)
+    return dims
 
 
 def _extract_dims_conv2d_i16(call_args):
@@ -229,6 +256,9 @@ def _inject_dma(func, l2_budget):
     if extern_name == _MMALIB_CONV2D_I8:
         dims = _extract_dims_conv2d_i8(call_node.args)
         elem_bytes = 1
+    elif extern_name == _MMALIB_CONV2D_I8_GROUPED_LOOP:
+        dims = _extract_dims_conv2d_i8_grouped_loop(call_node.args)
+        elem_bytes = 1
     elif extern_name == _MMALIB_CONV2D_I16:
         dims = _extract_dims_conv2d_i16(call_node.args)
         elem_bytes = 2
@@ -253,9 +283,13 @@ def _inject_dma(func, l2_budget):
     c_out = dims["c_out"]
     kh = dims["kh"]
     kw = dims["kw"]
+    groups = dims.get("groups", 1)
 
     input_bytes = c_in * h_in * w_in * elem_bytes
-    weight_bytes = c_out * c_in * kh * kw * elem_bytes
+    # Weight tensor is [C_out, C_in/groups, KH, KW]; groups=1 for every
+    # kernel except mmalib_conv2d_i8_grouped_loop, where using the full
+    # C_in here would over-read past the actual weight buffer.
+    weight_bytes = c_out * (c_in // groups) * kh * kw * elem_bytes
 
     if input_bytes > l2_budget:
         logger.debug(
@@ -290,13 +324,15 @@ def _inject_dma(func, l2_budget):
     stmts = []
 
     # Guard: prevents SE backward prefetch from underflowing L2 start.
-    # For conv2d kernels (i8 and i16), pad_top is at args[15] in both:
+    # For conv2d kernels (i8, i16, and grouped_loop), pad_top is at args[15]
+    # in all three (grouped_loop's args[0..18] match mmalib_conv2d_i8's
+    # exactly, with an extra `groups` at args[19] that doesn't shift this):
     #   (name, input, kernel, bias, scale, shift, output, C_in, H_in, W_in,
     #    C_out, KH, KW, stride_h, stride_w, pad_top, ...)
-    if extern_name in (_MMALIB_CONV2D_I8, _MMALIB_CONV2D_I16):
-        # args[15] is pad_top for both i8 and i16 conv2d.  Guard against
-        # symbolic values (e.g. from dynamic-padding graphs) that have no
-        # .value attribute — fall back to the safe 128-byte default.
+    if extern_name in (_MMALIB_CONV2D_I8, _MMALIB_CONV2D_I8_GROUPED_LOOP, _MMALIB_CONV2D_I16):
+        # args[15] is pad_top for i8, i16, and grouped_loop conv2d.  Guard
+        # against symbolic values (e.g. from dynamic-padding graphs) that
+        # have no .value attribute — fall back to the safe 128-byte default.
         arg15 = call_node.args[15]
         pad_top = int(arg15.value) if isinstance(arg15, tir.IntImm) else 0
     else:
@@ -311,82 +347,108 @@ def _inject_dma(func, l2_budget):
     # tile per iteration and calling mmalib_conv2d_i8_sliced.
     # -------------------------------------------------------------------------
     if oc_tile is not None:
-        l2_input_var  = tir.Var("l2_input",       PointerType(PrimType("int8"), "global.l2sram"))
-        l2_weight_var = tir.Var("l2_weight_tile",  PointerType(PrimType("int8"), "global.l2sram"))
+        l2_input_var = tir.Var("l2_input", PointerType(PrimType("int8"), "global.l2sram"))
+        l2_weight_var = tir.Var("l2_weight_tile", PointerType(PrimType("int8"), "global.l2sram"))
 
         # DMA full input once (stays in L2 for all OC tiles)
-        stmts.append(tir.Evaluate(tir.call_extern(
-            "int32", "tvm_dsp_dma_copy",
-            queue_id, l2_input_var,
-            call_node.args[dims["input_arg_idx"]],
-            tir.const(input_bytes, "int32"), bypass)))
-        stmts.append(tir.Evaluate(tir.call_extern(
-            "int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)))
+        stmts.append(
+            tir.Evaluate(
+                tir.call_extern(
+                    "int32",
+                    "tvm_dsp_dma_copy",
+                    queue_id,
+                    l2_input_var,
+                    call_node.args[dims["input_arg_idx"]],
+                    tir.const(input_bytes, "int32"),
+                    bypass,
+                )
+            )
+        )
+        stmts.append(
+            tir.Evaluate(tir.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight))
+        )
 
         # Build For loop: one weight-tile DMA + sliced call per iteration
-        oc_idx       = tir.Var("oc_chunk", "int32")
-        n_tiles      = (c_out + oc_tile - 1) // oc_tile
-        oc_start     = tir.Mul(oc_idx, tir.const(oc_tile, "int32"))
-        tile_c_out   = tir.Min(tir.const(oc_tile, "int32"),
-                               tir.Sub(tir.const(c_out, "int32"), oc_start))
-        actual_dma   = tir.Mul(tile_c_out,
-                               tir.const(c_in * kh * kw * elem_bytes, "int32"))
+        oc_idx = tir.Var("oc_chunk", "int32")
+        n_tiles = (c_out + oc_tile - 1) // oc_tile
+        oc_start = tir.Mul(oc_idx, tir.const(oc_tile, "int32"))
+        tile_c_out = tir.Min(
+            tir.const(oc_tile, "int32"), tir.Sub(tir.const(c_out, "int32"), oc_start)
+        )
+        actual_dma = tir.Mul(tile_c_out, tir.const(c_in * kh * kw * elem_bytes, "int32"))
 
         # weight DDR pointer + oc_idx * weight_tile_bytes via tvm_ptr_add
         # (direct handle arithmetic is not valid in TVM TIR; use a C helper).
-        wt_base      = call_node.args[dims["weight_arg_idx"]]
-        wt_byte_off  = tir.Mul(oc_idx, tir.const(weight_tile_bytes, "int32"))
-        wt_tile_src  = tir.call_extern("handle", "tvm_ptr_add", wt_base, wt_byte_off)
+        wt_base = call_node.args[dims["weight_arg_idx"]]
+        wt_byte_off = tir.Mul(oc_idx, tir.const(weight_tile_bytes, "int32"))
+        wt_tile_src = tir.call_extern("handle", "tvm_ptr_add", wt_base, wt_byte_off)
 
         # mmalib_conv2d_i8_sliced args: matches mmalib_conv2d_i8 minus C_out,
         # plus oc_start at the end.  Bias/scale/shift/output stay as DDR ptrs;
         # the wrapper advances them by oc_start internally.
-        sliced_args  = [
+        sliced_args = [
             tir.StringImm("mmalib_conv2d_i8_sliced"),
-            l2_input_var,               # input  (L2)
-            l2_weight_var,              # kernel (L2 tile)
-            call_node.args[3],          # bias   (DDR full)
-            call_node.args[4],          # scale  (DDR full)
-            call_node.args[5],          # shift  (DDR full)
-            call_node.args[6],          # output (DDR full)
-            call_node.args[7],          # C_in
-            call_node.args[8],          # H_in
-            call_node.args[9],          # W_in
-            tile_c_out,                 # C_out_tile
-            call_node.args[11],         # KH
-            call_node.args[12],         # KW
-            call_node.args[13],         # stride_h
-            call_node.args[14],         # stride_w
-            call_node.args[15],         # pad_top
-            call_node.args[16],         # pad_bottom
-            call_node.args[17],         # pad_left
-            call_node.args[18],         # pad_right
-            oc_start,                   # oc_start
+            l2_input_var,  # input  (L2)
+            l2_weight_var,  # kernel (L2 tile)
+            call_node.args[3],  # bias   (DDR full)
+            call_node.args[4],  # scale  (DDR full)
+            call_node.args[5],  # shift  (DDR full)
+            call_node.args[6],  # output (DDR full)
+            call_node.args[7],  # C_in
+            call_node.args[8],  # H_in
+            call_node.args[9],  # W_in
+            tile_c_out,  # C_out_tile
+            call_node.args[11],  # KH
+            call_node.args[12],  # KW
+            call_node.args[13],  # stride_h
+            call_node.args[14],  # stride_w
+            call_node.args[15],  # pad_top
+            call_node.args[16],  # pad_bottom
+            call_node.args[17],  # pad_left
+            call_node.args[18],  # pad_right
+            oc_start,  # oc_start
         ]
-        tile_body = tir.SeqStmt([
-            tir.Evaluate(tir.call_extern(
-                "int32", "tvm_dsp_dma_copy",
-                queue_id, l2_weight_var, wt_tile_src, actual_dma, bypass)),
-            tir.Evaluate(tir.call_extern(
-                "int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)),
-            tir.Evaluate(tir.Call(call_node.dtype, call_node.op, sliced_args)),
-        ])
+        tile_body = tir.SeqStmt(
+            [
+                tir.Evaluate(
+                    tir.call_extern(
+                        "int32",
+                        "tvm_dsp_dma_copy",
+                        queue_id,
+                        l2_weight_var,
+                        wt_tile_src,
+                        actual_dma,
+                        bypass,
+                    )
+                ),
+                tir.Evaluate(tir.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)),
+                tir.Evaluate(tir.Call(call_node.dtype, call_node.op, sliced_args)),
+            ]
+        )
         stmts.append(tir.For(oc_idx, 0, n_tiles, tir.ForKind.SERIAL, tile_body))
 
         body = tir.SeqStmt(stmts)
-        body = tir.Allocate(l2_weight_var, "int8",
-                            [tir.const(weight_tile_bytes, "int64")],
-                            tir.const(1, "bool"), body)
-        body = tir.Allocate(l2_input_var, "int8",
-                            [tir.const(input_bytes, "int64")],
-                            tir.const(1, "bool"), body)
-        body = tir.Allocate(l2_guard_var, "int8",
-                            [tir.const(guard_bytes, "int64")],
-                            tir.const(1, "bool"), body)
+        body = tir.Allocate(
+            l2_weight_var,
+            "int8",
+            [tir.const(weight_tile_bytes, "int64")],
+            tir.const(1, "bool"),
+            body,
+        )
+        body = tir.Allocate(
+            l2_input_var, "int8", [tir.const(input_bytes, "int64")], tir.const(1, "bool"), body
+        )
+        body = tir.Allocate(
+            l2_guard_var, "int8", [tir.const(guard_bytes, "int64")], tir.const(1, "bool"), body
+        )
         logger.info(
-            "InjectMMALIBDMA OC-tiled: %s [input=%dKB, oc_tile=%d, n_tiles=%d, "
-            "weight_tile=%dKB]",
-            extern_name, input_bytes // 1024, oc_tile, n_tiles, weight_tile_bytes // 1024)
+            "InjectMMALIBDMA OC-tiled: %s [input=%dKB, oc_tile=%d, n_tiles=%d, weight_tile=%dKB]",
+            extern_name,
+            input_bytes // 1024,
+            oc_tile,
+            n_tiles,
+            weight_tile_bytes // 1024,
+        )
         return func.with_body(body)
     # -------------------------------------------------------------------------
 
@@ -462,8 +524,8 @@ def _inject_dma(func, l2_budget):
 def InjectMMALIBDMA(l2_budget=393216):
     """Create a TIR pass that injects blocking DMA for MMALIB PrimFuncs.
 
-    Scans each PrimFunc for mmalib_conv2d_i8/i16 call_extern nodes.
-    When found, wraps the call with L2 allocations and DMA copy/wait
+    Scans each PrimFunc for mmalib_conv2d_i8/i8_grouped_loop/i16 call_extern
+    nodes. When found, wraps the call with L2 allocations and DMA copy/wait
     so MMALIB operates from L2 SRAM instead of DDR.
 
     Parameters

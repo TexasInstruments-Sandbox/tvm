@@ -132,25 +132,36 @@ def _mmalib_matmul_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
 # =======================================================================
 
 
-def _check_conv2d_mmalib_constraints(attrs, data_sinfo, kernel_sinfo) -> bool:
+def _check_conv2d_mmalib_constraints(
+    attrs, data_sinfo, kernel_sinfo, allow_groups: bool = False
+) -> bool:
     """Shared MMALIB conv2d eligibility check for both int8 and int16.
 
     MMALIB constraints:
       - dilation must be 1x1
-      - groups must be 1
+      - groups must be 1, unless allow_groups=True (see below)
       - strides must be symmetric (strideX == strideY)
       - N must be 1
       - all shapes must be static
+
+    allow_groups: when True, permits groups>1 for genuinely grouped
+    (partial-channel) convolution — e.g. ResNeXt101's cardinality=32
+    bottleneck convs — routed to a per-group call_extern loop by the
+    caller (see ti_mmalib_qdq_fusion.py). True
+    depthwise (groups == C_in) is excluded here: that's
+    ti_mmalib_qdq_dwconv.py's job, not this path's. Defaults to False so
+    every other existing caller (int16 QDQ conv, int16 plain-legalize)
+    keeps rejecting groups>1 unchanged.
     """
     if list(attrs.dilation) != [1, 1]:
-        return False
-    if attrs.groups != 1:
         return False
 
     strides = [int(s) for s in attrs.strides]
     if strides[0] != strides[1]:
         return False
 
+    if data_sinfo.shape is None or kernel_sinfo.shape is None:
+        return False
     for s in data_sinfo.shape:
         if not isinstance(s, tir.IntImm):
             return False
@@ -159,6 +170,18 @@ def _check_conv2d_mmalib_constraints(attrs, data_sinfo, kernel_sinfo) -> bool:
             return False
 
     data_layout = tir.layout(attrs.data_layout)
+
+    if attrs.groups != 1:
+        if not allow_groups or attrs.groups <= 0:
+            return False
+        kernel_layout = tir.layout(attrs.kernel_layout)
+        c_in = int(data_sinfo.shape[data_layout.index_of("C")])
+        c_out = int(kernel_sinfo.shape[kernel_layout.index_of("O")])
+        if attrs.groups == c_in:
+            return False  # true depthwise — ti_mmalib_qdq_dwconv.py's job
+        if c_in % attrs.groups != 0 or c_out % attrs.groups != 0:
+            return False
+
     if int(data_sinfo.shape[data_layout.index_of("N")]) != 1:
         return False
 
@@ -178,7 +201,6 @@ def _is_conv2d_mmalib_eligible(call: relax.Call) -> bool:
         return False
     if data_sinfo.ndim != 4 or kernel_sinfo.ndim != 4:
         return False
-
 
     return _check_conv2d_mmalib_constraints(call.attrs, data_sinfo, kernel_sinfo)
 
