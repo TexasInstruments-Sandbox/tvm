@@ -24,9 +24,11 @@ Matches the PT2E QDQ pattern BEFORE FuseQDQToInt8Conv2D runs:
       -> [add(float_bias)] -> [relu]
       -> quantize(out, o_scale, o_zp)
 
-Replaces the full sequence with a single call_extern("mmalib_conv2d_i8")
-that computes int8*int8->int32 convolution with fused bias, requantization,
-and optional ReLU clipping.
+Replaces the full sequence with a single call_extern to
+"mmalib_conv2d_i8" (groups==1) or "mmalib_conv2d_i8_grouped_loop"
+(groups>1, e.g. ResNeXt101's cardinality convs) that computes
+int8*int8->int32 convolution with fused bias, requantization, and
+optional ReLU clipping.
 
 Supports asymmetric activation zero points (d_zp != 0) by folding the
 correction into the bias term at compile time.
@@ -261,7 +263,7 @@ def _check_mmalib_qdq_conv2d(ctx) -> bool:
     except Exception:
         return False
 
-    return _check_conv2d_mmalib_constraints(conv.attrs, data_sinfo, kernel_sinfo)
+    return _check_conv2d_mmalib_constraints(conv.attrs, data_sinfo, kernel_sinfo, allow_groups=True)
 
 
 # =========================================================================
@@ -278,7 +280,9 @@ _COMPOSITE_PREFIXES = (
 
 @mutator
 class _MMALIBQDQLowerer(PyExprMutator):
-    """Replace MMALIB QDQ composite functions with call_tir to mmalib_conv2d_i8."""
+    """Replace MMALIB QDQ composite functions with call_tir to
+    mmalib_conv2d_i8 (groups==1) or mmalib_conv2d_i8_grouped_loop
+    (groups>1)."""
 
     def __init__(self, mod: IRModule):
         super().__init__(mod)
@@ -303,7 +307,8 @@ class _MMALIBQDQLowerer(PyExprMutator):
         return self._lower(call, func, has_bias=has_bias, has_relu=has_relu)
 
     def _lower(self, call, func, has_bias, has_relu):
-        """Lower composite to call_tir with mmalib_conv2d_i8."""
+        """Lower composite to call_tir via _emit_conv2d: mmalib_conv2d_i8
+        for groups==1, mmalib_conv2d_i8_grouped_loop for groups>1."""
         param_to_arg = dict(zip(func.params, call.args))
         roles = self._extract_roles(func, has_bias)
 
@@ -355,8 +360,13 @@ class _MMALIBQDQLowerer(PyExprMutator):
 
         # Extract conv2d dimensions from attrs and weight shape
         attrs = roles["conv_attrs"]
-        # Weight is OIHW (default kernel_layout for conv2d)
-        C_out, C_in, KH, KW = w_int8_np.shape
+        # Weight is OIHW (default kernel_layout for conv2d). For groups>1,
+        # PyTorch/Relax's grouped-conv weight layout is [C_out, C_in/groups,
+        # KH, KW] — this dim is the per-group input channel count, which
+        # equals the full C_in only when groups==1.
+        C_out, C_in_per_group, KH, KW = w_int8_np.shape
+        groups = int(attrs.groups)
+        C_in = C_in_per_group * groups
 
         data_sinfo = data_arg.struct_info
         data_layout = tir.layout(attrs.data_layout)
@@ -408,54 +418,70 @@ class _MMALIBQDQLowerer(PyExprMutator):
         scale_relax = relax.Constant(scale_u8)
         shift_relax = relax.Constant(shift_u8)
 
-        def te_mmalib_conv2d_i8(
-            data_t: te.Tensor,
-            weight_t: te.Tensor,
-            bias_t: te.Tensor,
-            scale_t: te.Tensor,
-            shift_t: te.Tensor,
-        ) -> te.Tensor:
-            def fcompute(ins, outs):
-                return tir.call_extern(
-                    "int32",
-                    "mmalib_conv2d_i8",
-                    ins[0].data,
-                    ins[1].data,
-                    ins[2].data,
-                    ins[3].data,
-                    ins[4].data,
-                    outs[0].data,
-                    C_in,
-                    H_in,
-                    W_in,
-                    C_out,
-                    KH,
-                    KW,
-                    stride_h,
-                    stride_w,
-                    pad_top,
-                    pad_bottom,
-                    pad_left,
-                    pad_right,
-                )
-
-            return te.extern(
-                (1, C_out, H_out, W_out),
-                [data_t, weight_t, bias_t, scale_t, shift_t],
-                fcompute,
-                name="mmalib_conv2d",
-                dtype="int8",
+        if groups == 1:
+            result = self._emit_conv2d(
+                "mmalib_conv2d_i8",
+                "mmalib_conv2d",
+                data_arg,
+                kernel_relax,
+                bias_relax,
+                scale_relax,
+                shift_relax,
+                C_in,
+                H_in,
+                W_in,
+                C_out,
+                KH,
+                KW,
+                stride_h,
+                stride_w,
+                pad_top,
+                pad_bottom,
+                pad_left,
+                pad_right,
+                H_out,
+                W_out,
             )
-
-        result = self.builder_.call_te(
-            te_mmalib_conv2d_i8,
-            data_arg,
-            kernel_relax,
-            bias_relax,
-            scale_relax,
-            shift_relax,
-            primfunc_name_hint="mmalib_conv2d",
-        )
+        else:
+            # See docs/dsp/quantized_model_optimization.md Step 13: MMALIB's
+            # numGroupsPerKernel field on the bias-fused convolveBias_row
+            # kernel is real (substantial hardware-intrinsics code exists)
+            # but has zero validation coverage anywhere in TI's own software
+            # -- TIDL always pairs grouped mode with the non-bias
+            # convolve_row kernel instead, never this one. Hardware testing
+            # confirmed the concern: chaining this kernel's native grouped
+            # calls within one inference produced intermittent silent data
+            # corruption and hangs on real c7x_dload hardware (never on
+            # c7x_host, which runs a different reference implementation).
+            # Per the plan's hard gate, the native path is abandoned
+            # entirely -- every grouped conv layer uses
+            # mmalib_conv2d_i8_grouped_loop, a single call_extern whose C++
+            # implementation loops over groups internally via the already-
+            # proven conv2d_impl (see mmalib_wrappers.cpp).
+            result = self._emit_conv2d(
+                "mmalib_conv2d_i8_grouped_loop",
+                "mmalib_conv2d_grouped_loop",
+                data_arg,
+                kernel_relax,
+                bias_relax,
+                scale_relax,
+                shift_relax,
+                C_in,
+                H_in,
+                W_in,
+                C_out,
+                KH,
+                KW,
+                stride_h,
+                stride_w,
+                pad_top,
+                pad_bottom,
+                pad_left,
+                pad_right,
+                H_out,
+                W_out,
+                groups=groups,
+            )
 
         if has_relu:
             result = relax.op.clip(result, relax.PrimValue(0), relax.PrimValue(127))
@@ -473,6 +499,86 @@ class _MMALIBQDQLowerer(PyExprMutator):
             " +relu" if has_relu else "",
         )
         return result
+
+    def _emit_conv2d(
+        self,
+        extern_name,
+        name_hint,
+        data_arg,
+        kernel_relax,
+        bias_relax,
+        scale_relax,
+        shift_relax,
+        C_in,
+        H_in,
+        W_in,
+        C_out,
+        KH,
+        KW,
+        stride_h,
+        stride_w,
+        pad_top,
+        pad_bottom,
+        pad_left,
+        pad_right,
+        H_out,
+        W_out,
+        groups=None,
+    ):
+        """Emit a call_tir to `extern_name`: mmalib_conv2d_i8 (groups=1,
+        pass groups=None) or mmalib_conv2d_i8_grouped_loop (groups>1,
+        pass the group count -- appended as the extern call's final arg;
+        see mmalib_wrappers.cpp for why a single call per layer, not one
+        per group unrolled here with strided_slice/concat, is required to
+        keep cl7x's compile time tractable -- docs/dsp/
+        quantized_model_optimization.md Step 13).
+        """
+
+        def fcompute(ins, outs):
+            args = [
+                "int32",
+                extern_name,
+                ins[0].data,
+                ins[1].data,
+                ins[2].data,
+                ins[3].data,
+                ins[4].data,
+                outs[0].data,
+                C_in,
+                H_in,
+                W_in,
+                C_out,
+                KH,
+                KW,
+                stride_h,
+                stride_w,
+                pad_top,
+                pad_bottom,
+                pad_left,
+                pad_right,
+            ]
+            if groups is not None:
+                args.append(groups)
+            return tir.call_extern(*args)
+
+        def te_mmalib_conv2d(data_t, weight_t, bias_t, scale_t, shift_t):
+            return te.extern(
+                (1, C_out, H_out, W_out),
+                [data_t, weight_t, bias_t, scale_t, shift_t],
+                fcompute,
+                name=name_hint,
+                dtype="int8",
+            )
+
+        return self.builder_.call_te(
+            te_mmalib_conv2d,
+            data_arg,
+            kernel_relax,
+            bias_relax,
+            scale_relax,
+            shift_relax,
+            primfunc_name_hint=name_hint,
+        )
 
     @staticmethod
     def _extract_roles(func, has_bias):

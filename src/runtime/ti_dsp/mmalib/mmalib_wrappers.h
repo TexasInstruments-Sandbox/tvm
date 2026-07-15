@@ -151,6 +151,67 @@ int32_t mmalib_conv2d_i8_sliced(void* input, void* kernel_tile,
                                  int32_t oc_start);
 
 /**
+ * @brief Int8 grouped 2D convolution (PyTorch-style groups > 1).
+ *
+ * Loops over groups internally, calling the same proven conv2d_impl used
+ * by mmalib_conv2d_i8 once per group with pointer-offset input/kernel/
+ * bias/scale/shift/output slices. Does NOT use MMALIB's numGroupsPerKernel
+ * field -- see docs/dsp/quantized_model_optimization.md Step 13: an
+ * earlier native single-call implementation using that field was abandoned
+ * after hardware testing found intermittent silent corruption (the exact
+ * combination -- numGroupsPerKernel on the bias-fused convolveBias_row
+ * kernel -- has no validation coverage anywhere in TI's own software).
+ * This wrapper exists purely to collapse each grouped-conv layer's TVM
+ * lowering to a single call_extern (avoiding per-group strided_slice/
+ * concat and per-group PrimFuncs, which made ResNeXt101's cl7x compile
+ * time impractical), while keeping every MMALIB call on the safe,
+ * proven, non-grouped path.
+ *
+ * PyTorch's native grouped-conv weight layout ([C_out, C_in/groups, KH,
+ * KW]) is already contiguous per group, so no reshuffling is needed --
+ * this function computes each group's offset directly from the flat
+ * input/kernel/bias/scale/shift/output pointers.
+ *
+ * @param input   Input tensor [1, C_in, H_in, W_in], int8, 64-byte aligned
+ * @param kernel  Weight tensor [C_out, C_in/groups, KH, KW] (PyTorch's
+ *                native grouped-conv layout), int8, 64-byte aligned
+ * @param bias    Per-channel bias [C_out], int32. Must be non-NULL: every
+ *                caller (the MMALIB QDQ fusion pass) always supplies a
+ *                real bias array, folding zero-point correction into it.
+ * @param scale   Per-channel scale [C_out], uint8. Must be non-NULL.
+ * @param shift   Per-channel shift [C_out], uint8. Must be non-NULL.
+ * @param output  Output tensor [1, C_out, H_out, W_out], int8, 64-byte aligned
+ * @param C_in    Number of input channels
+ * @param H_in    Input spatial height
+ * @param W_in    Input spatial width
+ * @param C_out   Number of output channels. Each group's slice
+ *                (C_out/groups) is passed to conv2d_impl, which caps it
+ *                at 1024 -- the full C_out here is not itself bounded.
+ * @param KH      Kernel height
+ * @param KW      Kernel width
+ * @param stride_h   Vertical stride
+ * @param stride_w   Horizontal stride
+ * @param pad_top    Top padding (zero-fill)
+ * @param pad_bottom Bottom padding
+ * @param pad_left   Left padding
+ * @param pad_right  Right padding
+ * @param groups  Number of groups (1 < groups < C_in; use mmalib_conv2d_i8
+ *                for groups=1 and mmalib_depthwise_conv2d_i8 for groups==C_in)
+ * @return 0 on success, non-zero MMALIB error code from the failing group's
+ *         call on failure, -1 if any constraint above is violated
+ */
+TVM_MMALIB_EXPORT
+int32_t mmalib_conv2d_i8_grouped_loop(void* input, void* kernel,
+                                       void* bias, void* scale, void* shift,
+                                       void* output,
+                                       int32_t C_in, int32_t H_in, int32_t W_in,
+                                       int32_t C_out, int32_t KH, int32_t KW,
+                                       int32_t stride_h, int32_t stride_w,
+                                       int32_t pad_top, int32_t pad_bottom,
+                                       int32_t pad_left, int32_t pad_right,
+                                       int32_t groups);
+
+/**
  * @brief Int16 2D convolution with per-channel bias, scale, and shift.
  *
  * Matches the int8 variant but with wider types:
