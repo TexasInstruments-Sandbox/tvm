@@ -39,8 +39,6 @@ Only per-tensor quantize is matched (scalar scale constant, rank-0 or shape []).
 
 import logging
 
-import numpy as np
-
 import tvm
 from tvm import relax, te, tir
 from tvm.ir.module import IRModule
@@ -51,6 +49,19 @@ from tvm.relax.expr_functor import PyExprMutator, mutator
 logger = logging.getLogger(__name__)
 
 _COMPOSITE_NAME = "c7x.input_quantize"
+
+
+def is_per_tensor_scalar_constant(expr) -> bool:
+    """True if expr is a compile-time constant with scalar (rank-0) shape.
+
+    Shared by FuseInputQuantize and FuseInputNormalizeQuantize to guard a
+    trailing quantize's scale/zp: both kernels these lower to take one
+    shared (scale, zp) pair for the whole tensor, not per-channel.
+    """
+    if not isinstance(expr, relax.Constant):
+        return False
+    shape = expr.struct_info.shape
+    return shape is None or len(shape) == 0
 
 
 # =========================================================================
@@ -89,16 +100,11 @@ def _check_quantize(ctx) -> bool:
     else:
         return False
 
-    # scale and zp must be compile-time scalar constants
+    # scale and zp must be compile-time per-tensor scalar constants
     scale = ctx.annotated_expr["scale"]
     zp = ctx.annotated_expr["zp"]
-    if not isinstance(scale, relax.Constant) or not isinstance(zp, relax.Constant):
+    if not is_per_tensor_scalar_constant(scale) or not isinstance(zp, relax.Constant):
         return False
-
-    # Per-tensor: scale must be a scalar (rank 0 or shape [])
-    scale_shape = scale.struct_info.shape
-    if scale_shape is not None and len(scale_shape) > 0:
-        return False  # per-channel scale — not handled here
 
     return True
 
@@ -191,13 +197,14 @@ class _QuantizeLowerer(PyExprMutator):
                 dtype="int8",
             )
 
-        result = self.builder_.call_te(
-            te_quantize, x_arg, primfunc_name_hint="c7x_int8_quantize"
-        )
+        result = self.builder_.call_te(te_quantize, x_arg, primfunc_name_hint="c7x_int8_quantize")
         self.count += 1
         logger.debug(
             "Fused c7x_int8_quantize: n=%d scale=%.6g inv_scale=%.6g zp=%d",
-            n_elems, scale_val, _inv_scale, _zp,
+            n_elems,
+            scale_val,
+            _inv_scale,
+            _zp,
         )
         return result
 

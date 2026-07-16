@@ -97,6 +97,14 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # these passes first intercepts the QDQ-wrapped forms and replaces them
     # with call_extern to vectorizable C kernels before the Q/DQ context
     # is discarded.
+    # FuseInputNormalizeQuantize folds torchvision's transform_input (a
+    # per-channel affine normalize traced directly on the raw model input,
+    # e.g. Inception3/GoogLeNet) into the trailing quantize's per-channel
+    # scale/zero-point, before FuseInputQuantize (whose pattern requires
+    # quantize's operand to be the input Var directly, not this chain's
+    # concat output). Must run before LegalizeOps/EliminateQDQTransparent,
+    # same constraint as FuseInputQuantize.
+    passes.append(tvm.relax.transform.FuseInputNormalizeQuantize())
     # FuseInputQuantize intercepts R.quantize(float32→int8) before LegalizeOps
     # lowers it to a scalar TIR loop.  Must run before EliminateQDQTransparent.
     passes.append(tvm.relax.transform.FuseInputQuantize())

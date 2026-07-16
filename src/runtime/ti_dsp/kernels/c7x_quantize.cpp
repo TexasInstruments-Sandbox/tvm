@@ -19,14 +19,19 @@
 
 /*!
  * \file c7x_quantize.cpp
- * \brief Per-tensor float32 → int8 quantize.
+ * \brief Per-tensor and per-channel float32 → int8 quantize.
  *
- * out[i] = clamp(round(in[i] / scale) + zp, -128, 127)
+ * c7x_int8_quantize: out[i] = clamp(round(in[i] * inv_scale) + zp, -128, 127)
  * where inv_scale = 1.0f / scale is precomputed by FuseInputQuantize.
+ *
+ * c7x_int8_quantize_rgb: the same formula with a per-channel (inv_scale,
+ * offset) pair instead of one shared (inv_scale, zp) — folds a per-channel
+ * affine normalize into the quantize step itself. See c7x_quantize.h and
+ * FuseInputNormalizeQuantize for the derivation (Step 16).
  *
  * C7x vectorized path (8 float32 per cycle on C7524):
  *   VMPYSP  multiply float32×8 by inv_scale
- *   VADDSP  add zp (as float)
+ *   VADDSP  add offset (zp or the folded affine term, as float)
  *   VMAXSP  clamp low  (-128.0f)
  *   VMINSP  clamp high (+127.0f)
  *   VSPINT  round-to-nearest float→int32
@@ -37,26 +42,49 @@
  *
  * Public interface uses void* (matching TVM call_extern convention) with
  * typed casts inside, same as tvm_dequantize_vecmatmul.cpp.
+ *
+ * KNOWN ISSUE (found via Step 16's unit tests, unrelated to that step's
+ * fold logic -- present, unmodified, in quantize_vec's arithmetic since
+ * before Step 16): on real c7x_dload hardware, small per-call element
+ * counts (empirically, below ~64) can return wrong (near-zero-input)
+ * results from the vectorized SE path; c7x_host emulation does not
+ * reproduce this. Every production caller (FuseInputQuantize,
+ * FuseInputNormalizeQuantize) always quantizes a full model input tensor
+ * (thousands+ of elements), so this has not been observed to affect any
+ * real model. Root cause not yet understood -- the failure pattern
+ * doesn't cleanly correlate with the vectorized loop structure (e.g. a
+ * 63-element call fails only in the scalar tail, not the vectorized
+ * part). Flagged as a follow-up investigation, not fixed here; see
+ * test_input_normalize_quantize_kernel.py's module docstring.
  */
 
 #include "c7x_quantize.h"
 #include <stdint.h>
 
-#ifdef __C7524__
-
+/* Unconditional include (not gated on __C7524__): on the c7x_host g++
+ * toolchain, __C7524__ is defined *by* <c7x.h> itself, not predefined by
+ * the compiler — gating the include on the macro it defines is a
+ * chicken-and-egg check that always evaluates false, silently disabling
+ * the vectorized path on host emulation (the real c7x cross-compiler
+ * predefines __C7524__ as a builtin before any header runs, so this only
+ * broke host emulation, not hardware builds). See
+ * c7x_avgpool_wrappers.cpp / c7x_pool_relu_wrappers.cpp for the same fix. */
 #include <c7x.h>
+
+#ifdef __C7524__
 
 #define FLOAT_SIMD 8
 
-extern "C"
-int32_t c7x_int8_quantize(
-        const void* in_ptr, void* out_ptr,
-        int32_t n, float inv_scale, int32_t zp) {
-
-    int8_t* __restrict__ out = (int8_t*)out_ptr;
+/* Shared by c7x_int8_quantize (offset = zp) and c7x_int8_quantize_rgb
+ * (offset = per-channel affine's folded additive term, see that
+ * function's doc comment) — identical formula, offset is just a float
+ * either way (the per-tensor caller's zp is exactly representable). */
+static void quantize_vec(
+        const float* __restrict__ in, int8_t* __restrict__ out,
+        int32_t n, float inv_scale, float offset) {
 
     const __float8 vinv = (__float8)inv_scale;
-    const __float8 vzp  = (__float8)((float)zp);
+    const __float8 voff = (__float8)offset;
     const __float8 vlo  = (__float8)(-128.0f);
     const __float8 vhi  = (__float8)(127.0f);
 
@@ -70,7 +98,7 @@ int32_t c7x_int8_quantize(
     se.ELETYPE = __SE_ELETYPE_32BIT;
     se.VECLEN  = __SE_VECLEN_8ELEMS;
 
-    __SE0_OPEN((void*)in_ptr, se);
+    __SE0_OPEN((void*)in, se);
 
     /* 4× unrolled: hides SE load latency (4–6 cycles) with independent chains */
     int32_t b = 0;
@@ -80,10 +108,10 @@ int32_t c7x_int8_quantize(
         __float8 vf1 = __SE0ADV(float8);
         __float8 vf2 = __SE0ADV(float8);
         __float8 vf3 = __SE0ADV(float8);
-        __float8 vc0 = __max(vlo, __min(vhi, vf0 * vinv + vzp));
-        __float8 vc1 = __max(vlo, __min(vhi, vf1 * vinv + vzp));
-        __float8 vc2 = __max(vlo, __min(vhi, vf2 * vinv + vzp));
-        __float8 vc3 = __max(vlo, __min(vhi, vf3 * vinv + vzp));
+        __float8 vc0 = __max(vlo, __min(vhi, vf0 * vinv + voff));
+        __float8 vc1 = __max(vlo, __min(vhi, vf1 * vinv + voff));
+        __float8 vc2 = __max(vlo, __min(vhi, vf2 * vinv + voff));
+        __float8 vc3 = __max(vlo, __min(vhi, vf3 * vinv + voff));
         __vstore_pack_byte((__char8*)(out + (b+0) * FLOAT_SIMD), __float_to_int(vc0));
         __vstore_pack_byte((__char8*)(out + (b+1) * FLOAT_SIMD), __float_to_int(vc1));
         __vstore_pack_byte((__char8*)(out + (b+2) * FLOAT_SIMD), __float_to_int(vc2));
@@ -91,39 +119,70 @@ int32_t c7x_int8_quantize(
     }
     for (; b < nvec; b++) {
         __float8 vf = __SE0ADV(float8);
-        __float8 vc = __max(vlo, __min(vhi, vf * vinv + vzp));
+        __float8 vc = __max(vlo, __min(vhi, vf * vinv + voff));
         __vstore_pack_byte((__char8*)(out + b * FLOAT_SIMD), __float_to_int(vc));
     }
 
     __SE0_CLOSE();
 
     /* Scalar tail for n % 8 remaining elements. */
-    const float* in_f = (const float*)in_ptr;
     for (int32_t i = nvec * FLOAT_SIMD; i < n; i++) {
-        float v = in_f[i] * inv_scale + (float)zp;
+        float v = in[i] * inv_scale + offset;
         int32_t qi = (int32_t)(v >= 0.0f ? v + 0.5f : v - 0.5f);
         out[i] = (int8_t)(qi < -128 ? -128 : (qi > 127 ? 127 : qi));
     }
-
-    return 0;
 }
-
-#else  /* scalar fallback for non-C7524 builds */
 
 extern "C"
 int32_t c7x_int8_quantize(
         const void* in_ptr, void* out_ptr,
         int32_t n, float inv_scale, int32_t zp) {
-
-    const float* in  = (const float*)in_ptr;
-    int8_t*      out = (int8_t*)out_ptr;
-
-    for (int32_t i = 0; i < n; i++) {
-        float v = in[i] * inv_scale + (float)zp;
-        int32_t qi = (int32_t)(v >= 0.0f ? v + 0.5f : v - 0.5f);
-        out[i] = (int8_t)(qi < -128 ? -128 : (qi > 127 ? 127 : qi));
-    }
+    quantize_vec((const float*)in_ptr, (int8_t*)out_ptr, n, inv_scale, (float)zp);
     return 0;
 }
 
+#define quantize_1plane quantize_vec
+
+#else  /* scalar fallback for non-C7524 builds */
+
+static void quantize_scalar(
+        const float* in, int8_t* out, int32_t n, float inv_scale, float offset) {
+    for (int32_t i = 0; i < n; i++) {
+        float v = in[i] * inv_scale + offset;
+        int32_t qi = (int32_t)(v >= 0.0f ? v + 0.5f : v - 0.5f);
+        out[i] = (int8_t)(qi < -128 ? -128 : (qi > 127 ? 127 : qi));
+    }
+}
+
+extern "C"
+int32_t c7x_int8_quantize(
+        const void* in_ptr, void* out_ptr,
+        int32_t n, float inv_scale, int32_t zp) {
+    quantize_scalar((const float*)in_ptr, (int8_t*)out_ptr, n, inv_scale, (float)zp);
+    return 0;
+}
+
+#define quantize_1plane quantize_scalar
+
 #endif  /* __C7524__ */
+
+/* Single definition for both branches above: quantize_1plane is macro'd to
+ * whichever single-plane helper that branch defined. */
+extern "C"
+int32_t c7x_int8_quantize_rgb(
+        const void* in_ptr, void* out_ptr, int32_t N, int32_t HW,
+        float inv_scale0, float offset0,
+        float inv_scale1, float offset1,
+        float inv_scale2, float offset2) {
+    const float* in  = (const float*)in_ptr;
+    int8_t*      out = (int8_t*)out_ptr;
+    const float inv_scale[3] = {inv_scale0, inv_scale1, inv_scale2};
+    const float offset[3]    = {offset0, offset1, offset2};
+
+    for (int32_t p = 0; p < N * 3; p++) {
+        int32_t c = p % 3;
+        quantize_1plane(in + (int64_t)p * HW, out + (int64_t)p * HW, HW,
+                         inv_scale[c], offset[c]);
+    }
+    return 0;
+}
