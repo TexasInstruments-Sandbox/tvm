@@ -45,6 +45,29 @@ int32_t c7x_int8_quantize(
     const void* in, void* out,
     int32_t n, float inv_scale, int32_t zp);
 
+/**
+ * @brief Per-channel float32 → int8 quantize for a 3-channel (RGB) NCHW
+ * input, folding a per-channel affine normalize (y = a*x + b) into the
+ * quantize step itself: out = clamp(round(x*inv_scale_c + offset_c), -128, 127).
+ *
+ * Replaces FuseInputNormalizeQuantize's traced
+ * take/expand_dims/multiply/add/concat/quantize chain (torchvision's
+ * Inception3/GoogLeNet transform_input) with a single call: the affine's
+ * scale/offset are folded into the quantize step's own scale/zero-point,
+ * so no intermediate float32 tensor or concat is ever materialized.
+ *
+ * @param in      Input tensor, float32, NCHW layout, C=3
+ * @param out     Output tensor, int8, same shape as input
+ * @param N       Batch size
+ * @param HW      H*W (elements per channel plane)
+ * @param inv_scaleC/offsetC  Per-channel affine+quantize params, channel C
+ */
+int32_t c7x_int8_quantize_rgb(
+    const void* in, void* out, int32_t N, int32_t HW,
+    float inv_scale0, float offset0,
+    float inv_scale1, float offset1,
+    float inv_scale2, float offset2);
+
 #ifdef __cplusplus
 }
 #endif
