@@ -19,22 +19,24 @@ the reference below reproduces both paths bit-for-bit rather than one
 rounding rule for the whole tensor (same rigor as test_avgpool_kernel.py's
 handling of its own two-rounding-mode kernel).
 
-Known pre-existing hardware bug (unrelated to this kernel's fold logic --
-present, unmodified, in the arithmetic quantize_vec shares with the
-already-shipped c7x_int8_quantize): on real c7x_dload hardware, small
-per-channel-plane sizes (empirically, HW < 64) can return wrong (~zero
--input) results from the SE-vectorized path. Confirmed directly against
-the *unmodified* c7x_int8_quantize kernel in isolation, so this predates
-and is independent of c7x_int8_quantize_rgb / FuseInputNormalizeQuantize
-(Step 16). The real target workload (InceptionV3/GoogLeNet's 299x299
-input, HW=89401 per plane) is far above this threshold and verified
-correct on hardware (see test_inceptionv3_input_size). Root cause not yet
-understood (failure pattern doesn't cleanly correlate with the vectorized
-loop structure -- e.g. HW=63 fails only in the scalar tail, not the
-vectorized part) -- flagged as a follow-up, not fixed here. Small-HW
-tests below are skipped on c7x_dload for this reason, but still run (and
-pass) on c7x_host, which doesn't reproduce the bug and still validates
-the fold's per-channel arithmetic.
+Small-HW hardware bug (found and fixed): c7x_int8_quantize's (and this
+kernel's shared quantize_vec helper's) SE-vectorized path used to return
+wrong (~zero-input) results on real c7x_dload hardware for small
+per-plane sizes (empirically, HW < 64). Root cause: the main 4x-unrolled
+loop was preceded by `#pragma MUST_ITERATE(1,,)`, asserting at least 1
+iteration -- but the loop's trip count is nvec4/4, and nvec4 = nvec & ~3
+is exactly 0 whenever HW < 32, making the pragma's claim false. Per TI's
+compiler docs, MUST_ITERATE's effect is to let the compiler eliminate the
+unpipelined safety-fallback loop that otherwise correctly handles small/
+zero trip counts -- exactly the condition this loop needed. Removing the
+(invalid) pragma from c7x_quantize.cpp's quantize_vec fixed every
+previously-failing case in the characterization matrix (HW=8,16,24,31,63),
+including the HW=63 case, which failed only in its scalar tail -- outside
+what the vector loop's pragma should plausibly have affected, so the fix
+resolving it too was not fully anticipated going in. Confirmed directly
+against the unmodified (pre-fix) c7x_int8_quantize kernel in isolation, so
+the bug predated and was independent of c7x_int8_quantize_rgb /
+FuseInputNormalizeQuantize (Step 16).
 
 Usage:
     pytest test_input_normalize_quantize_kernel.py -v --dsp-mode=c7x_host
@@ -140,14 +142,9 @@ def _run(dsp_mode, x, params):
     return out.reshape(N, 3, H, W), cycles
 
 
-def _check(dsp_mode, x, params, skip_on_dload_hw_bug=False):
+def _check(dsp_mode, x, params):
     if dsp_mode not in ("c7x_host", "c7x_dload"):
         pytest.skip("requires c7x_host or c7x_dload")
-    if skip_on_dload_hw_bug and dsp_mode == "c7x_dload":
-        pytest.skip(
-            "known pre-existing c7x_int8_quantize hardware bug at small "
-            "per-plane HW -- see module docstring"
-        )
     ref = _numpy_quantize_rgb(x, params)
     out, _ = _run(dsp_mode, x, params)
     assert np.array_equal(out, ref), f"max_err={np.abs(out.astype(int) - ref.astype(int)).max()}"
@@ -185,25 +182,24 @@ def test_transform_input_shape(dsp_mode):
 @pytest.mark.parametrize("h,w", [(1, 1), (1, 5), (2, 3), (3, 3), (7, 9)])
 def test_below_and_non_multiple_of_8(dsp_mode, h, w):
     """HW below 8 or not a multiple of 8 -- exercises the scalar tail path
-    (and, for HW < 8, no vector iterations at all). All these per-plane
-    sizes fall in the small-HW range affected by the known pre-existing
-    hardware bug (see module docstring) -- skipped on c7x_dload."""
+    (and, for HW < 8, no vector iterations at all). These per-plane sizes
+    are exactly the range the MUST_ITERATE fix (see module docstring) was
+    verified against on real c7x_dload hardware."""
     rng = np.random.default_rng(1)
     x = rng.uniform(-3.0, 3.0, (1, 3, h, w)).astype(np.float32)
     params = _folded_params(_TRANSFORM_INPUT_AFFINE, scale=0.01, zp=-3)
-    _check(dsp_mode, x, params, skip_on_dload_hw_bug=True)
+    _check(dsp_mode, x, params)
 
 
 @pytest.mark.quick
 def test_batch_n_greater_than_1(dsp_mode):
     """N>1: confirms the kernel's channel-plane indexing (plane_idx % 3)
     correctly threads through multiple batches, not just N=1. HW=25 per
-    plane falls in the small-HW range affected by the known pre-existing
-    hardware bug (see module docstring) -- skipped on c7x_dload."""
+    plane is in the small-HW range covered by the MUST_ITERATE fix."""
     rng = np.random.default_rng(2)
     x = rng.uniform(-3.0, 3.0, (4, 3, 5, 5)).astype(np.float32)
     params = _folded_params(_TRANSFORM_INPUT_AFFINE, scale=0.01, zp=-3)
-    _check(dsp_mode, x, params, skip_on_dload_hw_bug=True)
+    _check(dsp_mode, x, params)
 
 
 @pytest.mark.quick

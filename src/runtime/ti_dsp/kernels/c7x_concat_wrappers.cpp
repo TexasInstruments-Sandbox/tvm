@@ -84,7 +84,11 @@ static void rescale_slot_vec(
 
     int32_t i = 0;
 
-    #pragma MUST_ITERATE(1,,)
+    /* No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
+     * small n_elem, making "at least 1 iteration" false -- see
+     * c7x_quantize.cpp's quantize_vec for the full investigation (a
+     * violated MUST_ITERATE(1,,) here caused a confirmed hardware
+     * correctness bug for small inputs in that kernel). */
     for (; i < nvec4; i += 4) {
         __int8 vx0 = __SE0ADV(int8);
         __int8 vx1 = __SE0ADV(int8);
