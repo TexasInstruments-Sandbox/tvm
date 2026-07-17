@@ -1,5 +1,5 @@
-#ifndef TVM_SDPA_DECODE_H_
-#define TVM_SDPA_DECODE_H_
+#ifndef TVM_C7X_SDPA_DECODE_H_
+#define TVM_C7X_SDPA_DECODE_H_
 
 #include <stdint.h>
 
@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-int32_t tvm_sdpa_decode(
+int32_t c7x_sdpa_decode(
     const void* Q,
     const void* K_cache,
     const void* V_cache,
@@ -22,4 +22,4 @@ int32_t tvm_sdpa_decode(
 }
 #endif
 
-#endif  /* TVM_SDPA_DECODE_H_ */
+#endif  /* TVM_C7X_SDPA_DECODE_H_ */

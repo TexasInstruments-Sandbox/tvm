@@ -38,7 +38,7 @@ are inside each composite function body.  Using wildcard() for the Tuple arg
 would leave the dq ops outside the composite (treated as boundary inputs),
 making scale/zp extraction impossible without calling-function pre-scan.
 
-Kernel: src/runtime/ti_dsp/kernels/c7x_concat_wrappers.cpp
+Kernel: src/runtime/ti_dsp/kernels/c7x_concat.cpp
 """
 
 import logging

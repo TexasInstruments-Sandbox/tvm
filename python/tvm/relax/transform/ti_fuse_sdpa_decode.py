@@ -1,4 +1,4 @@
-"""Fuse GQA expand + attention_bias into tvm_sdpa_decode extern for decode (seq_q=1).
+"""Fuse GQA expand + attention_bias into c7x_sdpa_decode extern for decode (seq_q=1).
 
 Matches the pattern produced by StaticCache attention at seq_len=1:
 
@@ -9,7 +9,7 @@ Matches the pattern produced by StaticCache attention at seq_len=1:
 
 Phase 1: FuseOpsByPattern groups expand+broadcast+reshape+permute+attention_bias
           into a composite function (K/V scatter outputs become parameters).
-Phase 2: PyExprMutator lowers the composite to call_extern("tvm_sdpa_decode").
+Phase 2: PyExprMutator lowers the composite to call_extern("c7x_sdpa_decode").
 
 Must run AFTER: RewriteDequantize, _add_kv_scatter_outputs
 Must run BEFORE: LegalizeOps, FuseOps (i.e. before compile_for_dsp)
@@ -105,7 +105,7 @@ def _check_sdpa_decode(ctx) -> bool:
 
 @mutator
 class _SDPADecodeLowerer(PyExprMutator):
-    """Lower c7x.sdpa_decode composite functions to tvm_sdpa_decode extern."""
+    """Lower c7x.sdpa_decode composite functions to c7x_sdpa_decode extern."""
 
     def __init__(self, mod):
         super().__init__(mod)
@@ -217,7 +217,7 @@ class _SDPADecodeLowerer(PyExprMutator):
         def _te_sdpa(qt, kt, vt, mt, _nqh=nqh, _nkvh=nkvh, _hd=hd, _mcl=mcl):
             def fcompute(ins, outs):
                 return tir.call_extern(
-                    "int32", "tvm_sdpa_decode",
+                    "int32", "c7x_sdpa_decode",
                     ins[0].data, ins[1].data, ins[2].data,
                     ins[3].data, outs[0].data,
                     _nqh, _nkvh, _hd, _mcl,
@@ -243,7 +243,7 @@ class _SDPADecodeLowerer(PyExprMutator):
 
 @tvm.transform.module_pass(opt_level=0, name="FuseSDPADecode")
 class FuseSDPADecode:
-    """Fuse GQA attention pattern into tvm_sdpa_decode extern call.
+    """Fuse GQA attention pattern into c7x_sdpa_decode extern call.
 
     Only effective for decode models (seq_q=1). Prefill models (seq_q>1)
     are not matched because the constraint checks seq_q==1.

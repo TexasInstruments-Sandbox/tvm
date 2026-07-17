@@ -1,4 +1,4 @@
-"""Unit test for tvm_sdpa_decode kernel.
+"""Unit test for c7x_sdpa_decode kernel.
 
 Directly invokes the kernel via call_extern with known inputs and
 verifies output matches numpy reference. Tests GQA head expansion,
@@ -51,13 +51,13 @@ def _numpy_sdpa_decode(Q, K_cache, V_cache, mask, num_q_heads, num_kv_heads,
 
 
 def _build_sdpa_module(num_q_heads, num_kv_heads, head_dim, max_cache_len):
-    """Build a Relax module that calls tvm_sdpa_decode directly."""
+    """Build a Relax module that calls c7x_sdpa_decode directly."""
 
     def te_sdpa(q_t, k_t, v_t, mask_t):
         def fcompute(ins, outs):
             return tir.call_extern(
                 "int32",
-                "tvm_sdpa_decode",
+                "c7x_sdpa_decode",
                 ins[0].data,
                 ins[1].data,
                 ins[2].data,

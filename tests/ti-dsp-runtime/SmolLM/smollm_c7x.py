@@ -622,7 +622,7 @@ def _substitute_vars(expr, var_map):
 
 
 def _fuse_sdpa_decode(mod, seq_len):
-    """Replace GQA expand+attention_bias with tvm_sdpa_decode for decode (seq=1).
+    """Replace GQA expand+attention_bias with c7x_sdpa_decode for decode (seq=1).
 
     Pattern per layer in the Relax IR:
         lv85: scatter_elements [1,3,cache,64]   (K cache write)
@@ -638,7 +638,7 @@ def _fuse_sdpa_decode(mod, seq_len):
 
     Replaced with:
         scatter_elements(K/V) kept
-        call_extern("tvm_sdpa_decode", Q, K_scatter, V_scatter, mask,
+        call_extern("c7x_sdpa_decode", Q, K_scatter, V_scatter, mask,
                     num_q_heads, num_kv_heads, head_dim, max_cache_len)
 
     Only applied when seq_len=1 (decode model).
@@ -787,7 +787,7 @@ def _fuse_sdpa_decode(mod, seq_len):
             o_param = tir.Var("o", "handle")
 
             body = tir.Evaluate(tir.call_extern(
-                "int32", "tvm_sdpa_decode",
+                "int32", "c7x_sdpa_decode",
                 tir.call_intrin("handle", "tir.tvm_struct_get", q_param, 0, 1),
                 tir.call_intrin("handle", "tir.tvm_struct_get", k_param, 0, 1),
                 tir.call_intrin("handle", "tir.tvm_struct_get", v_param, 0, 1),
@@ -847,7 +847,7 @@ def _fuse_sdpa_decode(mod, seq_len):
                              _nqh=nqh, _nkvh=nkvh, _hd=hd, _mcl=mcl):
                     def fcompute(ins, outs):
                         return tir.call_extern(
-                            "int32", "tvm_sdpa_decode",
+                            "int32", "c7x_sdpa_decode",
                             ins[0].data, ins[1].data, ins[2].data,
                             ins[3].data, outs[0].data,
                             _nqh, _nkvh, _hd, _mcl,

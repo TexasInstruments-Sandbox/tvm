@@ -6,14 +6,16 @@ Tests for TIDL subgraph offloading in the TVM/Relax c_static backend.
 
 | Test | Count | What it tests | Requirements |
 |------|-------|---------------|--------------|
-| `test_tidl_partition.py` | 10 | Pattern matching, partitioning, constraints | TVM only |
+| `test_tidl_partition.py` | 17 | Pattern matching, partitioning, constraints | TVM only |
 | `test_tidl_codegen.py` | 12 | Lowering pass, TIR stubs, c_static codegen, bridge generation (single + multi-subgraph, stub + real) | TVM only |
-| `test_tidl_relax_import.py` | 16 | FFI load, init, AllowNode, tidl_import() pipeline | `tidl_model_import_relax.so` + c7x-mma-tidl tree |
-| `test_tidl_layer_offload.py` | 94 | Per-layer offload validation: pattern matching (Level 1, 55 tests) and hardware inference (Level 4, 39 tests) covering all supported layer types | Level 1: TVM only; Level 4: `.so` + `TI_CGT_C7000_PATH` + AM67A |
+| `test_tidl_relax_import.py` | 18 | FFI load, init, AllowNode, tidl_import() pipeline | `tidl_model_import_relax.so` + c7x-mma-tidl tree |
+| `test_tidl_layer_offload.py` | 103 | Per-layer offload validation: pattern matching (Level 1, 61 tests) and hardware inference (Level 4, 42 tests) covering all supported layer types | Level 1: TVM only; Level 4: `.so` + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_new_ops.py` | 4 | Newer composite ops (softmax, multiply, permute_dims, concat) through full build + AM67A pipeline | `.so` + `TI_CGT_C7000_PATH` + AM67A |
-| `test_tidl_e2e.py` | 1 | Full pipeline with stub bridge on c7x_host (no TIDL libs needed) | `TI_CGT_C7000_PATH` |
+| `test_tidl_e2e.py` | 2 | Full pipeline on c7x_host: stub bridge (no TIDL libs) and real bridge (TIDL PC/AVX reference path) | `TI_CGT_C7000_PATH`; real-bridge test also needs `.so` + PC TIDL algo libs |
 | `test_tidl_import_e2e.py` | 2 | `compiler.build()` one-call pipeline -> deploy -> run on AM67A (single-subgraph ConvReluSoftmax + multi-subgraph 2-conv model) | `.so` + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_resnet_e2e.py` | 3 | ResNet-18 TIDL build pipeline validation, hardware correctness, cycle comparison | `.so` + `TI_CGT_C7000_PATH` (build test); + AM67A (hardware tests) |
+| `test_tidl_mv2_e2e.py` | 2 | MobileNetV2 TIDL build + hardware correctness -- calibration infrastructure check against ResNet-18's Bug 4 | `.so` + `TI_CGT_C7000_PATH` (build test); + AM67A (correctness test) |
+| `test_yolo_dsp.py` | 6 | YOLOv5/YOLOv8 (n, s) c_static DSP and TIDL offloading tests | `TI_CGT_C7000_PATH`; TIDL variants need `.so` + AM67A |
 | `diag_tidl_levels.py` | -- | Standalone multi-level TIDL init debug script | `TI_CGT_C7000_PATH` + artifacts + AM67A |
 
 ```bash
@@ -21,7 +23,7 @@ Tests for TIDL subgraph offloading in the TVM/Relax c_static backend.
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_partition.py \
        tests/ti-dsp-runtime/tidl-tests/test_tidl_codegen.py -v
 
-# Per-layer partition tests — no .so or hardware (42 tests, ~0.3s):
+# Per-layer partition tests — no .so or hardware (61 tests, ~0.3s):
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_layer_offload.py \
        -k TestLayerPartition -v
 
@@ -55,7 +57,7 @@ test classes.  For constraint details (axis restrictions, calibration
 behavior for math ops, etc.) see
 `python/tvm/relax/backend/tidl/README.md`.
 
-### Level 1 — Partition (`TestLayerPartition`, 55 tests)
+### Level 1 — Partition (`TestLayerPartition`, 61 tests)
 
 Pure Python pattern-matching tests.  No `.so`, no hardware, no TI
 compiler required.  Runs in under a second.
@@ -67,7 +69,7 @@ Includes **constraint rejection** tests:
 - `test_reduce_multi_axis_rejected` — multi-axis reduction rejected
 - `test_divide_rejects_rank2` — sub-4D element-wise ops rejected
 
-### Level 4 — Hardware (`TestLayerHardware`, 39 tests)
+### Level 4 — Hardware (`TestLayerHardware`, 42 tests)
 
 End-to-end tests running the full TIDL pipeline on AM67A:
 `partition → tidl_import → lower → codegen → bridge → build → run_dsp_dload`
@@ -79,7 +81,7 @@ Requirements: `tidl_model_import_relax.so`, `TI_CGT_C7000_PATH`, AM67A.
 | Activations | sigmoid, tanh, clip, leakyrelu, elu, hard_sigmoid, hard_swish, mish |
 | Element-wise | subtract, maximum, minimum |
 | Reductions | sum, reduce_max, argmax, argmin |
-| Advanced | resize2d, strided_slice, permute_dims, concat, topk, split, depth_to_space |
+| Advanced | resize2d, strided_slice, strided_slice_to_end, global_avg_pool (via mean), permute_dims, concat, topk, split, depth_to_space, conv2d_transpose |
 | Math/unary | abs, sqrt, exp, log, erf, floor, negative, sin, cos, tan, sinh, cosh, asin, acos, atan, asinh, power |
 
 All hardware tests assert `np.isfinite(output).all()`.  Math/unary ops

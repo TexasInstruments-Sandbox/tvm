@@ -11,12 +11,12 @@ outputs within tolerance (rtol=1e-3, atol=1e-5).
 export TVM_HOME=$(pwd)
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 
-# Run quick tests in parallel
+# Run quick tests in parallel (excludes slow and model_zoo)
 cd tests/cstatic
-pytest --rootdir=. unit-tests/ -m "not slow" -n auto -v
+pytest --rootdir=. unit-tests/ -m "not slow and not model_zoo" -n auto -v
 
-# Run all tests (including slow: ViT-B/16, segmentation)
-pytest --rootdir=. unit-tests/ -v
+# Run all tests (including slow: ViT-B/16, segmentation; excludes model_zoo)
+pytest --rootdir=. unit-tests/ -m "not model_zoo" -v
 
 # Debug a failed test (preserve temp workspace)
 CSTATIC_KEEP_TEMP=1 pytest --rootdir=. unit-tests/test_resnet.py -v
@@ -61,13 +61,15 @@ All automated tests are in `unit-tests/`:
 | `test_use_cpp_api_codegen.py` | C++ API codegen flag verification | quick |
 | `test_vitb16.py` | Vision Transformer ViT-B/16 | slow |
 | `test_segmentation.py` | FCN ResNet-50 (dynamic shapes) | slow |
+| `test_model_zoo.py` | 111 TorchVision/YOLO models (classification, detection, segmentation, YOLO) | model_zoo |
 
 ### Running by category
 
 ```bash
-pytest --rootdir=. unit-tests/ -m "not slow"   # Quick only (~30s)
-pytest --rootdir=. unit-tests/ -m slow          # Slow only (~5min)
-pytest --rootdir=. unit-tests/ -n auto          # All, parallel
+pytest --rootdir=. unit-tests/ -m "not slow and not model_zoo"   # Quick only (~30s)
+pytest --rootdir=. unit-tests/ -m "slow and not model_zoo"       # Slow only (~5min)
+pytest --rootdir=. unit-tests/test_model_zoo.py                  # Model zoo only (111 models)
+pytest --rootdir=. unit-tests/ -m "not model_zoo" -n auto        # Quick + slow, parallel
 ```
 
 ## Standalone Model Scripts
@@ -113,3 +115,6 @@ The Jenkinsfile in this directory runs the full suite:
 - cnpy build
 - Quick tests in parallel (`-n auto`)
 - Slow tests (ViT, segmentation) unless `SKIP_SLOW_TESTS` is set
+- Model zoo tests (`test_model_zoo.py`) unless `SKIP_MODEL_ZOO` is set, with
+  per-category skips (`SKIP_CLASSIFICATION`, `SKIP_DETECTION`,
+  `SKIP_SEGMENTATION`, `SKIP_YOLO`)

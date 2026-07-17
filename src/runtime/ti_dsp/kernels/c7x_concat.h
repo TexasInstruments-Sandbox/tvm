@@ -18,7 +18,7 @@
  */
 
 /**
- * @file c7x_concat_wrappers.h
+ * @file c7x_concat.h
  * @brief Vectorized int8 channel-axis concatenation with per-input rescaling.
  *
  * Handles the common Inception-module pattern:
@@ -29,8 +29,8 @@
  * Vectorized path: SE streaming + Q13 integer fixed-point, #ifdef __C7524__.
  */
 
-#ifndef TVM_C7X_CONCAT_WRAPPERS_H_
-#define TVM_C7X_CONCAT_WRAPPERS_H_
+#ifndef TVM_C7X_CONCAT_H_
+#define TVM_C7X_CONCAT_H_
 
 #include <stdint.h>
 
@@ -66,4 +66,4 @@ int32_t c7x_int8_concat_rescale(
 }
 #endif
 
-#endif  /* TVM_C7X_CONCAT_WRAPPERS_H_ */
+#endif  /* TVM_C7X_CONCAT_H_ */

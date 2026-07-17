@@ -2,7 +2,7 @@
 
 Exercises all four int8 MMALIB kernels in a single model:
   mmalib_conv2d_i8, mmalib_depthwise_conv2d_i8,
-  tvm_int8_residual_add_relu, mmalib_matmul_bias_i8.
+  c7x_int8_residual_add_relu, mmalib_matmul_bias_i8.
 
 Two assertions on a real image (tests/cstatic/test_images/dog.jpg):
 

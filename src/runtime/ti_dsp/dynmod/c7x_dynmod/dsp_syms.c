@@ -125,15 +125,15 @@ __declspec(dllexport) void TVMDSPGetAllConstants() {}
  * ======================================================================== */
 __declspec(dllexport) void tvm_dsp_dma_copy() {}
 __declspec(dllexport) void tvm_dsp_dma_wait() {}
-__declspec(dllexport) void tvm_int8_residual_add_relu() {}
-__declspec(dllexport) void tvm_int16_residual_add_relu() {}
-__declspec(dllexport) void tvm_dequantize_vecmatmul() {}
-__declspec(dllexport) void tvm_sdpa_decode() {}
-__declspec(dllexport) int32_t tidl_int8_gelu() { return 0; }
-__declspec(dllexport) int32_t tidl_int8_silu() { return 0; }
-__declspec(dllexport) int32_t tidl_int8_hardsigmoid() { return 0; }
+__declspec(dllexport) void c7x_int8_residual_add_relu() {}
+__declspec(dllexport) void c7x_int16_residual_add_relu() {}
+__declspec(dllexport) void c7x_dequantize_vecmatmul() {}
+__declspec(dllexport) void c7x_sdpa_decode() {}
+__declspec(dllexport) int32_t c7x_int8_gelu() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_silu() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_hardsigmoid() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_hardswish() { return 0; }
-__declspec(dllexport) int32_t tidl_int8_channel_scale_multiply() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_channel_scale_multiply() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_global_avg_pool() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_avg_pool() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_max_pool() { return 0; }
@@ -143,7 +143,7 @@ __declspec(dllexport) int32_t c7x_int8_clamp() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_requantize_clamp() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_quantize() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_quantize_rgb() { return 0; }
-__declspec(dllexport) int32_t tidl_int8_layer_norm() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_layer_norm() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_concat_rescale() { return 0; }
 
 /* ========================================================================

@@ -1,4 +1,4 @@
-"""Unit tests for tvm_int8_residual_add_relu kernel.
+"""Unit tests for c7x_int8_residual_add_relu kernel.
 
 Directly invokes the kernel via call_extern with known inputs and verifies
 output against a numpy reference.  Tests the kernel in isolation, independent
@@ -117,7 +117,7 @@ def _build_residual_add_module(n, params_np, kernel_name, in_dtype, out_dtype,
 
 
 def _run_residual_add(dsp_mode, x, skip, M_x, M_skip, shift, zp_x, zp_skip,
-                       zp_out, has_relu, kernel="tvm_int8_residual_add_relu",
+                       zp_out, has_relu, kernel="c7x_int8_residual_add_relu",
                        in_dtype="int8", out_dtype="int8"):
     n = len(x)
     params_np = _pack_params_i8(M_x, M_skip, shift, zp_x, zp_skip, zp_out)
@@ -275,7 +275,7 @@ def test_i16_scalar_correctness(dsp_mode):
     ref = _numpy_ref_i16(x, skip, M_x, M_skip, shift, 0, 0, 0, False)
     out, _ = _run_residual_add(
         dsp_mode, x, skip, M_x, M_skip, shift, 0, 0, 0, False,
-        kernel="tvm_int16_residual_add_relu",
+        kernel="c7x_int16_residual_add_relu",
         in_dtype="int16", out_dtype="int16",
     )
     assert np.array_equal(out.flatten(), ref)

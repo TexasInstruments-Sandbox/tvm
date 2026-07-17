@@ -10,7 +10,7 @@ The kernel computes, per channel c and per batch n:
 
 Rounding convention differs by element position within each channel plane,
 inherited unchanged from c7x_int8_quantize (this kernel reuses the exact
-same quantize_vec/quantize_scalar helpers): the vectorized bulk
+same quantize_1plane helper): the vectorized bulk
 (HW // 8 * 8 elements) rounds via __float_to_int/VSPINT, which is
 round-half-to-even; the scalar tail (HW % 8 remaining elements per plane)
 rounds via the truncating (int32_t)(v >= 0 ? v + 0.5f : v - 0.5f), which is
@@ -20,7 +20,7 @@ rounding rule for the whole tensor (same rigor as test_avgpool_kernel.py's
 handling of its own two-rounding-mode kernel).
 
 Small-HW hardware bug (found and fixed): c7x_int8_quantize's (and this
-kernel's shared quantize_vec helper's) SE-vectorized path used to return
+kernel's shared quantize_1plane helper's) SE-vectorized path used to return
 wrong (~zero-input) results on real c7x_dload hardware for small
 per-plane sizes (empirically, HW < 64). Root cause: the main 4x-unrolled
 loop was preceded by `#pragma MUST_ITERATE(1,,)`, asserting at least 1
@@ -29,7 +29,7 @@ is exactly 0 whenever HW < 32, making the pragma's claim false. Per TI's
 compiler docs, MUST_ITERATE's effect is to let the compiler eliminate the
 unpipelined safety-fallback loop that otherwise correctly handles small/
 zero trip counts -- exactly the condition this loop needed. Removing the
-(invalid) pragma from c7x_quantize.cpp's quantize_vec fixed every
+(invalid) pragma from c7x_quantize.cpp's quantize_1plane fixed every
 previously-failing case in the characterization matrix (HW=8,16,24,31,63),
 including the HW=63 case, which failed only in its scalar tail -- outside
 what the vector loop's pragma should plausibly have affected, so the fix
@@ -55,7 +55,7 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import compile_and_run_dsp, get_target_string, round_bulk_tail  # noqa: E402
 
 _KERNEL = "c7x_int8_quantize_rgb"
 
@@ -71,19 +71,18 @@ def _numpy_quantize_rgb(x, params):
     matching __float_to_int) and scalar tail (round-half-away-from-zero,
     matching the truncating v +/- 0.5 convention) -- see module docstring.
     """
+    def _sign_aware_tail(tail):
+        return np.where(
+            tail >= 0, np.floor(tail + np.float32(0.5)), np.ceil(tail - np.float32(0.5))
+        )
+
     N, C, H, W = x.shape
     HW = H * W
-    nvec8 = (HW // 8) * 8
     xf = x.reshape(N, C, HW)
     out = np.empty((N, C, HW), dtype=np.int8)
     for c, (inv_scale_c, offset_c) in enumerate(params):
         v = xf[:, c].astype(np.float32) * np.float32(inv_scale_c) + np.float32(offset_c)
-        qi = np.empty(v.shape, dtype=np.float64)
-        qi[:, :nvec8] = np.round(v[:, :nvec8])  # vectorized bulk: ties-to-even
-        tail = v[:, nvec8:]
-        qi[:, nvec8:] = np.where(
-            tail >= 0, np.floor(tail + np.float32(0.5)), np.ceil(tail - np.float32(0.5))
-        )
+        qi = round_bulk_tail(v, vec_width=8, tail_round_fn=_sign_aware_tail)
         out[:, c] = np.clip(qi, -128, 127).astype(np.int8)
     return out.reshape(N, C, H, W)
 

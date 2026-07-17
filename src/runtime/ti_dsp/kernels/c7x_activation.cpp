@@ -18,14 +18,14 @@
  */
 
 /**
- * @file tidl_activation_wrappers.cpp
+ * @file c7x_activation.cpp
  * @brief Element-wise quantized activation kernels.
  *
  * c7x_int8_hardswish: SE + float vectorized on C7524 (#ifdef __C7524__);
  *   scalar float fallback for other targets.  SE eliminates DDR scalar-read
  *   latency (~100 cycles/elem → ~2–4 cycles/elem on C7524).
  *
- * tidl_int8_channel_scale_multiply: SE + Q13 integer per-channel vectorized
+ * c7x_int8_channel_scale_multiply: SE + Q13 integer per-channel vectorized
  *   on C7524.  Handles the SE-block broadcast pattern [1,C,1,1] × [1,C,H,W]
  *   by looping over C channels with per-channel Q13 scale derived from the
  *   excitation vector, then streaming the H×W feature map via SE0.
@@ -38,7 +38,7 @@
  * results without the guard.
  */
 
-#include "tidl_activation_wrappers.h"
+#include "c7x_activation.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -50,7 +50,7 @@
  * the vectorized path on host emulation (the real c7x cross-compiler
  * predefines __C7524__ as a builtin before any header runs, so this only
  * broke host emulation, not hardware builds). See
- * c7x_avgpool_wrappers.cpp / c7x_pool_relu_wrappers.cpp / c7x_quantize.cpp
+ * c7x_avgpool.cpp / c7x_pool_relu.cpp / c7x_quantize.cpp
  * for the same fix. */
 #include <c7x.h>
 
@@ -99,7 +99,7 @@ static inline float _hardswish(float x) {
  * ========================================================================= */
 
 extern "C"
-int32_t tidl_int8_gelu(
+int32_t c7x_int8_gelu(
         const void* in, void* out, int32_t n,
         int32_t zx, float sx, int32_t zy, float sy) {
     const int8_t* p = (const int8_t*)in;
@@ -110,7 +110,7 @@ int32_t tidl_int8_gelu(
 }
 
 extern "C"
-int32_t tidl_int8_silu(
+int32_t c7x_int8_silu(
         const void* in, void* out, int32_t n,
         int32_t zx, float sx, int32_t zy, float sy) {
     const int8_t* p = (const int8_t*)in;
@@ -121,7 +121,7 @@ int32_t tidl_int8_silu(
 }
 
 extern "C"
-int32_t tidl_int8_hardsigmoid(
+int32_t c7x_int8_hardsigmoid(
         const void* in, void* out, int32_t n,
         int32_t zx, float sx, int32_t zy, float sy) {
     const int8_t* p = (const int8_t*)in;
@@ -142,7 +142,7 @@ int32_t tidl_int8_hardsigmoid(
  * SE streams int8 input sign-extended to int32; cast to float8 via VSPISP;
  * all arithmetic in float; requantize via __float_to_int + __vstore_pack_byte.
  * Pattern from c7x_quantize.cpp (float SE) combined with int8 SE template
- * from tvm_int8_residual_add.cpp.
+ * from c7x_residual_add.cpp.
  * ========================================================================= */
 
 #ifdef __C7524__
@@ -180,15 +180,11 @@ static void hardswish_vec(
 
     /* 4× unrolled: four independent float8 chains hide the SE load latency.
      *
-     * No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
-     * small n, making "at least 1 iteration" false -- see
-     * c7x_quantize.cpp's quantize_vec for the full investigation (a
-     * violated MUST_ITERATE(1,,) here caused a confirmed hardware
-     * correctness bug for small inputs in that kernel). Confirmed on this
-     * kernel too: restoring the (invalid) pragma to test in isolation
-     * caused a real firmware hang on c7x_dload hardware, not just a
-     * numerical difference -- removing it is the safer state, not just
-     * the more-correct one. */
+     * No #pragma MUST_ITERATE(1,,): nvec4 can be 0 for small n -- see
+     * c7x_quantize.cpp's quantize_1plane for the full investigation.
+     * Confirmed on this kernel too: restoring the (invalid) pragma to
+     * test in isolation caused a real firmware hang on c7x_dload
+     * hardware, not just a numerical difference. */
     for (; i < nvec4; i += 4) {
         __float8 vf0 = __int_to_float(__SE0ADV(int8));
         __float8 vf1 = __int_to_float(__SE0ADV(int8));
@@ -250,7 +246,7 @@ int32_t c7x_int8_hardswish(
 }
 
 /* =========================================================================
- * tidl_int8_channel_scale_multiply — SE + Q13 per-channel vectorized
+ * c7x_int8_channel_scale_multiply — SE + Q13 per-channel vectorized
  *
  * Handles the SE-block broadcast multiply: excitation[1,C,1,1] ×
  * feature_map[1,C,H,W].  For each channel c, the excitation scalar is
@@ -312,13 +308,11 @@ static void channel_scale_multiply_vec(
         __SE0_OPEN(const_cast<int8_t*>(fm_ch), se);
 
         int32_t i = 0;
-        /* No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
-         * small H_W, making "at least 1 iteration" false -- see
-         * c7x_quantize.cpp's quantize_vec for the full investigation (a
-         * violated MUST_ITERATE(1,,) here caused a confirmed hardware
-         * correctness bug for small inputs in that kernel). Confirmed on
-         * this kernel too: restoring the (invalid) pragma to test in
-         * isolation caused a real firmware hang on c7x_dload hardware. */
+        /* No #pragma MUST_ITERATE(1,,): nvec4 can be 0 for small H_W --
+         * see c7x_quantize.cpp's quantize_1plane for the full investigation.
+         * Confirmed on this kernel too: restoring the (invalid) pragma to
+         * test in isolation caused a real firmware hang on c7x_dload
+         * hardware. */
         for (; i < nvec4; i += 4) {
             __int8 vx0 = __SE0ADV(int8);
             __int8 vx1 = __SE0ADV(int8);
@@ -355,7 +349,7 @@ static void channel_scale_multiply_vec(
 #endif  /* __C7524__ */
 
 extern "C"
-int32_t tidl_int8_channel_scale_multiply(
+int32_t c7x_int8_channel_scale_multiply(
         const void* excitation, const void* feature_map, void* out,
         int32_t C, int32_t H_W,
         float s_exc,  int32_t z_exc,

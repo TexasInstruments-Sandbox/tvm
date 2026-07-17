@@ -5,17 +5,17 @@ Validates the full flow:
   → C7xMMAQuantizer (prepare_pt2e / calibrate / convert_pt2e)
   → from_exported_program (Relax QDQ IR)
   → c_static -mcpu=c7x -mmalib=1
-      (FuseQDQToTIDLActivation / FuseQDQToC7xAvgPool / FuseQDQToTIDLLayerNorm)
-  → tidl_int8_* kernel on c7x_host / c7x_dload
+      (FuseQDQToC7xActivation / FuseQDQToC7xAvgPool / FuseQDQToC7xLayerNorm)
+  → c7x_int8_* kernel on c7x_host / c7x_dload
 
 Correctness: DSP output is compared against the PyTorch quantized reference.
 Tolerance max_diff ≤ 2 allows ±1 LSB rounding difference (same as MMALIB tests).
 
 Usage:
     cd tests/ti-dsp-runtime
-    pytest --rootdir=. pt2e-tests/test_c7x_tidl_activation_e2e_dsp.py \\
+    pytest --rootdir=. pt2e-tests/test_c7x_activation_e2e_dsp.py \\
         -m quick --dsp-mode=c7x_host -v
-    pytest --rootdir=. pt2e-tests/test_c7x_tidl_activation_e2e_dsp.py \\
+    pytest --rootdir=. pt2e-tests/test_c7x_activation_e2e_dsp.py \\
         -m quick --dsp-mode=c7x_dload -v
 """
 
@@ -27,7 +27,7 @@ from pt2e_utils import e2e_quantize_and_import, run_and_check
 
 
 # ---------------------------------------------------------------------------
-# Non-linear activation tests (FuseQDQToTIDLActivation)
+# Non-linear activation tests (FuseQDQToC7xActivation)
 #
 # Each model is Linear → activation → Linear so that both the activation
 # input and output are surrounded by quantized layers, giving a clean
@@ -49,7 +49,7 @@ class _ActModel(nn.Module):
 @pytest.mark.quick
 @pytest.mark.c7x_only
 def test_e2e_gelu_i8(dsp_mode, record_cycles):
-    """gelu int8: C7xMMAQuantizer → tidl_int8_gelu."""
+    """gelu int8: C7xMMAQuantizer → c7x_int8_gelu."""
     if dsp_mode is None:
         pytest.skip("--dsp-mode not set")
 
@@ -62,7 +62,7 @@ def test_e2e_gelu_i8(dsp_mode, record_cycles):
 @pytest.mark.quick
 @pytest.mark.c7x_only
 def test_e2e_silu_i8(dsp_mode, record_cycles):
-    """silu int8: C7xMMAQuantizer → tidl_int8_silu."""
+    """silu int8: C7xMMAQuantizer → c7x_int8_silu."""
     if dsp_mode is None:
         pytest.skip("--dsp-mode not set")
 
@@ -75,7 +75,7 @@ def test_e2e_silu_i8(dsp_mode, record_cycles):
 @pytest.mark.quick
 @pytest.mark.c7x_only
 def test_e2e_hardsigmoid_i8(dsp_mode, record_cycles):
-    """hardsigmoid int8: C7xMMAQuantizer → tidl_int8_hardsigmoid."""
+    """hardsigmoid int8: C7xMMAQuantizer → c7x_int8_hardsigmoid."""
     if dsp_mode is None:
         pytest.skip("--dsp-mode not set")
 
@@ -88,7 +88,7 @@ def test_e2e_hardsigmoid_i8(dsp_mode, record_cycles):
 @pytest.mark.quick
 @pytest.mark.c7x_only
 def test_e2e_hardswish_i8(dsp_mode, record_cycles):
-    """hardswish int8: C7xMMAQuantizer → tidl_int8_hardswish."""
+    """hardswish int8: C7xMMAQuantizer → c7x_int8_hardswish."""
     if dsp_mode is None:
         pytest.skip("--dsp-mode not set")
 
@@ -150,14 +150,14 @@ def test_e2e_avg_pool2d_i8(dsp_mode, record_cycles):
 
 
 # ---------------------------------------------------------------------------
-# Layer norm test (FuseQDQToTIDLLayerNorm)
+# Layer norm test (FuseQDQToC7xLayerNorm)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.quick
 @pytest.mark.c7x_only
 def test_e2e_layer_norm_i8(dsp_mode, record_cycles):
-    """layer_norm int8: C7xMMAQuantizer → tidl_int8_layer_norm.
+    """layer_norm int8: C7xMMAQuantizer → c7x_int8_layer_norm.
 
     The kernel runs float32 internally (dequant → normalize → requant),
     so accuracy should be the same as the activation tests (max_diff ≤ 2).

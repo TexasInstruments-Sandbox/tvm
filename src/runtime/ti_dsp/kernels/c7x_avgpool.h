@@ -18,7 +18,7 @@
  */
 
 /**
- * @file c7x_avgpool_wrappers.h
+ * @file c7x_avgpool.h
  * @brief Quantized average-pooling kernels for int8 tensors.
  *
  * Pure C7x kernels — neither function calls into the TIDL algo library
@@ -26,13 +26,13 @@
  * kernel that actually does).
  *
  * All tensors are NCHW layout.  Quantization parameters follow the
- * same convention as tidl_activation_wrappers.h:
+ * same convention as c7x_activation.h:
  *   x_float = (in[i] - zx) * sx
  *   out[i]  = clamp(round(mean_float / sy) + zy, -128, 127)
  */
 
-#ifndef TVM_C7X_AVGPOOL_WRAPPERS_H_
-#define TVM_C7X_AVGPOOL_WRAPPERS_H_
+#ifndef TVM_C7X_AVGPOOL_H_
+#define TVM_C7X_AVGPOOL_H_
 
 #include <stdint.h>
 
@@ -91,4 +91,4 @@ int32_t c7x_int8_avg_pool(
 }
 #endif
 
-#endif  /* TVM_C7X_AVGPOOL_WRAPPERS_H_ */
+#endif  /* TVM_C7X_AVGPOOL_H_ */

@@ -18,7 +18,7 @@
  */
 
 /**
- * @file tidl_norm_wrappers.c
+ * @file c7x_norm.c
  * @brief Int8 layer normalization.
  *
  * Computes layer norm in float32 after dequantizing the input.  This avoids
@@ -26,7 +26,7 @@
  * with fixed-point arithmetic.  Only the I/O is int8.
  */
 
-#include "tidl_norm_wrappers.h"
+#include "c7x_norm.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -38,7 +38,7 @@ static inline int8_t rq(float y, int32_t zy, float sy) {
     return (int8_t)v;
 }
 
-int32_t tidl_int8_layer_norm(
+int32_t c7x_int8_layer_norm(
         const void* in, const void* weight, const void* bias, void* out,
         int32_t outer_size, int32_t norm_size,
         float eps,

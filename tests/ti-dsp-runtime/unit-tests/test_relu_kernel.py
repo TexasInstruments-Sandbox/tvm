@@ -2,7 +2,7 @@
 
 Directly invokes the kernel via call_extern with known inputs and verifies
 output against a numpy reference. Tests are independent of the
-ti_fuse_qdq_tidl_relu.py fusion pass.
+ti_fuse_qdq_c7x_relu.py fusion pass.
 
 The kernel computes: out[i] = max(in[i], clip_lo), a plain per-element
 clamp with no rescale (relu is only lowered when d_zp == o_zp, so there is

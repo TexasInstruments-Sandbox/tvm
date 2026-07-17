@@ -18,7 +18,7 @@
  */
 
 /**
- * @file tidl_activation_wrappers.h
+ * @file c7x_activation.h
  * @brief C-callable wrappers for TIDL quantized activation functions.
  *
  * Each function applies a non-linear activation element-wise on an int8
@@ -42,8 +42,8 @@
  * auto-vectorises the loop with the TI MathLib SIMD primitives.
  */
 
-#ifndef TVM_TIDL_ACTIVATION_WRAPPERS_H_
-#define TVM_TIDL_ACTIVATION_WRAPPERS_H_
+#ifndef TVM_C7X_ACTIVATION_H_
+#define TVM_C7X_ACTIVATION_H_
 
 #include <stdint.h>
 
@@ -51,15 +51,15 @@
 extern "C" {
 #endif
 
-int32_t tidl_int8_gelu(
+int32_t c7x_int8_gelu(
     const void* in, void* out, int32_t n,
     int32_t zx, float sx, int32_t zy, float sy);
 
-int32_t tidl_int8_silu(
+int32_t c7x_int8_silu(
     const void* in, void* out, int32_t n,
     int32_t zx, float sx, int32_t zy, float sy);
 
-int32_t tidl_int8_hardsigmoid(
+int32_t c7x_int8_hardsigmoid(
     const void* in, void* out, int32_t n,
     int32_t zx, float sx, int32_t zy, float sy);
 
@@ -69,7 +69,7 @@ int32_t c7x_int8_hardswish(
 
 /* SE-block broadcast multiply: excitation[C] × feature_map[C×H_W] → out[C×H_W].
  * All shapes are NCHW with the excitation having trailing [1,1] spatial dims. */
-int32_t tidl_int8_channel_scale_multiply(
+int32_t c7x_int8_channel_scale_multiply(
     const void* excitation, const void* feature_map, void* out,
     int32_t C, int32_t H_W,
     float s_exc,  int32_t z_exc,
@@ -80,4 +80,4 @@ int32_t tidl_int8_channel_scale_multiply(
 }
 #endif
 
-#endif  /* TVM_TIDL_ACTIVATION_WRAPPERS_H_ */
+#endif  /* TVM_C7X_ACTIVATION_H_ */

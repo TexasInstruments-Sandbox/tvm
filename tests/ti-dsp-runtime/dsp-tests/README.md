@@ -12,21 +12,22 @@ dsp-tests/
 ├── conftest.py                          # Pytest fixtures for DSP configuration
 ├── model_utils.py                       # Shared model creation utilities
 ├── test_c66x_pragmas_dsp.py             # C66x/C7x pragma generation tests
+├── test_c7x_vm_dsp.py                   # C7xVirtualMachine Python API
 ├── test_classification_dsp.py           # TorchVision classification models
 ├── test_clista_dsp.py                   # CLISTA-DoA radar model
+├── test_conv2d_cycle_breakdown.py       # Conv2D O2 vs O3 cycle breakdown benchmark
 ├── test_conv2d_dsp.py                   # Conv2D model
 ├── test_conv2d_stack_dsp.py             # Conv2D + BN + ReLU stack (4 layers)
 ├── test_error_messages_dsp.py           # Compilation and error handling tests
 ├── test_lenet_dsp.py                    # LeNet-5 MNIST classifier
 ├── test_matmul_dsp.py                   # Matrix multiplication
 ├── test_mlp_dsp.py                      # Multi-layer perceptron
+├── test_mmalib_oc_tile_consistency.py   # MMALIB conv2d_i8 OC-tiling consistency
 ├── test_od_torchvision_dsp.py           # SSDLite320 object detection
 ├── test_quantized_conv2d_stack_dsp.py   # INT8 quantized conv2d stack
-├── test_quantized_resnet_dsp.py         # INT8 quantized ResNet-18
 ├── test_resnet_dsp.py                   # ResNet-18 image classifier
 ├── test_rtmdet_dsp.py                   # Multi-output tuple handling
 ├── test_segmentation_dsp.py             # TorchVision segmentation models
-├── test_yolo_dsp.py                     # YOLOv5/YOLOv8 object detection
 └── README.md                            # This file
 ```
 
@@ -35,21 +36,22 @@ dsp-tests/
 | Test File | Description | Model Type |
 |-----------|-------------|------------|
 | `test_c66x_pragmas_dsp.py` | C66x/C7x pragma generation and TI compiler directives | TIR codegen |
+| `test_c7x_vm_dsp.py` | C7xVirtualMachine Python API (struct layout, inference, context manager) | VM API |
 | `test_classification_dsp.py` | 8 ImageNet classifiers (SqueezeNet to ResNet-34) | Conv2D, various |
 | `test_clista_dsp.py` | CLISTA-DoA radar signal processing | Conv1D, Linear |
+| `test_conv2d_cycle_breakdown.py` | Conv2D O2 vs O3 compiler cycle breakdown benchmark | Conv2D, profiling |
 | `test_conv2d_dsp.py` | Single 2D convolution | Conv2D |
 | `test_conv2d_stack_dsp.py` | 4-layer conv2d + batch_norm + relu stack | Conv2D, BN, ReLU |
 | `test_error_messages_dsp.py` | Compilation validation and error handling | TIR simple ops |
 | `test_lenet_dsp.py` | LeNet-5 MNIST classifier | Conv2D, Linear |
 | `test_matmul_dsp.py` | Matrix multiplication | Matmul |
 | `test_mlp_dsp.py` | Multi-layer perceptron | Linear, ReLU |
+| `test_mmalib_oc_tile_consistency.py` | MMALIB `mmalib_conv2d_i8` output-channel tiling consistency | Conv2D, MMALIB |
 | `test_od_torchvision_dsp.py` | SSDLite320 MobileNetV3 object detection | Conv2D, multi-output |
 | `test_quantized_conv2d_stack_dsp.py` | INT8 quantized conv2d stack (PT2E QDQ) | Conv2D, quantized |
-| `test_quantized_resnet_dsp.py` | INT8 quantized ResNet-18 (PT2E QDQ) | Conv2D, quantized |
 | `test_resnet_dsp.py` | ResNet-18 image classifier | Conv2D, BN, skip |
 | `test_rtmdet_dsp.py` | Multi-output tuple handling validation | Conv2D (2 outputs) |
 | `test_segmentation_dsp.py` | LRASPP and DeepLabV3 MobileNetV3 segmentation | Conv2D, multi-output |
-| `test_yolo_dsp.py` | YOLOv5 (n, s) and YOLOv8 (n, s) detection | Conv2D, various |
 
 ## Execution Modes
 
@@ -107,13 +109,14 @@ Three markers control which tests run at each pipeline stage:
 
 | Marker | Tests | When to use |
 |--------|-------|-------------|
-| `quick` | 6 small models | PR gate — fast compile + run |
-| `core` | ~20 tests | Post-merge gate — all ops, classification, detection |
-| *(none)* | ~50 tests | Nightly full regression |
+| `quick` | 37 tests | PR gate — fast compile + run |
+| `core` | 61 tests | Post-merge gate — all ops, classification, detection |
+| *(none)* | 73 tests | Nightly full regression |
 
-`core` is a superset of `quick`. All `quick` tests are also `core`.
+`core` is a superset of `quick`, with the exception of the 2 unit
+tests in `test_mmalib_oc_tile_consistency.py`, which are `quick`-only.
 
-#### `quick` tests (6 tests, both c66x and c7x)
+#### `quick` tests (both c66x and c7x, unless noted)
 
 | Test | Model |
 |------|-------|
@@ -123,8 +126,10 @@ Three markers control which tests run at each pipeline stage:
 | `test_matmul_dsp` | Matrix multiplication |
 | `test_mlp_dsp` | Multi-layer perceptron |
 | `test_quantized_conv2d_stack_dsp` | INT8 quantized Conv2D stack |
+| `test_mmalib_oc_tile_consistency` | MMALIB conv2d_i8 OC-tiling consistency |
+| `test_c7x_vm_dsp` (all) | c7x only |
 
-#### `core` tests added beyond `quick` (~14 additional)
+#### `core` tests added beyond `quick` (24 additional)
 
 | Test | Architecture |
 |------|-------------|
@@ -133,7 +138,6 @@ Three markers control which tests run at each pipeline stage:
 | `test_lenet_dsp` | both |
 | `test_resnet_dsp` | both |
 | `test_classification_dsp` (8 models) | both |
-| `test_quantized_resnet_dsp` | c7x only |
 
 #### `c7x_only` tests (excluded from c66x stages)
 
@@ -143,11 +147,9 @@ c7x-specific features. Jenkins c66x stages filter with `-m "not c7x_only"`:
 | File | Reason |
 |------|--------|
 | `test_c7x_vm_dsp.py` | C7xVirtualMachine API |
-| `test_quantized_resnet_dsp.py` | INT8 ResNet-18 (~47 MB) |
 | `test_od_torchvision_dsp.py` | SSDLite320 (c7x_dload only) |
 | `test_rtmdet_dsp.py` | RTMDet (c7x_dload only) |
 | `test_segmentation_dsp.py` | LRASPP / DeepLabV3 |
-| `test_yolo_dsp.py` | YOLOv5/v8 + TIDL |
 | `test_conv2d_cycle_breakdown.py` | Cycle profiling benchmark |
 
 ### Jenkins pipeline commands
@@ -197,8 +199,11 @@ python test_clista_dsp.py --dsp-mode c66x_host --save-artifacts /tmp/artifacts
 | `--dsp-timeout=N` | Hardware execution timeout in ms (default: 60000) |
 | `--dsp-verbose` | Enable verbose DSP logging |
 | `--save-artifacts=DIR` | Copy build artifacts (lib0.c, weights.bin, devc.c) to DIR |
-| `--profile-layers` | Enable per-layer cycle profiling (hardware modes) |
+| `--profile` | Per-layer cycle counters + repeat=2 init/steady-state split (c7x_dload only) |
+| `--profile-layers` | Deprecated alias for `--profile` |
 | `--use-cpp-api` | Enable direct VM builtin calls (bypass FFI dispatch) |
+| `--mmalib` | Enable MMALIB acceleration for eligible conv2d/matmul ops |
+| `--board-target=HOST` | AM67A hostname for remote `test_c7x_vm_dsp` tests via SSH |
 
 ## Key Components
 
@@ -208,8 +213,11 @@ Pytest fixtures and configuration:
 - `dsp_timeout`: Timeout from `--dsp-timeout` option
 - `dsp_verbose`: Verbose flag from `--dsp-verbose` option
 - `save_artifacts`: Artifact directory from `--save-artifacts` option
-- `profile_layers`: Profiling flag from `--profile-layers` option
+- `profile`: Profiling flag from `--profile` (or deprecated `--profile-layers`) option
+- `profile_layers`: Alias of `profile`, kept for backward compatibility
 - `use_cpp_api`: C++ API flag from `--use-cpp-api` option
+- `mmalib`: MMALIB acceleration flag from `--mmalib` option
+- `board_target`: AM67A hostname from `--board-target` option (for remote c7x_vm tests)
 - `dsp_config`: Combined configuration dictionary
 
 ### `model_utils.py`
@@ -277,7 +285,7 @@ def test_my_model(dsp_mode, dsp_timeout, use_cpp_api):
 The DSP runtime supports models that return multiple outputs (tuples).
 `test_rtmdet_dsp.py` validates this:
 
-- Maximum 8 outputs supported (compile-time check)
+- Maximum 128 outputs supported (`Model::kMaxOutputs`, compile-time check)
 - `Model::InferMulti()` API returns all outputs
 - Output tensors written to `output.bin` in order
 

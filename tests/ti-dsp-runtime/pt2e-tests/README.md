@@ -109,7 +109,7 @@ Correctness is asserted against the PyTorch quantized reference output.
 | `test_e2e_depthwise_conv2d_i8` | `Conv2d(8,8,3,groups=8)` | `mmalib_depthwise_conv2d_i8` |
 | `test_e2e_linear_i8` | `Linear(64,128)` | `mmalib_matmul_bias_i8` |
 | `test_e2e_linear_i8_no_bias` | `Linear(64,128,bias=False)` | generic int8 fallback |
-| `test_e2e_residual_add_i8` | `Conv2d + skip` | `tvm_int8_residual_add_relu` |
+| `test_e2e_residual_add_i8` | `Conv2d + skip` | `c7x_int8_residual_add_relu` |
 | `test_e2e_linear_3d_i8` | `Linear(64,128)` on 3D input | `mmalib_matmul_bias_i8` |
 
 **Int16 tests** — `max_diff ≤ 10` (higher tolerance: uint8 scale/shift requantization
@@ -120,12 +120,12 @@ error scales with √K; observed max ≤ 6 in practice):
 | `test_e2e_conv2d_i16` | `Conv2d(32,32,3)` | `mmalib_conv2d_i16` |
 | `test_e2e_depthwise_conv2d_i16` | `Conv2d(32,32,3,groups=32)` | `mmalib_depthwise_conv2d_i16` |
 | `test_e2e_linear_i16` | `Linear(64,64)` | `mmalib_matmul_bias_i16` |
-| `test_e2e_residual_add_i16` | `Conv2d(32,32,3) + skip` | `tvm_int16_residual_add_relu` |
+| `test_e2e_residual_add_i16` | `Conv2d(32,32,3) + skip` | `c7x_int16_residual_add_relu` |
 
-### `test_c7x_tidl_activation.py` — TIDL activation fusion unit tests (pure Python)
+### `test_c7x_activation.py` — TIDL activation fusion unit tests (pure Python)
 
-Tests `FuseQDQToTIDLActivation`, `FuseQDQToC7xAvgPool`, and
-`FuseQDQToTIDLLayerNorm` at the Relax IR level without DSP execution.
+Tests `FuseQDQToC7xActivation`, `FuseQDQToC7xAvgPool`, and
+`FuseQDQToC7xLayerNorm` at the Relax IR level without DSP execution.
 
 **Annotation tests:**
 
@@ -140,18 +140,18 @@ Tests `FuseQDQToTIDLActivation`, `FuseQDQToC7xAvgPool`, and
 
 | Test | What it checks |
 |------|----------------|
-| `test_activation_fusion_fires[GeluModel-tidl_int8_gelu]` | `FuseQDQToTIDLActivation` emits `call_tir(tidl_int8_gelu, ...)` |
-| `test_activation_fusion_fires[SiluModel-tidl_int8_silu]` | silu fused to `tidl_int8_silu` |
-| `test_activation_fusion_fires[HardsigmoidModel-tidl_int8_hardsigmoid]` | hardsigmoid fused |
-| `test_activation_fusion_fires[HardswishModel-tidl_int8_hardswish]` | hardswish fused |
+| `test_activation_fusion_fires[GeluModel-c7x_int8_gelu]` | `FuseQDQToC7xActivation` emits `call_tir(c7x_int8_gelu, ...)` |
+| `test_activation_fusion_fires[SiluModel-c7x_int8_silu]` | silu fused to `c7x_int8_silu` |
+| `test_activation_fusion_fires[HardsigmoidModel-c7x_int8_hardsigmoid]` | hardsigmoid fused |
+| `test_activation_fusion_fires[HardswishModel-c7x_int8_hardswish]` | hardswish fused |
 | `test_gelu_output_is_int8` | Fused gelu kernel output dtype is int8 |
-| `test_i8_passes_do_not_trigger_on_int16` | `tidl_int8_gelu` does not fire on int16 graphs |
+| `test_i8_passes_do_not_trigger_on_int16` | `c7x_int8_gelu` does not fire on int16 graphs |
 
-### `test_c7x_tidl_activation_e2e_dsp.py` — TIDL activation end-to-end DSP tests
+### `test_c7x_activation_e2e_dsp.py` — TIDL activation end-to-end DSP tests
 
 Runs models through the full pipeline on DSP hardware or host emulation.
-Validates `FuseQDQToTIDLActivation`, `FuseQDQToC7xAvgPool`, and
-`FuseQDQToTIDLLayerNorm` produce correct output.
+Validates `FuseQDQToC7xActivation`, `FuseQDQToC7xAvgPool`, and
+`FuseQDQToC7xLayerNorm` produce correct output.
 
 All tests: `max_diff ≤ 2` vs PyTorch quantized reference.
 
@@ -159,10 +159,10 @@ All tests: `max_diff ≤ 2` vs PyTorch quantized reference.
 
 | Test | Kernel |
 |------|--------|
-| `test_e2e_gelu_i8` | `tidl_int8_gelu` |
-| `test_e2e_silu_i8` | `tidl_int8_silu` |
-| `test_e2e_hardsigmoid_i8` | `tidl_int8_hardsigmoid` |
-| `test_e2e_hardswish_i8` | `tidl_int8_hardswish` |
+| `test_e2e_gelu_i8` | `c7x_int8_gelu` |
+| `test_e2e_silu_i8` | `c7x_int8_silu` |
+| `test_e2e_hardsigmoid_i8` | `c7x_int8_hardsigmoid` |
+| `test_e2e_hardswish_i8` | `c7x_int8_hardswish` |
 
 **Pooling tests** — model: `Conv2d(8,8,3) → pool`:
 
@@ -175,7 +175,7 @@ All tests: `max_diff ≤ 2` vs PyTorch quantized reference.
 
 | Test | Kernel |
 |------|--------|
-| `test_e2e_layer_norm_i8` | `tidl_int8_layer_norm` |
+| `test_e2e_layer_norm_i8` | `c7x_int8_layer_norm` |
 
 ### `test_mobilenet_v2_pt2e_dsp.py` — MobileNetV2 integration test
 

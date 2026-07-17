@@ -1695,3 +1695,45 @@ def compare_results(
         logger.info(f"C7x_dload vs {reference_name}: max diff = {diff:.2e}, passed = {passed}")
 
     return comparison
+
+
+def bulk_tail_split(n: int, vec_width: int = 8) -> int:
+    """Return nvec, the largest multiple of vec_width <= n: the boundary
+    between a C7524 SE-vectorized kernel's vectorized bulk (elements
+    [0, nvec)) and its scalar tail (elements [nvec, n)).
+
+    Shared split-point convention across this codebase's SE-vectorized
+    kernel reference tests. Kernels differ in the actual bulk/tail
+    arithmetic beyond this point (e.g. whether the tail's rounding is
+    sign-aware, and whether an offset is added before or after
+    rounding), so only the split point itself -- not the rounding -- is
+    safe to share unconditionally; see round_bulk_tail for callers whose
+    bulk and tail share the same pre-processing up to the rounding rule.
+    """
+    return (n // vec_width) * vec_width
+
+
+def round_bulk_tail(values: np.ndarray, vec_width: int, tail_round_fn) -> np.ndarray:
+    """Round a float array's last axis to integers using the C7524
+    SE-vectorized kernel convention: the vectorized bulk (the leading
+    values.shape[-1] // vec_width * vec_width elements) rounds
+    ties-to-even, matching hardware __float_to_int/VSPINT; the scalar
+    tail (the remaining elements) rounds via `tail_round_fn`.
+
+    Only safe for callers whose bulk and tail apply the exact same
+    pre-processing (scale/offset) up to the rounding step itself --
+    e.g. c7x_quantize.cpp's quantize_1plane, whose bulk and tail both
+    compute `in*inv_scale + offset` and round it, differing only in
+    rounding rule. Do not use this for a kernel whose tail adds its
+    offset at a different point than its bulk (e.g. after truncating
+    rather than before rounding) -- write that reference directly.
+
+    Returns a float64 array (not yet clipped/cast to the output dtype);
+    callers clip and cast since output range/dtype differ per caller.
+    """
+    n = values.shape[-1]
+    nvec = bulk_tail_split(n, vec_width)
+    out = np.empty(values.shape, dtype=np.float64)
+    out[..., :nvec] = np.round(values[..., :nvec])
+    out[..., nvec:] = tail_round_fn(values[..., nvec:])
+    return out

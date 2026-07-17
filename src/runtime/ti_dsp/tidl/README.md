@@ -14,6 +14,7 @@ bridge), see `docs/dsp/tidl-subgraph-offloading.md`.
 | `tidl_api.c` / `.h` | `init/process/free_tidl_subgraph` — IALG lifecycle |
 | `tidl_api_mem.c` / `.h` | `appMemAlloc/appMemFree` via `tvm_dsp_alloc` (128 MB DDR heap) |
 | `ti_mem_manager.c` / `.h` | Bump allocator for L1/L2/L3 SRAM pools |
+| `tidl_host_stubs.c` | x86 stubs for firmware-provided symbols, `c7x_host` (`HOST_EMULATION`) builds only |
 
 ## IALG Lifecycle
 

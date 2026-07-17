@@ -18,7 +18,7 @@
  */
 
 /*!
- * \file c7x_avgpool_wrappers.cpp
+ * \file c7x_avgpool.cpp
  * \brief Quantized average-pooling for NCHW int8 tensors — C7x optimized.
  *
  * Renamed from tidl_avgpool_wrappers.c: neither kernel calls into the TIDL
@@ -38,7 +38,7 @@
  * kernel/stride combination keeps using the scalar path.
  */
 
-#include "c7x_avgpool_wrappers.h"
+#include "c7x_avgpool.h"
 
 #include <stdint.h>
 #include <math.h>

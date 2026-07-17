@@ -1,17 +1,17 @@
-"""Unit tests for c7x_int8_hardswish and tidl_int8_channel_scale_multiply kernels.
+"""Unit tests for c7x_int8_hardswish and c7x_int8_channel_scale_multiply kernels.
 
 Invokes each kernel via call_extern with known inputs and verifies output against
-a numpy reference.  Tests are independent of the FuseQDQToTIDLActivation pass.
+a numpy reference.  Tests are independent of the FuseQDQToC7xActivation pass.
 
 c7x_int8_hardswish: quantized hardswish  out[i] = quant(x_f * clip(x_f/6+0.5,0,1))
   where x_f = (in[i] - zx) * sx
 
-tidl_int8_channel_scale_multiply: SE-block excitation × feature-map
+c7x_int8_channel_scale_multiply: SE-block excitation × feature-map
   out[c][j] = sat_i8(round((exc[c]-ze)*se*(fm[c*HW+j]-zf)*sf/so) + zo)
 
 Bug found and fixed (2026-07-17): all 8 tests below used to fail on c7x_host
 (smaller, but nonzero, mismatches on c7x_dload hardware too). Root cause was
-in the kernel, not the test: tidl_activation_wrappers.cpp gated
+in the kernel, not the test: c7x_activation.cpp gated
 `#include <c7x.h>` on `#ifdef __C7524__` -- but on the c7x_host g++
 toolchain, __C7524__ is defined *by* <c7x.h> itself, so the guard was always
 false and the header was never included, silently compiling out both
@@ -19,8 +19,8 @@ hardswish_vec and channel_scale_multiply_vec. c7x_host therefore ran the
 scalar float rq_f fallback for every element, not the SE + Q13/float
 vectorized path -- a completely different algorithm from what these
 references modeled. This is the same chicken-and-egg #include bug already
-fixed elsewhere (see c7x_quantize.cpp / c7x_avgpool_wrappers.cpp /
-c7x_pool_relu_wrappers.cpp); it just hadn't been applied to this file yet.
+fixed elsewhere (see c7x_quantize.cpp / c7x_avgpool.cpp /
+c7x_pool_relu.cpp); it just hadn't been applied to this file yet.
 Fixed by making the include unconditional. Real hardware (c7x_dload) was
 never affected -- the cross-compiler predefines __C7524__ as a builtin
 before this file is parsed, so it already ran the vectorized path; the
@@ -63,7 +63,7 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import bulk_tail_split, compile_and_run_dsp, get_target_string  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Reference implementations
@@ -92,7 +92,7 @@ def _numpy_hardswish(inp, zx, sx, zy, sy):
     # ties in the kernel's own float32 computation.
     f32 = np.float32
     n = len(inp)
-    nvec8 = (n // 8) * 8
+    nvec8 = bulk_tail_split(n, vec_width=8)
     zx32, sx32, zy32 = f32(zx), f32(sx), f32(zy)
     inv6, half, zero, one = f32(1.0 / 6.0), f32(0.5), f32(0.0), f32(1.0)
     lo, hi, invsy = f32(-128.0), f32(127.0), one / f32(sy)
@@ -114,7 +114,7 @@ def _numpy_hardswish(inp, zx, sx, zy, sy):
 def _numpy_channel_scale_multiply(exc, fm, C, H_W, s_exc, z_exc, s_feat, z_feat, s_out, z_out):
     # c7x_host and c7x_dload both compile with __C7524__ defined, so both
     # actually execute channel_scale_multiply_vec's Q13 fixed-point integer
-    # path (tidl_activation_wrappers.cpp), never the float rq_f-based
+    # path (c7x_activation.cpp), never the float rq_f-based
     # scalar fallback (that only exists for non-__C7524__ targets, never
     # built here). Replicate that Q13 algorithm exactly -- same per-channel
     # scale_q rounding, same bare (floor, not round-to-nearest) right
@@ -187,7 +187,7 @@ def _build_channel_scale_multiply_module(C, H_W, s_exc, z_exc, s_feat, z_feat, s
         def fcompute(ins, outs):
             return tir.call_extern(
                 "int32",
-                "tidl_int8_channel_scale_multiply",
+                "c7x_int8_channel_scale_multiply",
                 ins[0].data,
                 ins[1].data,
                 outs[0].data,
@@ -211,7 +211,7 @@ def _build_channel_scale_multiply_module(C, H_W, s_exc, z_exc, s_feat, z_feat, s
     with bb.function("main", [exc_var, fm_var], attrs={"num_input": 2}):
         with bb.dataflow():
             result = bb.emit_te(
-                te_kernel, exc_var, fm_var, primfunc_name_hint="tidl_int8_channel_scale_multiply"
+                te_kernel, exc_var, fm_var, primfunc_name_hint="c7x_int8_channel_scale_multiply"
             )
             out = bb.emit_output(result)
         bb.emit_func_output(out)
@@ -322,7 +322,7 @@ def test_hardswish_large(dsp_mode, record_cycles):
 
 
 # ---------------------------------------------------------------------------
-# tidl_int8_channel_scale_multiply tests
+# c7x_int8_channel_scale_multiply tests
 # ---------------------------------------------------------------------------
 
 
@@ -425,6 +425,6 @@ def test_csm_mobilenet_7x7(dsp_mode, record_cycles):
     if cycles:
         n = C * H_W
         print(
-            f"\n  tidl_int8_channel_scale_multiply C={C} H_W={H_W}: "
+            f"\n  c7x_int8_channel_scale_multiply C={C} H_W={H_W}: "
             f"{cycles:,} cycles ({cycles / n:.2f} cycles/element)"
         )

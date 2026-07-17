@@ -83,7 +83,7 @@ def test_e2e_linear_i8_no_bias(dsp_mode, record_cycles):
 @pytest.mark.quick
 @pytest.mark.c7x_only
 def test_e2e_residual_add_i8(dsp_mode, record_cycles):
-    """Residual add int8: C7xMMAQuantizer → tvm_int8_residual_add_relu (no-relu variant)."""
+    """Residual add int8: C7xMMAQuantizer → c7x_int8_residual_add_relu (no-relu variant)."""
     if dsp_mode is None:
         pytest.skip("--dsp-mode not set")
 
@@ -177,7 +177,7 @@ def test_e2e_linear_i16(dsp_mode, record_cycles):
 @pytest.mark.quick
 @pytest.mark.c7x_only
 def test_e2e_residual_add_i16(dsp_mode, record_cycles):
-    """Residual add int16: C7xMMAQuantizer(int16) → tvm_int16_residual_add_relu."""
+    """Residual add int16: C7xMMAQuantizer(int16) → c7x_int16_residual_add_relu."""
     if dsp_mode is None:
         pytest.skip("--dsp-mode not set")
 

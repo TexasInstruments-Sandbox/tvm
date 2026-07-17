@@ -78,15 +78,15 @@ if(TVM_DSP_TARGET STREQUAL "host")
         platform/host/host_platform.c
         platform/common/memory_pool.c
         dma/tvm_dsp_dma_host.c
-        kernels/tvm_int8_residual_add.cpp
-        kernels/tidl_activation_wrappers.cpp
-        kernels/c7x_avgpool_wrappers.cpp
-        kernels/tidl_norm_wrappers.c
-        kernels/c7x_concat_wrappers.cpp
-        kernels/c7x_pool_relu_wrappers.cpp
+        kernels/c7x_residual_add.cpp
+        kernels/c7x_activation.cpp
+        kernels/c7x_avgpool.cpp
+        kernels/c7x_norm.c
+        kernels/c7x_concat.cpp
+        kernels/c7x_pool_relu.cpp
         kernels/c7x_quantize.cpp
-        kernels/tvm_dequantize_vecmatmul.cpp
-        kernels/tvm_sdpa_decode.cpp
+        kernels/c7x_dequantize_vecmatmul.cpp
+        kernels/c7x_sdpa_decode.cpp
     )
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wno-unused-parameter")
 
@@ -127,15 +127,15 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x")
         platform/c7x/c7x_cxm.asm
         platform/common/memory_pool.c
         dma/tvm_dsp_dma.c
-        kernels/tvm_int8_residual_add.cpp
-        kernels/tidl_activation_wrappers.cpp
-        kernels/c7x_avgpool_wrappers.cpp
-        kernels/tidl_norm_wrappers.c
-        kernels/c7x_concat_wrappers.cpp
-        kernels/c7x_pool_relu_wrappers.cpp
+        kernels/c7x_residual_add.cpp
+        kernels/c7x_activation.cpp
+        kernels/c7x_avgpool.cpp
+        kernels/c7x_norm.c
+        kernels/c7x_concat.cpp
+        kernels/c7x_pool_relu.cpp
         kernels/c7x_quantize.cpp
-        kernels/tvm_dequantize_vecmatmul.cpp
-        kernels/tvm_sdpa_decode.cpp
+        kernels/c7x_dequantize_vecmatmul.cpp
+        kernels/c7x_sdpa_decode.cpp
     )
     # Enable assembly language for C7x
     enable_language(ASM)
@@ -165,15 +165,15 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
         platform/c7x/c7x_platform.c
         platform/common/memory_pool.c
         dma/tvm_dsp_dma_host.c
-        kernels/tvm_int8_residual_add.cpp
-        kernels/tidl_activation_wrappers.cpp
-        kernels/c7x_avgpool_wrappers.cpp
-        kernels/tidl_norm_wrappers.c
-        kernels/c7x_concat_wrappers.cpp
-        kernels/c7x_pool_relu_wrappers.cpp
+        kernels/c7x_residual_add.cpp
+        kernels/c7x_activation.cpp
+        kernels/c7x_avgpool.cpp
+        kernels/c7x_norm.c
+        kernels/c7x_concat.cpp
+        kernels/c7x_pool_relu.cpp
         kernels/c7x_quantize.cpp
-        kernels/tvm_dequantize_vecmatmul.cpp
-        kernels/tvm_sdpa_decode.cpp
+        kernels/c7x_dequantize_vecmatmul.cpp
+        kernels/c7x_sdpa_decode.cpp
     )
     # TI C7000 Host Emulation library
     if(DEFINED ENV{TI_CGT_C7000_PATH})
