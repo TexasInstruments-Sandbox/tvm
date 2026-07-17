@@ -111,11 +111,11 @@ from .rewrite_dequantize import RewriteDequantize
 from .schedule_c7x_dma import ScheduleC7xDMATiling
 from .ti_eliminate_qdq_transparent import EliminateQDQTransparent
 from .ti_fuse_qdq_c7x_concat import FuseQDQToC7xConcat
-from .ti_fuse_qdq_tidl_activation import FuseQDQToTIDLActivation
+from .ti_fuse_qdq_c7x_activation import FuseQDQToC7xActivation
 from .ti_fuse_qdq_c7x_avgpool import FuseQDQToC7xAvgPool
-from .ti_fuse_qdq_tidl_layernorm import FuseQDQToTIDLLayerNorm
+from .ti_fuse_qdq_c7x_layernorm import FuseQDQToC7xLayerNorm
 from .ti_fuse_qdq_tidl_maxpool import FuseQDQToTIDLMaxPool
-from .ti_fuse_qdq_tidl_relu import FuseQDQToTIDLRelu
+from .ti_fuse_qdq_c7x_relu import FuseQDQToC7xRelu
 from .ti_fuse_input_quantize import FuseInputQuantize
 from .ti_fuse_input_normalize_quantize import FuseInputNormalizeQuantize
 from .ti_residual_add import FuseInt8ResidualAdd, FuseInt16ResidualAdd

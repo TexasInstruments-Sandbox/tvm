@@ -33,7 +33,7 @@ adaptive_avg_pool2d and avg_pool2d:
     dq(x_i8) → R.nn.avg_pool2d → q(out)
     → call_extern c7x_int8_avg_pool(...)
 
-Kernels: src/runtime/ti_dsp/kernels/c7x_avgpool_wrappers.cpp
+Kernels: src/runtime/ti_dsp/kernels/c7x_avgpool.cpp
 
 Neither kernel calls into the TIDL algo library (see Step 12 in
 docs/dsp/quantized_model_optimization.md for why the equivalent

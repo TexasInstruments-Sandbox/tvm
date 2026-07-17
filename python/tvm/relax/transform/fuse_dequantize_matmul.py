@@ -287,7 +287,7 @@ class _DequantizeMatmulFuser(PyExprMutator):
         return result
 
     def _rewrite_extern(self, call, act, w_int8, w_scale):
-        """Emit call_extern to tvm_dequantize_vecmatmul for C7x."""
+        """Emit call_extern to c7x_dequantize_vecmatmul for C7x."""
         act_sinfo = act.struct_info
         w_sinfo = w_int8.struct_info
 
@@ -317,7 +317,7 @@ class _DequantizeMatmulFuser(PyExprMutator):
             def fcompute(ins, outs):
                 return tir.call_extern(
                     "int32",
-                    "tvm_dequantize_vecmatmul",
+                    "c7x_dequantize_vecmatmul",
                     ins[0].data,
                     ins[1].data,
                     ins[2].data,

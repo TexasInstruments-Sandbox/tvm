@@ -26,7 +26,7 @@ static inline float hsum_f8(__float8 v)
 }
 
 extern "C"
-int32_t tvm_sdpa_decode(
+int32_t c7x_sdpa_decode(
     const void* Q_ptr,
     const void* K_cache_ptr,
     const void* V_cache_ptr,
@@ -139,7 +139,7 @@ int32_t tvm_sdpa_decode(
 #else /* Host emulation fallback */
 
 extern "C"
-int32_t tvm_sdpa_decode(
+int32_t c7x_sdpa_decode(
     const void* Q_ptr,
     const void* K_cache_ptr,
     const void* V_cache_ptr,

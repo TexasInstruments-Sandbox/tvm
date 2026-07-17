@@ -76,7 +76,11 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, is_tuple, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
-from .ti_fuse_input_quantize import is_per_tensor_scalar_constant
+from .ti_fuse_input_quantize import (
+    is_per_tensor_scalar_constant,
+    is_raw_float32_input,
+    static_shape_or_none,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,18 +126,14 @@ def _check_input_normalize(ctx) -> bool:
     and the trailing quantize to be per-tensor with constant scale/zp.
     """
     x = ctx.annotated_expr["x"]
-    if not isinstance(x, relax.Var):
-        return False
-    if not (hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype")):
-        return False
-    if str(x.struct_info.dtype) != "float32":
+    if not is_raw_float32_input(x):
         return False
 
     x_shape = getattr(x.struct_info, "shape", None)
     if x_shape is None:
         return False
-    x_shape = [int(s) for s in x_shape]
-    if len(x_shape) != 4 or x_shape[1] != _NUM_CHANNELS:
+    x_shape = static_shape_or_none(x_shape)
+    if x_shape is None or len(x_shape) != 4 or x_shape[1] != _NUM_CHANNELS:
         return False
 
     o_scale = ctx.annotated_expr["o_scale"]
@@ -237,8 +237,8 @@ class _InputNormalizeLowerer(PyExprMutator):
         call_sinfo = call.struct_info
         if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
             return super().visit_call_(call)
-        out_shape = [int(s) for s in call_sinfo.shape]
-        if len(out_shape) != 4 or out_shape[1] != _NUM_CHANNELS:
+        out_shape = static_shape_or_none(call_sinfo.shape)
+        if out_shape is None or len(out_shape) != 4 or out_shape[1] != _NUM_CHANNELS:
             return super().visit_call_(call)
 
         inv_scale = 1.0 / o_scale_val

@@ -153,14 +153,14 @@ SECTIONS
 --import=tvm_dsp_dma_copy
 --import=tvm_dsp_dma_wait
 /* TVM kernels */
---import=tvm_int8_residual_add_relu
---import=tvm_int16_residual_add_relu
---import=tvm_dequantize_vecmatmul
---import=tidl_int8_gelu
---import=tidl_int8_silu
---import=tidl_int8_hardsigmoid
+--import=c7x_int8_residual_add_relu
+--import=c7x_int16_residual_add_relu
+--import=c7x_dequantize_vecmatmul
+--import=c7x_int8_gelu
+--import=c7x_int8_silu
+--import=c7x_int8_hardsigmoid
 --import=c7x_int8_hardswish
---import=tidl_int8_channel_scale_multiply
+--import=c7x_int8_channel_scale_multiply
 --import=c7x_int8_global_avg_pool
 --import=c7x_int8_avg_pool
 --import=c7x_int8_max_pool
@@ -170,9 +170,9 @@ SECTIONS
 --import=c7x_int8_requantize_clamp
 --import=c7x_int8_quantize
 --import=c7x_int8_quantize_rgb
---import=tidl_int8_layer_norm
+--import=c7x_int8_layer_norm
 --import=c7x_int8_concat_rescale
---import=tvm_sdpa_decode
+--import=c7x_sdpa_decode
 
 /* TVM platform */
 --import=tvm_dsp_alloc

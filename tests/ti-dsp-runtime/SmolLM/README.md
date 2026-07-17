@@ -1,8 +1,8 @@
 # SmolLM-135M on C7x DSP
 
 See the full design documents at:
-- `docs/dsp/smol.md` — standalone inference pipeline and model overview
-- `docs/dsp/smol_kv_cache.md` — KV cache chat design, IPC protocol, and session details
+- `docs/dsp/smollm_overview.md` — standalone inference pipeline and model overview
+- `docs/dsp/smollm_kv_cache.md` — KV cache chat design, IPC protocol, and session details
 
 ## Status
 
@@ -80,8 +80,8 @@ python smollm_c7x.py compile-chat --quantize --fp-reassoc-off \
 
 | `--max-cache-len` | KV cache size | Max new tokens |
 |-------------------|--------------|----------------|
-| 32 (default) | 1.4 MB | ~16 |
-| 256 | 11 MB | ~240 |
+| 32 | 1.4 MB | ~16 |
+| 256 (default) | 11 MB | ~240 |
 | 512 | 22 MB | ~496 |
 
 Formula: `2 × 30 layers × 3 KV heads × max_cache_len × 64 head_dim × 4 B`
@@ -96,6 +96,8 @@ python3 smollm_board.py --model-dir /opt/smollm [options]
   --top-k K            Top-k sampling; 0 = disabled (default: 50)
   --prompt TEXT        Single-shot mode; omit for interactive chat
   --c7x-compute PATH   Path to c7x_compute binary
+  --profile            Print per-stage timing breakdown for each decode step
+  --work-dir PATH      Tmpfs working directory for DSP I/O (default: /tmp/c7x_smollm)
 ```
 
 ## Scripts

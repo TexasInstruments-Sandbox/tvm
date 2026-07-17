@@ -458,8 +458,8 @@ class _ReluLowerer(PyExprMutator):
 # =========================================================================
 
 
-@tvm.transform.module_pass(opt_level=0, name="FuseQDQToTIDLRelu")
-class FuseQDQToTIDLRelu:
+@tvm.transform.module_pass(opt_level=0, name="FuseQDQToC7xRelu")
+class FuseQDQToC7xRelu:
     """Fuse QDQ-wrapped relu into a c7x_int8_relu C kernel call.
 
     Must run before EliminateQDQTransparent: that pass removes the Q/DQ
@@ -489,7 +489,7 @@ class FuseQDQToTIDLRelu:
         mod = lowerer.builder_.get()
 
         if lowerer.count > 0:
-            logger.info("FuseQDQToTIDLRelu: fused %d relu/clamp ops", lowerer.count)
+            logger.info("FuseQDQToC7xRelu: fused %d relu/clamp ops", lowerer.count)
             mod = relax.transform.DeadCodeElimination()(mod)
 
         return mod

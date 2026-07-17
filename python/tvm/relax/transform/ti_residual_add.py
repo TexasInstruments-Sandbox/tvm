@@ -23,8 +23,8 @@ Matches the PT2E pattern for residual (skip) connections:
       -> [relu] -> quantize(out, scale_out, zp_out)
 
 Replaces with a single call_extern to a fixed-point integer kernel:
-  - int8 inputs  → tvm_int8_residual_add_relu  → int8 output
-  - int16 inputs → tvm_int16_residual_add_relu → int16 output
+  - int8 inputs  → c7x_int8_residual_add_relu  → int8 output
+  - int16 inputs → c7x_int16_residual_add_relu → int16 output
 
 The kernel computes:
     out[i] = sat(((x[i]-zp_x)*M_x + (skip[i]-zp_skip)*M_skip) >> shift + zp_out)
@@ -320,8 +320,8 @@ def _residual_add_i16_pattern_swapped():
 # Adding a new variant: append one entry here; nothing else needs updating.
 #
 # Name convention:
-#   "int8_residual.*"  → emits tvm_int8_residual_add_relu  (int8 output)
-#   "int16_residual.*" → emits tvm_int16_residual_add_relu (int16 output)
+#   "int8_residual.*"  → emits c7x_int8_residual_add_relu  (int8 output)
+#   "int16_residual.*" → emits c7x_int16_residual_add_relu (int16 output)
 _PATTERN_REGISTRY = [
     # --- int8 variants (Phase 2a) ---
     ("int8_residual.add_relu", _residual_add_relu_pattern),
@@ -436,7 +436,7 @@ class _ResidualAddLowerer(PyExprMutator):
         has_relu_int = 1 if has_relu else 0
         n_elem = num_elements
         # Select kernel and output dtype based on operand dtype.
-        extern_name = "tvm_int16_residual_add_relu" if is_i16 else "tvm_int8_residual_add_relu"
+        extern_name = "c7x_int16_residual_add_relu" if is_i16 else "c7x_int8_residual_add_relu"
         out_dtype = "int16" if is_i16 else "int8"
         hint = "i16_residual_add" if is_i16 else "int8_residual_add"
 
@@ -527,7 +527,7 @@ class FuseInt8ResidualAdd:
     """Fuse int8 quantized residual add patterns into integer-only operations.
 
     Matches dequantize(a_i8) + dequantize(b_i8) -> [relu] -> quantize and
-    replaces with a call_extern to tvm_int8_residual_add_relu using
+    replaces with a call_extern to c7x_int8_residual_add_relu using
     compile-time fixed-point scale/zp parameters.
 
     Both operand orders (add(a, b) and add(b, a)) are handled since
@@ -548,7 +548,7 @@ class FuseInt16ResidualAdd:
     activation quantization (all zero-points must be 0), which is enforced
     by C7xMMAQuantizer(dtype="int16").
 
-    Emits call_extern to tvm_int16_residual_add_relu; output dtype is int16.
+    Emits call_extern to c7x_int16_residual_add_relu; output dtype is int16.
 
     Applicable to int16 quantized models with skip connections (MobileNet V2/V3, etc.).
     """

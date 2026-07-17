@@ -34,7 +34,7 @@ static inline float hsum(__float8 v)
 }
 
 extern "C"
-int32_t tvm_dequantize_vecmatmul(
+int32_t c7x_dequantize_vecmatmul(
     const void* activation_ptr,
     const void* weights_ptr,
     const void* scale_ptr,
@@ -69,11 +69,8 @@ int32_t tvm_dequantize_vecmatmul(
             const int32_t nvec4 = nvec & ~3;
             int32_t i = 0;
 
-            /* No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0
-             * for small K, making "at least 1 iteration" false -- see
-             * c7x_quantize.cpp's quantize_vec for the full investigation
-             * (a violated MUST_ITERATE(1,,) here caused a confirmed
-             * hardware correctness bug for small inputs in that kernel). */
+            /* No #pragma MUST_ITERATE(1,,): nvec4 can be 0 for small K --
+             * see c7x_quantize.cpp's quantize_1plane for the full investigation. */
             for (; i < nvec4; i += 4) {
                 __int8 w0 = __SE0ADV(int8);
                 __int8 w1 = __SE0ADV(int8);
@@ -100,7 +97,7 @@ int32_t tvm_dequantize_vecmatmul(
 #else  /* !__C7000__ — scalar fallback for non-C7x builds */
 
 extern "C"
-int32_t tvm_dequantize_vecmatmul(
+int32_t c7x_dequantize_vecmatmul(
     const void* activation_ptr,
     const void* weights_ptr,
     const void* scale_ptr,

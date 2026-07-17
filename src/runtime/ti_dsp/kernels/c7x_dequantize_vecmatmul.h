@@ -17,8 +17,8 @@
  * under the License.
  */
 
-#ifndef TVM_DEQUANTIZE_VECMATMUL_H_
-#define TVM_DEQUANTIZE_VECMATMUL_H_
+#ifndef TVM_C7X_DEQUANTIZE_VECMATMUL_H_
+#define TVM_C7X_DEQUANTIZE_VECMATMUL_H_
 
 #include <stdint.h>
 
@@ -26,7 +26,7 @@
 extern "C" {
 #endif
 
-int32_t tvm_dequantize_vecmatmul(
+int32_t c7x_dequantize_vecmatmul(
     const void* activation,
     const void* weights,
     const void* scale,
@@ -37,4 +37,4 @@ int32_t tvm_dequantize_vecmatmul(
 }
 #endif
 
-#endif  /* TVM_DEQUANTIZE_VECMATMUL_H_ */
+#endif  /* TVM_C7X_DEQUANTIZE_VECMATMUL_H_ */

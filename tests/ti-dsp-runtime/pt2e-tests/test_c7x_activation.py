@@ -1,14 +1,14 @@
-"""Unit tests for TIDL activation QDQ fusion (FuseQDQToTIDLActivation).
+"""Unit tests for TIDL activation QDQ fusion (FuseQDQToC7xActivation).
 
 Pure-Python tests — no DSP hardware or TI toolchain required.
 Validates:
   1. C7xMMAQuantizer annotates gelu/silu/hardsigmoid/hardswish
-  2. After TVM import, FuseQDQToTIDLActivation fires for all four ops
-  3. The fused call_tir target matches the expected tidl_int8_* symbol
+  2. After TVM import, FuseQDQToC7xActivation fires for all four ops
+  3. The fused call_tir target matches the expected c7x_int8_* symbol
 
 Run with:
     cd tests/ti-dsp-runtime
-    pytest --rootdir=. pt2e-tests/test_c7x_tidl_activation.py -m quick -v
+    pytest --rootdir=. pt2e-tests/test_c7x_activation.py -m quick -v
 """
 
 import pytest
@@ -18,7 +18,7 @@ import torch.nn.functional as F
 from pt2e_utils import quantize_pt2e
 
 from tvm.relax.frontend.torch import C7xMMAQuantizer, from_exported_program
-from tvm.relax.transform import FuseQDQToTIDLActivation
+from tvm.relax.transform import FuseQDQToC7xActivation
 
 # ---------------------------------------------------------------------------
 # Models
@@ -61,7 +61,7 @@ def _quantize_and_import(model: nn.Module):
 
 
 def _fuse(mod):
-    return FuseQDQToTIDLActivation()(mod)
+    return FuseQDQToC7xActivation()(mod)
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@ def test_hardswish_gets_annotated():
 
 
 # ---------------------------------------------------------------------------
-# Fusion tests (TVM import + FuseQDQToTIDLActivation)
+# Fusion tests (TVM import + FuseQDQToC7xActivation)
 # ---------------------------------------------------------------------------
 
 
@@ -135,19 +135,19 @@ def test_hardswish_gets_annotated():
 @pytest.mark.parametrize(
     "model_cls, extern_sym",
     [
-        (GeluModel, "tidl_int8_gelu"),
-        (SiluModel, "tidl_int8_silu"),
-        (HardsigmoidModel, "tidl_int8_hardsigmoid"),
+        (GeluModel, "c7x_int8_gelu"),
+        (SiluModel, "c7x_int8_silu"),
+        (HardsigmoidModel, "c7x_int8_hardsigmoid"),
         (HardswishModel, "c7x_int8_hardswish"),
     ],
 )
 def test_activation_fusion_fires(model_cls, extern_sym):
-    """FuseQDQToTIDLActivation produces a call_tir targeting the expected kernel."""
+    """FuseQDQToC7xActivation produces a call_tir targeting the expected kernel."""
     mod = _quantize_and_import(model_cls().eval())
     fused = _fuse(mod)
     main_str = str(fused["main"])
     assert extern_sym in main_str, (
-        f"{extern_sym} not found in fused IR after FuseQDQToTIDLActivation.\n"
+        f"{extern_sym} not found in fused IR after FuseQDQToC7xActivation.\n"
         f"IR:\n{main_str}"
     )
 
@@ -165,13 +165,13 @@ def test_gelu_output_is_int8():
 
 @pytest.mark.quick
 def test_i8_passes_do_not_trigger_on_int16():
-    """FuseQDQToTIDLActivation does not fuse int16 activations (int8 only)."""
-    # int16 quantized gelu should stay as float ops (no tidl_int8_gelu)
+    """FuseQDQToC7xActivation does not fuse int16 activations (int8 only)."""
+    # int16 quantized gelu should stay as float ops (no c7x_int8_gelu)
     # because the i8 check function rejects int16 input dtype.
     mod = _quantize_and_import_i16(GeluModel().eval())
     fused = _fuse(mod)
-    assert "tidl_int8_gelu" not in str(fused["main"]), (
-        "tidl_int8_gelu must not fire on int16 graph"
+    assert "c7x_int8_gelu" not in str(fused["main"]), (
+        "c7x_int8_gelu must not fire on int16 graph"
     )
 
 

@@ -12,7 +12,7 @@ shapes and conditional logic compile and execute correctly.
 | `test_dynamic_batch_dsp.py` | `DynBatchAdd` | Element-wise add with symbolic batch dim (`R.Tensor(("batch", 4))`) |
 | `test_dynamic_batch_dsp.py` | `DynBatchMatmul` | Matrix multiply `x[batch,8] @ w[8,4]` with symbolic batch and non-trivial `shape_func` |
 
-### Quick tests (9 total)
+### Quick tests (8 total)
 
 ```
 test_if_true_branch          If cond=1.0 -> add(x,x)

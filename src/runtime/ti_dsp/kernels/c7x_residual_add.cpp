@@ -18,7 +18,7 @@
  */
 
 /*!
- * \file tvm_int8_residual_add.cpp
+ * \file c7x_residual_add.cpp
  * \brief Quantized residual add with requantization — C7x vectorized.
  *
  * Computes the quantized residual add emitted by FuseInt8ResidualAdd:
@@ -64,7 +64,7 @@
  *   [15]     reserved
  */
 
-#include "tvm_int8_residual_add.h"
+#include "c7x_residual_add.h"
 
 #include <c7x.h>
 #include <stdint.h>
@@ -153,11 +153,8 @@ static void residual_add_i8_vec(
      * compiler to fill the 4–6 cycle SE latency with useful work, targeting
      * a software-pipeline initiation interval of 1 for the inner stages.
      *
-     * No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
-     * small n, making "at least 1 iteration" false -- see
-     * c7x_quantize.cpp's quantize_vec for the full investigation (a
-     * violated MUST_ITERATE(1,,) here caused a confirmed hardware
-     * correctness bug for small inputs in that kernel). */
+     * No #pragma MUST_ITERATE(1,,): nvec4 can be 0 for small n -- see
+     * c7x_quantize.cpp's quantize_1plane for the full investigation. */
     for (; i < nvec4; i += 4) {
         __int8 vx0 = __SE0ADV(int8);  __int8 vsk0 = __SE1ADV(int8);
         __int8 vx1 = __SE0ADV(int8);  __int8 vsk1 = __SE1ADV(int8);
@@ -257,7 +254,7 @@ static void residual_add_i16_scalar(
  * ========================================================================= */
 
 extern "C"
-int32_t tvm_int8_residual_add_relu(
+int32_t c7x_int8_residual_add_relu(
         const void* x_ptr, const void* skip_ptr,
         const void* params, void* output_ptr,
         int32_t num_elements, int32_t has_relu) {
@@ -271,7 +268,7 @@ int32_t tvm_int8_residual_add_relu(
 }
 
 extern "C"
-int32_t tvm_int16_residual_add_relu(
+int32_t c7x_int16_residual_add_relu(
         const void* x_ptr, const void* skip_ptr,
         const void* params, void* output_ptr,
         int32_t num_elements, int32_t has_relu) {

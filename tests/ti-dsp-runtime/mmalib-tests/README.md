@@ -36,6 +36,9 @@ pytest --rootdir=. mmalib-tests/ -m quick --dsp-mode=c7x_dload -v
 | `test_mmalib_fc_i16_dsp.py` | FC / linear | int16 | QDQ + direct | Direct `mmalib_matmul_bias_i16` wrapper tests (SmolLM dims) plus `FuseMMALIBQDQFCI16` PT2E QDQ fusion (Phase 2b) |
 | `test_mmalib_residual_add_i8_dsp.py` | residual add | int8 | QDQ | `FuseInt8ResidualAdd` — both `add(x,skip)` and `add(skip,x)` operand orders (Phase 2a) |
 | `test_mmalib_residual_add_i16_dsp.py` | residual add | int16 | QDQ | `FuseInt16ResidualAdd` — symmetric only (zp=0), both operand orders (Phase 2c) |
+| `test_mmalib_conv2d_i8_grouped_loop_dsp.py` | conv2d (grouped) | int8 | direct | Direct `call_extern` to `mmalib_conv2d_i8_grouped_loop` for ResNeXt101-32x8d's four stage shapes (stride 1/2), exact match (Step 13) |
+| `test_mmalib_qdq_grouped_conv2d_i8_dsp.py` | conv2d (grouped) | int8 | QDQ | `FuseMMALIBQDQConv2d` groups>1 path — PT2E pattern end-to-end via `-mmalib=1`, ±2 tolerance (Step 13) |
+| `test_mmalib_loop_only_chain_dsp.py` | conv2d (grouped) | int8 | direct | Regression: chains of `mmalib_conv2d_i8_grouped_loop` calls within one inference (2/3-call quick test, 16-call stress test), exact match (Step 13) |
 
 ### Pass-level unit tests (pure Python, no DSP required)
 
@@ -57,13 +60,20 @@ runs it, and compares against a numpy float reference.
 `legalize_map` replaces eligible float ops with `call_extern` to MMALIB
 wrappers. No quantization nodes in the graph.
 
-**QDQ fusion path** (all other tests): The `FuseMMALIBQDQ*` passes run
-*before* `FuseQDQToInt8Conv2D` and match the intact PT2E QDQ pattern:
+**QDQ fusion path** (files marked `QDQ` in the table above): The
+`FuseMMALIBQDQ*` passes run *before* `FuseQDQToInt8Conv2D` and match the
+intact PT2E QDQ pattern:
 ```
 dequantize(data_int8/16) → op(_, dequantize(weight)) → [bias] → [relu] → quantize
 ```
 The fused kernel receives compile-time-computed integer bias/scale/shift
 derived from the quantization parameters.
+
+**Direct call_extern path** (`test_mmalib_conv2d_i8_grouped_loop_dsp.py`,
+`test_mmalib_loop_only_chain_dsp.py`): builds `te.extern`/`tir.call_extern`
+calls to `mmalib_conv2d_i8_grouped_loop` by hand, bypassing both
+`LegalizeOps` and the QDQ fusion passes, to isolate ResNeXt101's
+grouped-conv kernel from the rest of the compiler pipeline.
 
 ### Tolerances
 

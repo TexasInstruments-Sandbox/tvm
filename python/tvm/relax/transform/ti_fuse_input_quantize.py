@@ -64,6 +64,39 @@ def is_per_tensor_scalar_constant(expr) -> bool:
     return shape is None or len(shape) == 0
 
 
+def is_raw_float32_input(x) -> bool:
+    """True if x is the model's raw float32 input (a Var, not an
+    intermediate activation).
+
+    Shared by FuseInputQuantize and FuseInputNormalizeQuantize: both match
+    a quantize whose operand chain must originate at the model's true
+    input boundary, not at some float32-valued intermediate Call/
+    DataflowVar (e.g. the output of a dequantize).
+    """
+    if not isinstance(x, relax.Var):
+        return False
+    if not (hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype")):
+        return False
+    return str(x.struct_info.dtype) == "float32"
+
+
+def static_shape_or_none(shape):
+    """Convert a Relax shape (an iterable of PrimExpr) to a list of Python
+    ints, or None if any dimension is not a compile-time constant (e.g. a
+    dynamic batch size, represented as a tir.Var).
+
+    Callers must treat None as "doesn't match" rather than calling int()
+    unconditionally on the shape, which raises TypeError on a non-IntImm
+    dimension instead of failing the match gracefully.
+    """
+    dims = []
+    for s in shape:
+        if not isinstance(s, tir.IntImm):
+            return None
+        dims.append(int(s))
+    return dims
+
+
 # =========================================================================
 # Pattern definition
 # =========================================================================
@@ -92,12 +125,7 @@ def _check_quantize(ctx) -> bool:
     # (function parameter).  Intermediate activations are relax.Call
     # (e.g. the output of dequantize) or relax.TupleGetItem.
     # Only accept Var to match the initial model input quantize.
-    if not isinstance(x, relax.Var):
-        return False
-    if hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        if str(x.struct_info.dtype) != "float32":
-            return False
-    else:
+    if not is_raw_float32_input(x):
         return False
 
     # scale and zp must be compile-time per-tensor scalar constants
@@ -168,7 +196,9 @@ class _QuantizeLowerer(PyExprMutator):
         if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
             return super().visit_call_(call)
 
-        out_shape = [int(s) for s in call_sinfo.shape]
+        out_shape = static_shape_or_none(call_sinfo.shape)
+        if out_shape is None:
+            return super().visit_call_(call)
         n_elems = 1
         for s in out_shape:
             n_elems *= s

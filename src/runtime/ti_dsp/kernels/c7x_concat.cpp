@@ -18,28 +18,34 @@
  */
 
 /**
- * @file c7x_concat_wrappers.cpp
+ * @file c7x_concat.cpp
  * @brief Vectorized int8 channel-axis concat with per-input rescaling.
  *
  * c7x_int8_concat_rescale: up to 4 inputs, fixed-signature 4-slot API.
  *   - Transparent slot (s_i == s_out, z_i == z_out): memcpy, ~2 cycles/elem.
  *   - Rescale slot: SE streaming + Q13 integer fixed-point on C7524, scalar
  *     fallback on other targets.  Follows the same SE+Q13 pattern as
- *     c7x_int8_requantize_clamp in c7x_pool_relu_wrappers.cpp.
+ *     c7x_int8_requantize_clamp in c7x_pool_relu.cpp.
  *   - Slots with C_i == 0 are skipped entirely.
  *
  * The #ifdef __C7524__ guard is required: __int8/__float8 = 256-bit containers
  * specific to the C7524 variant; wider-vector parts would produce wrong results.
  */
 
-#include "c7x_concat_wrappers.h"
+#include "c7x_concat.h"
 
 #include <stdint.h>
 #include <string.h>
 
-#ifdef __C7524__
+/* Unconditional include (not gated on __C7524__): on the c7x_host g++
+ * toolchain, __C7524__ is defined *by* <c7x.h> itself, not predefined by
+ * the compiler — gating the include on the macro it defines is a
+ * chicken-and-egg check that always evaluates false, silently disabling
+ * the vectorized path on host emulation (the real c7x cross-compiler
+ * predefines __C7524__ as a builtin before any header runs, so this only
+ * broke host emulation, not hardware builds). See
+ * c7x_avgpool.cpp for the same fix. */
 #include <c7x.h>
-#endif
 
 /* =========================================================================
  * Scalar helpers
@@ -84,11 +90,8 @@ static void rescale_slot_vec(
 
     int32_t i = 0;
 
-    /* No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
-     * small n_elem, making "at least 1 iteration" false -- see
-     * c7x_quantize.cpp's quantize_vec for the full investigation (a
-     * violated MUST_ITERATE(1,,) here caused a confirmed hardware
-     * correctness bug for small inputs in that kernel). */
+    /* No #pragma MUST_ITERATE(1,,): nvec4 can be 0 for small n_elem --
+     * see c7x_quantize.cpp's quantize_1plane for the full investigation. */
     for (; i < nvec4; i += 4) {
         __int8 vx0 = __SE0ADV(int8);
         __int8 vx1 = __SE0ADV(int8);

@@ -38,24 +38,24 @@
  *   VSTWSVPACKB  pack int32×8 → int8×8 in one store
  *
  * Uses __float8 / __int8 (256-bit on C7524) following the same pattern as
- * tvm_dequantize_vecmatmul.cpp; scalar fallback for non-C7524 builds.
+ * c7x_dequantize_vecmatmul.cpp; scalar fallback for non-C7524 builds.
  *
  * Public interface uses void* (matching TVM call_extern convention) with
- * typed casts inside, same as tvm_dequantize_vecmatmul.cpp.
+ * typed casts inside, same as c7x_dequantize_vecmatmul.cpp.
  *
- * KNOWN ISSUE (found via Step 16's unit tests, unrelated to that step's
- * fold logic -- present, unmodified, in quantize_vec's arithmetic since
- * before Step 16): on real c7x_dload hardware, small per-call element
- * counts (empirically, below ~64) can return wrong (near-zero-input)
- * results from the vectorized SE path; c7x_host emulation does not
- * reproduce this. Every production caller (FuseInputQuantize,
- * FuseInputNormalizeQuantize) always quantizes a full model input tensor
- * (thousands+ of elements), so this has not been observed to affect any
- * real model. Root cause not yet understood -- the failure pattern
- * doesn't cleanly correlate with the vectorized loop structure (e.g. a
- * 63-element call fails only in the scalar tail, not the vectorized
- * part). Flagged as a follow-up investigation, not fixed here; see
- * test_input_normalize_quantize_kernel.py's module docstring.
+ * FIXED SMALL-HW BUG (found via Step 16's unit tests, unrelated to that
+ * step's fold logic -- present, unmodified, in quantize_1plane's arithmetic
+ * since before Step 16): on real c7x_dload hardware, small per-call
+ * element counts (empirically, below ~64) used to return wrong
+ * (near-zero-input) results from the vectorized SE path; c7x_host
+ * emulation did not reproduce this. Root cause: the main 4×-unrolled
+ * loop below was preceded by `#pragma MUST_ITERATE(1,,)`, asserting at
+ * least 1 iteration -- but nvec4 = nvec & ~3 is exactly 0 whenever
+ * n < 32, making that assertion false. Removing the (invalid) pragma
+ * fixed every previously-failing case in the characterization matrix
+ * (n=8,16,24,31,63), including n=63, which failed only in its scalar
+ * tail. See test_input_normalize_quantize_kernel.py's module docstring
+ * for the full investigation.
  */
 
 #include "c7x_quantize.h"
@@ -68,7 +68,7 @@
  * the vectorized path on host emulation (the real c7x cross-compiler
  * predefines __C7524__ as a builtin before any header runs, so this only
  * broke host emulation, not hardware builds). See
- * c7x_avgpool_wrappers.cpp / c7x_pool_relu_wrappers.cpp for the same fix. */
+ * c7x_avgpool.cpp / c7x_pool_relu.cpp for the same fix. */
 #include <c7x.h>
 
 #ifdef __C7524__
@@ -79,7 +79,7 @@
  * (offset = per-channel affine's folded additive term, see that
  * function's doc comment) — identical formula, offset is just a float
  * either way (the per-tensor caller's zp is exactly representable). */
-static void quantize_vec(
+static void quantize_1plane(
         const float* __restrict__ in, int8_t* __restrict__ out,
         int32_t n, float inv_scale, float offset) {
 
@@ -110,7 +110,7 @@ static void quantize_vec(
      * the unpipelined safety-fallback loop that would otherwise correctly
      * handle small/zero trip counts -- exactly the condition this loop
      * needs when nvec4==0. Found while investigating a real small-n
-     * hardware failure (see this file's KNOWN ISSUE note above). */
+     * hardware failure (see this file's FIXED SMALL-HW BUG note above). */
     int32_t b = 0;
     for (; b < nvec4; b += 4) {
         __float8 vf0 = __SE0ADV(float8);
@@ -146,15 +146,13 @@ extern "C"
 int32_t c7x_int8_quantize(
         const void* in_ptr, void* out_ptr,
         int32_t n, float inv_scale, int32_t zp) {
-    quantize_vec((const float*)in_ptr, (int8_t*)out_ptr, n, inv_scale, (float)zp);
+    quantize_1plane((const float*)in_ptr, (int8_t*)out_ptr, n, inv_scale, (float)zp);
     return 0;
 }
 
-#define quantize_1plane quantize_vec
-
 #else  /* scalar fallback for non-C7524 builds */
 
-static void quantize_scalar(
+static void quantize_1plane(
         const float* in, int8_t* out, int32_t n, float inv_scale, float offset) {
     for (int32_t i = 0; i < n; i++) {
         float v = in[i] * inv_scale + offset;
@@ -167,16 +165,15 @@ extern "C"
 int32_t c7x_int8_quantize(
         const void* in_ptr, void* out_ptr,
         int32_t n, float inv_scale, int32_t zp) {
-    quantize_scalar((const float*)in_ptr, (int8_t*)out_ptr, n, inv_scale, (float)zp);
+    quantize_1plane((const float*)in_ptr, (int8_t*)out_ptr, n, inv_scale, (float)zp);
     return 0;
 }
 
-#define quantize_1plane quantize_scalar
-
 #endif  /* __C7524__ */
 
-/* Single definition for both branches above: quantize_1plane is macro'd to
- * whichever single-plane helper that branch defined. */
+/* quantize_1plane above resolves to whichever single-plane helper the
+ * active #ifdef __C7524__ branch defined (each branch's own static
+ * quantize_1plane, with internal linkage -- not a shared symbol). */
 extern "C"
 int32_t c7x_int8_quantize_rgb(
         const void* in_ptr, void* out_ptr, int32_t N, int32_t HW,
@@ -188,10 +185,12 @@ int32_t c7x_int8_quantize_rgb(
     const float inv_scale[3] = {inv_scale0, inv_scale1, inv_scale2};
     const float offset[3]    = {offset0, offset1, offset2};
 
-    for (int32_t p = 0; p < N * 3; p++) {
-        int32_t c = p % 3;
-        quantize_1plane(in + (int64_t)p * HW, out + (int64_t)p * HW, HW,
-                         inv_scale[c], offset[c]);
+    for (int32_t n = 0; n < N; n++) {
+        for (int32_t c = 0; c < 3; c++) {
+            int32_t p = n * 3 + c;
+            quantize_1plane(in + (int64_t)p * HW, out + (int64_t)p * HW, HW,
+                             inv_scale[c], offset[c]);
+        }
     }
     return 0;
 }

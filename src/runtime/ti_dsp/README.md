@@ -194,7 +194,7 @@ class Model {
   ModelError Infer(NDArray* input, NDArray** output);
 
   // Run inference (multi-output)
-  // outputs: array of NDArray pointers (max 8)
+  // outputs: array of NDArray pointers (max 128)
   // num_outputs: set to number of outputs on success
   ModelError InferMulti(NDArray* input, NDArray** outputs, int* num_outputs);
 
@@ -292,7 +292,7 @@ struct MemoryStats {
 
 ## Multi-Output Models
 
-Models returning tuples of tensors (up to 8 outputs) are supported:
+Models returning tuples of tensors (up to 128 outputs) are supported:
 
 ```cpp
 using namespace tvm::dsp;
@@ -301,7 +301,7 @@ Model model;
 model.Load();
 
 // Get all outputs
-NDArray* outputs[8];
+NDArray* outputs[128];
 int num_outputs;
 if (model.InferMulti(&input, outputs, &num_outputs) == ModelError::kSuccess) {
   printf("Model returned %d outputs\n", num_outputs);
@@ -312,7 +312,7 @@ if (model.InferMulti(&input, outputs, &num_outputs) == ModelError::kSuccess) {
 ```
 
 **Limitations:**
-- Maximum 8 outputs (enforced at compile time with `LOG(FATAL)`)
+- Maximum 128 outputs (matches the internal output buffer size)
 - `Infer()` returns only the first output for backward compatibility
 - Use `InferMulti()` to retrieve all outputs
 
@@ -447,8 +447,8 @@ All memory is pre-allocated at link time for deterministic behavior.
 **C7x (J722S):**
 | Pool | Size | Use Case | Access Speed |
 |------|------|----------|--------------|
-| L2 (Fast) | 512KB | Storage ≤64KB, hot data | Fastest (L2 SRAM) |
-| DDR (Main) | 64MB | Storage >64KB, constants | Slower (DDR) |
+| L2 (Fast) | 512KB | Storage ≤32KB, hot data | Fastest (L2 SRAM) |
+| DDR (Main) | 64MB | Storage >32KB, constants | Slower (DDR) |
 
 The storage allocation threshold balances L2 utilization against
 capacity. Tensors exceeding this threshold are placed in L3/DDR to avoid

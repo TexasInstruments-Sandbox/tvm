@@ -1,4 +1,4 @@
-"""Unit test for tvm_dequantize_vecmatmul kernel.
+"""Unit test for c7x_dequantize_vecmatmul kernel.
 
 Directly invokes the kernel via call_extern with known inputs and
 verifies output matches numpy reference. Tests the kernel in isolation,
@@ -36,13 +36,13 @@ def _numpy_ref(activation, weights_int8, scale):
 
 
 def _build_vecmatmul_module(M, K, N, w_int8, scale):
-    """Build a Relax module that calls tvm_dequantize_vecmatmul directly."""
+    """Build a Relax module that calls c7x_dequantize_vecmatmul directly."""
 
     def te_vecmatmul(act_t, w_t, scale_t):
         def fcompute(ins, outs):
             return tir.call_extern(
                 "int32",
-                "tvm_dequantize_vecmatmul",
+                "c7x_dequantize_vecmatmul",
                 ins[0].data,
                 ins[1].data,
                 ins[2].data,

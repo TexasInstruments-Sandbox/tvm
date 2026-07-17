@@ -9,7 +9,8 @@ The integration demonstrates:
 - Loading TVM-generated code (`lib0.c`) with the DSP runtime
 - Parsing model weights from `weights.bin`
 - Running inference on PC (host emulation), C66x, and C7x hardware
-- Directly calling `__vmtir__main` instead of using the full TVM VM
+- Using the RAII-based Model API (`model.h`) to call the generated
+  `cg_main_dsp` entry point directly, instead of using the full TVM VM
 
 ## Supported Platforms
 
@@ -51,9 +52,11 @@ See `../dsp-tests/test_clista_dsp.py` for a complete example.
 | File | Description |
 |------|-------------|
 | `main_dsp.cpp` | Main entry point - reads input.bin, runs inference, writes output.bin |
-| `CMakeLists.txt` | Build configuration for host and C66x targets |
+| `CMakeLists.txt` | Build configuration for host, C66x, and C7x targets |
 | `dsp_utils.py` | Python utilities for DSP compilation and execution |
-| `../radar/tensor_file_format.md` | Binary tensor file format specification |
+| `io/tensor_file.cpp`, `io/tensor_file.h` | Tensor file I/O (`input.bin`/`output.bin`) |
+| `io/weights_loader.cpp`, `io/weights_loader.h` | Weights source (filesystem or linker-embedded) |
+| `io/tensor_file_format.md` | Binary tensor file format specification |
 
 Note: Constants loading (`TVMDSPParseConstants`, `TVMGetConstants`) is now provided
 by the TVM DSP runtime library (`constants/constants_loader.cpp`).
@@ -198,7 +201,7 @@ The DSP executable uses file-based I/O:
 - **Output**: Writes tensor(s) to `output.bin`
 
 The binary tensor file format is self-describing with magic number validation.
-See `../radar/tensor_file_format.md` for the full specification.
+See `io/tensor_file_format.md` for the full specification.
 
 ### Host Emulation
 
@@ -210,38 +213,17 @@ cd build
 
 Expected output:
 ```
-=============================================
-  TVM DSP Runtime Integration Test
-=============================================
-
-[1/5] Initializing DSP platform...
+INFO: Loaded weights from /path/to/model_dir/weights.bin (123456 bytes)
 TVM DSP Runtime initialized on Host (PC Emulation)
   Fast pool: 4096 KB
   Main pool: 65536 KB
-[2/5] Registering VM builtins...
-[3/5] Loading model constants...
-  Loaded 185 constants
-[4/5] Reading input from file...
-  Read 1 input tensor(s) from input.bin
-  input: shape=[1, 2, 16], dtype=2.32, elements=32
-[5/5] Running inference...
-
-=============================================
-  Results
-=============================================
-Output type: NDArray
-
-  output[0]: shape=[1, 128, 1], dtype=2.32, elements=128
-    values: [-0.911389, -0.123456, 0.234567, ...]
-
-=============================================
-  Writing Output File
-=============================================
-  Wrote output to: output.bin
-
-=============================================
-  Test Complete
-=============================================
+Loaded 185 constants
+Input[0]: shape=[1,2,16], dtype=2.32
+Cycles: 42000
+Num outputs: 1
+Output[0]: shape=[1,128,1], dtype=2.32
+Memory: L2 peak=12345, L3 peak=0
+Done
 ```
 
 ### C66x Hardware
@@ -256,7 +238,7 @@ $TVM_HOME/src/runtime/ti_dsp/scripts/run_on_c66x.sh build-awrl6844/cg_dsp_c66x.o
 
 Expected output (similar to host, with C66x memory configuration):
 ```
-[1/5] Initializing DSP platform...
+INFO: Using embedded weights (123456 bytes)
 TVM DSP Runtime initialized on C66x (AWRL6844)
   L2 pool: 0x00850000 - 0x00860000 (64 KB)
   L3 pool: 0x88050400 - 0x88150400 (1024 KB)
@@ -290,9 +272,9 @@ TVM DSP Runtime initialized on C7x (J722S_C75)
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CMAKE_BUILD_TYPE` | `Debug` | Build type: `Debug` or `Release` |
-| `TVM_DSP_TARGET` | `host` | Target: `host`, `c66x`, or `c7x` |
+| `TVM_DSP_TARGET` | `host` | Target: `host`, `c66x`, `c7x_host`, or `c7x-dynmod` |
 | `TVM_DSP_DEVICE` | (none) | Device variant: `awrl6844` or `j722s` |
-| `GENERATED_CODE_DIR` | (required) | Directory containing lib0.c and weights.bin |
+| `GENERATED_CODE_DIR` | `../cstatic-tests` | Directory containing lib0.c and weights.bin |
 | `TVM_HOME` | Auto-detect | Path to TVM repository |
 | `WEIGHTS_FILE` | `${GENERATED_CODE_DIR}/weights.bin` | Path to weights file |
 
@@ -305,11 +287,12 @@ TVM DSP Runtime initialized on C7x (J722S_C75)
 
 ### Model Configuration
 
-Edit the following in `main_dsp.cpp` or pass via CMake:
+Set via CMake, compiled in as preprocessor definitions consumed by the
+Model API:
 
-```cpp
-// Register file size (from CGFunctionInfo.max_register_index+1)
-#define REG_FILE_SIZE 230
+```bash
+cmake -DMODEL_ENTRY_FUNCTION=main -DMODEL_NUM_INPUTS=1 \
+      -DMODEL_RETURNS_TUPLE=ON -DGENERATED_CODE_DIR=/path/to/model_dir ..
 ```
 
 Input shape and data are provided via `input.bin` at runtime (no recompilation needed).
@@ -360,11 +343,10 @@ set_source_files_properties(${GENERATED_SOURCES} PROPERTIES LANGUAGE CXX)
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                       main_dsp.cpp                          │
-│  - Platform init                                            │
-│  - Register builtins                                        │
-│  - Load constants from weights.bin                          │
+│  - GetWeightsData() - loads weights.bin                     │
+│  - model.Load() - parses constants                          │
 │  - Read input tensor(s) from input.bin                      │
-│  - Call __vmtir__main()                                     │
+│  - model.InferMulti() - calls generated cg_main_dsp()       │
 │  - Write output tensor(s) to output.bin                     │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -372,8 +354,7 @@ set_source_files_properties(${GENERATED_SOURCES} PROPERTIES LANGUAGE CXX)
 ┌─────────────────────────────────────────────────────────────┐
 │                         lib0.c                              │
 │  - Generated TIR code                                       │
-│  - __vmtir__main(ctx, args, num_args, result)               │
-│  - InitVMBuiltins() - populates function pointers           │
+│  - cg_main_dsp(inputs, num_inputs, outputs, num_outputs)    │
 │  - Operator implementations (conv1d, add, etc.)             │
 └─────────────────────────────────────────────────────────────┘
                               │

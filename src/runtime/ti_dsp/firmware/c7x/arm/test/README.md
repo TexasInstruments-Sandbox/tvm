@@ -80,9 +80,9 @@ inp = np.random.randn(1, 64).astype("float32")
 inp.tofile("/tmp/input.bin")
 
 # Run on CPU to get the reference output
-import tvm
-from tvm import relax
-from tests.ti-dsp-runtime.dsp_tests.test_c7x_vm_dsp import _cpu_reference_mlp
+import sys
+sys.path.insert(0, "tests/ti-dsp-runtime/dsp-tests")
+from test_c7x_vm_dsp import _cpu_reference_mlp
 ref = _cpu_reference_mlp(inp)
 ref.tofile("/tmp/ref.bin")
 ```

@@ -23,12 +23,12 @@ Matches the PT2E pattern for layer_norm after C7xMMAQuantizer annotation:
 
 where `weight` and `bias` are float32 constants.
 
-Replaces with call_extern to tidl_int8_layer_norm which:
+Replaces with call_extern to c7x_int8_layer_norm which:
   - Accepts int8 input + float32 weight/bias + quantization parameters
   - Runs normalization in float32 (dequant → norm → requant)
   - Produces int8 output
 
-Kernel: src/runtime/ti_dsp/kernels/tidl_norm_wrappers.c
+Kernel: src/runtime/ti_dsp/kernels/c7x_norm.c
 """
 
 import logging
@@ -181,7 +181,7 @@ class _LayerNormLowerer(PyExprMutator):
             def fcompute(ins, outs):
                 return tir.call_extern(
                     "int32",
-                    "tidl_int8_layer_norm",
+                    "c7x_int8_layer_norm",
                     ins[0].data,   # in (int8)
                     ins[1].data,   # weight (float32)
                     ins[2].data,   # bias (float32)
@@ -202,12 +202,12 @@ class _LayerNormLowerer(PyExprMutator):
 
         result = self.builder_.call_te(
             te_layer_norm, x_arg, w_arg, b_arg,
-            primfunc_name_hint="tidl_int8_layer_norm",
+            primfunc_name_hint="c7x_int8_layer_norm",
         )
 
         self.count += 1
         logger.debug(
-            "Fused tidl_int8_layer_norm: outer=%d norm=%d eps=%.2e",
+            "Fused c7x_int8_layer_norm: outer=%d norm=%d eps=%.2e",
             outer_size_v, norm_size_v, eps_val,
         )
         return result
@@ -218,9 +218,9 @@ class _LayerNormLowerer(PyExprMutator):
 # =========================================================================
 
 
-@tvm.transform.module_pass(opt_level=0, name="FuseQDQToTIDLLayerNorm")
-class FuseQDQToTIDLLayerNorm:
-    """Fuse QDQ-wrapped layer_norm into tidl_int8_layer_norm C kernel call.
+@tvm.transform.module_pass(opt_level=0, name="FuseQDQToC7xLayerNorm")
+class FuseQDQToC7xLayerNorm:
+    """Fuse QDQ-wrapped layer_norm into c7x_int8_layer_norm C kernel call.
 
     Requires int8 input, float32 weight/bias, and compile-time quantization
     constants.  The normalization runs in float32 internally.
@@ -241,7 +241,7 @@ class FuseQDQToTIDLLayerNorm:
         mod = lowerer.builder_.get()
 
         if lowerer.count > 0:
-            logger.info("FuseQDQToTIDLLayerNorm: fused %d layer_norm ops", lowerer.count)
+            logger.info("FuseQDQToC7xLayerNorm: fused %d layer_norm ops", lowerer.count)
             mod = relax.transform.DeadCodeElimination()(mod)
 
         return mod

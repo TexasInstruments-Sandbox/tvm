@@ -98,7 +98,7 @@
 
 /* Scalar C fallback — always available, used when TIDL kernel is disabled.
  * Path is relative to TVM_DSP_RUNTIME_DIR which is in the firmware include path. */
-#include "kernels/c7x_pool_relu_wrappers.h"
+#include "kernels/c7x_pool_relu.h"
 
 extern "C" void* TVMBackendAllocWorkspace(int device_type, int device_id,
                                           uint64_t nbytes, int dtype_code_hint,

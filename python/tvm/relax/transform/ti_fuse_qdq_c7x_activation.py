@@ -27,9 +27,9 @@ Relax IR has these sub-graph structures:
   hardsigmoid:  dq → add(dq, 3) → clip → clip → divide(_, 6) → q
   hardswish:    dq → add(dq, 3) → clip → clip → multiply(dq, clip) → divide → q
 
-Replaces each with call_extern to the corresponding tidl_int8_* C wrapper.
+Replaces each with call_extern to the corresponding c7x_int8_* C wrapper.
 
-Kernels: src/runtime/ti_dsp/kernels/tidl_activation_wrappers.c
+Kernels: src/runtime/ti_dsp/kernels/c7x_activation.c
 """
 
 import logging
@@ -342,10 +342,8 @@ class _ActivationLowerer(PyExprMutator):
             n_elem *= s
 
         # Map composite suffix → extern function name.
-        # hardswish was renamed from tidl_int8_ to c7x_int8_ (SE+float vectorized).
         act_suffix = composite_name[len(_COMPOSITE_PREFIX) :].removesuffix("_commuted")
-        _EXTERN_NAME: dict = {"hardswish": "c7x_int8_hardswish"}
-        extern_name = _EXTERN_NAME.get(act_suffix, f"tidl_int8_{act_suffix}")
+        extern_name = f"c7x_int8_{act_suffix}"
 
         d_zp_v = int(d_zp_val)  # type: ignore[arg-type]
         d_scale_v = float(d_scale_val)  # type: ignore[arg-type]
@@ -406,7 +404,7 @@ class _ActivationLowerer(PyExprMutator):
         return int8_result
 
     def _lower_channel_scale_multiply(self, call, func):
-        """Lower channel_scale_multiply composites to tidl_int8_channel_scale_multiply."""
+        """Lower channel_scale_multiply composites to c7x_int8_channel_scale_multiply."""
         param_to_arg = dict(zip(func.params, call.args))
 
         # Collect the two dequantize ops and one quantize op from the composite.
@@ -471,7 +469,7 @@ class _ActivationLowerer(PyExprMutator):
             def fcompute(ins, outs):
                 return tir.call_extern(
                     "int32",
-                    "tidl_int8_channel_scale_multiply",
+                    "c7x_int8_channel_scale_multiply",
                     ins[0].data,
                     ins[1].data,
                     outs[0].data,
@@ -497,11 +495,11 @@ class _ActivationLowerer(PyExprMutator):
             te_channel_scale_multiply,
             exc_arg,
             fm_arg,
-            primfunc_name_hint="tidl_int8_channel_scale_multiply",
+            primfunc_name_hint="c7x_int8_channel_scale_multiply",
         )
         self.count += 1
         logger.debug(
-            "Fused tidl_int8_channel_scale_multiply: C=%d H_W=%d",
+            "Fused c7x_int8_channel_scale_multiply: C=%d H_W=%d",
             C_v,
             H_W_v,
         )
@@ -513,9 +511,9 @@ class _ActivationLowerer(PyExprMutator):
 # =========================================================================
 
 
-@tvm.transform.module_pass(opt_level=0, name="FuseQDQToTIDLActivation")
-class FuseQDQToTIDLActivation:
-    """Fuse QDQ-wrapped activation ops into tidl_int8_* C kernel calls.
+@tvm.transform.module_pass(opt_level=0, name="FuseQDQToC7xActivation")
+class FuseQDQToC7xActivation:
+    """Fuse QDQ-wrapped activation ops into c7x_int8_* C kernel calls.
 
     Handles: gelu, silu, hardsigmoid, hardswish.
     Requires int8 input and compile-time quantization constants (satisfied
@@ -702,6 +700,6 @@ class FuseQDQToTIDLActivation:
 
         total = n1 + n2
         if total > 0:
-            logger.info("FuseQDQToTIDLActivation: fused %d activation ops", total)
+            logger.info("FuseQDQToC7xActivation: fused %d activation ops", total)
 
         return mod

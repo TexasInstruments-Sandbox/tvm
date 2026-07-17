@@ -71,8 +71,9 @@ ex = relax.build(mod, target=target)
 | `debug-alloc` | Bool | `false` | Enable diagnostic allocation tracing |
 | `constants-byte-alignment` | Int | `64` (DSP) | Byte alignment for constant arrays |
 | `l1d-cache-size` | Int | `32768` | L1D cache size in bytes (32KB) |
-| `l2-sram-size` | Int | `393216` | L2 SRAM size in bytes (384KB) |
+| `l2-sram-size` | Int | `1310720` | L2 SRAM size in bytes (1.25MB, J722S C7x) |
 | `vector-width` | Int | `128` | SIMD vector width in bits |
+| `mmalib` | Bool | `false` | Use MMALIB kernels for eligible matmul/conv2d ops (requires `mcpu=c7x`) |
 
 ### TI DSP Runtime
 
@@ -205,14 +206,11 @@ $TVM_HOME/src/runtime/ti_dsp/scripts/run_on_c66x.sh program.out --timeout 120000
 cd $TVM_HOME
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 
-# Run on host emulation (default)
-pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=host
+# Run on C66x host emulation
+pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x_host
 
 # Run on C66x hardware
 pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x
-
-# Run both
-pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=both
 
 # With layer profiling
 pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x --profile-layers
@@ -270,7 +268,7 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.
  │                        │          │                            │
  │  1. load lib0.out      ├─────────▶│  DLOAD: parse ELF,         │
  │                        │          │    allocate in DDR heap,   │
- │                        │          │    resolve 61 symbols,     │
+ │                        │          │    resolve exported syms,  │
  │                        │          │    apply relocations       │
  │                        │          │                            │
  │  2. infer              ├─────────▶│  Call cg_main_dsp():       │
@@ -348,9 +346,11 @@ deployment as a single file (`lib0.out`). For ResNet-18, this produces a
 The build process uses a two-stage link with TI CGT C7000:
 
 **Stage 1** -- Build a pseudo-firmware (`dsp_syms.out`) containing stub
-`__declspec(dllexport)` declarations of all 61 symbols the firmware
-exports. This provides link-time symbol definitions so the TI linker can
-resolve references in `lib0.c` without the actual firmware binary.
+`__declspec(dllexport)` declarations of the symbols the firmware
+exports (127 in the current symbol list, spanning the C library, TVM
+runtime, VM builtins, math, and MMALIB wrappers). This provides
+link-time symbol definitions so the TI linker can resolve references in
+`lib0.c` without the actual firmware binary.
 
 **Stage 2** -- Compile `lib0.c` with the TI C++ compiler and link it
 against `dsp_syms.out` using the DLOAD linker script (`c7x_dynmod.cmd`):
@@ -362,11 +362,18 @@ against `dsp_syms.out` using the DLOAD linker script (`c7x_dynmod.cmd`):
 The output `lib0.out` is a standard C7x ELF that DLOAD can parse and
 relocate into DSP memory at runtime.
 
-The build infrastructure is in the `tests/ti-dsp-runtime` repository:
-- `dsp-cpp/c7x_dynmod/c7x_dynmod.cmd` -- DLOAD linker script
-- `dsp-cpp/c7x_dynmod/dsp_syms.c` -- pseudo-firmware symbol stubs
-- `dsp-cpp/CMakeLists.txt` -- cmake target `c7x-dynmod`
-- `src/runtime/ti_dsp/scripts/bin_to_asm.py` -- weights embedder (in tvm repo)
+The dynmod build infrastructure lives in the `tvm` repo, under
+`src/runtime/ti_dsp/dynmod/`:
+- `dynmod/c7x_dynmod/c7x_dynmod.cmd` -- DLOAD linker script
+- `dynmod/c7x_dynmod/dsp_syms.c` -- pseudo-firmware symbol stubs
+- `dynmod/CMakeLists.txt` -- standalone cmake project, target `c7x_dynmod`
+  (also invoked by `TIDLOffloadCompiler._build_dynmod()` from the Python
+  build pipeline)
+- `src/runtime/ti_dsp/scripts/bin_to_asm.py` -- weights embedder
+
+The `tests/ti-dsp-runtime` repository's `dsp-cpp/CMakeLists.txt` can also
+drive this build (via `-DC7X_DYNMOD=ON`), referencing the same files in
+the `tvm` repo rather than a local copy.
 
 ### Running on AM67A Hardware
 
@@ -416,8 +423,8 @@ The C7x DLOAD flow spans two repositories:
 | c_static code generator | `tvm` | `src/target/c_static/` |
 | TI DSP runtime | `tvm` | `src/runtime/ti_dsp/` |
 | `bin_to_asm.py` (weights embedder) | `tvm` | `src/runtime/ti_dsp/scripts/` |
-| C7x DLOAD build scripts | `tests/ti-dsp-runtime` | `dsp-cpp/` |
-| DLOAD linker script + stubs | `tests/ti-dsp-runtime` | `dsp-cpp/c7x_dynmod/` |
+| DLOAD linker script + stubs | `tvm` | `src/runtime/ti_dsp/dynmod/c7x_dynmod/` |
+| C7x DLOAD build scripts (test harness) | `tests/ti-dsp-runtime` | `dsp-cpp/` |
 | DSP firmware + host CLI | `tvm` | `src/runtime/ti_dsp/firmware/c7x/` |
 | pytest integration tests | `tests/ti-dsp-runtime` | `dsp-tests/` |
 
@@ -434,21 +441,31 @@ The DMA tiling pipeline has three stages:
 
 **Stage 1 -- Scheduling (Relax pipeline)**
 
-`ScheduleC7xDMATiling` runs after `FuseTIR`.  For each fused PrimFunc
-containing a `conv2d_nchw` block:
+`ScheduleC7xDMATiling` runs after `FuseTIR`.  For each PrimFunc it
+tries three strategies in order, applying the first one that matches:
 
-1. Extract input/weight dimensions from the block's read buffers.
-2. Compute the largest power-of-2 OC tile such that input + weight
-   tiles fit double-buffered in the L2 SRAM budget (default 384 KB).
-   Skip if everything fits in one shot.
-3. Split the output-channel loop into `oc_outer` / `oc_inner`.
-4. Insert `cache_read` for input and weight into `global.l2sram` scope,
-   placed at `oc_outer`.
-5. Fuse the copy loops into a single flat loop per cache block.
-6. Annotate `oc_outer` with software pipeline metadata:
-   - `software_pipeline_stage = [0, 0, 1]` -- DMA, DMA, compute
-   - `software_pipeline_order = [0, 1, 2]`
-   - `software_pipeline_async_stages = [0]`
+1. **NHWC H-tiling** (preferred, `conv2d_nhwc` blocks) -- splits the
+   output height (H) loop so each tile's input activation strip
+   (double-buffered) fits in the L2 SRAM budget (default 384 KB). Works
+   with fused quantized kernels because per-channel post-conv ops
+   (requantize, bias, relu, clip, cast) are independent of H. Also
+   caches weights into L2 (invariant across H-tiles) when they fit
+   alongside the double-buffered input strip.
+2. **NCHW OC-tiling** (legacy, `conv2d_nchw` blocks) -- splits the
+   output-channel loop into `oc_outer` / `oc_inner` so input + weight
+   tiles fit double-buffered in the L2 budget. Only applied to
+   standalone conv2d (skipped if the PrimFunc has fused post-conv
+   blocks, since OC-tiling breaks per-output-channel fused ops).
+3. **N-tiling** (`dequantize_matmul_acc` blocks) -- caches the weight
+   matrix into L2 if it fits; SW-pipelined N-tiling for weights that
+   don't fit is not yet implemented.
+
+Whichever strategy applies, matching `cache_read`s are inserted into
+`global.l2sram` scope, copy loops are fused into a single flat loop per
+cache block, and the outer loop is annotated with software pipeline
+metadata (e.g. for OC-tiling: `software_pipeline_stage = [0, 0, 1]`
+(DMA, DMA, compute), `software_pipeline_order = [0, 1, 2]`,
+`software_pipeline_async_stages = [0]`).
 
 **Stage 2 -- TIR lowering (custom C7x TIR pipeline)**
 
@@ -515,8 +532,9 @@ group can overlap with tile 0 computation.
 
 ### Tiling Decisions
 
-The pass skips tiling when the full working set fits in L2.  For the
-quantized 4-layer conv2d stack test model:
+The pass skips tiling when the full working set fits in L2.  For a
+standalone (non-fused) 4-layer conv2d stack -- the scenario the legacy
+NCHW OC-tiling strategy targets:
 
 | Layer | IC  | OC  | KH | Working set | Tiled? |
 |-------|-----|-----|----|-------------|--------|
@@ -527,6 +545,11 @@ quantized 4-layer conv2d stack test model:
 
 Only conv3 exceeds the 192 KB half-budget (384 KB / 2 for
 double-buffering) and gets tiled.
+
+Note: fused quantized conv2d stacks (requantize/bias/relu/clip/cast
+fused into the same PrimFunc) are skipped by NCHW OC-tiling and instead
+go through NHWC H-tiling (see "How It Works" above), which tiles on
+output height rather than output channel.
 
 ### DMA Runtime API
 
@@ -574,13 +597,14 @@ src/target/c_static/
 |-- codegen_c_static_wrapper.h   # Wrapper generator class
 |-- codegen_c_static_wrapper.cc  # C++ wrapper generation
 |-- codegen_c_static_templates.h # Code templates (headers, helpers)
+|-- weight_packer.cc             # Weight/constant serialization to weights.bin
 ```
 
 ### Modular Components
 
 | Class | Responsibility |
 |-------|----------------|
-| `CodeGenCStatic` | Core TIR-to-C code generation, inherits from CodeGenCHost |
+| `CodeGenCStatic` | Core TIR-to-C code generation, inherits from CodeGenC |
 | `DSPCodeGenExtension` | Emit TI DSP pragmas, headers, profiling infrastructure |
 | `WrapperGenerator` | Generate C++ wrapper functions for exported functions |
 
@@ -602,6 +626,7 @@ struct CGFunctionInfo {
     int64_t max_register_index = -1;  // Maximum register usage
     int64_t num_args = 0;             // Number of input arguments
     bool returns_tuple = false;       // Multi-output detection
+    int64_t num_outputs = 1;          // Number of outputs (N for tuple)
     uint64_t total_params = 0;        // Parameter count
     bool was_private = false;         // Visibility control
 };
@@ -611,6 +636,7 @@ struct DSPConfig {
     bool enabled = false;             // Targeting TI DSP
     std::string mcpu;                 // Target CPU (c66x, c7x)
     bool profile_layers = false;      // Per-layer profiling
+    bool tidl_runtime = false;        // Emit tidl_bridge_init_all() in cg_main_dsp
     std::vector<std::string> profiled_layer_names;
 };
 ```
@@ -695,14 +721,13 @@ cd $TVM_HOME
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 
 # C static backend tests
-pytest tvm-relax-tests/cstatic-tests/test_lenet.py -v
-pytest tvm-relax-tests/cstatic-tests/test_conv2d.py -v
-pytest tvm-relax-tests/cstatic-tests/test_resnet.py -v
-pytest tvm-relax-tests/cstatic-tests/test_matmul.py -v
-pytest tvm-relax-tests/cstatic-tests/test_mlp.py -v
+pytest tests/cstatic/unit-tests/test_conv2d.py -v
+pytest tests/cstatic/unit-tests/test_resnet.py -v
+pytest tests/cstatic/unit-tests/test_matmul.py -v
+pytest tests/cstatic/unit-tests/test_mlp.py -v
 
 # DSP tests (host emulation)
-pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=host
+pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x_host
 
 # DSP tests (C66x hardware)
 pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x

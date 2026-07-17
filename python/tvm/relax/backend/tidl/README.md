@@ -14,6 +14,9 @@ from tvm.relax.backend.tidl import TIDLOffloadCompiler
 compiler = TIDLOffloadCompiler(config={
     "artifacts_dir": "/tmp/tidl_artifacts",
     "tidl_tools_path": "~/ml/c7x-mma-tidl/tidl_tools",
+    # Required: real per-frame inputs used to collect calibration
+    # statistics for each TIDL subgraph (see Config keys below).
+    "calibration_inputs": calib_frames,
 })
 
 # Single call: partition -> import -> lower -> codegen -> bridge -> build
@@ -37,6 +40,7 @@ from tvm.relax.backend.tidl import TIDLOffloadCompiler, LowerTIDLToTIR
 compiler = TIDLOffloadCompiler(config={
     "artifacts_dir": "/tmp/tidl_artifacts",
     "tidl_tools_path": "~/ml/c7x-mma-tidl/tidl_tools",
+    "calibration_inputs": calib_frames,
 })
 
 # 1. Partition: identify TIDL-supported subgraphs
@@ -274,13 +278,18 @@ This produces `tidl_bridge.c` and `tidl_bridge.h`.  The header provides
 so `lib0.c` can resolve the symbols at compile time.
 
 The real bridge (supports multiple TIDL subgraphs):
-1. Lazy-inits each TIDL instance via `init_tidl_subgraph()`
-   using per-subgraph artifact symbols (`_binary_tidl_net_N_*`,
-   `_binary_tidl_io_N_*`)
+1. `tidl_bridge_init_all()` eagerly inits every TIDL instance via
+   `init_tidl_subgraph()`, using per-subgraph artifact symbols
+   (`_binary_tidl_net_N_*`, `_binary_tidl_io_N_*`).  It runs once from
+   `cg_main_dsp` before the first inference call (see "Code
+   generation" below); each `*_process()` function only checks its
+   instance pointer for NULL as a safety guard
 2. Wraps raw `void*` pointers in `DLTensor` structs
 3. Flushes input from cache (`TVM_cacheWbInvRegion`)
 4. Calls `process_tidl_subgraph(instance, in_tensors, out_tensors)`
 5. Invalidates output cache after DMA completes
+6. `tidl_bridge_cleanup()` frees all persistent TIDL handles at
+   module teardown
 
 Shared includes (`tidl_api.h`, `dlpack.h`, externs) are emitted once;
 each subgraph gets its own `_process()` function and instance.
@@ -291,11 +300,14 @@ each subgraph gets its own `_process()` function and instance.
 
 1. Load `tidl_model_import_relax.so`
 2. `TIDL_relaxInit()` — initialize with device config and artifacts dir
-3. For each composite in each subgraph:
-   - Lift constants into VarBindings (`_lift_constants_in_composite`)
-   - Construct synthetic `relax.Call` with `UpdateStructInfo`
-   - `TIDL_relaxImportNode()` — parse op attrs, register with TIDL
-   - `TIDL_relaxImportLinkNode()` — connect data flow edges
+3. For each subgraph:
+   - `TIDL_relaxImportInit()` — register per-subgraph tensor descriptors
+     (I/O shapes/dtypes)
+   - For each composite:
+     - Lift constants into VarBindings (`_lift_constants_in_composite`)
+     - Construct synthetic `relax.Call` with `UpdateStructInfo`
+     - `TIDL_relaxImportNode()` — parse op attrs, register with TIDL
+     - `TIDL_relaxImportLinkNode()` — connect data flow edges
 4. `TIDL_relaxOptimizeNet()` — run network compiler
 5. `TIDL_relaxPostProcessNet()` — write net.bin + params_1.bin
 
@@ -304,9 +316,11 @@ each subgraph gets its own `_process()` function and instance.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `artifacts_dir` | `/tmp/tidl_artifacts` | Output directory for TIDL binaries |
-| `tidl_tools_path` | auto-detect from `C7X_MMA_TIDL_PATH` | Path to device_config.cfg |
-| `tidl_relax_so_path` | auto-detect | Path to `tidl_model_import_relax.so` |
+| `tidl_tools_path` | auto-detect from `C7X_MMA_TIDL_PATH` | Path to device_config.cfg; `tidl_model_import_relax.so` is derived from its parent dir |
+| `calibration_inputs` | **required** | List of per-frame numpy arrays (one `(1,C,H,W)` array per calibration image); random data is rejected — see "Recent Fix" in the repo `CLAUDE.md` for why |
 | `num_calibration_frames` | 1 | Calibration iterations |
+| `skip_failing_subgraphs` | `False` | Fall back to TVM instead of raising when a subgraph fails `TIDL_relaxOptimizeNet`/`PostProcessNet` |
+| `max_subgraphs` | `None` | Cap the number of subgraphs offloaded to TIDL, keeping the top-N by estimated FLOPs |
 
 **Node naming:** `tidl_{sg_id}_i{idx}` for inputs, `tidl_{sg_id}_o{idx}`
 for outputs, sequential integers for internal nodes.  Shapes normalized
@@ -433,8 +447,16 @@ Located in `src/runtime/ti_dsp/tidl/`, adapted from neo-tvm:
 
 ### Code generation
 
-No c_static C++ changes were needed.  The existing `CodeGenCStatic`
-handles `call_extern` in TIR PrimFuncs natively.
+`CodeGenCStatic` handles `call_extern` in TIR PrimFuncs natively, so
+no C++ changes were needed for the `_process()` calls themselves.
+One target attribute was added for TIDL: `-tidl-runtime=1` (see
+`src/target/c_static/codegen_c_static.{h,cc}`,
+`codegen_c_static_wrapper.cc`). When set, `EmitDSPWrappers` emits an
+`extern "C" tidl_bridge_init_all()` declaration and calls it from
+`cg_main_dsp` before the first inference, so every TIDL subgraph is
+initialized eagerly instead of the model module returning garbage on
+a NULL bridge instance. `TIDLOffloadCompiler.build()` appends
+`-tidl-runtime=1` automatically whenever TIDL artifacts are present.
 
 `relax.build()` must use `exec_mode="compiled"` for DSP targets.
 The default `"bytecode"` does not generate `__vmtir__main`.
@@ -463,8 +485,8 @@ visualize_partitioning(partitioned_mod, "graph.html",
 
 The HTML has two tabs:
 - **Graph** — hierarchical dataflow graph with TIDL (red) and TVM
-  (teal) nodes.  Click a TIDL node to expand its 37 internal layers
-  with PyTorch source paths.
+  (teal) nodes.  Click a TIDL node to expand its internal composite
+  layers (count varies per subgraph) with PyTorch source paths.
 - **Profile** — per-layer cycle table with horizontal bar chart,
   sorted by cost.  Only shown when ``profile_data`` is provided.
 

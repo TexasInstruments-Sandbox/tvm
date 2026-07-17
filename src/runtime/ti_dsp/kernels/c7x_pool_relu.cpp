@@ -18,7 +18,7 @@
  */
 
 /**
- * @file c7x_pool_relu_wrappers.cpp
+ * @file c7x_pool_relu.cpp
  * @brief C7x-native int8 max-pooling, relu, clamp, and requantize kernels.
  *
  * c7x_int8_requantize_clamp, c7x_int8_relu, and c7x_int8_clamp all have SE
@@ -31,7 +31,7 @@
  * max_pool is unchanged from the .c file.
  */
 
-#include "c7x_pool_relu_wrappers.h"
+#include "c7x_pool_relu.h"
 
 #include <stdint.h>
 
@@ -42,7 +42,7 @@
  * the vectorized path on host emulation (the real c7x cross-compiler
  * predefines __C7524__ as a builtin before any header runs, so this only
  * broke host emulation, not hardware builds). See
- * c7x_avgpool_wrappers.cpp for the same fix. */
+ * c7x_avgpool.cpp for the same fix. */
 #include <c7x.h>
 
 extern "C"
@@ -105,14 +105,14 @@ int32_t c7x_int8_max_pool(
  * Operation: out[i] = clamp(round(in[i] * combined_scale), clip_lo, clip_hi)
  *
  * combined_scale = d_scale / o_scale is precomputed by the compiler pass
- * (ti_fuse_qdq_tidl_relu.py) and passed as float32 at compile time.
+ * (ti_fuse_qdq_c7x_relu.py) and passed as float32 at compile time.
  *
  * Vectorized implementation (C7524 only):
  *   - Q13 fixed-point: scale_q = round(combined_scale * 8192)
  *     Safe for combined_scale up to 255: max product = 127×8192×255 = 265M
  *     which fits in int32 (< INT32_MAX ≈ 2147M).
  *   - SE0 streams int8 input, sign-extends 4× to int32 (__int8 = 8×int32)
- *   - 4× unrolled loop matching tvm_int8_residual_add.cpp:156–196
+ *   - 4× unrolled loop matching c7x_residual_add.cpp:156–196
  *     (single SE stream, no skip branch)
  *   - __vstore_pack_byte packs int32×8 → int8×8 in one D-unit cycle
  * ========================================================================= */
@@ -138,7 +138,7 @@ static void requantize_clamp_vec(
     const int32_t nvec4 = nvec & ~3;
 
     /* SE streams int8 input sign-extended to int32, same template as
-     * tvm_int8_residual_add.cpp lines 141–145. */
+     * c7x_residual_add.cpp lines 141–145. */
     __SE_TEMPLATE_v1 se = __gen_SE_TEMPLATE_v1();
     se.ELETYPE = __SE_ELETYPE_8BIT;
     se.VECLEN  = __SE_VECLEN_8ELEMS;
@@ -151,11 +151,8 @@ static void requantize_clamp_vec(
 
     /* 4× unrolled: four independent chains hide the 4–6 cycle SE latency.
      *
-     * No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
-     * small n, making "at least 1 iteration" false -- see
-     * c7x_quantize.cpp's quantize_vec for the full investigation (a
-     * violated MUST_ITERATE(1,,) here caused a confirmed hardware
-     * correctness bug for small inputs in that kernel). */
+     * No #pragma MUST_ITERATE(1,,): nvec4 can be 0 for small n -- see
+     * c7x_quantize.cpp's quantize_1plane for the full investigation. */
     for (; i < nvec4; i += 4) {
         __int8 vx0 = __SE0ADV(int8);
         __int8 vx1 = __SE0ADV(int8);
@@ -197,7 +194,7 @@ static void requantize_clamp_vec(
 /* =========================================================================
  * relu_vec / clamp_vec — SE + integer vectorized paths, no rescale.
  *
- * relu/clamp are only lowered by ti_fuse_qdq_tidl_relu.py's
+ * relu/clamp are only lowered by ti_fuse_qdq_c7x_relu.py's
  * _check_relu/_check_clamp when input/output QDQ params are transparent
  * (d_zp == o_zp, and for clamp d_scale ~= o_scale too), so unlike
  * requantize_clamp there is no Q13 multiply/shift here -- just a plain
@@ -226,11 +223,8 @@ static void relu_vec(
 
     int32_t i = 0;
 
-    /* No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
-     * small n, making "at least 1 iteration" false -- see
-     * c7x_quantize.cpp's quantize_vec for the full investigation (a
-     * violated MUST_ITERATE(1,,) here caused a confirmed hardware
-     * correctness bug for small inputs in that kernel). */
+    /* No #pragma MUST_ITERATE(1,,): nvec4 can be 0 for small n -- see
+     * c7x_quantize.cpp's quantize_1plane for the full investigation. */
     for (; i < nvec4; i += 4) {
         __int8 vx0 = __SE0ADV(int8);
         __int8 vx1 = __SE0ADV(int8);
@@ -283,11 +277,8 @@ static void clamp_vec(
 
     int32_t i = 0;
 
-    /* No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
-     * small n, making "at least 1 iteration" false -- see
-     * c7x_quantize.cpp's quantize_vec for the full investigation (a
-     * violated MUST_ITERATE(1,,) here caused a confirmed hardware
-     * correctness bug for small inputs in that kernel). */
+    /* No #pragma MUST_ITERATE(1,,): nvec4 can be 0 for small n -- see
+     * c7x_quantize.cpp's quantize_1plane for the full investigation. */
     for (; i < nvec4; i += 4) {
         __int8 vx0 = __SE0ADV(int8);
         __int8 vx1 = __SE0ADV(int8);

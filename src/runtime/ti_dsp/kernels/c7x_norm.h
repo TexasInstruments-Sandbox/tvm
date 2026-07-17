@@ -18,7 +18,7 @@
  */
 
 /**
- * @file tidl_norm_wrappers.h
+ * @file c7x_norm.h
  * @brief Quantized normalization kernels (int8 input/output, float32 internals).
  *
  * Layer normalization for int8 quantized inputs.  The normalization
@@ -26,8 +26,8 @@
  * Input is dequantized, normalized, affine-transformed, then requantized.
  */
 
-#ifndef TVM_TIDL_NORM_WRAPPERS_H_
-#define TVM_TIDL_NORM_WRAPPERS_H_
+#ifndef TVM_C7X_NORM_H_
+#define TVM_C7X_NORM_H_
 
 #include <stdint.h>
 
@@ -56,7 +56,7 @@ extern "C" {
  * @param zx, sx      Input quantization parameters
  * @param zy, sy      Output quantization parameters
  */
-int32_t tidl_int8_layer_norm(
+int32_t c7x_int8_layer_norm(
     const void* in, const void* weight, const void* bias, void* out,
     int32_t outer_size, int32_t norm_size,
     float eps,
@@ -66,4 +66,4 @@ int32_t tidl_int8_layer_norm(
 }
 #endif
 
-#endif  /* TVM_TIDL_NORM_WRAPPERS_H_ */
+#endif  /* TVM_C7X_NORM_H_ */

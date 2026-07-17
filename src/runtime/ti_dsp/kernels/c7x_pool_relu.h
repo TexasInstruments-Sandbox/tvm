@@ -18,7 +18,7 @@
  */
 
 /**
- * @file c7x_pool_relu_wrappers.h
+ * @file c7x_pool_relu.h
  * @brief C7x int8 max-pooling and relu kernels for NCHW tensors.
  *
  * These are C7x-native C implementations, NOT calls into the TIDL library.
@@ -26,8 +26,8 @@
  * so dq→op→q == op(int8) when input and output zero-points are identical.
  */
 
-#ifndef TVM_C7X_POOL_RELU_WRAPPERS_H_
-#define TVM_C7X_POOL_RELU_WRAPPERS_H_
+#ifndef TVM_C7X_POOL_RELU_H_
+#define TVM_C7X_POOL_RELU_H_
 
 #include <stdint.h>
 
@@ -100,4 +100,4 @@ int32_t c7x_int8_relu(
 }
 #endif
 
-#endif  /* TVM_C7X_POOL_RELU_WRAPPERS_H_ */
+#endif  /* TVM_C7X_POOL_RELU_H_ */

@@ -89,7 +89,7 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # create dead tuple patterns that block pattern matching.
     passes.append(tvm.relax.transform.CanonicalizeBindings())
     passes.append(tvm.relax.transform.DeadCodeElimination())
-    # FuseQDQToTIDLMaxPool and FuseQDQToTIDLRelu MUST run before
+    # FuseQDQToTIDLMaxPool and FuseQDQToC7xRelu MUST run before
     # EliminateQDQTransparent.  max_pool2d and relu are transparent ops
     # (monotone, so dq→op→q == op(int8) when scales match), which means
     # EliminateQDQTransparent removes their Q/DQ wrappers — leaving bare
@@ -109,13 +109,13 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # lowers it to a scalar TIR loop.  Must run before EliminateQDQTransparent.
     passes.append(tvm.relax.transform.FuseInputQuantize())
     passes.append(tvm.relax.transform.FuseQDQToTIDLMaxPool())
-    passes.append(tvm.relax.transform.FuseQDQToTIDLRelu())
+    passes.append(tvm.relax.transform.FuseQDQToC7xRelu())
     # Eliminate redundant QDQ around remaining transparent ops (reshape, etc.)
     passes.append(tvm.relax.transform.EliminateQDQTransparent())
-    # Fuse QDQ-wrapped non-linear activations into tidl_int8_* kernels.
+    # Fuse QDQ-wrapped non-linear activations into c7x_int8_* kernels.
     # Must run after EliminateQDQTransparent (which may have simplified inputs)
     # and before FuseQDQToInt8Conv2D (which would absorb remaining QDQ nodes).
-    passes.append(tvm.relax.transform.FuseQDQToTIDLActivation())
+    passes.append(tvm.relax.transform.FuseQDQToC7xActivation())
     # Fuse QDQ-wrapped channel-axis concat into c7x_int8_concat_rescale.
     # Non-transparent concats (input scales differ from output scale) are not
     # eliminated by EliminateQDQTransparent and fall through to a slow scalar
@@ -123,8 +123,8 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     passes.append(tvm.relax.transform.FuseQDQToC7xConcat())
     # Fuse QDQ-wrapped average pooling into c7x_int8_*_avg_pool kernels.
     passes.append(tvm.relax.transform.FuseQDQToC7xAvgPool())
-    # Fuse QDQ-wrapped layer_norm into tidl_int8_layer_norm kernel.
-    passes.append(tvm.relax.transform.FuseQDQToTIDLLayerNorm())
+    # Fuse QDQ-wrapped layer_norm into c7x_int8_layer_norm kernel.
+    passes.append(tvm.relax.transform.FuseQDQToC7xLayerNorm())
 
     # QDQ passes handle remaining (non-MMALIB) quantized conv2d ops
     passes += [
@@ -155,7 +155,7 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     ]
 
     # SDPA decode fusion: replaces GQA expand+broadcast+transpose+attention_bias
-    # with a single tvm_sdpa_decode extern call. Only matches decode models
+    # with a single c7x_sdpa_decode extern call. Only matches decode models
     # (seq_q=1) with GQA (num_q_heads % num_kv_heads == 0).
     if is_c7x:
         from tvm.relax.transform.ti_fuse_sdpa_decode import FuseSDPADecode

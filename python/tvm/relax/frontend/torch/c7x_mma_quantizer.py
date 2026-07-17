@@ -64,7 +64,7 @@ _ACT_ONLY_OPS = frozenset(
 )
 
 # Single-input activation ops that require independent output quantization.
-# These map to tidl_int8_* kernels via FuseQDQToTIDLActivation.
+# These map to c7x_int8_* kernels via FuseQDQToC7xActivation.
 # NOTE: group_norm is excluded — no TIDL kernel available; needs a custom
 # C7x implementation.
 _TIDL_ACT_OPS = frozenset(
@@ -77,7 +77,7 @@ _TIDL_ACT_OPS = frozenset(
 )
 
 # Normalization ops: input is annotated as int8; weight/bias stay float32.
-# The normalization itself runs in float32 internally. Handled by FuseQDQToTIDLLayerNorm.
+# The normalization itself runs in float32 internally. Handled by FuseQDQToC7xLayerNorm.
 # NOTE: group_norm excluded — no TIDL kernel; needs a custom C7x implementation.
 _NORM_OPS = frozenset(
     [

@@ -20,7 +20,7 @@ Verified end-to-end on AM67A (J722S) with MCU+ SDK 11_00_00_06:
 |---------|--------|-------|
 | `ping` | Working | Version + uptime, ~90ms Linux ready time |
 | `status` | Working | Version, uptime, job counts |
-| `load` (DLOAD) | Working | ELF parse, relocate, 61 exported symbols |
+| `load` (DLOAD) | Working | ELF parse, relocate, 116 exported symbols |
 | `infer` | Working | Call `cg_main_dsp` in loaded module, cycle count returned |
 | `unload` | Working | Free module memory, reset pools for back-to-back cycles |
 | `run` | Working | Composite load+infer+unload in single command, JSON output |
@@ -42,7 +42,7 @@ cd src/runtime/ti_dsp/firmware/c7x/dsp
 ```
 
 Requires:
-- TI MCU+ SDK 11_00_00_06 (path set in cmake/toolchain-c7000.cmake)
+- TI MCU+ SDK 11_00_00_06 (path set via `MCU_PLUS_SDK_PATH` env var, see CMakeLists.txt)
 - TI CGT C7000 5.0.1 LTS
 - TI SysConfig 1.26.0
 
@@ -89,7 +89,7 @@ DSP firmware.
 ./deploy-c7x.sh --stop
 
 # Deploy host CLI to the AM67A board
-cd host && ./build.sh deploy
+cd arm && ./build.sh deploy
 ```
 
 The deploy script and host CLI both discover hardware by matching the device
@@ -109,12 +109,12 @@ c7x_compute ping
 c7x_compute status
 
 # Single-shot run (load + infer + unload, JSON output)
-c7x_compute run /path/to/module.out --input in.bin --output out.bin --dtype int8
+c7x_compute run --module /path/to/module.out --input in.bin --output out.bin --dtype int8
 # Returns: {"status":"ok","cycles":N,"num_outputs":1,"outputs":[...]}
 
 # Load a dynamic module
 c7x_compute load /path/to/module.out
-# Returns: "Loaded module, handle=1"
+# Returns: "Module loaded successfully: handle=1"
 
 # Run inference on loaded module
 c7x_compute infer <handle> <model_id> --input in.bin --output out.bin --dtype int8
@@ -165,7 +165,7 @@ c7x_client_dyn_load(client, "lib0.out", &handle);
 c7x_tensor_desc_t input = { .data = my_data, .data_size = size, ... };
 c7x_tensor_desc_t output;
 int num_outputs;
-uint32_t cycles;
+uint64_t cycles;
 c7x_client_infer(client, handle, model_id,
                  &input, 1, &output, &num_outputs, &cycles);
 
@@ -212,8 +212,10 @@ pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c7x_dload
 ### Memory Layout
 
 - 512 MB shared DDR from DMA heap carveout (`vision_apps_shared-memories`)
-  - 504 MB input buffer (model ELF + weights, up to ~47 MB for ResNet-18)
-  - 8 MB output buffer (inference results + 64 KB printf buffer at end)
+  - 468 MB staging buffer (model ELF + weights, up to ~47 MB for ResNet-18)
+  - 12 MB KV cache region (persistent across inferences, used when
+    `C7X_INFER_FLAG_KV_RESIDENT` is set)
+  - 32 MB result buffer (inference results + 64 KB printf buffer at end)
 - 128 MB cacheable DDR pool at 0x108000000 for TVM inference workspace
   and DLOAD segment allocation (unified from formerly separate heap/scratch)
 - L2 SRAM: 1.25 MB (L2RAM_C7x_1_MAIN per TRM) for scratch/fast buffers
@@ -221,8 +223,9 @@ pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c7x_dload
 ### Dynamic Module Loading (DLOAD)
 
 TI's C70 dynamic ELF loader handles relocation and symbol resolution at
-runtime. The firmware exports ~61 symbols to loaded modules (TVM runtime
-API, platform functions, DMA operations). Key design decisions:
+runtime. The firmware exports ~116 symbols to loaded modules (TVM runtime
+API, platform functions, DMA operations, C7x kernels, MMALIB wrappers).
+Key design decisions:
 
 - DLOAD segment allocation uses `tvm_dsp_alloc`/`tvm_dsp_free` from the
   TVM DDR pool (not `memalign`) so DLOAD and inference share the same
@@ -295,7 +298,7 @@ latest firmware which handles clean shutdown.
 ### Dynamic module load fails
 1. Check trace for DLOAD errors: `c7x_compute trace | grep DLOAD`
 2. Verify module was built with DLOAD-compatible flags (relocatable ELF, exported `cg_main_dsp`)
-3. Check that module's imported symbols are in the firmware's export table (~61 symbols)
+3. Check that module's imported symbols are in the firmware's export table (~116 symbols)
 
 ### DMA-BUF exhaustion
 If repeated c7x_compute invocations fail with DMA-BUF errors, the host
@@ -361,9 +364,9 @@ runtime it depends on. Key milestones from original development:
 
 The 512 MB shared DDR carveout is currently split into fixed-size
 regions at compile time (`C7X_STAGING_ADDR` / `C7X_STAGING_SIZE` =
-504 MB, `C7X_RESULT_ADDR` / `C7X_RESULT_SIZE` = 8 MB).  These
-constants are hardcoded in `c7x_compute_protocol.h` because the
-DSP MMU mapping is static.
+468 MB, `C7X_KV_ADDR` / `C7X_KV_SIZE` = 12 MB, `C7X_RESULT_ADDR` /
+`C7X_RESULT_SIZE` = 32 MB).  These constants are hardcoded in
+`c7x_compute_protocol.h` because the DSP MMU mapping is static.
 
 A future improvement would make the partitioning dynamic:
 

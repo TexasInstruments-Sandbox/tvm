@@ -352,7 +352,7 @@ if(USE_TIDL_RUNTIME)
     )
     target_link_options(${PROJECT_NAME}.out PRIVATE
         --retain=c7x_int8_max_pool_tidl
-        --retain=tidl_int8_channel_scale_multiply
+        --retain=c7x_int8_channel_scale_multiply
         --retain=c7x_int8_concat_rescale
     )
 

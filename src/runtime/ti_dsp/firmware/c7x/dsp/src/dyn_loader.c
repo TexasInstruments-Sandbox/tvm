@@ -136,23 +136,23 @@ extern int   TVMBackendParallelBarrier(int, void *);
 extern int   tvm_dsp_dma_copy(int, void *, const void *, int, int);
 extern int   tvm_dsp_dma_wait(int, int);
 /* TVM DSP Runtime - Kernels */
-extern int   tvm_int8_residual_add_relu(const void *, const void *,
+extern int   c7x_int8_residual_add_relu(const void *, const void *,
                                         const void *, void *, int, int);
-extern int   tvm_int16_residual_add_relu(const void *, const void *,
+extern int   c7x_int16_residual_add_relu(const void *, const void *,
                                          const void *, void *, int, int);
-extern int   tvm_dequantize_vecmatmul(const void *, const void *,
+extern int   c7x_dequantize_vecmatmul(const void *, const void *,
                                       const void *, void *,
                                       int32_t, int32_t, int32_t);
-/* TIDL activation kernels */
-extern int32_t tidl_int8_gelu(const void *, void *, int32_t,
+/* C7x-native activation kernels (no TIDL library calls) */
+extern int32_t c7x_int8_gelu(const void *, void *, int32_t,
                                int32_t, float, int32_t, float);
-extern int32_t tidl_int8_silu(const void *, void *, int32_t,
+extern int32_t c7x_int8_silu(const void *, void *, int32_t,
                                int32_t, float, int32_t, float);
-extern int32_t tidl_int8_hardsigmoid(const void *, void *, int32_t,
+extern int32_t c7x_int8_hardsigmoid(const void *, void *, int32_t,
                                      int32_t, float, int32_t, float);
 extern int32_t c7x_int8_hardswish(const void *, void *, int32_t,
                                    int32_t, float, int32_t, float);
-extern int32_t tidl_int8_channel_scale_multiply(
+extern int32_t c7x_int8_channel_scale_multiply(
                                    const void *, const void *, void *,
                                    int32_t, int32_t,
                                    float, int32_t, float, int32_t,
@@ -193,12 +193,12 @@ extern int32_t c7x_int8_concat_rescale(
                                    const void *, int32_t, float, int32_t,
                                    const void *, int32_t, float, int32_t,
                                    void *, int32_t, float, int32_t);
-/* TIDL normalization kernels */
-extern int32_t tidl_int8_layer_norm(const void *, const void *,
+/* C7x-native normalization kernels (no TIDL library calls) */
+extern int32_t c7x_int8_layer_norm(const void *, const void *,
                                     const void *, void *,
                                     int32_t, int32_t, float,
                                     int32_t, float, int32_t, float);
-extern int   tvm_sdpa_decode(const void *, const void *,
+extern int   c7x_sdpa_decode(const void *, const void *,
                              const void *, const void *, void *,
                              int32_t, int32_t, int32_t, int32_t);
 
@@ -374,16 +374,16 @@ static const DspSymEntry dsp_syms[] = {
     SYM(tvm_dsp_dma_copy),
     SYM(tvm_dsp_dma_wait),
     /* TVM kernels */
-    SYM(tvm_int8_residual_add_relu),
-    SYM(tvm_int16_residual_add_relu),
-    SYM(tvm_dequantize_vecmatmul),
-    SYM(tvm_sdpa_decode),
-    /* TIDL activation kernels */
-    SYM(tidl_int8_gelu),
-    SYM(tidl_int8_silu),
-    SYM(tidl_int8_hardsigmoid),
+    SYM(c7x_int8_residual_add_relu),
+    SYM(c7x_int16_residual_add_relu),
+    SYM(c7x_dequantize_vecmatmul),
+    SYM(c7x_sdpa_decode),
+    /* C7x-native activation kernels (no TIDL library calls) */
+    SYM(c7x_int8_gelu),
+    SYM(c7x_int8_silu),
+    SYM(c7x_int8_hardsigmoid),
     SYM(c7x_int8_hardswish),
-    SYM(tidl_int8_channel_scale_multiply),
+    SYM(c7x_int8_channel_scale_multiply),
     /* C7x-native average-pool kernels (no TIDL library calls) */
     SYM(c7x_int8_global_avg_pool),
     SYM(c7x_int8_avg_pool),
@@ -395,8 +395,8 @@ static const DspSymEntry dsp_syms[] = {
     SYM(c7x_int8_requantize_clamp),
     SYM(c7x_int8_quantize),
     SYM(c7x_int8_quantize_rgb),
-    /* TIDL normalization kernels */
-    SYM(tidl_int8_layer_norm),
+    /* C7x-native normalization kernels (no TIDL library calls) */
+    SYM(c7x_int8_layer_norm),
     SYM(c7x_int8_concat_rescale),
 
     /* TVM L2 SRAM bump allocator (getter functions) */
