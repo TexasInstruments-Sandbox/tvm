@@ -100,9 +100,18 @@ static void quantize_vec(
 
     __SE0_OPEN((void*)in, se);
 
-    /* 4× unrolled: hides SE load latency (4–6 cycles) with independent chains */
+    /* 4× unrolled: hides SE load latency (4–6 cycles) with independent chains.
+     *
+     * No #pragma MUST_ITERATE(1,,) here (unlike sibling kernels' main
+     * loops): this loop's trip count is nvec4/4, and nvec4 = nvec & ~3 is
+     * exactly 0 whenever n < 32 -- a real, provable violation of "at
+     * least 1 iteration" for legitimate small-n calls. Per TI's compiler
+     * docs, MUST_ITERATE's whole effect is to let the compiler eliminate
+     * the unpipelined safety-fallback loop that would otherwise correctly
+     * handle small/zero trip counts -- exactly the condition this loop
+     * needs when nvec4==0. Found while investigating a real small-n
+     * hardware failure (see this file's KNOWN ISSUE note above). */
     int32_t b = 0;
-    #pragma MUST_ITERATE(1,,)
     for (; b < nvec4; b += 4) {
         __float8 vf0 = __SE0ADV(float8);
         __float8 vf1 = __SE0ADV(float8);

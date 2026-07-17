@@ -9,6 +9,43 @@ c7x_int8_hardswish: quantized hardswish  out[i] = quant(x_f * clip(x_f/6+0.5,0,1
 tidl_int8_channel_scale_multiply: SE-block excitation × feature-map
   out[c][j] = sat_i8(round((exc[c]-ze)*se*(fm[c*HW+j]-zf)*sf/so) + zo)
 
+Bug found and fixed (2026-07-17): all 8 tests below used to fail on c7x_host
+(smaller, but nonzero, mismatches on c7x_dload hardware too). Root cause was
+in the kernel, not the test: tidl_activation_wrappers.cpp gated
+`#include <c7x.h>` on `#ifdef __C7524__` -- but on the c7x_host g++
+toolchain, __C7524__ is defined *by* <c7x.h> itself, so the guard was always
+false and the header was never included, silently compiling out both
+hardswish_vec and channel_scale_multiply_vec. c7x_host therefore ran the
+scalar float rq_f fallback for every element, not the SE + Q13/float
+vectorized path -- a completely different algorithm from what these
+references modeled. This is the same chicken-and-egg #include bug already
+fixed elsewhere (see c7x_quantize.cpp / c7x_avgpool_wrappers.cpp /
+c7x_pool_relu_wrappers.cpp); it just hadn't been applied to this file yet.
+Fixed by making the include unconditional. Real hardware (c7x_dload) was
+never affected -- the cross-compiler predefines __C7524__ as a builtin
+before this file is parsed, so it already ran the vectorized path; the
+small residual hardware mismatches that motivated this investigation were
+a separate, genuine test-reference issue (below).
+
+With the kernel fix in place, c7x_host now runs the same vectorized paths
+as hardware, so the references must model those exactly rather than an
+idealized scalar formula:
+  - _numpy_channel_scale_multiply replicates channel_scale_multiply_vec's
+    Q13 fixed-point integer arithmetic bit-for-bit (bare, unrounded right
+    shifts), the same convention test_concat_kernel.py's
+    _numpy_concat_rescale already uses for c7x_int8_concat_rescale.
+  - _numpy_hardswish splits by vectorized-bulk vs. scalar-tail, since
+    hardswish_vec itself uses two different rounding rules for the two
+    regions (round-to-nearest-even via hardware __float_to_int in the
+    bulk; round-half-up via rq_f in the tail -- see
+    test_input_normalize_quantize_kernel.py's _numpy_quantize_rgb for the
+    same pattern), and keeps the bulk path in float32 throughout
+    (matching __float8 arithmetic, including multiplying by a
+    precomputed reciprocal 1/sy rather than dividing) -- mixing in
+    float64 scale/zp scalars produced spurious mismatches exactly at
+    rounding ties that weren't really ties in the kernel's own float32
+    computation.
+
 Usage:
     pytest test_activation_kernels.py -v --dsp-mode=c7x_host
     pytest test_activation_kernels.py -v --dsp-mode=c7x_dload
@@ -34,22 +71,66 @@ from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
 
 
 def _numpy_hardswish(inp, zx, sx, zy, sy):
-    # Kernel uses rq_f: (int32_t)(y/scale + 0.5f) which is trunc(x+0.5),
-    # i.e. round-half-up for all signs — NOT numpy's banker's rounding.
-    x = (inp.astype(np.float32) - zx) * sx
-    y = x * np.clip(x / 6.0 + 0.5, 0.0, 1.0)
-    out = np.trunc(y / sy + 0.5).astype(np.int32) + zy
+    # hardswish_vec's vectorized bulk requantizes via a bare
+    # vf*vinvsy+vzy then hardware __float_to_int (VSPINT, documented as
+    # round-to-nearest-even); its own scalar tail -- inside the same
+    # function -- instead calls rq_f: (int32_t)(y/scale + 0.5f), i.e.
+    # trunc(x+0.5), round-half-up. Two different rounding rules within
+    # one kernel invocation depending on which elements land in the
+    # vectorized bulk (HW // 8 * 8 elements) vs. the tail (n % 8) --
+    # reproduce both exactly rather than assuming one rounding rule for
+    # the whole array (same rigor as
+    # test_input_normalize_quantize_kernel.py's _numpy_quantize_rgb).
+    #
+    # The bulk path must also stay in float32 throughout (matching the
+    # kernel's __float8 arithmetic) and multiply by a precomputed
+    # reciprocal (vinvsy = 1/sy, one float32 division) rather than
+    # dividing by sy per element -- mixing in float64 scale/zp scalars or
+    # using a true division for the bulk reference introduces a different
+    # rounding error than the kernel's, which shows up as spurious
+    # mismatches exactly at exact.5 ties (e.g. q=62.5) that aren't really
+    # ties in the kernel's own float32 computation.
+    f32 = np.float32
+    n = len(inp)
+    nvec8 = (n // 8) * 8
+    zx32, sx32, zy32 = f32(zx), f32(sx), f32(zy)
+    inv6, half, zero, one = f32(1.0 / 6.0), f32(0.5), f32(0.0), f32(1.0)
+    lo, hi, invsy = f32(-128.0), f32(127.0), one / f32(sy)
+
+    x = (inp.astype(f32) - zx32) * sx32
+    y = x * np.clip(x * inv6 + half, zero, one).astype(f32)
+
+    q_bulk = np.clip(y[:nvec8] * invsy + zy32, lo, hi)
+    bulk_out = np.round(q_bulk).astype(np.int32)  # ties-to-even, matches __float_to_int
+
+    tail_out = np.trunc(y[nvec8:].astype(np.float64) / float(sy) + 0.5).astype(np.int32) + zy
+
+    out = np.empty(n, dtype=np.int32)
+    out[:nvec8] = bulk_out
+    out[nvec8:] = tail_out
     return np.clip(out, -128, 127).astype(np.int8)
 
 
 def _numpy_channel_scale_multiply(exc, fm, C, H_W, s_exc, z_exc, s_feat, z_feat, s_out, z_out):
-    # Scalar fallback also uses rq_f: (int32_t)(y/scale + 0.5f) = trunc(x+0.5).
+    # c7x_host and c7x_dload both compile with __C7524__ defined, so both
+    # actually execute channel_scale_multiply_vec's Q13 fixed-point integer
+    # path (tidl_activation_wrappers.cpp), never the float rq_f-based
+    # scalar fallback (that only exists for non-__C7524__ targets, never
+    # built here). Replicate that Q13 algorithm exactly -- same per-channel
+    # scale_q rounding, same bare (floor, not round-to-nearest) right
+    # shifts for the offset and every per-element product -- following
+    # test_concat_kernel.py's _numpy_concat_rescale, which models
+    # c7x_int8_concat_rescale's identical Q13-bare-shift pattern the same
+    # way.
+    SHIFT = 13
     out = np.zeros(C * H_W, dtype=np.int32)
     for c in range(C):
-        exc_f = float(exc[c] - z_exc) * s_exc
+        scale_f = float(exc[c] - z_exc) * s_exc * s_feat / s_out
+        scale_q = int(scale_f * (1 << SHIFT) + 0.5)
+        offset = int(z_out) - (int(z_feat) * scale_q >> SHIFT)
         for j in range(H_W):
-            feat_f = float(fm[c * H_W + j] - z_feat) * s_feat
-            v = int(np.trunc(exc_f * feat_f / s_out + 0.5)) + z_out
+            feat = int(fm[c * H_W + j])
+            v = (feat * scale_q >> SHIFT) + offset
             out[c * H_W + j] = np.clip(v, -128, 127)
     return out.astype(np.int8)
 

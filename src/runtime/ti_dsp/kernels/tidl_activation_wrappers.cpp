@@ -43,9 +43,16 @@
 #include <math.h>
 #include <stdint.h>
 
-#ifdef __C7524__
+/* Unconditional include (not gated on __C7524__): on the c7x_host g++
+ * toolchain, __C7524__ is defined *by* <c7x.h> itself, not predefined by
+ * the compiler — gating the include on the macro it defines is a
+ * chicken-and-egg check that always evaluates false, silently disabling
+ * the vectorized path on host emulation (the real c7x cross-compiler
+ * predefines __C7524__ as a builtin before any header runs, so this only
+ * broke host emulation, not hardware builds). See
+ * c7x_avgpool_wrappers.cpp / c7x_pool_relu_wrappers.cpp / c7x_quantize.cpp
+ * for the same fix. */
 #include <c7x.h>
-#endif
 
 /* M_SQRT1_2 = 1/sqrt(2) ≈ 0.7071067811865476 */
 #ifndef M_SQRT1_2
@@ -171,8 +178,17 @@ static void hardswish_vec(
 
     int32_t i = 0;
 
-    /* 4× unrolled: four independent float8 chains hide the SE load latency. */
-    #pragma MUST_ITERATE(1,,)
+    /* 4× unrolled: four independent float8 chains hide the SE load latency.
+     *
+     * No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
+     * small n, making "at least 1 iteration" false -- see
+     * c7x_quantize.cpp's quantize_vec for the full investigation (a
+     * violated MUST_ITERATE(1,,) here caused a confirmed hardware
+     * correctness bug for small inputs in that kernel). Confirmed on this
+     * kernel too: restoring the (invalid) pragma to test in isolation
+     * caused a real firmware hang on c7x_dload hardware, not just a
+     * numerical difference -- removing it is the safer state, not just
+     * the more-correct one. */
     for (; i < nvec4; i += 4) {
         __float8 vf0 = __int_to_float(__SE0ADV(int8));
         __float8 vf1 = __int_to_float(__SE0ADV(int8));
@@ -296,7 +312,13 @@ static void channel_scale_multiply_vec(
         __SE0_OPEN(const_cast<int8_t*>(fm_ch), se);
 
         int32_t i = 0;
-        #pragma MUST_ITERATE(1,,)
+        /* No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
+         * small H_W, making "at least 1 iteration" false -- see
+         * c7x_quantize.cpp's quantize_vec for the full investigation (a
+         * violated MUST_ITERATE(1,,) here caused a confirmed hardware
+         * correctness bug for small inputs in that kernel). Confirmed on
+         * this kernel too: restoring the (invalid) pragma to test in
+         * isolation caused a real firmware hang on c7x_dload hardware. */
         for (; i < nvec4; i += 4) {
             __int8 vx0 = __SE0ADV(int8);
             __int8 vx1 = __SE0ADV(int8);

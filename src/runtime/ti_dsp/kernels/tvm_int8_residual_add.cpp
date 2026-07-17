@@ -151,8 +151,13 @@ static void residual_add_i8_vec(
 
     /* 4× unrolled loop: four independent accumulation chains allow the
      * compiler to fill the 4–6 cycle SE latency with useful work, targeting
-     * a software-pipeline initiation interval of 1 for the inner stages. */
-    #pragma MUST_ITERATE(1,,)
+     * a software-pipeline initiation interval of 1 for the inner stages.
+     *
+     * No #pragma MUST_ITERATE(1,,): nvec4 = nvec & ~3 is exactly 0 for
+     * small n, making "at least 1 iteration" false -- see
+     * c7x_quantize.cpp's quantize_vec for the full investigation (a
+     * violated MUST_ITERATE(1,,) here caused a confirmed hardware
+     * correctness bug for small inputs in that kernel). */
     for (; i < nvec4; i += 4) {
         __int8 vx0 = __SE0ADV(int8);  __int8 vsk0 = __SE1ADV(int8);
         __int8 vx1 = __SE0ADV(int8);  __int8 vsk1 = __SE1ADV(int8);
