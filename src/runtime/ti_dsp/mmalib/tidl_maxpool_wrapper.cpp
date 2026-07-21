@@ -59,7 +59,9 @@
 
 #include <stdint.h>
 #include <string.h>
-#include <kernel/dpl/DebugP.h>
+#if !defined(C7X_HOST_EMULATION)
+#include <kernel/dpl/DebugP.h>  /* MCU_PLUS_SDK-only; DebugP_log used below is TIDL-kernel-only too */
+#endif
 
 /* TIDL_POOL_BLOCK_FULL: from tidl_alg_int.h, indicates full-frame (non-LFM) operation */
 #define TIDL_POOL_BLOCK_FULL 4
@@ -82,8 +84,19 @@
  * TIDL spatial max pool objects. Investigation shows the objects have no
  * .init_array entries and are already linked via TIDL_VISION_FXNS; the
  * actual issue was incorrect poolingLFMBlock and featurePlaneSize values.
- * Now fixed and ready for testing. */
+ * Now fixed and ready for testing.
+ *
+ * Excluded under C7X_HOST_EMULATION (the c7x_host test harness, GCC + TI
+ * Host Emu headers, not real firmware): this file also includes
+ * kernel/dpl/DebugP.h, an MCU_PLUS_SDK/FreeRTOS-only header with no PC/x86-64
+ * equivalent, and calls TIDL_spatialMaxPool_ixX_oxX_*, built only for the
+ * C7x DSP target. Host builds fall back to the portable scalar
+ * c7x_int8_max_pool below instead -- correct, just without the real TIDL
+ * kernel's ~30-60x vectorized speedup, which only matters for cycle
+ * measurement, not for the correctness testing c7x_host is used for. */
+#if !defined(C7X_HOST_EMULATION)
 #define TIDL_MAXPOOL_USE_TIDL_KERNEL 1  /* enabled for testing with fixes */
+#endif
 
 #ifdef TIDL_MAXPOOL_USE_TIDL_KERNEL
 #ifndef CORE_DSP
