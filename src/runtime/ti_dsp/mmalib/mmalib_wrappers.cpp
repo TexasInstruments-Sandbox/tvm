@@ -645,11 +645,20 @@ int32_t mmalib_depthwise_conv2d_i8(void* input, void* weights,
     if (status != MMALIB_SUCCESS) return (int32_t)status;
 
     if (needs_compact) {
-        uint8_t* src = (uint8_t*)dst_ptr;
-        uint8_t* dst = (uint8_t*)output;
+        // Row-by-row de-pad: out_stride_y (64-byte-aligned) -> tight W_out.
+        // restrict + MUST_ITERATE(1,,) (W_out >= 1 always, from the conv
+        // output-size formula) let cl7x auto-vectorize this instead of
+        // paying a library memcpy() call per row (num_groups * H_out calls
+        // of only W_out <= ~112 bytes each) -- same tradeoff already used
+        // by c7x_int8_relu/clamp and the avg_pool interior fast path.
+        uint8_t* __restrict__ src = (uint8_t*)dst_ptr;
+        uint8_t* __restrict__ dst = (uint8_t*)output;
         for (int32_t g = 0; g < num_groups; g++) {
             for (int32_t r = 0; r < H_out; r++) {
-                memcpy(dst, src, W_out);
+#pragma MUST_ITERATE(1, , )
+                for (int32_t i = 0; i < W_out; i++) {
+                    dst[i] = src[i];
+                }
                 src += out_stride_y;
                 dst += W_out;
             }
