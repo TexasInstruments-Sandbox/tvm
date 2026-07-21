@@ -125,7 +125,7 @@ def _numpy_channel_scale_multiply(exc, fm, C, H_W, s_exc, z_exc, s_feat, z_feat,
     SHIFT = 13
     out = np.zeros(C * H_W, dtype=np.int32)
     for c in range(C):
-        scale_f = float(exc[c] - z_exc) * s_exc * s_feat / s_out
+        scale_f = float(int(exc[c]) - z_exc) * s_exc * s_feat / s_out
         scale_q = int(scale_f * (1 << SHIFT) + 0.5)
         offset = int(z_out) - (int(z_feat) * scale_q >> SHIFT)
         for j in range(H_W):
