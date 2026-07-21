@@ -118,7 +118,7 @@ def _make_input_normalize_pattern():
     cat = is_op("relax.concat")(is_tuple(branches))
     o_s, o_z = wildcard(), wildcard()
     q = is_op("relax.quantize")(cat, o_s, o_z)
-    return q, {"x": x, "o_scale": o_s, "o_zp": o_z}
+    return q, {"x": x, "o_scale": o_s, "o_zp": o_z, "q": q}
 
 
 def _check_input_normalize(ctx) -> bool:
@@ -139,6 +139,13 @@ def _check_input_normalize(ctx) -> bool:
     o_scale = ctx.annotated_expr["o_scale"]
     o_zp = ctx.annotated_expr["o_zp"]
     if not is_per_tensor_scalar_constant(o_scale) or not isinstance(o_zp, relax.Constant):
+        return False
+
+    # The lowerer always emits the int8-only c7x_int8_quantize_rgb kernel, so
+    # only match int8 quantizes here (see ti_fuse_input_quantize.py's
+    # _check_quantize for the int16 corruption this guards against).
+    q = ctx.annotated_expr["q"]
+    if str(q.attrs.out_dtype) != "int8":
         return False
 
     return True
