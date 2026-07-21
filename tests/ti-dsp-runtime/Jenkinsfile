@@ -678,8 +678,6 @@ pipeline {
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
                                 --dsp-mode=c7x_dload \
-                                --ignore=quantized/test_quantized_inception_v3.py \
-                                --ignore=quantized/test_quantized_resnext101.py \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/quantized_dload.xml
                         '''
@@ -697,8 +695,6 @@ pipeline {
                             pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
                                 --dsp-mode=c7x_dload \
                                 --mmalib \
-                                --ignore=quantized/test_quantized_inception_v3.py \
-                                --ignore=quantized/test_quantized_resnext101.py \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/quantized_mmalib_dload.xml
                         '''

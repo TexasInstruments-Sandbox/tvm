@@ -454,6 +454,17 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
     # DMA runtime (host emulation stub: memcpy)
     list(APPEND DSP_SOURCES ${DSP_RUNTIME_DIR}/dma/tvm_dsp_dma_host.c)
 
+    # TIDL max pool wrapper (c7x_int8_max_pool_tidl). Needed whenever a model
+    # has a max_pool2d that FuseQDQToTIDLMaxPool lowers, independent of
+    # --mmalib/-DUSE_TIDL -- unlike those, this is not optional: on real
+    # firmware this file is always compiled in (see its own file comment).
+    # Under C7X_HOST_EMULATION (added above), the file itself falls back to
+    # the portable scalar c7x_int8_max_pool -- see tidl_maxpool_wrapper.cpp's
+    # TIDL_MAXPOOL_USE_TIDL_KERNEL guard -- so no TIDL headers/libs are
+    # needed here, just the source file and its own include directory.
+    list(APPEND DSP_SOURCES ${DSP_RUNTIME_DIR}/mmalib/tidl_maxpool_wrapper.cpp)
+    list(APPEND INCLUDE_DIRS ${DSP_RUNTIME_DIR}/mmalib)
+
     # MMALIB integration (optional).
     # libmmalib_x86_64.a provides the x86-64 AVX reference implementation of
     # the MMA kernels used by both TVM's MMALIB direct integration and TIDL's
