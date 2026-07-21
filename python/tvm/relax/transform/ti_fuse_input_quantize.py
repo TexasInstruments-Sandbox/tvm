@@ -108,7 +108,7 @@ def _make_quantize_pattern():
     scale = wildcard()
     zp = wildcard()
     q = is_op("relax.quantize")(x, scale, zp)
-    return q, {"x": x, "scale": scale, "zp": zp}
+    return q, {"x": x, "scale": scale, "zp": zp, "q": q}
 
 
 def _check_quantize(ctx) -> bool:
@@ -132,6 +132,15 @@ def _check_quantize(ctx) -> bool:
     scale = ctx.annotated_expr["scale"]
     zp = ctx.annotated_expr["zp"]
     if not is_per_tensor_scalar_constant(scale) or not isinstance(zp, relax.Constant):
+        return False
+
+    # The lowerer always emits the int8-only c7x_int8_quantize kernel, so only
+    # match int8 quantizes here.  Without this, C7xMMAQuantizer(dtype="int16")
+    # produces out_dtype="int16" for this same pattern (raw float32 input,
+    # constant scale/zp), which this pass would otherwise silently downcast to
+    # int8 -- corrupting the graph for every int16-quantized model input.
+    q = ctx.annotated_expr["q"]
+    if str(q.attrs.out_dtype) != "int8":
         return False
 
     return True
