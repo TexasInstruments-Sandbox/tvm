@@ -25,7 +25,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import torch
 from torch import fx
 import tvm
-from tvm import relax
+from tvm import relax, topi
 
 from .base_fx_graph_translator import BaseFXGraphImporter
 
@@ -651,137 +651,42 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         bias_ih,
         bias_hh,
         h_prev,
-        seq_len,
-        hidden_size,
-        dtype,
         reverse=False,
     ):
-        """Unroll GRU cells for a single direction."""
-        gate_size = hidden_size
+        """Compute a single-direction GRU recurrence.
 
-        # Split weights by gates: PyTorch GRU gate order: reset, update, new (r, z, n)
-        # Reset gate weights
-        weight_ih_r = self.block_builder.emit(
-            relax.op.strided_slice(weight_ih, axes=[0], begin=[0], end=[gate_size])
-        )
-        weight_hh_r = self.block_builder.emit(
-            relax.op.strided_slice(weight_hh, axes=[0], begin=[0], end=[gate_size])
-        )
+        Uses topi.nn.gru (te.extern + a hand-written TIR loop) rather than a
+        Python for-loop emitting one set of Relax ops per timestep: unrolling
+        a GTCRN-scale GRU (63 steps) this way produces ~1900 Relax bindings
+        per instance, which is what blows up C7x's cl7x compile time (a
+        single multi-thousand-line dispatcher function per model). te.scan --
+        the mechanism topi/nn/lstm.py uses for the same problem -- can't be
+        reused here: te.create_prim_func (the TE->TIR path block_builder's
+        call_te goes through) explicitly rejects te.ScanOp.
+        """
 
-        # Update gate weights
-        weight_ih_z = self.block_builder.emit(
-            relax.op.strided_slice(weight_ih, axes=[0], begin=[gate_size], end=[2 * gate_size])
-        )
-        weight_hh_z = self.block_builder.emit(
-            relax.op.strided_slice(weight_hh, axes=[0], begin=[gate_size], end=[2 * gate_size])
-        )
+        def te_gru(*args):
+            xs, wi, wh = args[0], args[1], args[2]
+            idx = 3
+            bi = None
+            bh = None
+            if bias_ih is not None:
+                bi = args[idx]
+                idx += 1
+            if bias_hh is not None:
+                bh = args[idx]
+                idx += 1
+            h_init = args[idx]
+            return topi.nn.gru(xs, wi, wh, Bi=bi, Bh=bh, h_init=h_init, reverse=reverse)
 
-        # New gate weights
-        weight_ih_n = self.block_builder.emit(
-            relax.op.strided_slice(weight_ih, axes=[0], begin=[2 * gate_size], end=[3 * gate_size])
-        )
-        weight_hh_n = self.block_builder.emit(
-            relax.op.strided_slice(weight_hh, axes=[0], begin=[2 * gate_size], end=[3 * gate_size])
-        )
+        te_args = [input_reshaped, weight_ih, weight_hh]
+        if bias_ih is not None:
+            te_args.append(bias_ih)
+        if bias_hh is not None:
+            te_args.append(bias_hh)
+        te_args.append(h_prev)
 
-        # Transpose weights for matmul
-        weight_ih_r_t = self.block_builder.emit(relax.op.permute_dims(weight_ih_r, axes=[1, 0]))
-        weight_hh_r_t = self.block_builder.emit(relax.op.permute_dims(weight_hh_r, axes=[1, 0]))
-        weight_ih_z_t = self.block_builder.emit(relax.op.permute_dims(weight_ih_z, axes=[1, 0]))
-        weight_hh_z_t = self.block_builder.emit(relax.op.permute_dims(weight_hh_z, axes=[1, 0]))
-        weight_ih_n_t = self.block_builder.emit(relax.op.permute_dims(weight_ih_n, axes=[1, 0]))
-        weight_hh_n_t = self.block_builder.emit(relax.op.permute_dims(weight_hh_n, axes=[1, 0]))
-
-        outputs = []
-        time_steps = range(seq_len - 1, -1, -1) if reverse else range(seq_len)
-
-        for t in time_steps:
-            # Get input at time t: (batch_size, input_size)
-            x_t = self.block_builder.emit(
-                relax.op.take(input_reshaped, relax.const(t, "int64"), axis=0, mode="clip")
-            )
-
-            # Compute reset gate: r_t = sigmoid(W_ir * x_t + b_ir + W_hr * h_{t-1} + b_hr)
-            r_ih = self.block_builder.emit(relax.op.linear_algebra.matmul(x_t, weight_ih_r_t))
-            r_hh = self.block_builder.emit(relax.op.linear_algebra.matmul(h_prev, weight_hh_r_t))
-            if bias_ih is not None and bias_hh is not None:
-                bias_ih_r = self.block_builder.emit(
-                    relax.op.strided_slice(bias_ih, axes=[0], begin=[0], end=[gate_size])
-                )
-                bias_hh_r = self.block_builder.emit(
-                    relax.op.strided_slice(bias_hh, axes=[0], begin=[0], end=[gate_size])
-                )
-                r_t = self.block_builder.emit(
-                    relax.op.sigmoid(
-                        relax.op.add(relax.op.add(relax.op.add(r_ih, bias_ih_r), r_hh), bias_hh_r)
-                    )
-                )
-            else:
-                r_t = self.block_builder.emit(relax.op.sigmoid(relax.op.add(r_ih, r_hh)))
-
-            # Compute update gate: z_t = sigmoid(W_iz * x_t + b_iz + W_hz * h_{t-1} + b_hz)
-            z_ih = self.block_builder.emit(relax.op.linear_algebra.matmul(x_t, weight_ih_z_t))
-            z_hh = self.block_builder.emit(relax.op.linear_algebra.matmul(h_prev, weight_hh_z_t))
-            if bias_ih is not None and bias_hh is not None:
-                bias_ih_z = self.block_builder.emit(
-                    relax.op.strided_slice(
-                        bias_ih, axes=[0], begin=[gate_size], end=[2 * gate_size]
-                    )
-                )
-                bias_hh_z = self.block_builder.emit(
-                    relax.op.strided_slice(
-                        bias_hh, axes=[0], begin=[gate_size], end=[2 * gate_size]
-                    )
-                )
-                z_t = self.block_builder.emit(
-                    relax.op.sigmoid(
-                        relax.op.add(relax.op.add(relax.op.add(z_ih, bias_ih_z), z_hh), bias_hh_z)
-                    )
-                )
-            else:
-                z_t = self.block_builder.emit(relax.op.sigmoid(relax.op.add(z_ih, z_hh)))
-
-            # Compute new gate: n_t = tanh(W_in * x_t + b_in + r_t * (W_hn * h_{t-1} + b_hn))
-            n_ih = self.block_builder.emit(relax.op.linear_algebra.matmul(x_t, weight_ih_n_t))
-            n_hh = self.block_builder.emit(relax.op.linear_algebra.matmul(h_prev, weight_hh_n_t))
-            if bias_ih is not None and bias_hh is not None:
-                bias_ih_n = self.block_builder.emit(
-                    relax.op.strided_slice(
-                        bias_ih, axes=[0], begin=[2 * gate_size], end=[3 * gate_size]
-                    )
-                )
-                bias_hh_n = self.block_builder.emit(
-                    relax.op.strided_slice(
-                        bias_hh, axes=[0], begin=[2 * gate_size], end=[3 * gate_size]
-                    )
-                )
-                n_t = self.block_builder.emit(
-                    relax.op.tanh(
-                        relax.op.add(
-                            relax.op.add(n_ih, bias_ih_n),
-                            relax.op.multiply(r_t, relax.op.add(n_hh, bias_hh_n)),
-                        )
-                    )
-                )
-            else:
-                n_t = self.block_builder.emit(
-                    relax.op.tanh(relax.op.add(n_ih, relax.op.multiply(r_t, n_hh)))
-                )
-
-            # Update hidden state: h_t = (1 - z_t) * n_t + z_t * h_{t-1}
-            one_minus_z = self.block_builder.emit(relax.op.subtract(relax.const(1.0, dtype), z_t))
-            h_t = self.block_builder.emit(
-                relax.op.add(relax.op.multiply(one_minus_z, n_t), relax.op.multiply(z_t, h_prev))
-            )
-
-            outputs.append(h_t)
-            h_prev = h_t
-
-        if reverse:
-            outputs = outputs[::-1]
-
-        output = self.block_builder.emit(relax.op.stack(outputs, axis=0))
-        return output
+        return self.block_builder.emit_te(te_gru, *te_args)
 
     def _gru(self, node: fx.Node) -> relax.Var:
         args = self.retrieve_args(node)
@@ -901,9 +806,6 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             bias_ih_fwd,
             bias_hh_fwd,
             h_prev_fwd,
-            seq_len,
-            hidden_size,
-            dtype,
             reverse=False,
         )
 
@@ -916,9 +818,6 @@ class ExportedProgramImporter(BaseFXGraphImporter):
                 bias_ih_bwd,
                 bias_hh_bwd,
                 h_prev_bwd,
-                seq_len,
-                hidden_size,
-                dtype,
                 reverse=True,
             )
             # Concatenate forward and backward outputs along feature dimension

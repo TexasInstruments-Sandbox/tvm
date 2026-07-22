@@ -78,11 +78,29 @@ def load_model(checkpoint: str = "model_trained_on_dns3.tar") -> nn.Module:
 def export_and_bind(model: nn.Module, T: int = DEFAULT_T) -> tvm.IRModule:
     """torch.export the model with a fixed [1, 257, T, 2] input, import into
     Relax with parameters bound as constants (the same pattern used
-    throughout this test suite, e.g. SmolLM/smollm_c7x.py)."""
+    throughout this test suite, e.g. SmolLM/smollm_c7x.py).
+
+    PyTorch's default decomposition unrolls aten.gru.input into ~1500
+    primitive ops per GRU instance *before* TVM's frontend ever sees a GRU
+    node (GTCRN has 14 GRU instances at T=63 steps each) -- this is the
+    actual source of the C7x compile-time blowup, not TVM's own GRU
+    converter. Building a decomp_table with the gru-related keys removed and
+    passing it to run_decompositions() explicitly keeps aten.gru.input
+    opaque, so TVM's from_exported_program (with run_ep_decomposition=False)
+    hands it to _gru/_gru_cell_unroll, which lowers it via topi.nn.gru's
+    genuine TIR loop instead of unrolling.
+    """
     example_input = (torch.randn(1, 257, T, 2),)
     with torch.no_grad():
         exported_program = export(model, example_input)
-        mod = from_exported_program(exported_program, keep_params_as_input=True)
+        decomp_table = torch.export.default_decompositions()
+        for op in list(decomp_table):
+            if "gru" in str(op).lower():
+                del decomp_table[op]
+        exported_program = exported_program.run_decompositions(decomp_table=decomp_table)
+        mod = from_exported_program(
+            exported_program, keep_params_as_input=True, run_ep_decomposition=False
+        )
     mod, params = relax.frontend.detach_params(mod)
     func_params_dict = dict(zip(mod["main"].params[1:], params["main"]))
     mod = relax.transform.BindParams(  # pyright: ignore[reportArgumentType]

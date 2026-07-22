@@ -8428,6 +8428,103 @@ def test_gru():
     tvm.testing.assert_allclose(pytorch_output4.numpy(), tvm_output4_np, rtol=1e-4, atol=1e-5)
 
 
+def test_gru_no_pytorch_decomp():
+    """test_gru above always goes through PyTorch's own default decomposition
+    (torch.export.export followed by the default run_decompositions() inside
+    from_exported_program), which unrolls aten.gru.input into ~1500 primitive
+    ops per instance *before* this frontend's _gru/_gru_cell_unroll ever runs
+    -- so it never actually exercises that converter. This test explicitly
+    keeps aten.gru.input opaque (a decomp_table with the gru-related keys
+    removed, matching gtcrn_c7x.py's export_and_bind) so _gru_cell_unroll's
+    topi.nn.gru-based recurrence is what actually gets lowered, and checks
+    both numerical correctness and that the result is a small, constant
+    number of bindings (not growing with seq_len -- i.e. a genuine loop, not
+    an unroll)."""
+
+    def export_without_gru_decomp(model, example_args):
+        with torch.no_grad():
+            exported_program = export(model, args=example_args)
+            decomp_table = torch.export.default_decompositions()
+            for op in list(decomp_table):
+                if "gru" in str(op).lower():
+                    del decomp_table[op]
+            return exported_program.run_decompositions(decomp_table=decomp_table)
+
+    def verify(model, example_args, max_bindings, rtol=1e-4, atol=1e-5):
+        with torch.no_grad():
+            pytorch_output = model(*example_args)[0]
+
+        exported_program = export_without_gru_decomp(model, example_args)
+        mod = from_exported_program(exported_program, run_ep_decomposition=False)
+
+        num_bindings = sum(len(block.bindings) for block in mod["main"].body.blocks)
+        assert num_bindings <= max_bindings, (
+            f"expected at most {max_bindings} bindings (a small, constant-size "
+            f"call_te lowering), got {num_bindings} -- the GRU unroll path was "
+            f"hit instead of topi.nn.gru's loop-based lowering"
+        )
+
+        target = tvm.target.Target("llvm")
+        ex = relax.build(mod, target)
+        vm = relax.VirtualMachine(ex, tvm.cpu())
+        tvm_args = [tvm.runtime.tensor(arg.numpy()) for arg in example_args]
+        tvm_output = vm["main"](*tvm_args)
+        tvm_output_np = tvm_output[0].numpy() if hasattr(tvm_output, "__getitem__") else (
+            tvm_output.numpy()
+        )
+        tvm.testing.assert_allclose(pytorch_output.numpy(), tvm_output_np, rtol=rtol, atol=atol)
+
+    class GRUModule(nn.Module):
+        def __init__(self, input_size, hidden_size, batch_first, bidirectional, bias=True):
+            super().__init__()
+            self.gru = nn.GRU(
+                input_size=input_size,
+                hidden_size=hidden_size,
+                num_layers=1,
+                batch_first=batch_first,
+                bidirectional=bidirectional,
+                bias=bias,
+            )
+
+        def forward(self, x):
+            return self.gru(x)
+
+    # Unidirectional, batch_first=True: one topi.nn.gru call -> a handful of
+    # bindings, regardless of seq_len.
+    torch.manual_seed(42)
+    verify(
+        GRUModule(4, 8, batch_first=True, bidirectional=False),
+        (torch.randn(2, 3, 4, dtype=torch.float32),),
+        max_bindings=10,
+    )
+
+    # Same shapes but a much longer sequence: binding count must not grow
+    # with seq_len -- this is the actual property the fix is for.
+    torch.manual_seed(42)
+    verify(
+        GRUModule(4, 8, batch_first=True, bidirectional=False),
+        (torch.randn(2, 63, 4, dtype=torch.float32),),
+        max_bindings=10,
+    )
+
+    # Bidirectional (matches GTCRN's GRNN.intra_rnn): two topi.nn.gru calls
+    # (forward + reverse) plus a concat.
+    torch.manual_seed(44)
+    verify(
+        GRUModule(4, 5, batch_first=True, bidirectional=True),
+        (torch.randn(2, 3, 4, dtype=torch.float32),),
+        max_bindings=15,
+    )
+
+    # seq_len-first layout, no bias.
+    torch.manual_seed(43)
+    verify(
+        GRUModule(3, 6, batch_first=False, bidirectional=False, bias=False),
+        (torch.randn(4, 2, 3, dtype=torch.float32),),
+        max_bindings=10,
+    )
+
+
 def test_dynamic_shape_with_range_constraints():
     class DynamicModel(torch.nn.Module):
         def forward(self, x1, x2):
