@@ -12,13 +12,14 @@ deploy to an AM67A board) modes.
 | Mode | Result | Audio-domain SNR | Cycles |
 |------|--------|-------------------|--------|
 | `c7x_host` | PASS | 45.1 dB | n/a (host emulation, no hardware counter) |
-| `c7x_dload` | PASS (real AM67A hardware) | 45.1 dB | 541,996,310 (≈542 ms @ 1 GHz) |
+| `c7x_dload` | PASS (real AM67A hardware) | 45.1 dB | 537,984,515 (≈538 ms @ 1 GHz) |
 
 The `c7x_dload` cycle count is for one `T=63` chunk (≈0.99 s of 16 kHz
-audio), giving a real-time factor of ≈0.55 (≈542 ms of DSP compute for
+audio), giving a real-time factor of ≈0.54 (≈538 ms of DSP compute for
 ≈992 ms of audio) — comfortably faster than real-time on the actual
 hardware. See [Performance](#performance) below for the compile-time
-breakdown.
+breakdown, including the GRU-loop fix that cut `cl7x` cross-compile time
+by ~4.7x with no change to correctness or these cycle numbers.
 
 ## Model source (vendored)
 
@@ -77,21 +78,17 @@ frames, the required chunk length is `(T-1)*hop = 15872` samples
 ```bash
 export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
 
-# c7x_host (fast, no hardware) -- ~2.5 min, dominated by TVM codegen
+# c7x_host (fast, no hardware) -- ~15 s
 pytest test_gtcrn_e2e.py --dsp-mode=c7x_host -v -s
 
-# c7x_dload (real AM67A hardware) -- ~24 min, dominated by cl7x cross-compile
+# c7x_dload (real AM67A hardware) -- ~5 min, dominated by cl7x cross-compile
 pytest test_gtcrn_e2e.py --dsp-mode=c7x_dload -v -s
 
 # Standalone script mode (same logic, no pytest)
 python test_gtcrn_e2e.py --dsp-mode c7x_host
 ```
 
-## Compiling GTCRN required two TVM fixes
-
-Neither is GRU/RNN related, despite that being the original concern going
-into this work — both are fixed directly in TVM now, so no model-side
-patching is needed:
+## Compiling GTCRN required three TVM fixes
 
 1. **`conv2d_transpose` dilation** — GTCRN's decoder uses dilated depthwise
    `ConvTranspose2d`, which TOPI's legalization used to reject outright
@@ -105,6 +102,21 @@ patching is needed:
    different broadcast/placement rule than PyTorch actually uses). Fixed
    with a permute-to-prefix / `index_tensor` / permute-back approach that
    matches NumPy's actual placement semantics.
+3. **GRU recurrence unrolling into thousands of ops** — GTCRN's 14 `nn.GRU`
+   instances (63 timesteps each) were unrolled into per-timestep Relax ops
+   twice over: once by PyTorch's own default decomposition (before this
+   frontend ever saw a GRU node), and again by this frontend's own
+   `_gru`/`_gru_cell_unroll` converter. Both compounded into a single
+   ~33,000-line generated dispatcher function, which is what made `cl7x -O3`
+   take ~21-22 minutes. Fixed by (a) `gtcrn_c7x.py` passing a custom
+   `decomp_table` to keep `aten.gru.input` opaque instead of letting PyTorch
+   decompose it, and (b) a new `topi.nn.gru` (`te.extern` + a hand-written
+   `tir.ir_builder` loop) that `_gru_cell_unroll` now calls into instead of
+   unrolling — this produces a genuine `for` loop in the generated C instead
+   of one call per timestep. `te.scan` (the mechanism `topi.nn.lstm` uses for
+   the same problem) doesn't work here: `te.create_prim_func`, which
+   `block_builder.call_te` goes through, explicitly rejects `te.ScanOp`. See
+   [Performance](#performance) for the measured effect.
 
 ## Correctness methodology: audio-domain SNR, not raw spectrogram diff
 
@@ -126,21 +138,32 @@ borderline one.
 
 Compile time has two very different components depending on mode:
 
-| Stage | Time | Applies to |
-|-------|------|------------|
-| TVM codegen (`relax.build`, Relax→TIR→C) | ~156 s | Both modes |
-| `g++` host-emulation build | seconds | `c7x_host` only |
-| `cl7x -O3` native cross-compile | ~21–22 min | `c7x_dload` only |
+| Stage | Time (before GRU-loop fix) | Time (after) | Applies to |
+|-------|---------------------------|---------------|------------|
+| TVM codegen (`relax.build`, Relax→TIR→C) | ~156 s | well under 15 s | Both modes |
+| `g++` host-emulation build | seconds | seconds | `c7x_host` only |
+| `cl7x -O3` native cross-compile | ~21–22 min | **~4.6 min** | `c7x_dload` only |
 
-The `cl7x` cross-compile (not the TVM-side codegen measured earlier in
-development) is where GTCRN's 63-step unrolled GRU recurrence actually
-shows up as a real cost — `c7x_host`'s `g++` build doesn't pay it, but the
-real hardware path does. This is a one-time cost per model/shape, not a
-per-inference cost, and doesn't affect correctness.
+Before the fix, GTCRN's 14 GRU instances (63 steps each) were unrolled into
+per-timestep Relax/TIR ops, producing a single ~1.64 MB / ~32,900-line
+generated dispatcher function (`__tvm_ffi___vmtir__main` in `lib0.c`) — this
+is what made `cl7x -O3` (a single-translation-unit compile of that one giant
+function) take ~21-22 minutes. After the fix, the same 14 GRU instances
+lower to 4 deduplicated kernel functions (same-shaped GRUs share one
+generated kernel, called from multiple sites) each containing a genuine
+`for` loop, and the dispatcher shrinks to ~148 KB / ~3,245 lines (the
+dispatcher function itself: ~2,878 lines). Total `test_gtcrn_c7x_dload` wall
+time (TVM codegen + cmake build + board deploy/run) dropped from ~24 min to
+**~4:48**.
+
+This is a one-time cost per model/shape, not a per-inference cost, and (as
+measured below) doesn't affect correctness or runtime performance.
 
 Inference itself (the number that matters for real-time deployment) is fast:
-**541,996,310 cycles (≈542 ms @ 1 GHz)** per `T=63` (~0.99 s audio) chunk on
-real AM67A hardware — real-time factor ≈0.55.
+**537,984,515 cycles (≈538 ms @ 1 GHz)** per `T=63` (~0.99 s audio) chunk on
+real AM67A hardware — real-time factor ≈0.54, statistically unchanged from
+before the GRU-loop fix (≈542 ms) since it only changes *compile* time, not
+the arithmetic the DSP actually executes.
 
 ## Known limitations
 
