@@ -7066,6 +7066,50 @@ def test_gather():
     verify_model(Gather3(), example_args, {}, Expected3)
 
 
+def test_index_tensor():
+    """aten.index.Tensor (advanced/fancy indexing), covering both the single-index
+    fast path and the general case (2+ simultaneous advanced indices, optionally
+    mixed with basic/full-slice axes). Uses numeric verification since the bug
+    this guards against produces a structurally-plausible but numerically wrong
+    result (or a wrong shape), not an import failure that a structural check
+    would already catch."""
+
+    class SingleIndex(Module):
+        def forward(self, x):
+            return x[torch.tensor([0, 2])]
+
+    verify_model_numerically(SingleIndex(), (torch.randn(4, 5, dtype=torch.float32),))
+
+    class MultiElementBroadcast(Module):
+        # 2 simultaneous advanced indices, each with more than one element --
+        # must broadcast elementwise, not compose as an outer product.
+        def forward(self, x):
+            return x[torch.tensor([0, 1, 2]), torch.tensor([2, 1, 0])]
+
+    verify_model_numerically(MultiElementBroadcast(), (torch.randn(4, 5, dtype=torch.float32),))
+
+    class NoneMixedContiguous(Module):
+        # None-prefix + contiguous advanced indices of different rank that
+        # broadcast together -- this is the shape nn.Unfold's im2col
+        # decomposition produces (`data[None, None, idx_h, idx_w]`).
+        def forward(self, x):
+            idx_h = torch.arange(3).reshape(1, 3, 1, 1)
+            idx_w = torch.arange(2).reshape(2, 1) + torch.arange(2)
+            return x[:, :, idx_h, idx_w]
+
+    verify_model_numerically(NoneMixedContiguous(), (torch.randn(1, 4, 5, 6, dtype=torch.float32),))
+
+    class NoneMixedNonContiguous(Module):
+        # advanced indices at axes 0 and 2, separated by a full-slice at axis
+        # 1 -- NumPy/PyTorch move the broadcast block to the front in this case.
+        def forward(self, x):
+            idx0 = torch.tensor([[0, 1], [1, 2], [2, 0]])
+            idx2 = torch.tensor([[0, 1], [1, 0], [0, 1]])
+            return x[idx0, :, idx2]
+
+    verify_model_numerically(NoneMixedNonContiguous(), (torch.randn(4, 5, 6, dtype=torch.float32),))
+
+
 def test_index_put():
     # Test case 1: 1D input
     class IndexPut1D(Module):

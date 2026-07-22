@@ -1909,48 +1909,60 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             axis, index_tensor = non_none_indices[0]
             return self.block_builder.emit(relax.op.take(data, index_tensor, axis=axis))
 
-        # Check if all indices can be squeezed to 1D for sequential take
-        def is_squeezable(idx):
-            if idx.struct_info.ndim == 1:
-                return True
-            if idx.struct_info.ndim == 2:
-                shape = idx.struct_info.shape
-                for d in shape:
-                    if isinstance(d, int) and d == 1:
-                        return True
-                    # Check for tir.IntImm
-                    if hasattr(d, "value") and d.value == 1:
-                        return True
-            return False
+        # General case: 2+ non-None indices, optionally mixed with a None
+        # prefix/suffix of basic (full-slice) axes.
+        #
+        # A previous version of this branch special-cased indices that are
+        # each individually squeezable to 1D and applied them via sequential
+        # per-axis `take`. That's wrong whenever 2+ of them have more than one
+        # element: chained single-axis `take` calls compose as an outer
+        # product across axes, but PyTorch's actual semantics for simultaneous
+        # advanced indices is an elementwise *broadcast*, not an outer
+        # product (e.g. `x[[0,1],[1,0]]` picks 2 elements via broadcasting,
+        # not a 2x2 grid). The general path below (permute + index_tensor)
+        # implements real broadcast semantics correctly regardless of
+        # squeezability, so there's no need for -- and no correctness benefit
+        # to -- a separate fast path here.
+        # relax.op.index_tensor only supports indexing a contiguous PREFIX of
+        # axes (broadcast_shape + untouched literal suffix) -- it has no way to
+        # place the broadcast block anywhere else. So permute the real-index
+        # axes to a leading contiguous prefix, call index_tensor there, then
+        # permute the broadcast block back to where PyTorch/NumPy would place
+        # it: at the original position of the real axes if they were
+        # contiguous (the "insert in place" rule), or left at the front if
+        # they were not contiguous (the "move to front" rule) -- both produced
+        # by the same permute+index_tensor pair, just a different final
+        # permutation.
+        ndim = len(indices)
+        real_axes = [i for i, _ in non_none_indices]
+        real_indices = [idx for _, idx in non_none_indices]
+        untouched_axes = [i for i in range(ndim) if i not in real_axes]
+        is_contiguous = real_axes == list(range(real_axes[0], real_axes[0] + len(real_axes)))
 
-        all_squeezable = all(is_squeezable(idx) for _, idx in non_none_indices)
-        if all_squeezable:
-            result = data
-            for axis, idx in reversed(non_none_indices):
-                if idx.struct_info.ndim > 1:
-                    idx = self.block_builder.emit(relax.op.squeeze(idx))
-                result = self.block_builder.emit(relax.op.take(result, idx, axis=axis))
-            return result
+        permuted_data = self.block_builder.emit(
+            relax.op.permute_dims(data, axes=real_axes + untouched_axes)
+        )
+        indexed = self.block_builder.emit(relax.op.index_tensor(permuted_data, real_indices))
 
-        # General case: replace None with arange, reshaped for broadcasting
-        max_ndim = max((idx.struct_info.ndim for _, idx in non_none_indices), default=1)
-        processed_indices = []
-        data_shape = self.shape_of(data)
+        if not is_contiguous:
+            # NumPy's "move to front" rule: index_tensor's output is already
+            # broadcast_block + untouched-axes-in-order, which is exactly this.
+            return indexed
 
-        for i, idx in enumerate(indices):
-            if idx is None:
-                arange_idx = self.block_builder.emit(
-                    relax.op.arange(relax.PrimValue(0), data_shape[i], relax.PrimValue(1), "int64")
-                )
-                # Reshape to [dim_size, 1, 1, ...] for broadcasting
-                arange_idx = self.block_builder.emit(
-                    relax.op.reshape(arange_idx, [data_shape[i]] + [1] * (max_ndim - 1))
-                )
-                processed_indices.append(arange_idx)
-            else:
-                processed_indices.append(idx)
-
-        return self.block_builder.emit(relax.op.index_tensor(data, processed_indices))
+        # "Insert in place" rule: move the broadcast block from the front of
+        # `indexed` back to the original position of the first real axis,
+        # keeping untouched axes in their original relative order around it.
+        broadcast_ndim = indexed.struct_info.ndim - len(untouched_axes)
+        insert_at = real_axes[0]
+        before = [a for a in untouched_axes if a < insert_at]
+        after = [a for a in untouched_axes if a > insert_at]
+        untouched_pos = {a: broadcast_ndim + k for k, a in enumerate(untouched_axes)}
+        final_perm = (
+            [untouched_pos[a] for a in before]
+            + list(range(broadcast_ndim))
+            + [untouched_pos[a] for a in after]
+        )
+        return self.block_builder.emit(relax.op.permute_dims(indexed, axes=final_perm))
 
     def _meshgrid(self, node: fx.Node) -> relax.Var:
         args = self.retrieve_args(node)
