@@ -42,7 +42,9 @@ _triple = _ntuple(3)
 _quadruple = _ntuple(4)
 
 
-def conv2d_transpose_nchw(Input, Filter, strides, padding, out_dtype, output_padding):
+def conv2d_transpose_nchw(
+    Input, Filter, strides, padding, out_dtype, output_padding, dilation=(1, 1)
+):
     """Transposed 2D convolution nchw forward operator.
 
     Parameters
@@ -65,32 +67,44 @@ def conv2d_transpose_nchw(Input, Filter, strides, padding, out_dtype, output_pad
     output_padding : tuple of ints
         Used to get the right output shape for gradients
 
+    dilation : tuple of two ints
+        The spatial dilation along height and width
+
     Returns
     -------
     Output : tvm.te.Tensor
         4-D with shape [batch, out_channel, out_height, out_width]
     """
     return declaration_conv2d_transpose_impl(
-        Input, Filter, strides, padding, out_dtype, output_padding=output_padding
+        Input, Filter, strides, padding, out_dtype, output_padding=output_padding, dilation=dilation
     )
 
 
-def conv2d_transpose_nchw_preprocess(data, kernel, strides, padding, out_dtype, output_padding):
+def conv2d_transpose_nchw_preprocess(
+    data, kernel, strides, padding, out_dtype, output_padding, dilation=(1, 1)
+):
     """Preprocess data and kernel to make the compute pattern
     of conv2d_transpose the same as conv2d"""
     batch, in_c, in_h, in_w = data.shape
     _, out_c, filter_h, filter_w = kernel.shape
     stride_h, stride_w = strides
+    dilation_h, dilation_w = dilation
     opad_h, opad_w = output_padding
     assert opad_h < stride_h and opad_w < stride_w
+    # effective (dilated) filter size, used everywhere the raw filter size
+    # would otherwise appear -- reduces to filter_h/filter_w when dilation=1
+    eff_filter_h = (filter_h - 1) * dilation_h + 1
+    eff_filter_w = (filter_w - 1) * dilation_w + 1
     # dilate data
     data_dilate = dilate(data, [1, 1, stride_h, stride_w], name="data_dilate")
     # pad data
-    fpad_top, fpad_left, fpad_bottom, fpad_right = get_pad_tuple(padding, (filter_h, filter_w))
-    bpad_top = filter_h - 1 - fpad_top
-    bpad_bottom = filter_h - 1 - fpad_bottom + opad_h
-    bpad_left = filter_w - 1 - fpad_left
-    bpad_right = filter_w - 1 - fpad_right + opad_w
+    fpad_top, fpad_left, fpad_bottom, fpad_right = get_pad_tuple(
+        padding, (eff_filter_h, eff_filter_w)
+    )
+    bpad_top = eff_filter_h - 1 - fpad_top
+    bpad_bottom = eff_filter_h - 1 - fpad_bottom + opad_h
+    bpad_left = eff_filter_w - 1 - fpad_left
+    bpad_right = eff_filter_w - 1 - fpad_right + opad_w
     data_pad = pad(
         data_dilate, [0, 0, bpad_top, bpad_left], [0, 0, bpad_bottom, bpad_right], name="data_pad"
     )
@@ -103,19 +117,24 @@ def conv2d_transpose_nchw_preprocess(data, kernel, strides, padding, out_dtype, 
     return data_pad, kernel_transform
 
 
-def declaration_conv2d_transpose_impl(data, kernel, strides, padding, out_dtype, output_padding):
+def declaration_conv2d_transpose_impl(
+    data, kernel, strides, padding, out_dtype, output_padding, dilation=(1, 1)
+):
     """Implementation of conv2d transpose"""
     data_pad, kernel_transform = conv2d_transpose_nchw_preprocess(
-        data, kernel, strides, padding, out_dtype, output_padding
+        data, kernel, strides, padding, out_dtype, output_padding, dilation=dilation
     )
+    dilation_h, dilation_w = dilation
     batch, in_c, in_h, in_w = data_pad.shape
     out_c, _, filter_h, filter_w = kernel_transform.shape
+    eff_filter_h = (filter_h - 1) * dilation_h + 1
+    eff_filter_w = (filter_w - 1) * dilation_w + 1
 
     # convolution stage
     out_c = simplify(out_c)
 
-    out_h = simplify(in_h - filter_h + 1)
-    out_w = simplify(in_w - filter_w + 1)
+    out_h = simplify(in_h - eff_filter_h + 1)
+    out_w = simplify(in_w - eff_filter_w + 1)
     dc = te.reduce_axis((0, in_c), name="dc")
     dh = te.reduce_axis((0, filter_h), name="dh")
     dw = te.reduce_axis((0, filter_w), name="dw")
@@ -123,7 +142,7 @@ def declaration_conv2d_transpose_impl(data, kernel, strides, padding, out_dtype,
     Output = te.compute(
         (batch, out_c, out_h, out_w),
         lambda b, c, h, w: te.sum(
-            data_pad[b, dc, h + dh, w + dw].astype(out_dtype)
+            data_pad[b, dc, h + dh * dilation_h, w + dw * dilation_w].astype(out_dtype)
             * kernel_transform[c, dc, dh, dw].astype(out_dtype),
             axis=[dc, dh, dw],
         ),
@@ -133,7 +152,9 @@ def declaration_conv2d_transpose_impl(data, kernel, strides, padding, out_dtype,
     return Output
 
 
-def group_conv2d_transpose_nchw(data, kernel, stride, padding, out_dtype, output_padding, groups):
+def group_conv2d_transpose_nchw(
+    data, kernel, stride, padding, out_dtype, output_padding, groups, dilation=(1, 1)
+):
     """Group convolution operator in NCHW layout.
 
     Parameters
@@ -161,6 +182,9 @@ def group_conv2d_transpose_nchw(data, kernel, stride, padding, out_dtype, output
     groups : int
         number of groups
 
+    dilation : int or a list/tuple of two ints
+        Dilation size, or [dilation_height, dilation_width]
+
     out_dtype : str
         The output type. This is used for mixed precision.
 
@@ -170,7 +194,9 @@ def group_conv2d_transpose_nchw(data, kernel, stride, padding, out_dtype, output
         4-D with shape [batch, out_channel, out_height, out_width]
     """
     if groups == 1:
-        return conv2d_transpose_nchw(data, kernel, stride, padding, out_dtype, output_padding)
+        return conv2d_transpose_nchw(
+            data, kernel, stride, padding, out_dtype, output_padding, dilation=dilation
+        )
 
     # some pre-processing and prelimnary checks
     if out_dtype is None:
@@ -186,22 +212,29 @@ def group_conv2d_transpose_nchw(data, kernel, stride, padding, out_dtype, output
     strides = _pair(stride)
     # padding = _pair(padding)
     # output_padding = _pair(output_padding)
-    # dilation = _pair(dilation)
+    dilation = _pair(dilation)
 
     stride_h, stride_w = strides
+    dilation_h, dilation_w = dilation
     opad_h, opad_w = output_padding
     assert (
         opad_h < stride_h and opad_w < stride_w
     ), f"[{output_padding}] opad_h:{opad_h} < stride_h:{stride_h} \
         and opad_w:{opad_w} < stride_w:{stride_w} does not satisfy."
+    # effective (dilated) filter size, used everywhere the raw filter size
+    # would otherwise appear -- reduces to filter_h/filter_w when dilation=1
+    eff_filter_h = (filter_h - 1) * dilation_h + 1
+    eff_filter_w = (filter_w - 1) * dilation_w + 1
     # dilate data
     data_dilate = dilate(data, [1, 1, stride_h, stride_w], name="data_dilate")
     # pad data
-    fpad_top, fpad_left, fpad_bottom, fpad_right = get_pad_tuple(padding, (filter_h, filter_w))
-    bpad_top = filter_h - 1 - fpad_top
-    bpad_bottom = filter_h - 1 - fpad_bottom + opad_h
-    bpad_left = filter_w - 1 - fpad_left
-    bpad_right = filter_w - 1 - fpad_right + opad_w
+    fpad_top, fpad_left, fpad_bottom, fpad_right = get_pad_tuple(
+        padding, (eff_filter_h, eff_filter_w)
+    )
+    bpad_top = eff_filter_h - 1 - fpad_top
+    bpad_bottom = eff_filter_h - 1 - fpad_bottom + opad_h
+    bpad_left = eff_filter_w - 1 - fpad_left
+    bpad_right = eff_filter_w - 1 - fpad_right + opad_w
     data_pad = pad(
         data_dilate, [0, 0, bpad_top, bpad_left], [0, 0, bpad_bottom, bpad_right], name="data_pad"
     )
@@ -218,8 +251,8 @@ def group_conv2d_transpose_nchw(data, kernel, stride, padding, out_dtype, output
     # convolution stage
     out_channels = simplify(out_c * groups)
 
-    out_h = simplify(in_h - filter_h + 1)
-    out_w = simplify(in_w - filter_w + 1)
+    out_h = simplify(in_h - eff_filter_h + 1)
+    out_w = simplify(in_w - eff_filter_w + 1)
     dc = te.reduce_axis((0, in_channels // groups), name="dc")
     dh = te.reduce_axis((0, filter_h), name="dh")
     dw = te.reduce_axis((0, filter_w), name="dw")
@@ -230,7 +263,10 @@ def group_conv2d_transpose_nchw(data, kernel, stride, padding, out_dtype, output
         (batch, out_channels, out_h, out_w),
         lambda b, c, h, w: te.sum(
             data_pad[
-                b, c // (out_channels // groups) * (in_channels // groups) + dc, h + dh, w + dw
+                b,
+                c // (out_channels // groups) * (in_channels // groups) + dc,
+                h + dh * dilation_h,
+                w + dw * dilation_w,
             ].astype(out_dtype)
             * kernel_transform[
                 c % (out_channels // groups),

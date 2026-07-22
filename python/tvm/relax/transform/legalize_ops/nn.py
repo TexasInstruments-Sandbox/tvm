@@ -239,14 +239,6 @@ def _nn_conv2d_transpose(bb: BlockBuilder, call: Call) -> Expr:
             "and kernel layout other than IOHW, so cannot be legalized by TOPI"
         )
         return call
-    dilation = call.attrs.dilation
-    if len(dilation) != 2 or dilation[0] != 1 or dilation[1] != 1:
-        logging.info(
-            "TOPI conv2d_transpose does not support dilations other than 1, "
-            "and thus cannot be legalized by TOPI"
-        )
-        return call
-
     return bb.call_te(
         topi.nn.group_conv2d_transpose_nchw,
         call.args[0],
@@ -256,6 +248,7 @@ def _nn_conv2d_transpose(bb: BlockBuilder, call: Call) -> Expr:
         out_dtype=call.struct_info.dtype,
         output_padding=call.attrs.output_padding,
         groups=call.attrs.groups,
+        dilation=call.attrs.dilation,
         primfunc_name_hint="conv2d_transpose",
     )
 

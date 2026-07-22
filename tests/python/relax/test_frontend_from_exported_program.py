@@ -2830,6 +2830,49 @@ def test_conv_transpose2d():
     verify_model(model, example_args, binding, expected2)
 
 
+def test_conv_transpose2d_dilation():
+    """dilation != 1 numeric case for conv2d_transpose -- structural verify_model can't
+    catch a numeric bug here since the legalization used to bail out (unsupported)
+    rather than produce a wrong structural result, so this uses a real PyTorch-vs-TVM
+    numeric comparison instead."""
+
+    class ConvTranspose2dDilated(Module):
+        def __init__(self, channels, kernel_size, dilation, padding, groups):
+            super().__init__()
+            self.conv = torch.nn.ConvTranspose2d(
+                channels,
+                channels,
+                kernel_size,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+            )
+
+        def forward(self, input):
+            return self.conv(input)
+
+    # depthwise, matching GTCRN's decoder configs (kernel=3, stride=1)
+    verify_model_numerically(
+        ConvTranspose2dDilated(16, 3, dilation=5, padding=(10, 1), groups=16),
+        (torch.randn(1, 16, 20, 10, dtype=torch.float32),),
+        rtol=1e-4,
+        atol=1e-5,
+    )
+    verify_model_numerically(
+        ConvTranspose2dDilated(16, 3, dilation=2, padding=(4, 1), groups=16),
+        (torch.randn(1, 16, 20, 10, dtype=torch.float32),),
+        rtol=1e-4,
+        atol=1e-5,
+    )
+    # non-grouped
+    verify_model_numerically(
+        ConvTranspose2dDilated(4, 3, dilation=3, padding=(6, 6), groups=1),
+        (torch.randn(1, 4, 15, 15, dtype=torch.float32),),
+        rtol=1e-4,
+        atol=1e-5,
+    )
+
+
 def test_conv1d():
     class Conv1D1(Module):
         def __init__(self):
