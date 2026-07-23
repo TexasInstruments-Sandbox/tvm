@@ -18,6 +18,7 @@
 # pylint: disable=invalid-name, inconsistent-return-statements, unidiomatic-typecheck
 # pylint: disable=import-outside-toplevel
 """Base class for PyTorch FX Graph importer."""
+
 import abc
 from functools import reduce
 import math
@@ -40,9 +41,9 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         self.env: Dict[fx.Node, relax.Expr] = {}
         self.params: Dict[torch.Tensor, relax.Expr] = {}
         self.block_builder: relax.BlockBuilder = None
-        self.convert_map: Dict[
-            Union[torch.nn.Module, str], Callable[[fx.Node], relax.Var]
-        ] = self.create_convert_map()
+        self.convert_map: Dict[Union[torch.nn.Module, str], Callable[[fx.Node], relax.Var]] = (
+            self.create_convert_map()
+        )
         self._current_node: Optional["fx.Node"] = None
 
     ########## Source Span Propagation ##########
@@ -73,7 +74,10 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             return None
         return tvm.ir.Span(
             tvm.ir.SourceName(source_str),
-            line=0, end_line=0, column=0, end_column=0,
+            line=0,
+            end_line=0,
+            column=0,
+            end_column=0,
         )
 
     ########## Utilities ##########
@@ -1514,9 +1518,9 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
     def _pixel_shuffle(self, node: fx.Node) -> relax.Var:
         data = self.env[node.args[0]]
         upscale_factor = node.args[1]
-        assert isinstance(
-            upscale_factor, int
-        ), "PixelShuffle only accepts an integer upscale_factor."
+        assert isinstance(upscale_factor, int), (
+            "PixelShuffle only accepts an integer upscale_factor."
+        )
 
         return self.block_builder.emit(relax.op.nn.pixel_shuffle(data, upscale_factor))
 
@@ -2375,7 +2379,10 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         dtype = self._convert_data_type(
             node.kwargs.get("dtype", torch.get_default_dtype()), self.env
         )
-        value = args[1] if isinstance(args[1], relax.expr.Constant) else relax.const(args[1], dtype)
+        # args[1] is already a relax.Expr (Constant or Var) when it came from
+        # a graph node (e.g. a preceding aten.item on a 0-d tensor); only a
+        # raw python/numpy scalar literal needs wrapping via relax.const.
+        value = args[1] if isinstance(args[1], relax.Expr) else relax.const(args[1], dtype)
         return self.block_builder.emit(
             relax.op.full(
                 size,
@@ -2650,6 +2657,12 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
 
     def _item(self, node: fx.Node) -> relax.Var:
         x = self.env[node.args[0]]
+        sinfo = x.struct_info
+        if isinstance(sinfo, relax.TensorStructInfo) and sinfo.ndim == 0:
+            # x is already a scalar tensor (e.g. produced by aten.select
+            # reducing a 1-D constant/buffer to 0-D) — there is no axis to
+            # take from, .item() is a no-op extraction of that same value.
+            return x
         return self.block_builder.emit(relax.op.take(x, relax.const(0, "int64"), axis=0))
 
     def _sym_size_int(self, node: fx.Node) -> relax.Expr:
