@@ -103,7 +103,10 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             return None
         return tvm.ir.Span(
             tvm.ir.SourceName(source_str),
-            line=0, end_line=0, column=0, end_column=0,
+            line=0,
+            end_line=0,
+            column=0,
+            end_column=0,
         )
 
     ########## Utilities ##########
