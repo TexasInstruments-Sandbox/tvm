@@ -301,6 +301,16 @@ extern "C" TVM_DSP_EXPORT void TVMPrintLayerProfile(void) {
   }
   printf("-----------------------------\n");
   printf("Total: %" PRIu64 " cycles (%d layers)\n", total_cycles, _tvm_layer_count);
+  // EmitLayerProfilingStart writes _tvm_layer_names[i] unconditionally
+  // before the call; EmitLayerProfilingEnd only bumps _tvm_layer_count
+  // after the call returns 0. So on a clean run there is no name at
+  // index _tvm_layer_count (never started). If inference returned
+  // nonzero, this slot holds the name of the call that was in flight
+  // when it failed -- surface it since the caller only gets a generic
+  // -1 return code otherwise.
+  if (_tvm_layer_count < TVM_PROFILE_MAX_LAYERS && _tvm_layer_names[_tvm_layer_count] != NULL) {
+    printf("[FAILED, in flight] %-40s\n", _tvm_layer_names[_tvm_layer_count]);
+  }
   printf("=============================\n");
 }
 
