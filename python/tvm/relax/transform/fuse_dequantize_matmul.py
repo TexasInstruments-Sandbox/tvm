@@ -47,6 +47,7 @@ import tvm
 from tvm import IRModule, relax, te, tir
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
+from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +231,7 @@ class _DequantizeMatmulFuser(PyExprMutator):
         super().__init__(mod)
         self.count = 0
         self.use_extern = use_extern
+        self._const_reach = ConstReachability(mod)
 
     def visit_call_(self, call):
         if not isinstance(call.op, relax.GlobalVar):
@@ -263,7 +265,18 @@ class _DequantizeMatmulFuser(PyExprMutator):
 
         self.count += 1
 
-        if self.use_extern:
+        # When act is itself compile-time-constant (e.g. Swin V2's
+        # continuous-relative-position-bias MLP, applied to a fixed
+        # coordinate buffer rather than the runtime activation), FoldConstant
+        # tries to evaluate this call_tir eagerly via a host LLVM JIT. The
+        # extern path's call_extern targets a C7x-only kernel with no host
+        # symbol, so that eager evaluation segfaults instead of raising. Use
+        # the portable TE path here instead: it is plain TIR (foldable on
+        # host) and precomputing a genuinely input-independent bias once at
+        # compile time is strictly better than recomputing it on the DSP
+        # every inference anyway.
+        used_extern = self.use_extern and not self._const_reach.is_const(act)
+        if used_extern:
             result = self._rewrite_extern(call, act, w_int8, w_scale)
         else:
             result = self.builder_.call_te(
@@ -282,7 +295,7 @@ class _DequantizeMatmulFuser(PyExprMutator):
             "Fused dequantize_matmul #%d%s%s",
             self.count,
             " (bias)" if has_bias else "",
-            " [extern]" if self.use_extern else "",
+            " [extern]" if used_extern else "",
         )
         return result
 
