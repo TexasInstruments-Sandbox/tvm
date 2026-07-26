@@ -49,6 +49,7 @@ from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
+from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +215,7 @@ class _ReluLowerer(PyExprMutator):
     def __init__(self, mod: IRModule):
         super().__init__(mod)
         self.count = 0
+        self._const_reach = ConstReachability(mod)
 
     def visit_call_(self, call):
         if not isinstance(call.op, relax.GlobalVar):
@@ -256,6 +258,16 @@ class _ReluLowerer(PyExprMutator):
                     x_sinfo = binding.var.struct_info
 
         if x_arg is None or d_zp_val is None or x_sinfo is None:
+            return super().visit_call_(call)
+
+        # A compile-time-constant x (e.g. Swin V2's continuous-relative-
+        # position-bias MLP, fed only by a fixed coordinate buffer) would
+        # later be evaluated eagerly by FoldConstant via a host LLVM JIT,
+        # which can't resolve this call_extern's C7x-only symbol and
+        # segfaults instead of raising -- see ti_c7x_const_reachability.py.
+        # Leave the un-lowered composite call in place; ordinary
+        # LegalizeOps/FoldConstant will handle it safely.
+        if self._const_reach.is_const(x_arg):
             return super().visit_call_(call)
 
         call_sinfo = call.struct_info
@@ -324,6 +336,11 @@ class _ReluLowerer(PyExprMutator):
                 a_max_float = _get_scalar_float(hi)
 
         if any(v is None for v in [x_arg, d_scale_val, d_zp_val, a_min_float, a_max_float]):
+            return super().visit_call_(call)
+
+        # See the matching guard in _lower: a compile-time-constant x would
+        # otherwise crash FoldConstant later (ti_c7x_const_reachability.py).
+        if self._const_reach.is_const(x_arg):
             return super().visit_call_(call)
 
         call_sinfo = call.struct_info
@@ -404,6 +421,11 @@ class _ReluLowerer(PyExprMutator):
                 o_scale_val = float(s.data.numpy())
 
         if any(v is None for v in [x_arg, d_scale_val, o_scale_val, a_min_float, a_max_float]):
+            return super().visit_call_(call)
+
+        # See the matching guard in _lower: a compile-time-constant x would
+        # otherwise crash FoldConstant later (ti_c7x_const_reachability.py).
+        if self._const_reach.is_const(x_arg):
             return super().visit_call_(call)
 
         call_sinfo = call.struct_info
