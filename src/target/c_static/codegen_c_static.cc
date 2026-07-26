@@ -736,14 +736,18 @@ void CodeGenCStatic::PrintCallPacked(const CallNode* op) {
     std::string args_stack = PrintExpr(op->args[1]);
     this->PrintIndent();
     this->stream << "// [Direct] vm.builtin.match_shape\n";
+    // Propagate the call's actual return value on failure, matching the
+    // general packed/cpacked call path below -- see the comment there.
     this->PrintIndent();
-    this->stream << "if (TVMDSPBuiltinMatchShapePacked("
-                 << args_stack << " + " << begin << ", " << num_args
-                 << ", &" << this->stack_name_ << "[" << num_args << "]) != 0) {\n";
+    this->stream << "{\n";
     {
       ScopeGuard scope(this);
       this->PrintIndent();
-      this->stream << "return -1;\n";
+      this->stream << "int32_t __call_ret = TVMDSPBuiltinMatchShapePacked("
+                   << args_stack << " + " << begin << ", " << num_args
+                   << ", &" << this->stack_name_ << "[" << num_args << "]);\n";
+      this->PrintIndent();
+      this->stream << "if (__call_ret != 0) return __call_ret;\n";
     }
     this->PrintIndent();
     this->stream << "}\n";
@@ -798,18 +802,30 @@ void CodeGenCStatic::PrintCallPacked(const CallNode* op) {
         layer_idx, packed_func_name, this->stream, [this]() { this->PrintIndent(); });
   }
 
+  // Capture the call's actual return value and propagate it on failure,
+  // rather than collapsing every failure to a generic -1. This value
+  // travels unchanged through nested call sites all the way up to
+  // cg_main_dsp's own return value (surfaced to the host as
+  // `return_value` in the c7x_compute wire protocol), so e.g. an
+  // allocation OOM (TVM_DSP_ERR_NOMEM) is now distinguishable from any
+  // other kernel-call failure instead of every failure looking the same.
+  // Own block scope so the temporary doesn't collide with other call
+  // sites at the same nesting level.
   this->PrintIndent();
-  if (op->op.same_as(builtin::tvm_call_packed_lowered())) {
-    this->stream << "if (TVMFFIFunctionCall(" << packed_func_name << ", ";
-  } else {
-    this->stream << "if (" << packed_func_name << "(NULL, ";
-  }
-  this->stream <<  args_stack << ", " << num_args << ", "
-               << "&" << this->stack_name_ << "[" << num_args << "]" << ") != 0) {\n";
+  this->stream << "{\n";
   {
     ScopeGuard func_call_scope(this);
     this->PrintIndent();
-    this->stream << "return -1;\n";
+    this->stream << "int32_t __call_ret = ";
+    if (op->op.same_as(builtin::tvm_call_packed_lowered())) {
+      this->stream << "TVMFFIFunctionCall(" << packed_func_name << ", ";
+    } else {
+      this->stream << packed_func_name << "(NULL, ";
+    }
+    this->stream << args_stack << ", " << num_args << ", "
+                 << "&" << this->stack_name_ << "[" << num_args << "]" << ");\n";
+    this->PrintIndent();
+    this->stream << "if (__call_ret != 0) return __call_ret;\n";
   }
   this->PrintIndent();
   this->stream << "}\n";
@@ -1417,11 +1433,20 @@ bool CodeGenCStatic::EmitDirectVMBuiltinCallClean(const FFICallPattern& pattern)
           }
         }
 
-        // Call MakeTupleArray and set result
+        // Call MakeTupleArray and set result. MakeTupleArray returns
+        // nullptr on allocation failure (see vm_builtins.h); SetArray
+        // stores whatever pointer it's given unconditionally as a
+        // "valid" kTVMFFIArray, so an unchecked nullptr here would
+        // silently produce a tuple object that null-derefs on first use
+        // instead of a clean error return.
+        this->PrintIndent();
+        this->stream << "TVMDSPArray* __tuple_result = vm::MakeTupleArray(_tuple_args, "
+                     << pattern.num_args << ");\n";
+        this->PrintIndent();
+        this->stream << "if (__tuple_result == nullptr) return TVM_DSP_ERR_NOMEM;\n";
         this->PrintIndent();
         this->stream << "_" << pattern.result_array << ".SetArray("
-                     << pattern.result_slot << ", vm::MakeTupleArray(_tuple_args, "
-                     << pattern.num_args << "));\n";
+                     << pattern.result_slot << ", __tuple_result);\n";
       }
       this->PrintIndent();
       this->stream << "}\n";

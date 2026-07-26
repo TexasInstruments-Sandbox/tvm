@@ -60,6 +60,23 @@ typedef enum {
 } TVMDSPMemoryPool;
 
 /*!
+ * \brief Distinct nonzero return codes for VM builtins and generated code.
+ *
+ * Every packed/cpacked call site TVM generates checks its return value
+ * with `if (call(...) != 0) return <code>;`, and that code propagates
+ * unchanged all the way up through nested calls to cg_main_dsp's own
+ * return value (visible to the host as `return_value` in the c7x_compute
+ * wire protocol). Without a distinct code here, every failure --
+ * allocation OOM, a bad shape, an unsupported op -- collapsed to a
+ * generic -1, indistinguishable from each other. Independent of (but
+ * numerically aligned with, for readability) C7X_STATUS_ERR_* in the
+ * c7x_compute wire protocol -- this header has no dependency on that
+ * firmware-specific protocol and must not gain one.
+ */
+#define TVM_DSP_ERR_GENERIC (-1)
+#define TVM_DSP_ERR_NOMEM (-3)
+
+/*!
  * \brief Memory statistics for a pool.
  */
 typedef struct {

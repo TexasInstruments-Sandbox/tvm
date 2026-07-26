@@ -373,7 +373,11 @@ int TVMDSPBuiltinAllocStoragePacked(const TVMFFIAny* args, int32_t num_args,
 
   storage = TVMDSPBuiltinAllocStorage(size, device_index, dtype_hint);
   if (storage == nullptr) {
-    return -1;
+    /* TVMDSPStorageAlloc already logged the pool/size details via
+     * tvm_dsp_log; a distinct code here lets the host tell "ran out of
+     * memory" apart from other kernel-call failures instead of seeing
+     * a generic -1 for everything. */
+    return TVM_DSP_ERR_NOMEM;
   }
 
   ret->type_index = TVM_DSP_STORAGE_TYPE_INDEX;
@@ -410,7 +414,7 @@ int TVMDSPBuiltinAllocTensorPacked(const TVMFFIAny* args, int32_t num_args,
   TVMDSPNDArray* arr = TVMDSPBuiltinAllocTensor(
       storage, offset, shape->data, static_cast<int32_t>(shape->size), dtype);
   if (arr == nullptr) {
-    return -1;
+    return TVM_DSP_ERR_NOMEM;
   }
 
   ret->type_index = kTVMFFITensor;
@@ -431,7 +435,7 @@ int TVMDSPBuiltinAllocShapeHeapPacked(const TVMFFIAny* args, int32_t num_args,
 
   TVMDSPNDArray* heap = TVMDSPBuiltinAllocShapeHeap(size);
   if (heap == nullptr) {
-    return -1;
+    return TVM_DSP_ERR_NOMEM;
   }
 
   ret->type_index = kTVMFFITensor;
@@ -481,7 +485,7 @@ int TVMDSPBuiltinMakeShapePacked(const TVMFFIAny* args, int32_t num_args,
   TVMDSPShape* shape = TVMDSPBuiltinMakeShape(heap, static_cast<int32_t>(ndim),
                                                codes, values);
   if (shape == nullptr) {
-    return -1;
+    return TVM_DSP_ERR_NOMEM;
   }
 
   ret->type_index = kTVMFFIShape;
@@ -640,7 +644,7 @@ int TVMDSPBuiltinMakeTuplePacked(const TVMFFIAny* args, int32_t num_args,
                             TVM_DSP_MEM_MAIN);
   if (mem == nullptr) {
     tvm_dsp_log("ERROR: make_tuple failed to allocate TVMDSPArray\n");
-    return -1;
+    return TVM_DSP_ERR_NOMEM;
   }
 
   /* Initialize array object header */
@@ -695,7 +699,7 @@ int TVMDSPBuiltinReshapePacked(const TVMFFIAny* args, int32_t num_args,
   void* result_mem = tvm_dsp_alloc(alloc_size, TVM_DSP_CACHE_LINE_SIZE,
                                     TVM_DSP_MEM_MAIN);
   if (result_mem == nullptr) {
-    return -1;
+    return TVM_DSP_ERR_NOMEM;
   }
 
   auto result = tvm::dsp::TypedHandle<TVMDSPNDArray>::FromRaw(result_mem);
