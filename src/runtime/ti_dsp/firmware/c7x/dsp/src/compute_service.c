@@ -641,6 +641,13 @@ static void handle_infer(struct c7x_msg_infer *req, uint16_t recvMsgSize,
     TVMFFIAny input_anys[MAX_INFER_INPUTS];
     TVMFFIAny output_any;
 
+    /* gSendBuf is a static buffer that persists across calls (see the same
+     * note in extract_infer_output()) -- without this, an early goto-done
+     * path below (before printf_size is ever assigned) would leave a
+     * previous request's stale printf_size/num_outputs in resp, which the
+     * host client now reads unconditionally before checking hdr.status. */
+    memset(resp, 0, sizeof(struct c7x_msg_infer_resp));
+
     DebugP_log("[COMPUTE] INFER module=%u model=%u inputs=%u\r\n",
                req->module_handle, req->model_id, req->num_inputs);
 
@@ -771,6 +778,11 @@ static void handle_infer(struct c7x_msg_infer *req, uint16_t recvMsgSize,
     }
 
     if (ret != 0) {
+        /* Flush printf buffer even on failure -- profile_layers writes the
+         * name of the in-flight call before invoking it (see
+         * TVMPrintLayerProfile), so this is often the only way to see which
+         * kernel call actually failed instead of just a generic -1. */
+        resp->printf_size = shm_printf_finish();
         resp->hdr.status = C7X_STATUS_ERR_CALL;
         resp->num_outputs = 0;
         gJobsFailed++;
@@ -1059,6 +1071,9 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
                ret, (unsigned long long)resp->cycles);
 
     if (ret != 0) {
+        /* Flush printf buffer even on failure -- see the comment on the
+         * matching branch in handle_infer() for why this matters. */
+        resp->printf_size = shm_printf_finish();
         resp->hdr.status = C7X_STATUS_ERR_CALL;
         resp->num_outputs = 0;
         gJobsFailed++;

@@ -667,14 +667,33 @@ static int c7x_client_infer_impl(c7x_client_t *client,
     if (ret < 0) return ret;
 
     if (resp->hdr.type != C7X_MSG_INFER_RESP) return -EPROTO;
+
+    /* Sync result buffer from DSP before reading -- the printf buffer
+     * (profile text, layer traces) lives in this same region, so this
+     * must happen even when inference failed, not just on success. */
+    sync_output_from_device(client);
+
+    /* Print DSP printf output to stderr (profile text, layer traces).
+     * Using stderr so it doesn't interfere with JSON on stdout. Done
+     * before the status check: profile_layers records the name of the
+     * in-flight call before invoking it, so on failure this is often the
+     * only way to see which kernel call actually failed, instead of just
+     * a generic -1. */
+    if (resp->printf_size > 0 &&
+        resp->printf_size <= C7X_PRINTF_BUF_SIZE) {
+        size_t printf_offset = C7X_RESULT_SIZE
+                             - C7X_PRINTF_BUF_SIZE + 16;
+        const char *pdata = static_cast<const char *>(client->result_buf)
+                            + printf_offset;
+        fwrite(pdata, 1, resp->printf_size, stderr);
+        fflush(stderr);
+    }
+
     if (resp->hdr.status != C7X_STATUS_SUCCESS) {
         fprintf(stderr, "c7x: INFER failed: status=%d return_value=%d\n",
                 resp->hdr.status, resp->return_value);
         return resp->hdr.status;
     }
-
-    /* Sync result buffer from DSP before reading */
-    sync_output_from_device(client);
 
     /* Extract output tensor metadata.
      * For small output counts: descriptors are inline in resp->outputs[].
@@ -706,18 +725,6 @@ static int c7x_client_infer_impl(c7x_client_t *client,
         for (int j = 0; j < out_td->ndim && j < C7X_TENSOR_MAX_NDIM; j++) {
             outputs[i].shape[j] = out_td->shape[j];
         }
-    }
-
-    /* Print DSP printf output to stderr (profile text, layer traces).
-     * Using stderr so it doesn't interfere with JSON on stdout. */
-    if (resp->printf_size > 0 &&
-        resp->printf_size <= C7X_PRINTF_BUF_SIZE) {
-        size_t printf_offset = C7X_RESULT_SIZE
-                             - C7X_PRINTF_BUF_SIZE + 16;
-        const char *pdata = static_cast<const char *>(client->result_buf)
-                            + printf_offset;
-        fwrite(pdata, 1, resp->printf_size, stderr);
-        fflush(stderr);
     }
 
     if (cycles) *cycles = resp->cycles;

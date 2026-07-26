@@ -96,7 +96,17 @@ void DSPCodeGenExtension::EmitProfilingInit(std::ostream& os,
   print_indent();
   os << "TVMDSPCycleCounter_init();\n";
   print_indent();
-  os << "_tvm_layer_count = 0;\n\n";
+  os << "_tvm_layer_count = 0;\n";
+  // _tvm_layer_names is a global that outlives any single call: clear it
+  // here too, not just the count. Otherwise a later, successful call that
+  // profiles FEWER layers than an earlier call on the same loaded module
+  // (e.g. an LLM's decode step after a longer prefill step) would find a
+  // stale name left over from the earlier call at index _tvm_layer_count,
+  // and TVMPrintLayerProfile's "[FAILED, in flight]" check would report a
+  // false failure for a call that actually succeeded.
+  print_indent();
+  os << "for (int _i = 0; _i < TVM_PROFILE_MAX_LAYERS; _i++) "
+        "_tvm_layer_names[_i] = NULL;\n\n";
 }
 
 void DSPCodeGenExtension::EmitLayerProfilingStart(int layer_idx, const std::string& layer_name,
