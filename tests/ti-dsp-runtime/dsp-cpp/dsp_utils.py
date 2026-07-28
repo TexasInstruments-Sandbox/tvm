@@ -37,6 +37,60 @@ from tvm.contrib import tar
 logger = logging.getLogger(__name__)
 
 
+_OOM_BYTES_RE = re.compile(r"requested\s+([\d.]+)\s*MB,\s*([\d.]+)\s*MB free of\s*([\d.]+)\s*MB")
+
+
+class DSPOutOfMemoryError(RuntimeError):
+    """Raised when a DSP run failed because the model exceeded available
+    C7x memory -- DDR pool during inference, or the DLOAD/weights pool
+    during load -- rather than a genuine kernel or compile bug. Lets
+    callers/CI distinguish "model too big" from a real regression.
+
+    requested_bytes/free_bytes/total_bytes are populated only when the
+    c7x_strerror-derived error text carried the enriched byte counts
+    (see docs/dsp/oom_reporting_design.md); None otherwise (status-only
+    fallback, e.g. the staging-overflow "File too large" signature, which
+    never carries byte counts). The values are recovered from the CLI's
+    MB-rounded text, so they are approximate and can be 0.0 for a
+    sub-megabyte allocation.
+    """
+
+    def __init__(self, message, phase, requested_bytes=None, free_bytes=None, total_bytes=None):
+        super().__init__(message)
+        self.phase = phase  # "load" or "inference"
+        self.requested_bytes = requested_bytes
+        self.free_bytes = free_bytes
+        self.total_bytes = total_bytes
+
+
+def _raise_if_oom(error_text: str, stage: str, fallback_message: str) -> None:
+    """Inspect a c7x_compute JSON error string + stage tag; raise
+    DSPOutOfMemoryError if it matches an OOM signature, else raise the
+    generic fallback_message as a plain RuntimeError.
+
+    Matches on text (mirrors c7x_strerror()'s canonical strings), not on
+    any particular status number -- the firmware/CLI already resolved
+    that distinction:
+      - "Out of memory"  -> C7X_STATUS_ERR_NOMEM, load or inference.
+      - "File too large" -> ARM stage_file()'s -EFBIG, staging overflow
+                             (load-time, before the DSP is even involved).
+    """
+    phase = "load" if stage in ("load", "model_load") else "inference"
+    if "Out of memory" in error_text:
+        m = _OOM_BYTES_RE.search(error_text)
+        requested = free_bytes = total = None
+        if m:
+            requested, free_bytes, total = (
+                float(m.group(1)) * 1e6,
+                float(m.group(2)) * 1e6,
+                float(m.group(3)) * 1e6,
+            )
+        raise DSPOutOfMemoryError(fallback_message, phase, requested, free_bytes, total)
+    if "File too large" in error_text:
+        raise DSPOutOfMemoryError(fallback_message, "load")
+    raise RuntimeError(fallback_message)
+
+
 def _run_timed(cmd, cwd, log_f, label):
     """Run a subprocess, log elapsed wall-clock time to log_f and stdout."""
     t0 = time.perf_counter()
@@ -1112,22 +1166,26 @@ def run_dsp_dload(
         text=True,
         check=False,
     )
-    if run_result.returncode != 0:
-        raise RuntimeError(
-            f"SSH command failed (rc={run_result.returncode}): {run_cmd}\n"
-            f"stdout: {run_result.stdout}\nstderr: {run_result.stderr}"
-        )
     out = run_result.stdout.strip()
     dsp_stderr = run_result.stderr.strip()
     logger.debug(f"  run stdout: {out}")
     if dsp_stderr:
         logger.debug(f"  run stderr: {dsp_stderr}")
 
-    # Parse JSON from stdout. DSP printf text may precede the JSON
+    # c7x_compute's `run` verb exits 1 on ANY reported error by design
+    # (see cmd_run in c7x_compute_cli.cpp) -- even though it still prints
+    # structured JSON to stdout in that case. So a nonzero returncode
+    # alone doesn't distinguish "SSH/process failed outright" from "the
+    # remote run completed and reported a structured failure" -- only
+    # treat this as a hard SSH/process failure if there's no parseable
+    # JSON at all. Parse JSON from stdout: DSP printf text may precede it
     # (from c7x_client_open/close info messages); split on the first '{'.
     json_start = out.find("{")
     if json_start < 0:
-        raise RuntimeError(f"No JSON found in c7x_compute run output: {out}")
+        raise RuntimeError(
+            f"SSH command failed (rc={run_result.returncode}): {run_cmd}\n"
+            f"stdout: {run_result.stdout}\nstderr: {run_result.stderr}"
+        )
     dsp_text = out[:json_start].strip()
     # Append DSP profile output from stderr (layer traces, iteration headers)
     if dsp_stderr:
@@ -1135,12 +1193,21 @@ def run_dsp_dload(
     if dsp_text:
         logger.debug(f"  DSP printf: {dsp_text}")
 
-    result = json.loads(out[json_start:])
+    # A stray '{' in genuine hard-failure output (crash dump, profile text)
+    # isn't valid JSON -- fall back to the hard-failure message rather than
+    # letting json.loads raise a context-free JSONDecodeError.
+    try:
+        result = json.loads(out[json_start:])
+    except json.JSONDecodeError:
+        raise RuntimeError(
+            f"SSH command failed (rc={run_result.returncode}): {run_cmd}\n"
+            f"stdout: {run_result.stdout}\nstderr: {run_result.stderr}"
+        )
 
     if result.get("status") != "ok":
         stage = result.get("stage", "unknown")
         error = result.get("error", "unknown error")
-        raise RuntimeError(f"c7x_compute run failed at {stage}: {error}")
+        _raise_if_oom(error, stage, f"c7x_compute run failed at {stage}: {error}")
 
     cycles = result.get("cycles", 0)
     logger.info(f"  Inference cycles: {cycles:,}")
@@ -1609,20 +1676,35 @@ def run_dsp_local(
         timeout=timeout_s,
     )
 
-    if result_proc.returncode != 0:
+    # c7x_compute's `run`/`infer` verbs exit 1 on ANY reported error by
+    # design (see cmd_run/cmd_infer in c7x_compute_cli.cpp) -- even though
+    # they still print structured JSON to stdout in that case. So a
+    # nonzero returncode alone doesn't distinguish "process failed
+    # outright" from "the run completed and reported a structured
+    # failure" -- only treat this as a hard process failure if there's no
+    # parseable JSON at all.
+    out = result_proc.stdout.strip()
+    json_start = out.find("{")
+    if json_start < 0:
         raise RuntimeError(
             f"c7x_compute failed (rc={result_proc.returncode}):\n"
             f"stdout: {result_proc.stdout}\nstderr: {result_proc.stderr}"
         )
 
-    out = result_proc.stdout.strip()
-    json_start = out.find("{")
-    if json_start < 0:
-        raise RuntimeError(f"No JSON in c7x_compute output: {out}")
-
-    result_json = json.loads(out[json_start:])
+    # A stray '{' in genuine hard-failure output (crash dump, profile text)
+    # isn't valid JSON -- fall back to the hard-failure message rather than
+    # letting json.loads raise a context-free JSONDecodeError.
+    try:
+        result_json = json.loads(out[json_start:])
+    except json.JSONDecodeError:
+        raise RuntimeError(
+            f"c7x_compute failed (rc={result_proc.returncode}):\n"
+            f"stdout: {result_proc.stdout}\nstderr: {result_proc.stderr}"
+        )
     if result_json.get("status") != "ok":
-        raise RuntimeError(f"c7x_compute run error: {result_json.get('error', 'unknown')}")
+        stage = result_json.get("stage", "unknown")
+        error = result_json.get("error", "unknown")
+        _raise_if_oom(error, stage, f"c7x_compute run error: {error}")
 
     cycles = result_json.get("cycles", 0)
     logger.info(f"  Cycles: {cycles:,}")

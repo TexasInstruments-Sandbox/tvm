@@ -245,7 +245,14 @@ static int cmd_model_load(const char *weights_file)
     if (ret == 0) {
         printf("Model loaded successfully: model_id=%u\n", model_id);
     } else {
-        printf("Model load failed: %s\n", c7x_strerror(ret));
+        uint32_t oom_requested, oom_free, oom_total;
+        if (ret == C7X_STATUS_ERR_NOMEM &&
+            c7x_client_get_last_oom(client, &oom_requested, &oom_free, &oom_total)) {
+            printf("Model load failed: %s (requested %.1f MB, %.1f MB free of %.1f MB)\n",
+                   c7x_strerror(ret), oom_requested / 1e6, oom_free / 1e6, oom_total / 1e6);
+        } else {
+            printf("Model load failed: %s\n", c7x_strerror(ret));
+        }
     }
 
     c7x_client_close(client);
@@ -284,7 +291,14 @@ static int cmd_load(const char *elf_file)
     if (ret == 0) {
         printf("Module loaded successfully: handle=%u\n", handle);
     } else {
-        printf("Module load failed: %s\n", c7x_strerror(ret));
+        uint32_t oom_requested, oom_free, oom_total;
+        if (ret == C7X_STATUS_ERR_NOMEM &&
+            c7x_client_get_last_oom(client, &oom_requested, &oom_free, &oom_total)) {
+            printf("Module load failed: %s (requested %.1f MB, %.1f MB free of %.1f MB)\n",
+                   c7x_strerror(ret), oom_requested / 1e6, oom_free / 1e6, oom_total / 1e6);
+        } else {
+            printf("Module load failed: %s\n", c7x_strerror(ret));
+        }
     }
 
     c7x_client_close(client);
@@ -522,7 +536,14 @@ static int cmd_infer(uint32_t module_handle, uint32_t model_id,
             }
         }
     } else {
-        printf("Inference failed: %s\n", c7x_strerror(ret));
+        uint32_t oom_requested, oom_free, oom_total;
+        if (ret == C7X_STATUS_ERR_NOMEM &&
+            c7x_client_get_last_oom(client, &oom_requested, &oom_free, &oom_total)) {
+            printf("Inference failed: %s (requested %.1f MB, %.1f MB free of %.1f MB)\n",
+                   c7x_strerror(ret), oom_requested / 1e6, oom_free / 1e6, oom_total / 1e6);
+        } else {
+            printf("Inference failed: %s\n", c7x_strerror(ret));
+        }
     }
 
     c7x_client_close(client);
@@ -543,6 +564,8 @@ static int cmd_run(const char *module_file,
     bool module_loaded = false;
     int ret;
     const char *error_stage = nullptr;
+    uint32_t oom_requested = 0, oom_free = 0, oom_total = 0;
+    bool has_oom = false;
 
     if (!module_file) {
         fprintf(stderr, "Error: --module file required\n");
@@ -644,6 +667,12 @@ cleanup:
         }
     }
 
+    /* Capture OOM byte counts (if any) before closing -- client is freed
+     * by c7x_client_close() below, so this must happen first. */
+    if (ret == C7X_STATUS_ERR_NOMEM) {
+        has_oom = c7x_client_get_last_oom(client, &oom_requested, &oom_free, &oom_total) != 0;
+    }
+
     c7x_client_close(client);
 
     /* Print JSON result */
@@ -666,6 +695,11 @@ cleanup:
             printf("]}");
         }
         printf("]}\n");
+    } else if (has_oom) {
+        printf("{\"status\":\"error\",\"stage\":\"%s\","
+               "\"error\":\"%s (requested %.1f MB, %.1f MB free of %.1f MB)\"}\n",
+               error_stage ? error_stage : "unknown",
+               c7x_strerror(ret), oom_requested / 1e6, oom_free / 1e6, oom_total / 1e6);
     } else {
         printf("{\"status\":\"error\",\"stage\":\"%s\","
                "\"error\":\"%s\"}\n",

@@ -138,6 +138,11 @@ def test_quantized_torchvision_dsp(model_name, dsp_mode, mmalib, record_cycles):
     """Test a quantized TorchVision classification model on DSP."""
     if dsp_mode is None:
         pytest.skip("--dsp-mode not set")
+    if not mmalib:
+        # This is an MMALIB offload sweep (see module docstring) -- restrict
+        # the large parametrized model set to the --mmalib stage rather than
+        # tripling its cost across Host / c7x_dload / MMALIB c7x_dload.
+        pytest.skip("quantized torchvision sweep requires --mmalib (see module docstring)")
     _run_test(model_name, dsp_mode, mmalib, record_cycles)
 
 

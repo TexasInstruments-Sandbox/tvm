@@ -198,14 +198,19 @@ struct c7x_msg_dyn_load {
 } __attribute__((packed));
 
 /*
- * DYN_LOAD response (32 bytes)
+ * DYN_LOAD response (40 bytes)
  */
 struct c7x_msg_dyn_load_resp {
     struct c7x_msg_hdr hdr;     /* type = C7X_MSG_DYN_LOAD_RESP */
     uint32_t module_handle;     /* Handle for loaded module */
     uint32_t text_size;         /* Size of code segments */
     uint32_t data_size;         /* Size of data segments */
-    uint32_t reserved;
+    uint32_t oom_requested;     /* status==ERR_NOMEM: bytes requested by the
+                                 * failing MAIN-pool alloc. 0 otherwise. */
+    uint32_t oom_free;          /* status==ERR_NOMEM: pool free bytes at the
+                                 * moment of failure. 0 otherwise. */
+    uint32_t oom_total;         /* status==ERR_NOMEM: total pool bytes.
+                                 * 0 otherwise. */
 } __attribute__((packed));
 
 /*
@@ -241,13 +246,18 @@ struct c7x_msg_model_load {
 } __attribute__((packed));
 
 /*
- * MODEL_LOAD response (32 bytes)
+ * MODEL_LOAD response (36 bytes)
  */
 struct c7x_msg_model_load_resp {
     struct c7x_msg_hdr hdr;     /* type = C7X_MSG_MODEL_LOAD_RESP */
     uint32_t model_id;          /* Model ID for future reference */
     uint32_t num_constants;     /* Number of parsed constants */
-    uint32_t reserved[2];
+    uint32_t oom_requested;     /* status==ERR_NOMEM: bytes requested by the
+                                 * failing MAIN-pool alloc. 0 otherwise. */
+    uint32_t oom_free;          /* status==ERR_NOMEM: pool free bytes at the
+                                 * moment of failure. 0 otherwise. */
+    uint32_t oom_total;         /* status==ERR_NOMEM: total pool bytes.
+                                 * 0 otherwise. */
 } __attribute__((packed));
 
 /*
@@ -353,7 +363,12 @@ struct c7x_msg_infer_resp {
                                  * buffer at this DSP address (DDR), not
                                  * inline in outputs[]. */
     uint32_t descs_size;        /* Byte size of the out-of-band desc array */
-    uint32_t reserved;
+    uint32_t oom_requested;     /* status==ERR_NOMEM: bytes requested by the
+                                 * failing MAIN-pool alloc. 0 otherwise. */
+    uint32_t oom_free;          /* status==ERR_NOMEM: pool free bytes at the
+                                 * moment of failure. 0 otherwise. */
+    uint32_t oom_total;         /* status==ERR_NOMEM: total pool bytes.
+                                 * 0 otherwise. */
     struct c7x_tensor_desc outputs[1]; /* Inline (descs_addr == 0) */
 } __attribute__((packed));
 

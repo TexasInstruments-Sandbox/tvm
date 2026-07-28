@@ -88,6 +88,39 @@ typedef struct {
 } TVMDSPMemoryStats;
 
 /*!
+ * \brief Sticky record of the most recent MAIN-pool (DDR) allocation
+ * failure. Set by tvm_dsp_alloc() inside its existing "pool != FAST" OOM
+ * branch; read+cleared by the firmware after a failed load/inference to
+ * refine the reported status. Never set for the benign L2->DDR fallback
+ * (FAST pool miss).
+ */
+typedef struct {
+  int occurred;         /*!< 1 if a MAIN-pool alloc failed since last reset/take */
+  size_t requested;     /*!< Bytes requested by the failing allocation */
+  size_t free_at_fail;  /*!< Pool free bytes at the moment of failure */
+  size_t pool_size;     /*!< Total pool bytes */
+} TVMDSPOomRecord;
+
+/*!
+ * \brief Clear the sticky OOM record.
+ *
+ * Call at the start of any operation (INFER, DYN_LOAD, MODEL_LOAD) whose
+ * failure status you intend to refine, and as a safety net in
+ * tvm_dsp_reset_pools().
+ */
+void tvm_dsp_oom_reset(void);
+
+/*!
+ * \brief Read and clear the sticky OOM record.
+ *
+ * \param out Written unconditionally (zeroed if no failure occurred) --
+ * safe to read even when the return value is 0.
+ * \return 1 if a MAIN-pool allocation failed since the last reset/take,
+ * else 0.
+ */
+int tvm_dsp_oom_take(TVMDSPOomRecord* out);
+
+/*!
  * \brief Initialize the DSP platform.
  *
  * This function must be called once at startup before any other

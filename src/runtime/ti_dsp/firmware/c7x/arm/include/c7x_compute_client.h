@@ -62,6 +62,23 @@ int c7x_client_ping(c7x_client_t *client, uint32_t *version, uint32_t *uptime_ms
 int c7x_client_get_status(c7x_client_t *client, c7x_status_t *status);
 
 /**
+ * Get the byte counts from the most recent call's ERR_NOMEM failure, if any.
+ *
+ * Only meaningful immediately after a call (infer/dyn_load/model_load)
+ * returned C7X_STATUS_ERR_NOMEM; overwritten by the next call.
+ *
+ * @param client    Client handle
+ * @param requested Output: bytes requested by the failing allocation
+ * @param free_bytes Output: pool free bytes at the moment of failure
+ * @param total     Output: total pool bytes
+ *
+ * @return 1 if the most recent call failed with nonzero OOM byte counts,
+ *         0 otherwise (outputs unset in that case)
+ */
+int c7x_client_get_last_oom(c7x_client_t *client, uint32_t *requested,
+                             uint32_t *free_bytes, uint32_t *total);
+
+/**
  * Get pointer to the input buffer in shared memory.
  *
  * @param client  Client handle
