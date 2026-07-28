@@ -7,6 +7,13 @@
 cmake_minimum_required(VERSION 3.10)
 project(c7x_compute_arm CXX)
 
+# Board/DDR -> SDK roots + shared-DMA phys base (single source of truth).
+# Only cosmetic here: c7x_compute_client.cpp compares the kernel dma-buf
+# phys against C7X_SHARED_PHYS_BASE purely for a stderr sanity warning; all
+# real host<->DSP addressing uses the DSP virtual base and the kernel's
+# dynamically-read carveout phys, so this client auto-adapts regardless.
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/boards.cmake")
+
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -41,6 +48,11 @@ target_include_directories(c7x_arm_runtime PUBLIC
 )
 target_link_libraries(c7x_arm_runtime PRIVATE pthread)
 set_target_properties(c7x_arm_runtime PROPERTIES SOVERSION 1)
+if(DEFINED C7X_SHARED_PHYS_BASE)
+    target_compile_definitions(c7x_arm_runtime PRIVATE
+        C7X_SHARED_PHYS_BASE=${C7X_SHARED_PHYS_BASE}ULL
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # CLI executable — links the shared library (no logic change)

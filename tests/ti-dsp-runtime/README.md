@@ -155,7 +155,7 @@ development milestones:
 - pytest-based test infrastructure (dsp-tests/)
 - C7x (J722S/AM67A) support: MMU, cache coherency, DLOAD dynamic
   module loading, remoteproc firmware
-- DMA tiling with EDMA/DRU subsystem
+- DMA tiling with UDMA/DRU subsystem
 - TIDL subgraph offloading: pattern matching, Relax FFI import,
   code generation, bridge generation, hardware inference
 - IOBufDesc struct fix (TIDL_IO_MAX_NUM_CORES=4 vs TIDL_MAX_NUM_CORES=2)

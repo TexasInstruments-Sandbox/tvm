@@ -1004,7 +1004,7 @@ def run_dsp_dload(
     module_path: Union[str, Path],
     weights_path: Union[str, Path],
     input_tensors: List[np.ndarray],
-    target_host: str = "am67a",
+    target_host: str = os.environ.get("BOARD_HOSTNAME", "am67a"),
     target_user: str = "root",
     remote_dir: str = "/tmp/c7x_compute",
     c7x_compute_cli: str = "/usr/local/bin/c7x_compute",

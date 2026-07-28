@@ -37,6 +37,20 @@
 #
 
 cmake_minimum_required(VERSION 3.16)
+
+# Board/DDR -> SDK roots + shared-DMA phys base (single source of truth,
+# only load-bearing for the c7x target; harmless no-op for host/c66x).
+# Included before project() so it resolves MCU_PLUS_SDK_PATH *before*
+# toolchain-j722s-c7x.cmake runs (toolchain files load during project()).
+# The c7x cross build is the only runtime target that consumes the J722S
+# SDK; it is uniquely identified pre-project() by its toolchain file, so we
+# require the SDK (no default -- a missing/wrong root is a hard error) only
+# then.  host/c66x/c7x_host emulation builds need no SDK.
+if(CMAKE_TOOLCHAIN_FILE MATCHES "toolchain-j722s-c7x")
+    set(TVM_REQUIRE_SDK TRUE)
+endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/boards.cmake")
+
 project(tvm_dsp_runtime LANGUAGES C CXX)
 
 # === Default Build Type ===
@@ -141,6 +155,11 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x")
     enable_language(ASM)
     # DmaUtils headers require MCU_PLUS_SDK define for correct include paths
     add_compile_definitions(MCU_PLUS_SDK)
+    # Shared-DMA carveout phys base (board/ddr-dependent; see cmake/boards.cmake).
+    # Consumed by dma/tvm_dsp_dma.c's virt_to_phys() shared-region branch.
+    if(DEFINED C7X_SHARED_PHYS_BASE)
+        add_compile_definitions(C7X_SHARED_PHYS_BASE=${C7X_SHARED_PHYS_BASE}ULL)
+    endif()
 
 elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
     # C7x host emulation build using TI C7000 Host Emulation library
@@ -263,7 +282,7 @@ if(TVM_DSP_TARGET STREQUAL "c7x_host")
     target_link_libraries(tvm_dsp_runtime PUBLIC ${C7X_HOST_EMU_LIB})
 endif()
 
-# Add DmaUtils include paths for c7x target (async DMA via EDMA/DRU).
+# Add DmaUtils include paths for c7x target (async DMA via UDMA/DRU).
 # The runtime .a only needs the headers; the application (firmware) links
 # the prebuilt dmautils .lib at final link time.
 if(TVM_DSP_TARGET STREQUAL "c7x" AND DEFINED MCU_PLUS_SDK_PATH AND EXISTS "${MCU_PLUS_SDK_PATH}")

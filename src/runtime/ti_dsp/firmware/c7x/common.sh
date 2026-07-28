@@ -9,7 +9,7 @@
 #
 
 # --- Configuration (can be overridden before sourcing) ---
-TARGET="${TARGET:-${AM67A_TARGET:-am67a}}"
+TARGET="${TARGET:-${BOARD_HOSTNAME:-am67a}}"
 DSP_DEVICE="${DSP_DEVICE:-7e000000.dsp}"
 
 # Resolved by find_rproc()

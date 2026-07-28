@@ -25,7 +25,7 @@ Verified end-to-end on AM67A (J722S) with MCU+ SDK 11_00_00_06:
 | `unload` | Working | Free module memory, reset pools for back-to-back cycles |
 | `run` | Working | Composite load+infer+unload in single command, JSON output |
 | SHM printf | Working | DSP printf output via shared memory, 64 KB buffer |
-| EDMA DMA | Working | Async DMA via DmaUtilsAutoInc3d with standalone UDMA/DRU |
+| UDMA DMA | Working | Async DMA via DmaUtilsAutoInc3d with standalone UDMA/DRU |
 | Clean shutdown | Working | `remoteproc stop` completes without timeout |
 | Device discovery | Working | Robust across reboot/stop-start cycles |
 
@@ -72,7 +72,7 @@ Requires:
 
 All deployment commands below are run from the **Linux development host**.
 The deploy script SSHs into the AM67A target (default hostname: `am67a`,
-override with `AM67A_TARGET` env var) and uses remoteproc to manage the
+override with `BOARD_HOSTNAME` env var) and uses remoteproc to manage the
 DSP firmware.
 
 ```bash
@@ -239,7 +239,7 @@ Key design decisions:
   matters because the register file lives in the module's .bss and
   TIDL instances must release DMA channels before pool reset)
 
-### EDMA / UDMA Subsystem
+### UDMA Subsystem
 
 Async DMA via DmaUtilsAutoInc3d with standalone UDMA driver in DRU
 direct TR mode. The standalone UDMA driver is compiled from MCU+ SDK
@@ -354,7 +354,7 @@ runtime it depends on. Key milestones from original development:
   CycleCounterP_getCount32 (which wraps at ~4.3s)
 - **Robust device discovery**: Binary search for rpmsg endpoint
   indices, sysfs-based remoteproc matching
-- **EDMA subsystem**: DmaUtilsAutoInc3d with standalone UDMA/DRU,
+- **UDMA subsystem**: DmaUtilsAutoInc3d with standalone UDMA/DRU,
   per-module DMA lifecycle, L2 symbol exports
 - **DLOAD in-place rodata**: Read-only ELF segments (weights, TIDL
   artifacts) mapped in-place from the staging buffer, eliminating

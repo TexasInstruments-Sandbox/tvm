@@ -13,8 +13,30 @@
 
 set -e
 
-# Load shared helpers (ssh_cmd, find_rproc, colors)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# --- Parse --board before sourcing common.sh, which resolves TARGET from
+# the TARGET/BOARD_HOSTNAME env vars.  --board only supplies a *default* for
+# TARGET; an explicit TARGET/BOARD_HOSTNAME env var always wins (back-compat).
+TVM_BOARD=""
+ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --board) TVM_BOARD="$2"; shift 2 ;;
+        --board=*) TVM_BOARD="${1#*=}"; shift ;;
+        *) ARGS+=("$1"); shift ;;
+    esac
+done
+set -- "${ARGS[@]}"
+
+if [ -n "$TVM_BOARD" ] && [ -z "${TARGET:-}" ] && [ -z "${BOARD_HOSTNAME:-}" ]; then
+    case "$TVM_BOARD" in
+        beagley-ai) export TARGET="beagley-ai" ;;
+        *)          export TARGET="am67a" ;;
+    esac
+fi
+
+# Load shared helpers (ssh_cmd, find_rproc, colors)
 source "$SCRIPT_DIR/common.sh"
 
 # Configuration
@@ -28,7 +50,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 check_connection() {
     if ! ssh_cmd "true" 2>/dev/null; then
         error "Cannot connect to ${TARGET}"
-        error "Set AM67A_TARGET environment variable if hostname differs"
+        error "Set BOARD_HOSTNAME environment variable if hostname differs"
         exit 1
     fi
     find_rproc || exit 1
@@ -137,13 +159,19 @@ usage() {
     echo "  $0 --status                   Show remoteproc status"
     echo "  $0 --trace                    Show trace buffer"
     echo ""
+    echo "  --board <j722s-evm|beagley-ai>  Target board (default: j722s-evm)"
+    echo "                                  Selects the deploy host default:"
+    echo "                                  beagley-ai -> beagley-ai, else am67a."
+    echo ""
     echo "Environment:"
-    echo "  AM67A_TARGET    Target hostname (default: am67a)"
+    echo "  BOARD_HOSTNAME  Target hostname (default: am67a, or per --board)"
+    echo "  TARGET          Same as BOARD_HOSTNAME; either always overrides --board"
     echo ""
     echo "Examples:"
     echo "  $0 hello_world_rproc/build/hello_world_rproc.out"
     echo "  $0 hello_world_rproc/build/hello_world_rproc.out --trace"
-    echo "  AM67A_TARGET=192.168.1.100 $0 --status"
+    echo "  $0 --board beagley-ai dsp/build-beagley-ai-4gb/c7x_compute.out"
+    echo "  BOARD_HOSTNAME=192.168.1.100 $0 --status"
 }
 
 # Main

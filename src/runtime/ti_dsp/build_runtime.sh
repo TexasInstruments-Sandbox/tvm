@@ -9,17 +9,59 @@
 #   ./build_runtime.sh c7x_host         # Build C7x host emulation only
 #   ./build_runtime.sh clean            # Remove all build directories
 #
+#   --board <j722s-evm|beagley-ai>      # Target board (default: j722s-evm)
+#   --ddr <4gb|8gb>                     # Shared-DMA DDR size (default: per-board)
+#
+# Board/ddr resolve to SDK paths and the shared-DMA physical base entirely
+# in cmake/boards.cmake -- this script only forwards the flags and picks a
+# build-dir name so switching --ddr never reuses a stale build.
+#
 # Environment variables (auto-detected if not set):
 #   TI_CGT_C6000_PATH   - TI C6000 compiler (required for c66x target)
 #   TI_CGT_C7000_PATH   - TI C7000 compiler (required for c7x targets)
-#   MCU_PLUS_SDK_PATH    - MCU+ SDK for J722S (required for c7x DMA)
+#   MCU_PLUS_SDK_PATH    - MCU+ SDK for J722S (required for c7x DMA; default
+#                          is board-dependent, see cmake/boards.cmake)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-TARGET="${1:-all}"
+TARGET="all"
+TVM_BOARD=""
+TVM_DDR=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --board) TVM_BOARD="$2"; shift 2 ;;
+        --board=*) TVM_BOARD="${1#*=}"; shift ;;
+        --ddr) TVM_DDR="$2"; shift 2 ;;
+        --ddr=*) TVM_DDR="${1#*=}"; shift ;;
+        *) TARGET="$1"; shift ;;
+    esac
+done
+
+# --- Board/ddr -> build-dir suffix ---
+# Mirrors cmake/boards.cmake's per-board default ddr, for naming only;
+# cmake/boards.cmake remains the sole source of truth for what is built.
+BOARD="${TVM_BOARD:-j722s-evm}"
+if [ -n "$TVM_DDR" ]; then
+    DDR="$TVM_DDR"
+elif [ "$BOARD" = "beagley-ai" ]; then
+    DDR="4gb"
+else
+    DDR="8gb"
+fi
+BUILD_SUFFIX=""
+if [ "$BOARD" != "j722s-evm" ] || [ "$DDR" != "8gb" ]; then
+    BUILD_SUFFIX="-${BOARD}-${DDR}"
+fi
+
+# Plain string, not an array: values are always simple enum tokens (no
+# spaces), and an empty array expanded under `set -u` is an unbound-variable
+# error on bash < 4.4.
+CMAKE_BOARD_ARGS=""
+[ -n "$TVM_BOARD" ] && CMAKE_BOARD_ARGS="$CMAKE_BOARD_ARGS -DTVM_BOARD=$TVM_BOARD"
+[ -n "$TVM_DDR" ] && CMAKE_BOARD_ARGS="$CMAKE_BOARD_ARGS -DTVM_DDR=$TVM_DDR"
 
 # --- Auto-detect TI C6000 compiler ---
 if [ -z "${TI_CGT_C6000_PATH:-}" ]; then
@@ -67,76 +109,63 @@ if [[ "$TARGET" == "c7x" || "$TARGET" == "c7x_host" || "$TARGET" == "all" ]]; th
     echo "TI C7000 compiler: $TI_CGT_C7000_PATH"
 fi
 
-# --- Auto-detect MCU+ SDK ---
-if [ -z "${MCU_PLUS_SDK_PATH:-}" ]; then
-    for p in \
-        "$HOME/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mcu_plus_sdk_j722s_11_00_00_12" \
-        "$HOME/ti/mcu_plus_sdk_j722s_11_01_00_07" \
-        "$HOME/ti/MCU_PLUS_SDK_J722S_11_01"; do
-        if [ -d "$p/source/drivers" ]; then
-            export MCU_PLUS_SDK_PATH="$p"
-            break
-        fi
-    done
-fi
-if [ -n "${MCU_PLUS_SDK_PATH:-}" ]; then
-    echo "MCU+ SDK: $MCU_PLUS_SDK_PATH"
-else
-    echo "MCU+ SDK: not found (c7x DMA will build without SDK drivers)"
-fi
+# MCU+ SDK path: resolved by cmake/boards.cmake (board default, or
+# MCU_PLUS_SDK_PATH env var override) -- not duplicated here.
 
 # --- Build functions ---
 build_c66x_host() {
     echo ""
     echo "=== Building C66x host emulation runtime ==="
-    rm -rf build-c66x-host
-    mkdir build-c66x-host && cd build-c66x-host
-    cmake ..
+    rm -rf "build-c66x-host${BUILD_SUFFIX}"
+    mkdir "build-c66x-host${BUILD_SUFFIX}" && cd "build-c66x-host${BUILD_SUFFIX}"
+    cmake $CMAKE_BOARD_ARGS ..
     cmake --build .
-    echo "Output: $SCRIPT_DIR/build-c66x-host/libtvm_dsp_runtime_host.a"
+    echo "Output: $SCRIPT_DIR/build-c66x-host${BUILD_SUFFIX}/libtvm_dsp_runtime_host.a"
     cd "$SCRIPT_DIR"
 }
 
 build_c66x() {
     echo ""
     echo "=== Building C66x cross-compiled runtime ==="
-    rm -rf build-c66x
-    mkdir build-c66x && cd build-c66x
+    rm -rf "build-c66x${BUILD_SUFFIX}"
+    mkdir "build-c66x${BUILD_SUFFIX}" && cd "build-c66x${BUILD_SUFFIX}"
     cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-awrl6844.cmake \
           -DTVM_DSP_DEVICE=awrl6844 \
+          $CMAKE_BOARD_ARGS \
           ..
     cmake --build .
-    echo "Output: $SCRIPT_DIR/build-c66x/libtvm_dsp_runtime_c66x.a"
+    echo "Output: $SCRIPT_DIR/build-c66x${BUILD_SUFFIX}/libtvm_dsp_runtime_c66x.a"
     cd "$SCRIPT_DIR"
 }
 
 build_c7x() {
     echo ""
-    echo "=== Building C7x cross-compiled runtime ==="
-    rm -rf build-c7x
-    mkdir build-c7x && cd build-c7x
+    echo "=== Building C7x cross-compiled runtime (board=$BOARD ddr=$DDR) ==="
+    rm -rf "build-c7x${BUILD_SUFFIX}"
+    mkdir "build-c7x${BUILD_SUFFIX}" && cd "build-c7x${BUILD_SUFFIX}"
     cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-j722s-c7x.cmake \
-          ${MCU_PLUS_SDK_PATH:+-DMCU_PLUS_SDK_PATH="$MCU_PLUS_SDK_PATH"} \
+          $CMAKE_BOARD_ARGS \
           ..
     cmake --build .
-    echo "Output: $SCRIPT_DIR/build-c7x/libtvm_dsp_runtime_c7x.a"
+    echo "Output: $SCRIPT_DIR/build-c7x${BUILD_SUFFIX}/libtvm_dsp_runtime_c7x.a"
     cd "$SCRIPT_DIR"
 }
 
 build_c7x_host() {
     echo ""
     echo "=== Building C7x host emulation runtime ==="
-    rm -rf build-c7x-host
-    mkdir build-c7x-host && cd build-c7x-host
-    cmake -DTVM_DSP_TARGET=c7x_host ..
+    rm -rf "build-c7x-host${BUILD_SUFFIX}"
+    mkdir "build-c7x-host${BUILD_SUFFIX}" && cd "build-c7x-host${BUILD_SUFFIX}"
+    cmake -DTVM_DSP_TARGET=c7x_host $CMAKE_BOARD_ARGS ..
     cmake --build .
-    echo "Output: $SCRIPT_DIR/build-c7x-host/libtvm_dsp_runtime_c7x_host.a"
+    echo "Output: $SCRIPT_DIR/build-c7x-host${BUILD_SUFFIX}/libtvm_dsp_runtime_c7x_host.a"
     cd "$SCRIPT_DIR"
 }
 
 do_clean() {
     echo "Cleaning build directories..."
-    rm -rf build-c66x-host build-c66x build-c7x build-c7x-host
+    rm -rf "build-c66x-host${BUILD_SUFFIX}" "build-c66x${BUILD_SUFFIX}" \
+           "build-c7x${BUILD_SUFFIX}" "build-c7x-host${BUILD_SUFFIX}"
     echo "Done"
 }
 
@@ -149,7 +178,7 @@ case "$TARGET" in
     clean)     do_clean ;;
     all)       build_c66x; build_c7x; build_c7x_host ;;
     *)
-        echo "Usage: $0 [c66x_host|c66x|c7x|c7x_host|clean|all]"
+        echo "Usage: $0 [c66x_host|c66x|c7x|c7x_host|clean|all] [--board <j722s-evm|beagley-ai>] [--ddr <4gb|8gb>]"
         exit 1
         ;;
 esac

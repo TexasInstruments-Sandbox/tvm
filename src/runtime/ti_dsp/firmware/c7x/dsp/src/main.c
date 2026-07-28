@@ -72,6 +72,28 @@ void c7x_compute_main(void *args)
                C7X_VERSION_PATCH(C7X_SERVICE_VERSION));
     DebugP_log("===========================================\r\n");
     DebugP_log("\r\n");
+    /* Runtime<->firmware --board/--ddr guard: the runtime lib and firmware
+     * are built by independent CMake invocations and statically linked, so a
+     * mismatched shared-DMA carveout base would silently corrupt DMA rather
+     * than fail the build.  Compare the firmware's compiled-in base against
+     * the base the linked runtime library was built with (exposed by
+     * tvm_dsp_runtime_shared_phys_base()) and fail-stop on disagreement --
+     * far better than proceeding to corrupt every DMA transfer. */
+    {
+        uint64_t fw_base = (uint64_t)C7X_SHARED_PHYS_BASE;
+        uint64_t rt_base = tvm_dsp_runtime_shared_phys_base();
+        DebugP_log("[INIT] Shared DMA carveout phys base: firmware=0x%llx "
+                   "runtime=0x%llx\r\n",
+                   (unsigned long long)fw_base, (unsigned long long)rt_base);
+        if (fw_base != rt_base) {
+            DebugP_log("[INIT] FATAL: firmware/runtime shared-DMA base "
+                       "MISMATCH -- rebuild BOTH the runtime lib "
+                       "(build_runtime.sh) and firmware (dsp/build.sh) with "
+                       "identical --board/--ddr. Halting to avoid silent DMA "
+                       "corruption.\r\n");
+            for (;;) { /* fail-stop: never enter the service loop */ }
+        }
+    }
 
     /* Verify MMU is enabled */
     mmuEnabled = MmuP_isEnabled();
@@ -127,7 +149,7 @@ void c7x_compute_main(void *args)
         DebugP_log("[INIT] TIDL support initialized\r\n");
     }
 
-    /* DMA subsystem (EDMA via DRU direct TR mode) and CLEC event routing
+    /* DMA subsystem (UDMA via DRU direct TR mode) and CLEC event routing
      * are initialized per-module in compute_service.c (on load) and
      * torn down on unload.  This ensures UDMA/DRU resources are released
      * before the host's DMA-BUF cleanup runs between invocations. */

@@ -8,17 +8,59 @@
 #   ./build.sh clean    - Clean build directory
 #   ./build.sh deploy   - Deploy to target
 #
+#   --board <j722s-evm|beagley-ai>      - Target board (default: j722s-evm)
+#   --ddr <4gb|8gb>                     - Shared-DMA DDR size (default: per-board)
+#
+# --board/--ddr only affect the cosmetic C7X_SHARED_PHYS_BASE sanity check
+# in c7x_compute_client.cpp (see cmake/boards.cmake); forwarded here purely
+# for build-dir naming consistency with build_runtime.sh/dsp/build.sh.
+#
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${SCRIPT_DIR}/build"
-TARGET_HOST="${AM67A_TARGET:-am67a}"
+TARGET_HOST="${BOARD_HOSTNAME:-am67a}"
 
 # ARM64 cross-compiler (Ubuntu packages: gcc-aarch64-linux-gnu, g++-aarch64-linux-gnu)
 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
 
-case "${1:-}" in
+SUBCOMMAND=""
+TVM_BOARD=""
+TVM_DDR=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --board) TVM_BOARD="$2"; shift 2 ;;
+        --board=*) TVM_BOARD="${1#*=}"; shift ;;
+        --ddr) TVM_DDR="$2"; shift 2 ;;
+        --ddr=*) TVM_DDR="${1#*=}"; shift ;;
+        *) SUBCOMMAND="$1"; shift ;;
+    esac
+done
+
+# Board/ddr -> build-dir suffix (naming only; cmake/boards.cmake is the
+# sole source of truth for what actually gets built).
+BOARD="${TVM_BOARD:-j722s-evm}"
+if [ -n "$TVM_DDR" ]; then
+    DDR="$TVM_DDR"
+elif [ "$BOARD" = "beagley-ai" ]; then
+    DDR="4gb"
+else
+    DDR="8gb"
+fi
+BUILD_SUFFIX=""
+if [ "$BOARD" != "j722s-evm" ] || [ "$DDR" != "8gb" ]; then
+    BUILD_SUFFIX="-${BOARD}-${DDR}"
+fi
+BUILD_DIR="${SCRIPT_DIR}/build${BUILD_SUFFIX}"
+
+# Plain string, not an array: values are always simple enum tokens (no
+# spaces), and an empty array expanded under `set -u` is an unbound-variable
+# error on bash < 4.4.
+CMAKE_BOARD_ARGS=""
+[ -n "$TVM_BOARD" ] && CMAKE_BOARD_ARGS="$CMAKE_BOARD_ARGS -DTVM_BOARD=$TVM_BOARD"
+[ -n "$TVM_DDR" ] && CMAKE_BOARD_ARGS="$CMAKE_BOARD_ARGS -DTVM_DDR=$TVM_DDR"
+
+case "$SUBCOMMAND" in
     clean)
         echo "Cleaning build directory..."
         rm -rf "${BUILD_DIR}"
@@ -28,7 +70,7 @@ case "${1:-}" in
         echo "Building natively (must run on ARM64 target)..."
         mkdir -p "${BUILD_DIR}"
         cd "${BUILD_DIR}"
-        cmake ..
+        cmake $CMAKE_BOARD_ARGS ..
         make ${VERBOSE:+VERBOSE=1}
         echo ""
         echo "Build complete:"
@@ -66,10 +108,11 @@ case "${1:-}" in
         echo "  /usr/local/include/c7x_runtime.h"
         ;;
     *)
-        echo "Cross-compiling for ARM64..."
+        echo "Cross-compiling for ARM64 (board=$BOARD ddr=$DDR)..."
         mkdir -p "${BUILD_DIR}"
         cd "${BUILD_DIR}"
         cmake -DCMAKE_CXX_COMPILER="${CROSS_COMPILE}g++" \
+              $CMAKE_BOARD_ARGS \
               ..
         make ${VERBOSE:+VERBOSE=1}
         echo ""
