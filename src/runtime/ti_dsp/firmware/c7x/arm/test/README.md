@@ -62,7 +62,7 @@ am67a:/usr/local/lib/libc7x_arm_runtime.so
 am67a:/usr/local/include/c7x_runtime.h
 ```
 
-The AM67A hostname is taken from the `AM67A_TARGET` environment variable
+The AM67A hostname is taken from the `BOARD_HOSTNAME` environment variable
 (default: `am67a`).
 
 ## Preparing test inputs

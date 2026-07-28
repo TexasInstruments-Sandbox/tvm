@@ -19,7 +19,7 @@
 
 /*!
  * \file tvm_dsp_dma.c
- * \brief TVM DSP DMA - C7x target implementation using EDMA
+ * \brief TVM DSP DMA - C7x target implementation using UDMA
  *
  * Async DMA transfers via TI DmaUtilsAutoInc3d (DRU direct TR mode).
  * Uses standalone UDMA driver -- no SysConfig DMA channel allocation
@@ -77,20 +77,38 @@ static uint8_t g_dma_tr_buf[MAX_DMA_CHANNELS][DMA_TR_BUF_SIZE]
 /* Virtual-to-physical address translation for DRU                    */
 /* ------------------------------------------------------------------ */
 
+/* Shared-region physical base.  Overridable via -DC7X_SHARED_PHYS_BASE=...ULL
+ * (see cmake/boards.cmake) for 4gb boards (e.g. BeagleY-AI); defined locally
+ * rather than depending on c7x_compute_protocol.h since this file builds
+ * into the runtime library, not the firmware. */
+#ifndef C7X_SHARED_PHYS_BASE
+#define C7X_SHARED_PHYS_BASE 0x900000000ULL
+#endif
+
+/* Expose the compiled-in base so the firmware (built separately and
+ * statically linked against this lib) can verify at boot that its own
+ * C7X_SHARED_PHYS_BASE matches -- a disagreement silently corrupts DMA.
+ * See cmake/boards.cmake and docs/dsp/beagley_ai_enablement.md. */
+uint64_t tvm_dsp_runtime_shared_phys_base(void) {
+    return (uint64_t)C7X_SHARED_PHYS_BASE;
+}
+
 /*
  * The DRU accesses memory via the system bus using physical addresses.
  * The C7x MMU maps some regions with non-identity translations:
- *   Region 9 (Cached):  vAddr 0xC0000000  -> pAddr 0x900000000 (512 MB)
+ *   Region 9 (Cached):  vAddr 0xC0000000  -> pAddr C7X_SHARED_PHYS_BASE
+ *                        (512 MB; board/ddr-dependent, see above)
  *   Region 12 (NC):     vAddr 0x100000000 -> pAddr 0x880000000 (32 MB)
  *   Region 13 (Cached): vAddr 0x102000000 -> pAddr 0x882000000 (352 MB)
  * Other regions (L2 SRAM, DDR_C7x_1, IPC) use identity mapping.
  */
+
 static uint64_t virt_to_phys(const void *vaddr) {
     uint64_t va = (uint64_t)(uintptr_t)vaddr;
 
     /* Region 9: DDR shared memory / host staging buffer (512 MB) */
     if (va >= 0xC0000000ULL && va < 0xE0000000ULL) {
-        return va - 0xC0000000ULL + 0x900000000ULL;
+        return va - 0xC0000000ULL + (uint64_t)C7X_SHARED_PHYS_BASE;
     }
     /* Region 13: DDR cacheable heap (0x102000000 - 0x118000000) */
     if (va >= 0x102000000ULL && va < 0x118000000ULL) {

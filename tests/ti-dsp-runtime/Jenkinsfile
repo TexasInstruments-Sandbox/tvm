@@ -174,7 +174,7 @@ pipeline {
         // for every subsequent run, on every stage, not just --isolate ones.
         // Scope it to this build's own workspace instead.
         PYTEST_ISOLATE_STATE_FOLDER    = "${WORKSPACE}/results"
-        AM67A_TARGET                   = 'am67a'
+        BOARD_HOSTNAME                 = 'am67a'
         ENABLE_SDK_11_0_COMPATIBILITY  = '1'
         SMOLLM_MODEL_DIR               = "${HOME}/.cache/smollm/SmolLM-135M-Instruct"
     }
@@ -334,16 +334,16 @@ pipeline {
                     steps {
                         sh '''
                             ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                root@${AM67A_TARGET} reboot || true
+                                root@${BOARD_HOSTNAME} reboot || true
                             sleep 30
                             for i in $(seq 1 12); do
                                 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-                                    root@${AM67A_TARGET} true 2>/dev/null && break
+                                    root@${BOARD_HOSTNAME} true 2>/dev/null && break
                                 echo "Waiting for EVM to come back up... ($i/12)"
                                 sleep 10
                             done
                             ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                root@${AM67A_TARGET} true
+                                root@${BOARD_HOSTNAME} true
                         '''
                         sh '''
                             cd src/runtime/ti_dsp/firmware/c7x
@@ -358,16 +358,16 @@ pipeline {
                         // error from stopping remoteproc mid-vdev-negotiation.
                         sh '''
                             ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                root@${AM67A_TARGET} reboot || true
+                                root@${BOARD_HOSTNAME} reboot || true
                             sleep 30
                             for i in $(seq 1 12); do
                                 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-                                    root@${AM67A_TARGET} true 2>/dev/null && break
+                                    root@${BOARD_HOSTNAME} true 2>/dev/null && break
                                 echo "Waiting for EVM to come back up... ($i/12)"
                                 sleep 10
                             done
                             ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                root@${AM67A_TARGET} true
+                                root@${BOARD_HOSTNAME} true
                         '''
                     }
                 }
@@ -555,7 +555,7 @@ pipeline {
                         sh '''
                             ssh -o ConnectTimeout=10 \
                                 -o StrictHostKeyChecking=no \
-                                root@${AM67A_TARGET} \
+                                root@${BOARD_HOSTNAME} \
                                 "/usr/local/bin/c7x_compute status" \
                             || {
                                 echo "Board unresponsive -- attempting stop/start recovery"
@@ -566,23 +566,23 @@ pipeline {
                                 sleep 3
                                 ssh -o ConnectTimeout=10 \
                                     -o StrictHostKeyChecking=no \
-                                    root@${AM67A_TARGET} \
+                                    root@${BOARD_HOSTNAME} \
                                     "/usr/local/bin/c7x_compute status" \
                                 || {
                                     echo "Stop/start failed -- rebooting board"
                                     ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                        root@${AM67A_TARGET} reboot || true
+                                        root@${BOARD_HOSTNAME} reboot || true
                                     sleep 30
                                     for i in $(seq 1 12); do
                                         ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-                                            root@${AM67A_TARGET} true 2>/dev/null && break
+                                            root@${BOARD_HOSTNAME} true 2>/dev/null && break
                                         echo "Waiting for board to come back up... ($i/12)"
                                         sleep 10
                                     done
                                     ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                        root@${AM67A_TARGET} true
+                                        root@${BOARD_HOSTNAME} true
                                     ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                        root@${AM67A_TARGET} \
+                                        root@${BOARD_HOSTNAME} \
                                         "/usr/local/bin/c7x_compute status"
                                 }
                             }
@@ -614,7 +614,7 @@ pipeline {
                             pytest -p no:tvm.testing.plugin --rootdir=. dsp-tests/ \
                                 -m "quick and not c66x_only" \
                                 --dsp-mode=c7x_dload \
-                                --board-target=${AM67A_TARGET} \
+                                --board-target=${BOARD_HOSTNAME} \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/c7x_dload_quick.xml
                         '''
@@ -635,7 +635,7 @@ pipeline {
                             pytest -p no:tvm.testing.plugin --rootdir=. dsp-tests/ \
                                 -m "not c66x_only and not quick" \
                                 --dsp-mode=c7x_dload \
-                                --board-target=${AM67A_TARGET} \
+                                --board-target=${BOARD_HOSTNAME} \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/c7x_dload_full.xml
                         '''

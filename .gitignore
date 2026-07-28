@@ -298,6 +298,7 @@ pytest-of-bohanhou/
 docs/dsp/pptx-workspace/
 
 *.pt
+.serena
 
 # Temporary wheel build directories
 packaging/ti_dsp/staging-arm64/

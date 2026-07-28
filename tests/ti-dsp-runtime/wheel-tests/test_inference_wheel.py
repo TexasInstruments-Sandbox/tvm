@@ -115,7 +115,7 @@ def _board_reachable(board):
         return False
 
 
-_BOARD = os.environ.get("AM67A_TARGET", "am67a")
+_BOARD = os.environ.get("BOARD_HOSTNAME", "am67a")
 
 _skip_no_wheel = pytest.mark.skipif(
     _find_inference_wheel() is None,

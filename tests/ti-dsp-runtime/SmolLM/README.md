@@ -1,8 +1,9 @@
 # SmolLM-135M on C7x DSP
 
-See the full design documents at:
-- `docs/dsp/smollm_overview.md` — standalone inference pipeline and model overview
-- `docs/dsp/smollm_kv_cache.md` — KV cache chat design, IPC protocol, and session details
+See the full design documents (TI-internal only — see `README_TI.md`'s
+[Documentation](../../../README_TI.md#documentation) section):
+- `smollm_overview.md` — standalone inference pipeline and model overview
+- `smollm_kv_cache.md` — KV cache chat design, IPC protocol, and session details
 
 ## Status
 

@@ -27,7 +27,7 @@
  * LowerDMAToExtern can directly lower to call_extern of these
  * functions.
  *
- * Target (C7x): asynchronous DMA via TI DmaUtilsAutoInc3d (EDMA/DRU).
+ * Target (C7x): asynchronous DMA via TI DmaUtilsAutoInc3d (UDMA/DRU).
  * Host emulation: synchronous memcpy (no overlap, but correct behavior).
  */
 #ifndef TVM_RUNTIME_TI_DSP_DMA_TVM_DSP_DMA_H_
@@ -69,7 +69,7 @@ void tvm_dsp_dma_deinit(void);
  * The transfer is associated with the given \p queue_id for later
  * synchronization via tvm_dsp_dma_wait().
  *
- * On C7x hardware, submits an async EDMA transfer via DRU direct TR.
+ * On C7x hardware, submits an async UDMA transfer via DRU direct TR.
  * On host emulation, performs synchronous memcpy.
  *
  * \param queue_id      DMA queue/channel identifier (from TIR)
@@ -88,7 +88,7 @@ int tvm_dsp_dma_copy(int queue_id, void* dst, const void* src,
  * Blocks until the number of in-flight DMA transfers on the given
  * queue is at most \p max_inflight.
  *
- * On C7x hardware, waits for EDMA completion.
+ * On C7x hardware, waits for UDMA completion.
  * On host emulation, returns immediately (transfers are synchronous).
  *
  * \param queue_id      DMA queue/channel identifier
@@ -109,6 +109,21 @@ int tvm_dsp_dma_wait(int queue_id, int max_inflight);
  * \return Pointer to Udma_DrvObj, or NULL if DMA not initialized.
  */
 void* tvm_dsp_dma_get_udma_handle(void);
+
+/*!
+ * \brief Shared-DMA carveout physical base this runtime library was built with.
+ *
+ * The value baked into virt_to_phys() at compile time (from
+ * -DC7X_SHARED_PHYS_BASE, see cmake/boards.cmake). The firmware is built by a
+ * separate CMake invocation and statically linked against this library, so it
+ * calls this at boot to verify the two agree: a mismatch silently corrupts DMA
+ * rather than failing the build. See docs/dsp/beagley_ai_enablement.md.
+ *
+ * Defined only for the c7x cross build (tvm_dsp_dma.c).
+ *
+ * \return The compiled-in shared-region physical base.
+ */
+uint64_t tvm_dsp_runtime_shared_phys_base(void);
 
 #ifdef __cplusplus
 }

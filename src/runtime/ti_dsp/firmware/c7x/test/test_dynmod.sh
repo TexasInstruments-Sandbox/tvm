@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             echo "Usage: $0 [--target HOST] [--deploy] [--module PATH]"
             echo ""
-            echo "  --target HOST   SSH target (default: \$AM67A_TARGET or 'am67a')"
+            echo "  --target HOST   SSH target (default: \$BOARD_HOSTNAME or 'am67a')"
             echo "  --deploy        Build and deploy firmware+CLI before testing"
             echo "  --module PATH   Path to test module lib0.out"
             exit 0

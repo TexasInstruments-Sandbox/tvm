@@ -7,6 +7,13 @@
 
 cmake_minimum_required(VERSION 3.16)
 
+# Board/DDR -> SDK roots + shared-DMA phys base (single source of truth).
+# The firmware always cross-compiles against the J722S SDK, so require it:
+# boards.cmake errors (no default) if PSDK_INSTALL_PATH/MCU_PLUS_SDK_PATH
+# resolve to nothing or a nonexistent path.
+set(TVM_REQUIRE_SDK TRUE)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/boards.cmake")
+
 #
 # Tool paths - update these if your installation differs
 #
@@ -14,7 +21,11 @@ cmake_minimum_required(VERSION 3.16)
 if(DEFINED ENV{TI_SYSCONFIG_ROOT})
     set(TI_SYSCONFIG_ROOT "$ENV{TI_SYSCONFIG_ROOT}")
 else()
-    set(TI_SYSCONFIG_ROOT "$ENV{HOME}/ti/ccs2041/ccs/utils/sysconfig_1.26.0")
+    # 1.28 is required for the beagley-ai (SDK 11.02.01) sysconfig run --
+    # 1.26.0 errors with "requires at least version 1.26.2 of SysConfig".
+    # Verified byte-identical MMU region generation for the j722s-evm
+    # (SDK 11.00.00) path too, so this is the default for both boards.
+    set(TI_SYSCONFIG_ROOT "/opt/ti/sysconfig-1.28")
 endif()
 
 if(DEFINED ENV{TI_CGT_C7000_PATH})
@@ -25,14 +36,8 @@ else()
     set(TI_CGT_ROOT "$ENV{HOME}/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
 endif()
 
-# Use clean SDK (11_00_00_06) which enables MMU without TLB_INV issues
-if(DEFINED ENV{MCU_PLUS_SDK_PATH})
-    set(MCUPSDK_ROOT "$ENV{MCU_PLUS_SDK_PATH}")
-elseif(DEFINED ENV{PSDK_INSTALL_PATH})
-    set(MCUPSDK_ROOT "$ENV{PSDK_INSTALL_PATH}/mcu_plus_sdk_j722s_11_00_00_12")
-else()
-    set(MCUPSDK_ROOT "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mcu_plus_sdk_j722s_11_00_00_12")
-endif()
+# Resolved by boards.cmake from TVM_BOARD/TVM_DDR (env override still wins).
+set(MCUPSDK_ROOT "${MCU_PLUS_SDK_PATH}")
 
 # Device and core settings
 set(DEVICE "j722s")
@@ -74,8 +79,17 @@ if(NOT SYSCONFIG_TOOL)
 endif()
 message(STATUS "SysConfig CLI: ${SYSCONFIG_TOOL}")
 
-# SysConfig input file
-set(SYSCFG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/configs/c75ss0.syscfg")
+# SysConfig input file.  Region 9's pAddr (shared DMA carveout) is
+# parameterized by TVM_DDR via boards.cmake's C7X_SHARED_PHYS_BASE;
+# configure_file runs at CMake configure time, so a --ddr switch (which
+# reconfigures into a fresh, board+ddr-keyed build dir) always regenerates
+# this with the correct base -- no stale MMU map is ever reused.
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/configs/c75ss0.syscfg.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/c75ss0.syscfg"
+    @ONLY
+)
+set(SYSCFG_FILE "${CMAKE_CURRENT_BINARY_DIR}/c75ss0.syscfg")
 
 # Generated files from SysConfig
 set(SYSCFG_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/syscfg")
@@ -143,7 +157,11 @@ set(LINKER_CMD "${CMAKE_CURRENT_SOURCE_DIR}/configs/linker_c75_freertos.cmd")
 
 # TVM DSP Runtime (relative to firmware location within ti_dsp/)
 set(TVM_DSP_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
-set(TVM_DSP_RUNTIME_LIB "${TVM_DSP_RUNTIME_DIR}/build-c7x/libtvm_dsp_runtime_c7x.a")
+# build_runtime.sh names the runtime build dir build-c7x${TVM_BUILD_SUFFIX}
+# (empty for the default board+ddr); boards.cmake resolves the same
+# suffix here so a non-default --board/--ddr firmware build finds the
+# matching runtime lib instead of the EVM/8gb default.
+set(TVM_DSP_RUNTIME_LIB "${TVM_DSP_RUNTIME_DIR}/build-c7x${TVM_BUILD_SUFFIX}/libtvm_dsp_runtime_c7x.a")
 # TVM repo root is 6 levels up: firmware/c7x/dsp -> ti_dsp -> runtime -> src -> tvm
 set(TVM_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../")
 set(TVM_DLPACK_DIR "${TVM_ROOT}/3rdparty/tvm-ffi/3rdparty/dlpack/include")
@@ -262,6 +280,11 @@ target_compile_definitions(${PROJECT_NAME}.out PRIVATE
     # DmaUtils headers need MCU_PLUS_SDK for correct include paths
     MCU_PLUS_SDK
 )
+if(DEFINED C7X_SHARED_PHYS_BASE)
+    target_compile_definitions(${PROJECT_NAME}.out PRIVATE
+        C7X_SHARED_PHYS_BASE=${C7X_SHARED_PHYS_BASE}ULL
+    )
+endif()
 
 # Link directories
 target_link_directories(${PROJECT_NAME}.out PRIVATE
@@ -274,32 +297,26 @@ target_link_directories(${PROJECT_NAME}.out PRIVATE
 option(USE_TIDL_RUNTIME "Link TIDL algo libs into firmware" OFF)
 set(TIDL_RUNTIME_LIBS "")
 if(USE_TIDL_RUNTIME)
-    if(DEFINED ENV{PSDK_INSTALL_PATH})
-        set(PSDK_PATH "$ENV{PSDK_INSTALL_PATH}" CACHE PATH "TI Processor SDK root")
-    else()
-        set(PSDK_PATH "$ENV{HOME}/ml/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
-            CACHE PATH "TI Processor SDK root")
-    endif()
+    # PSDK_INSTALL_PATH / MMALIB_PATH resolved by boards.cmake (env override
+    # still wins).  C7X_MMA_TIDL_PATH is not board-keyed -- same override
+    # semantics as before, just falling back to boards.cmake's SDK root.
     if(DEFINED ENV{C7X_MMA_TIDL_PATH})
         set(TIDL_LIB_PATH "$ENV{C7X_MMA_TIDL_PATH}/ti_dl/lib/J722S/dsp/algo/release")
     else()
-        set(TIDL_LIB_PATH "${PSDK_PATH}/c7x-mma-tidl/ti_dl/lib/J722S/dsp/algo/release")
+        set(TIDL_LIB_PATH "${PSDK_INSTALL_PATH}/c7x-mma-tidl/ti_dl/lib/J722S/dsp/algo/release")
     endif()
-    # MMALIB: prefer env var, then try versioned name under PSDK
-    if(DEFINED ENV{MMALIB_PATH})
-        set(MMALIB_LIB_PATH "$ENV{MMALIB_PATH}/lib/C7524/release")
-    else()
-        file(GLOB _MMALIB_DIRS "${PSDK_PATH}/mmalib*/lib/C7524/release")
-        if(_MMALIB_DIRS)
-            list(SORT _MMALIB_DIRS)
-            list(GET _MMALIB_DIRS -1 MMALIB_LIB_PATH)
-        else()
-            set(MMALIB_LIB_PATH "${PSDK_PATH}/mmalib/lib/C7524/release")
-        endif()
-    endif()
+    set(MMALIB_LIB_PATH "${MMALIB_PATH}/lib/C7524/release")
 
     if(NOT EXISTS "${TIDL_LIB_PATH}/tidl_algo.lib")
         message(FATAL_ERROR "TIDL libraries not found at: ${TIDL_LIB_PATH}")
+    endif()
+    if(NOT EXISTS "${MMALIB_LIB_PATH}/mmalib_C7524.lib")
+        message(FATAL_ERROR "MMALIB libraries not found at: ${MMALIB_LIB_PATH} "
+                             "(MMALIB_PATH='${MMALIB_PATH}'). MMALIB_PATH is "
+                             "derived from PSDK_INSTALL_PATH='${PSDK_INSTALL_PATH}' "
+                             "unless set directly; set PSDK_INSTALL_PATH (or "
+                             "MMALIB_PATH) via env/-D so it points at this board's "
+                             "SDK.")
     endif()
 
     set(TIDL_RUNTIME_LIBS
@@ -333,7 +350,7 @@ if(USE_TIDL_RUNTIME)
     if(DEFINED ENV{C7X_MMA_TIDL_PATH})
         set(_TIDL_SRC_ROOT "$ENV{C7X_MMA_TIDL_PATH}/ti_dl")
     else()
-        set(_TIDL_SRC_ROOT "${PSDK_PATH}/c7x-mma-tidl/ti_dl")
+        set(_TIDL_SRC_ROOT "${PSDK_INSTALL_PATH}/c7x-mma-tidl/ti_dl")
     endif()
     target_sources(${PROJECT_NAME}.out PRIVATE
         ${TVM_DSP_RUNTIME_DIR}/mmalib/mmalib_wrappers.cpp
@@ -348,7 +365,7 @@ if(USE_TIDL_RUNTIME)
         ${_TIDL_SRC_ROOT}/algo/inc
         ${_TIDL_SRC_ROOT}/algo/src/tidsp/inc
         # ivision.h is included by itidl_ti.h (TI IVISION interface)
-        ${PSDK_PATH}/ivision
+        ${PSDK_INSTALL_PATH}/ivision
     )
     target_link_options(${PROJECT_NAME}.out PRIVATE
         --retain=c7x_int8_max_pool_tidl

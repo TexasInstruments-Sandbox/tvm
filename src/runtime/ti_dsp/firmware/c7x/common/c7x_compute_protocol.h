@@ -41,7 +41,12 @@ extern "C" {
  *   Host:      allocated via /dev/dma_heap/carveout_vision_apps_shared-memories
  */
 #define C7X_SHARED_BASE         0xC0000000ULL   /* DSP virtual address */
+/* Physical address (host DMA heap).  Overridable via -D so a single
+ * board/ddr choice (see cmake/boards.cmake) can retarget it: 8gb boards
+ * keep 0x900000000, 4gb boards (e.g. BeagleY-AI) use 0x8a0000000. */
+#ifndef C7X_SHARED_PHYS_BASE
 #define C7X_SHARED_PHYS_BASE    0x900000000ULL  /* Physical address (host DMA heap) */
+#endif
 #define C7X_SHARED_SIZE         0x20000000ULL   /* 512 MB total — full DMA heap carveout */
 
 /* Staging buffer: first 468 MB of the shared DDR carveout.

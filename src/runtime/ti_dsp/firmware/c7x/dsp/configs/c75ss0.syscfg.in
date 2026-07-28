@@ -170,12 +170,15 @@ mmu_armv8_r8.privExecute       = true;
 mmu_armv8_r8.userExecute       = false;
 
 /**
- * Region 9: DDR Shared Memory (0xC0000000 -> 0x900000000) - 512MB
+ * Region 9: DDR Shared Memory (0xC0000000 -> @C7X_SHARED_PHYS_BASE@) - 512MB
  * CACHEABLE (MAIR7)
+ * pAddr is substituted at CMake configure time from TVM_DDR (see
+ * cmake/boards.cmake): 0x900000000 for 8gb boards, 0x8a0000000 for 4gb
+ * boards (e.g. BeagleY-AI).
  */
 mmu_armv8_r9.$name             = "DDR_SHARED_MEM";
 mmu_armv8_r9.vAddr             = 0xC0000000;
-mmu_armv8_r9.pAddr             = 0x900000000;
+mmu_armv8_r9.pAddr             = @C7X_SHARED_PHYS_BASE@;
 mmu_armv8_r9.size              = 0x20000000;
 mmu_armv8_r9.attribute         = "MAIR7";
 mmu_armv8_r9.accessPermissions = "Privilege RW, User None";

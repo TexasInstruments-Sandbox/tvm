@@ -45,23 +45,12 @@ if(NOT EXISTS "${TI_CGT_C7000_PATH}/bin/cl7x")
                         "Expected: ~/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
 endif()
 
-# MCU+ SDK path (optional for standalone builds)
-# For standalone JTAG operation, the SDK is NOT required - standalone startup
-# files in j722s/ directory provide self-contained boot/MMU/cache support.
-# The SDK is only needed if using SDK drivers (UART, EDMA, etc.) or RTOS.
-if(NOT DEFINED MCU_PLUS_SDK_PATH OR NOT EXISTS "${MCU_PLUS_SDK_PATH}")
-    set(MCU_PLUS_SDK_PATH "$ENV{MCU_PLUS_SDK_PATH}")
-endif()
-
-# Try default installation location if not set
-if(NOT MCU_PLUS_SDK_PATH OR NOT EXISTS "${MCU_PLUS_SDK_PATH}")
-    if(EXISTS "$ENV{HOME}/ti/mcu_plus_sdk_j722s_11_01_00_07")
-        set(MCU_PLUS_SDK_PATH "$ENV{HOME}/ti/mcu_plus_sdk_j722s_11_01_00_07")
-    elseif(EXISTS "$ENV{HOME}/ti/MCU_PLUS_SDK_J722S_11_01")
-        set(MCU_PLUS_SDK_PATH "$ENV{HOME}/ti/MCU_PLUS_SDK_J722S_11_01")
-    endif()
-endif()
-
+# MCU+ SDK path is resolved by cmake/boards.cmake (included before project()
+# in the runtime CMakeLists.txt) from PSDK_INSTALL_PATH / MCU_PLUS_SDK_PATH,
+# with no hardcoded default -- a required-but-missing SDK is a hard error
+# there.  We deliberately do NOT re-resolve or fall back here: a legacy
+# fallback used to silently substitute an unrelated 11_01 SDK when the
+# chosen path was absent, masking misconfiguration until runtime.
 if(MCU_PLUS_SDK_PATH AND EXISTS "${MCU_PLUS_SDK_PATH}")
     message(STATUS "MCU+ SDK Path: ${MCU_PLUS_SDK_PATH}")
     set(TVM_DSP_C7X_HAS_SDK TRUE CACHE BOOL "MCU+ SDK available" FORCE)
