@@ -79,16 +79,17 @@ MEMORY
     /* Memory for shared memory buffers in DDR [ size 512.00 MB ] */
     DDR_SHARED_MEM                    : ORIGIN = 0xC0000000 , LENGTH = 0x20000000
 
-    /* DDR for c7x_1 for non cacheable local heap [ size 64.00 MB ] */
-    DDR_C7X_1_LOCAL_HEAP_NON_CACHEABLE ( RWIX ) : ORIGIN = 0x100000000 , LENGTH = 0x04000000
-    /* DDR for c7x_1 for non cacheable scratch Memory [ size 64.00 MB ] */
-    DDR_C7X_1_SCRATCH_NON_CACHEABLE ( RWIX ) : ORIGIN = 0x104000000 , LENGTH = 0x04000000
-    /* DDR for c7x_1 for local heap + scratch [ size 256.00 MB ]
+    /* DDR for c7x_1 for local heap + scratch [ size 352.00 MB ]
      * Merged LOCAL_HEAP (64 MB) + SCRATCH (64 MB) + c7x_2 regions (128 MB)
-     * into a single contiguous cacheable region for TVM runtime + DLOAD
-     * allocations.  c7x_2 regions are unused on J722S (single C7x core).
-     * MMU Region 13 in c75ss0.syscfg maps 0x102000000-0x118000000 (352 MB). */
-    DDR_C7X_1_LOCAL_HEAP     ( RWIX ) : ORIGIN = 0x108000000 , LENGTH = 0x10000000
+     * + the vision_apps non-cacheable heap/scratch range (96 MB, at
+     * 0x102000000-0x108000000 -- unused here: this firmware never places
+     * anything in .bss:ddr_non_cache_mem/.bss:ddr_scratch_non_cache_mem,
+     * unlike vision_apps' app_init.c) into a single contiguous cacheable
+     * region for TVM runtime + DLOAD allocations.  c7x_2 regions are
+     * unused on J722S (single C7x core).
+     * MMU Region 13 in c75ss0.syscfg maps 0x102000000-0x118000000 (352 MB)
+     * exactly -- this region now spans the same range. */
+    DDR_C7X_1_LOCAL_HEAP     ( RWIX ) : ORIGIN = 0x102000000 , LENGTH = 0x16000000
 }
 
 /*
@@ -157,8 +158,6 @@ SECTIONS
      * section is empty, TVM gets the full region.
      */
     .bss:ddr_local_mem          (NOLOAD) : {} > DDR_C7X_1_LOCAL_HEAP
-    .bss:ddr_non_cache_mem      (NOLOAD) : {} > DDR_C7X_1_LOCAL_HEAP_NON_CACHEABLE
-    .bss:ddr_scratch_non_cache_mem (NOLOAD) : {} > DDR_C7X_1_SCRATCH_NON_CACHEABLE
 
     /*
      * TVM DSP Runtime Memory Pools
@@ -176,14 +175,14 @@ SECTIONS
      * section placement — no hardcoded addresses needed.
      *
      * L2 scratch: L2RAM_C7x_1_AUX (128 KB) — fast temporary tensors
-     * DDR heap:   DDR_C7X_1_LOCAL_HEAP (128 MB) — large allocations,
+     * DDR heap:   DDR_C7X_1_LOCAL_HEAP (352 MB) — large allocations,
      *             DLOAD code segments, model constants
      */
     .bss:tvm_l2_heap        (NOLOAD)(NOINIT) : { . = . + 0x20000; } > L2RAM_C7x_1_AUX
         RUN_START(__TVM_DSP_L2_HEAP_START)
         RUN_END(__TVM_DSP_L2_HEAP_END)
 
-    .bss:tvm_ddr_heap        (NOLOAD) : { . = . + 0x10000000; } > DDR_C7X_1_LOCAL_HEAP
+    .bss:tvm_ddr_heap        (NOLOAD) : { . = . + 0x16000000; } > DDR_C7X_1_LOCAL_HEAP
         RUN_START(__TVM_DSP_DDR_HEAP_START)
         RUN_END(__TVM_DSP_DDR_HEAP_END)
 
