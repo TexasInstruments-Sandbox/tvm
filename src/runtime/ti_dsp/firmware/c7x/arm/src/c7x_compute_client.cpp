@@ -80,6 +80,13 @@ struct c7x_client {
                                      Set to elf_size after DYN_LOAD so that
                                      in-place rodata segments in the ELF are
                                      not overwritten by input tensor staging. */
+    /* Byte counts from the most recent ERR_NOMEM response (infer or load --
+     * only one call is ever in flight on a client, so one shared set of
+     * fields is enough). Zeroed on every call, populated only when the
+     * response actually carried nonzero OOM byte counts. */
+    uint32_t last_oom_requested = 0;
+    uint32_t last_oom_free = 0;
+    uint32_t last_oom_total = 0;
 };
 
 /* C7x core 0 device tree address (stable across reboots/stop-start cycles) */
@@ -319,6 +326,20 @@ int c7x_client_get_status(c7x_client_t *client, c7x_status_t *status)
     return 0;
 }
 
+int c7x_client_get_last_oom(c7x_client_t *client, uint32_t *requested,
+                            uint32_t *free_bytes, uint32_t *total)
+{
+    if (!client) return 0;
+    if (client->last_oom_requested == 0 && client->last_oom_free == 0 &&
+        client->last_oom_total == 0) {
+        return 0;
+    }
+    if (requested) *requested = client->last_oom_requested;
+    if (free_bytes) *free_bytes = client->last_oom_free;
+    if (total) *total = client->last_oom_total;
+    return 1;
+}
+
 void *c7x_client_get_staging_buffer(c7x_client_t *client, size_t *size)
 {
     if (!client) return nullptr;
@@ -395,6 +416,13 @@ int c7x_client_model_load(c7x_client_t *client, const char *weights_file,
     if (ret < 0) return ret;
 
     if (resp.hdr.type != C7X_MSG_MODEL_LOAD_RESP) return -EPROTO;
+    if (resp.hdr.status == C7X_STATUS_ERR_NOMEM) {
+        client->last_oom_requested = resp.oom_requested;
+        client->last_oom_free = resp.oom_free;
+        client->last_oom_total = resp.oom_total;
+    } else {
+        client->last_oom_requested = client->last_oom_free = client->last_oom_total = 0;
+    }
     if (resp.hdr.status != C7X_STATUS_SUCCESS) {
         fprintf(stderr, "c7x: MODEL_LOAD failed: status=%d\n", resp.hdr.status);
         return resp.hdr.status;
@@ -458,6 +486,13 @@ int c7x_client_dyn_load(c7x_client_t *client, const char *elf_file,
     if (ret < 0) return ret;
 
     if (resp.hdr.type != C7X_MSG_DYN_LOAD_RESP) return -EPROTO;
+    if (resp.hdr.status == C7X_STATUS_ERR_NOMEM) {
+        client->last_oom_requested = resp.oom_requested;
+        client->last_oom_free = resp.oom_free;
+        client->last_oom_total = resp.oom_total;
+    } else {
+        client->last_oom_requested = client->last_oom_free = client->last_oom_total = 0;
+    }
     if (resp.hdr.status != C7X_STATUS_SUCCESS) {
         fprintf(stderr, "c7x: DYN_LOAD failed: status=%d\n", resp.hdr.status);
         return resp.hdr.status;
@@ -687,6 +722,14 @@ static int c7x_client_infer_impl(c7x_client_t *client,
                             + printf_offset;
         fwrite(pdata, 1, resp->printf_size, stderr);
         fflush(stderr);
+    }
+
+    if (resp->hdr.status == C7X_STATUS_ERR_NOMEM) {
+        client->last_oom_requested = resp->oom_requested;
+        client->last_oom_free = resp->oom_free;
+        client->last_oom_total = resp->oom_total;
+    } else {
+        client->last_oom_requested = client->last_oom_free = client->last_oom_total = 0;
     }
 
     if (resp->hdr.status != C7X_STATUS_SUCCESS) {

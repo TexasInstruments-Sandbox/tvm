@@ -150,11 +150,11 @@ void* tvm_dsp_alloc(size_t size, size_t alignment, TVMDSPMemoryPool pool) {
 
   void* result = tvm_dsp_memory_pool_alloc(pool_desc, size, alignment);
   if (result == NULL && size > 0 && pool != TVM_DSP_MEM_FAST) {
+    size_t free_space = tvm_dsp_memory_pool_free_space(pool_desc);
     tvm_dsp_log("ERROR: OOM in Main pool: requested %u bytes, "
                 "free %u / %u bytes\n",
-                (unsigned)size,
-                (unsigned)tvm_dsp_memory_pool_free_space(pool_desc),
-                (unsigned)pool_desc->size);
+                (unsigned)size, (unsigned)free_space, (unsigned)pool_desc->size);
+    tvm_dsp_oom_record(size, free_space, pool_desc->size);
   }
   return result;
 }
@@ -184,6 +184,7 @@ void tvm_dsp_reset_pools(void) {
   }
   tvm_dsp_memory_pool_reset(&g_fast_pool);
   tvm_dsp_memory_pool_reset(&g_main_pool);
+  tvm_dsp_oom_reset();
 }
 
 /* Host emulation: no DLOAD code in pool; watermark = full reset. */

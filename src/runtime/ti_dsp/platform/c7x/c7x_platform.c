@@ -243,11 +243,11 @@ void* tvm_dsp_alloc(size_t size, size_t alignment, TVMDSPMemoryPool pool) {
      * shared printf buffer and hangs cg_main_dsp() on subsequent printf calls.
      * DDR OOM is unexpected and still reported. */
     if (pool != TVM_DSP_MEM_FAST) {
+      size_t free_space = tvm_dsp_memory_pool_free_space(pool_desc);
       tvm_dsp_log("ERROR: OOM in DDR pool: requested %u bytes, "
                   "free %u / %u bytes\n",
-                  (unsigned)size,
-                  (unsigned)tvm_dsp_memory_pool_free_space(pool_desc),
-                  (unsigned)pool_desc->size);
+                  (unsigned)size, (unsigned)free_space, (unsigned)pool_desc->size);
+      tvm_dsp_oom_record(size, free_space, pool_desc->size);
     }
   }
   return result;
@@ -278,6 +278,7 @@ void tvm_dsp_reset_pools(void) {
   }
   tvm_dsp_memory_pool_reset(&g_fast_pool);
   tvm_dsp_memory_pool_reset(&g_main_pool);
+  tvm_dsp_oom_reset();
 }
 
 /* Watermarks for reclaiming per-inference pool memory.

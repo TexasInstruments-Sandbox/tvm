@@ -152,16 +152,35 @@ static void handle_dyn_load(struct c7x_msg_dyn_load *req,
 
     /* Validate ELF size */
     if (req->elf_size == 0 || req->elf_size > C7X_STAGING_SIZE) {
-        DebugP_log("[COMPUTE] Invalid ELF size\r\n");
+        DebugP_log("[COMPUTE] Model too large: %u bytes exceeds %u byte staging limit\r\n",
+                   req->elf_size, (unsigned)C7X_STAGING_SIZE);
         resp->hdr.status = C7X_STATUS_ERR_SIZE;
         goto done;
     }
 
-    /* Load the ELF from input buffer */
+    /* Load the ELF from input buffer. dyn_loader_load's segment-copy
+     * allocations (tracked_alloc -> tvm_dsp_alloc(MAIN)) can OOM the DDR
+     * pool even though the ELF fit the staging buffer above -- distinguish
+     * that from a generic load failure via the sticky flag, never a raw
+     * status code (dyn_loader_load's own negative-integer namespace
+     * overlaps -3 with TVM_DSP_ERR_NOMEM for unrelated reasons, e.g. "no
+     * free module slots"). */
+    tvm_dsp_oom_reset();
     status = dyn_loader_load(C7X_STAGING_ADDR, req->elf_size, &handle);
     if (status != 0) {
         DebugP_log("[COMPUTE] dyn_loader_load failed: %d\r\n", status);
-        resp->hdr.status = C7X_STATUS_ERR_LOAD;
+        TVMDSPOomRecord oom;
+        if (tvm_dsp_oom_take(&oom)) {
+            resp->hdr.status = C7X_STATUS_ERR_NOMEM;
+            resp->oom_requested = (uint32_t)oom.requested;
+            resp->oom_free = (uint32_t)oom.free_at_fail;
+            resp->oom_total = (uint32_t)oom.pool_size;
+            DebugP_log("[COMPUTE] load OOM: requested %u bytes, free %u / %u\r\n",
+                       (unsigned)oom.requested, (unsigned)oom.free_at_fail,
+                       (unsigned)oom.pool_size);
+        } else {
+            resp->hdr.status = C7X_STATUS_ERR_LOAD;
+        }
         goto done;
     }
 
@@ -202,6 +221,7 @@ static void handle_dyn_load(struct c7x_msg_dyn_load *req,
     /* text_size and data_size are set by DLIF callbacks, we report 0 for now */
     resp->text_size = 0;
     resp->data_size = 0;
+    resp->oom_requested = resp->oom_free = resp->oom_total = 0;
 
     /* Record pool state after DYN_LOAD so each INFER_LARGE can restore
      * to this watermark, reclaiming per-inference workspace while
@@ -307,7 +327,8 @@ static void handle_model_load(struct c7x_msg_model_load *req,
     DebugP_log("[COMPUTE] MODEL_LOAD weights_size=%u\r\n", req->weights_size);
 
     if (req->weights_size == 0 || req->weights_size > C7X_STAGING_SIZE) {
-        DebugP_log("[COMPUTE] Invalid weights size\r\n");
+        DebugP_log("[COMPUTE] Model too large: %u bytes exceeds %u byte staging limit\r\n",
+                   req->weights_size, (unsigned)C7X_STAGING_SIZE);
         resp->hdr.status = C7X_STATUS_ERR_SIZE;
         resp->model_id = 0;
         resp->num_constants = 0;
@@ -321,11 +342,30 @@ static void handle_model_load(struct c7x_msg_model_load *req,
     CacheP_inv((void *)(uintptr_t)C7X_STAGING_ADDR,
                req->weights_size, CacheP_TYPE_ALL);
 
+    /* TVMDSPConstantsParse's allocate_pools() makes several real
+     * tvm_dsp_alloc(MAIN) calls for constants/NDArray/shape/string
+     * metadata pools (sized off a prescan) -- this can OOM the DDR pool
+     * even though the weights fit the staging buffer above. Distinguish
+     * that from a generic parse failure via the sticky flag only, never
+     * a raw status code (constants.h's own error namespace overlaps -3
+     * with TVM_DSP_ERR_NOMEM for an unrelated "too many constants" case). */
+    tvm_dsp_oom_reset();
     status = tvm_model_load_weights(C7X_STAGING_ADDR, req->weights_size,
                                     &model_id);
     if (status != 0) {
         DebugP_log("[COMPUTE] tvm_model_load_weights failed: %d\r\n", status);
-        resp->hdr.status = C7X_STATUS_ERR_WEIGHTS;
+        TVMDSPOomRecord oom;
+        if (tvm_dsp_oom_take(&oom)) {
+            resp->hdr.status = C7X_STATUS_ERR_NOMEM;
+            resp->oom_requested = (uint32_t)oom.requested;
+            resp->oom_free = (uint32_t)oom.free_at_fail;
+            resp->oom_total = (uint32_t)oom.pool_size;
+            DebugP_log("[COMPUTE] load OOM: requested %u bytes, free %u / %u\r\n",
+                       (unsigned)oom.requested, (unsigned)oom.free_at_fail,
+                       (unsigned)oom.pool_size);
+        } else {
+            resp->hdr.status = C7X_STATUS_ERR_WEIGHTS;
+        }
         resp->model_id = 0;
         resp->num_constants = 0;
         goto done;
@@ -337,6 +377,7 @@ static void handle_model_load(struct c7x_msg_model_load *req,
     resp->hdr.status = C7X_STATUS_SUCCESS;
     resp->model_id = model_id;
     resp->num_constants = (uint32_t)num_constants;
+    resp->oom_requested = resp->oom_free = resp->oom_total = 0;
 
     DebugP_log("[COMPUTE] Model loaded: id=%u, %d constants\r\n",
                model_id, num_constants);
@@ -525,7 +566,7 @@ static void extract_infer_output(TVMFFIAny *output_any,
      * those fields set, causing the host client to misread old descriptors. */
     resp->descs_addr = 0;
     resp->descs_size = 0;
-    resp->reserved   = 0;
+    resp->oom_requested = resp->oom_free = resp->oom_total = 0;
 
     if (output_any->v_ptr == NULL)
         return;
@@ -733,6 +774,7 @@ static void handle_infer(struct c7x_msg_infer *req, uint16_t recvMsgSize,
 
         /* Reset printf buffer once before all iterations */
         shm_printf_reset();
+        tvm_dsp_oom_reset();
 
         uint32_t iter;
         for (iter = 0; iter < repeat; iter++) {
@@ -783,7 +825,27 @@ static void handle_infer(struct c7x_msg_infer *req, uint16_t recvMsgSize,
          * TVMPrintLayerProfile), so this is often the only way to see which
          * kernel call actually failed instead of just a generic -1. */
         resp->printf_size = shm_printf_finish();
-        resp->hdr.status = C7X_STATUS_ERR_CALL;
+
+        /* Distinguish OOM from a generic kernel failure. ret is
+         * cg_main_dsp's return value, which consistently draws from
+         * dsp_platform.h's TVM_DSP_ERR_* namespace, so checking it directly
+         * (in addition to the sticky flag, which also catches OOM inside a
+         * fused TIR kernel's TVMBackendAllocWorkspace fallback) is safe
+         * here. tvm_dsp_oom_take() must run either way to clear the flag
+         * for the next inference. */
+        TVMDSPOomRecord oom;
+        int oom_hit = tvm_dsp_oom_take(&oom);
+        if (ret == TVM_DSP_ERR_NOMEM || oom_hit) {
+            resp->hdr.status = C7X_STATUS_ERR_NOMEM;
+            resp->oom_requested = (uint32_t)oom.requested;
+            resp->oom_free = (uint32_t)oom.free_at_fail;
+            resp->oom_total = (uint32_t)oom.pool_size;
+            DebugP_log("[COMPUTE] OOM: requested %u bytes, free %u / %u\r\n",
+                       (unsigned)oom.requested, (unsigned)oom.free_at_fail,
+                       (unsigned)oom.pool_size);
+        } else {
+            resp->hdr.status = C7X_STATUS_ERR_CALL;
+        }
         resp->num_outputs = 0;
         gJobsFailed++;
         goto done;
@@ -943,6 +1005,15 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
 
     if (!input_ndarrays || !input_shapes || !input_anys) {
         DebugP_log("[COMPUTE] Failed to allocate input arrays\r\n");
+        /* These are MAIN-pool allocs, so the failing one recorded its byte
+         * counts in the sticky flag -- surface them like the other OOM
+         * paths instead of reporting a bare status. */
+        TVMDSPOomRecord oom;
+        if (tvm_dsp_oom_take(&oom)) {
+            resp->oom_requested = (uint32_t)oom.requested;
+            resp->oom_free = (uint32_t)oom.free_at_fail;
+            resp->oom_total = (uint32_t)oom.pool_size;
+        }
         resp->hdr.status = C7X_STATUS_ERR_NOMEM;
         goto done;
     }
@@ -1032,6 +1103,7 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
     /* Reset printf buffer before each inference so accumulated INFO
      * messages don't fill the 64 KB buffer and block cg_main_dsp(). */
     shm_printf_reset();
+    tvm_dsp_oom_reset();
 
     /* Run inference */
     repeat = req->flags & 0xFFFF;
@@ -1074,7 +1146,23 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
         /* Flush printf buffer even on failure -- see the comment on the
          * matching branch in handle_infer() for why this matters. */
         resp->printf_size = shm_printf_finish();
-        resp->hdr.status = C7X_STATUS_ERR_CALL;
+
+        /* Distinguish OOM from a generic kernel failure -- see the
+         * matching branch in handle_infer() for why this checks both ret
+         * and the sticky flag. */
+        TVMDSPOomRecord oom;
+        int oom_hit = tvm_dsp_oom_take(&oom);
+        if (ret == TVM_DSP_ERR_NOMEM || oom_hit) {
+            resp->hdr.status = C7X_STATUS_ERR_NOMEM;
+            resp->oom_requested = (uint32_t)oom.requested;
+            resp->oom_free = (uint32_t)oom.free_at_fail;
+            resp->oom_total = (uint32_t)oom.pool_size;
+            DebugP_log("[COMPUTE] OOM: requested %u bytes, free %u / %u\r\n",
+                       (unsigned)oom.requested, (unsigned)oom.free_at_fail,
+                       (unsigned)oom.pool_size);
+        } else {
+            resp->hdr.status = C7X_STATUS_ERR_CALL;
+        }
         resp->num_outputs = 0;
         gJobsFailed++;
         goto done;
@@ -1092,7 +1180,7 @@ static void handle_infer_large(struct c7x_msg_infer_large *req,
                 resp->num_outputs = 1;
                 resp->descs_addr = 0;
                 resp->descs_size = 0;
-                resp->reserved = 0;
+                resp->oom_requested = resp->oom_free = resp->oom_total = 0;
             } else {
                 resp->num_outputs = 0;
             }

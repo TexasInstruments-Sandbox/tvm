@@ -35,6 +35,7 @@
  */
 
 #include "../dsp_memory.h"
+#include "../dsp_platform.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -257,4 +258,32 @@ int tvm_dsp_memory_pool_contains(TVMDSPMemoryPoolDesc* pool, void* ptr) {
   uintptr_t end = base + pool->size;
 
   return (addr >= base && addr < end);
+}
+
+/* Shared across all 4 build targets (host/c66x/c7x/c7x_host) since this
+ * file is compiled into every one of them -- single source of truth for
+ * the sticky OOM flag instead of duplicating it per-platform. */
+static TVMDSPOomRecord g_oom_record = {0, 0, 0, 0};
+
+void tvm_dsp_oom_reset(void) {
+  g_oom_record.occurred = 0;
+  g_oom_record.requested = 0;
+  g_oom_record.free_at_fail = 0;
+  g_oom_record.pool_size = 0;
+}
+
+int tvm_dsp_oom_take(TVMDSPOomRecord* out) {
+  int occurred = g_oom_record.occurred;
+  if (out != NULL) {
+    *out = g_oom_record;
+  }
+  tvm_dsp_oom_reset();
+  return occurred;
+}
+
+void tvm_dsp_oom_record(size_t requested, size_t free_at_fail, size_t pool_size) {
+  g_oom_record.occurred = 1;
+  g_oom_record.requested = requested;
+  g_oom_record.free_at_fail = free_at_fail;
+  g_oom_record.pool_size = pool_size;
 }

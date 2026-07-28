@@ -111,6 +111,19 @@ size_t tvm_dsp_memory_pool_free_space(TVMDSPMemoryPoolDesc* pool);
 int tvm_dsp_memory_pool_contains(TVMDSPMemoryPoolDesc* pool, void* ptr);
 
 /*!
+ * \brief Internal: record a MAIN-pool allocation failure.
+ *
+ * Called only from each platform's tvm_dsp_alloc(), inside its existing
+ * DDR-OOM log branch. Not part of the public dsp_platform.h API -- do not
+ * call from firmware code (use tvm_dsp_oom_take() instead).
+ *
+ * \param requested Bytes requested by the failing allocation.
+ * \param free_at_fail Pool free bytes at the moment of failure.
+ * \param pool_size Total pool bytes.
+ */
+void tvm_dsp_oom_record(size_t requested, size_t free_at_fail, size_t pool_size);
+
+/*!
  * \brief Memory allocation header (internal).
  *
  * Prepended to each allocation for tracking.

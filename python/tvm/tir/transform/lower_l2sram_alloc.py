@@ -138,11 +138,22 @@ def LowerL2SramAlloc():
         return alloc_list, stmt
 
     def _build_let_chain(alloc_list, body):
-        """Wrap body in nested LetStmts for each (var, extents, dtype)."""
+        """Wrap body in nested LetStmts for each (var, extents, dtype).
+
+        Each binding is followed by a null-check mirroring
+        lower_tvm_builtin.cc's AllocateNode handling: if tvm_l2_alloc's DDR
+        fallback (TVMBackendAllocWorkspace -> tvm_dsp_alloc) also fails,
+        throw cleanly instead of dereferencing NULL (a memory exception the
+        firmware can't recover from -- see docs/dsp/oom_reporting_design.md
+        "tvm_l2_alloc null-check (Gap A)").
+        """
         for var, extents, dtype in reversed(alloc_list):
             nbytes = _nbytes_expr(extents, dtype)
             alloc_call = tir.call_extern("handle", "tvm_l2_alloc", nbytes)
-            body = tir.LetStmt(var, alloc_call, body)
+            null_check = tir.IfThenElse(
+                tir.isnullptr(var), tir.Evaluate(tir.tvm_throw_last_error()), None
+            )
+            body = tir.LetStmt(var, alloc_call, tir.SeqStmt([null_check, body]))
         return body
 
     def _lower_func(func):
