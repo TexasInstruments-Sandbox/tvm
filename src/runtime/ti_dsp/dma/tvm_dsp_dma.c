@@ -82,7 +82,7 @@ static uint8_t g_dma_tr_buf[MAX_DMA_CHANNELS][DMA_TR_BUF_SIZE]
  * The C7x MMU maps some regions with non-identity translations:
  *   Region 9 (Cached):  vAddr 0xC0000000  -> pAddr 0x900000000 (512 MB)
  *   Region 12 (NC):     vAddr 0x100000000 -> pAddr 0x880000000 (32 MB)
- *   Region 13 (Cached): vAddr 0x102000000 -> pAddr 0x882000000 (224 MB)
+ *   Region 13 (Cached): vAddr 0x102000000 -> pAddr 0x882000000 (352 MB)
  * Other regions (L2 SRAM, DDR_C7x_1, IPC) use identity mapping.
  */
 static uint64_t virt_to_phys(const void *vaddr) {
@@ -92,8 +92,8 @@ static uint64_t virt_to_phys(const void *vaddr) {
     if (va >= 0xC0000000ULL && va < 0xE0000000ULL) {
         return va - 0xC0000000ULL + 0x900000000ULL;
     }
-    /* Region 13: DDR cacheable heap (0x102000000 - 0x110000000) */
-    if (va >= 0x102000000ULL && va < 0x110000000ULL) {
+    /* Region 13: DDR cacheable heap (0x102000000 - 0x118000000) */
+    if (va >= 0x102000000ULL && va < 0x118000000ULL) {
         return va - 0x102000000ULL + 0x882000000ULL;
     }
     /* Region 12: DDR non-cacheable heap (0x100000000 - 0x102000000) */
