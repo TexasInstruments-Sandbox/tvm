@@ -108,7 +108,8 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # FuseInputQuantize intercepts R.quantize(float32→int8) before LegalizeOps
     # lowers it to a scalar TIR loop.  Must run before EliminateQDQTransparent.
     passes.append(tvm.relax.transform.FuseInputQuantize())
-    passes.append(tvm.relax.transform.FuseQDQToTIDLMaxPool())
+    use_tidl_maxpool = bool(target.attrs.get("tidl-kernels", True))
+    passes.append(tvm.relax.transform.FuseQDQToTIDLMaxPool(use_tidl_maxpool))
     passes.append(tvm.relax.transform.FuseQDQToC7xRelu())
     # Eliminate redundant QDQ around remaining transparent ops (reshape, etc.)
     passes.append(tvm.relax.transform.EliminateQDQTransparent())

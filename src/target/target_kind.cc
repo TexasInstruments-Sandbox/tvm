@@ -524,6 +524,12 @@ TVM_REGISTER_TARGET_KIND("c_static", kDLCPU)
     .add_attr_option<bool>("use-cpp-api", true)
     // Emit tidl_bridge_init_all() call in cg_main_dsp (set when TIDL subgraphs are present)
     .add_attr_option<bool>("tidl-runtime", false)
+    // Firmware has TIDL-backed native kernels available (e.g. c7x_int8_max_pool_tidl).
+    // MUST be set to false to match a firmware built without TIDL (build.sh --tidl OFF /
+    // USE_TIDL_RUNTIME=OFF); otherwise max_pool2d emits c7x_int8_max_pool_tidl, which is
+    // absent from such firmware and fails to resolve at DLOAD load time. Codegen cannot
+    // detect the firmware config, so this is a manual codegen<->firmware coordination.
+    .add_attr_option<bool>("tidl-kernels", true)
     // Use MMALIB for eligible matmul/conv2d ops (requires mcpu=c7x)
     .add_attr_option<bool>("mmalib", false)
     .set_default_keys({"c_static", "cpu"})

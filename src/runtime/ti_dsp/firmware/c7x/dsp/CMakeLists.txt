@@ -292,24 +292,85 @@ target_link_directories(${PROJECT_NAME}.out PRIVATE
 )
 
 # --- TIDL Runtime (optional) ---
-# When enabled, links TIDL algo libraries and MMALIB into the firmware.
-# The DLOAD model module then only needs tidl_api.lib (thin IALG wrapper).
+# When enabled, links TIDL algo libraries into the firmware. TIDL's own algo
+# library (tidl_obj_algo.lib) has unresolved MMALIB_CNN_*/MMALIB_LINALG_*
+# symbol references, so USE_TIDL_RUNTIME=ON requires USE_TI_MMALIB=ON too --
+# enforced below rather than left as a user error that fails at link time.
 option(USE_TIDL_RUNTIME "Link TIDL algo libs into firmware" OFF)
+# --- MMALIB direct integration (optional) ---
+# When enabled, links MMALIB conv2d/matmul kernels into the firmware for
+# direct offload (independent of TIDL subgraph offload).
+option(USE_TI_MMALIB "Link MMALIB direct-integration libs into firmware" OFF)
+if(USE_TIDL_RUNTIME AND NOT USE_TI_MMALIB)
+    message(STATUS "USE_TIDL_RUNTIME=ON requires MMALIB (tidl_obj_algo.lib "
+                    "has unresolved MMALIB_CNN_*/MMALIB_LINALG_* symbols) "
+                    "-- forcing USE_TI_MMALIB=ON")
+    set(USE_TI_MMALIB ON CACHE BOOL "Link MMALIB direct-integration libs into firmware" FORCE)
+endif()
+
 set(TIDL_RUNTIME_LIBS "")
 if(USE_TIDL_RUNTIME)
-    # PSDK_INSTALL_PATH / MMALIB_PATH resolved by boards.cmake (env override
-    # still wins).  C7X_MMA_TIDL_PATH is not board-keyed -- same override
-    # semantics as before, just falling back to boards.cmake's SDK root.
+    # PSDK_INSTALL_PATH resolved by boards.cmake (env override still wins).
+    # C7X_MMA_TIDL_PATH is not board-keyed -- same override semantics as
+    # before, just falling back to boards.cmake's SDK root.
     if(DEFINED ENV{C7X_MMA_TIDL_PATH})
         set(TIDL_LIB_PATH "$ENV{C7X_MMA_TIDL_PATH}/ti_dl/lib/J722S/dsp/algo/release")
     else()
         set(TIDL_LIB_PATH "${PSDK_INSTALL_PATH}/c7x-mma-tidl/ti_dl/lib/J722S/dsp/algo/release")
     endif()
-    set(MMALIB_LIB_PATH "${MMALIB_PATH}/lib/C7524/release")
 
     if(NOT EXISTS "${TIDL_LIB_PATH}/tidl_algo.lib")
         message(FATAL_ERROR "TIDL libraries not found at: ${TIDL_LIB_PATH}")
     endif()
+
+    list(APPEND TIDL_RUNTIME_LIBS
+        ${TIDL_LIB_PATH}/tidl_algo.lib
+        ${TIDL_LIB_PATH}/tidl_obj_algo.lib
+        ${TIDL_LIB_PATH}/tidl_priv_algo.lib
+        ${TIDL_LIB_PATH}/tidl_custom.lib
+    )
+    # Force the linker to retain TIDL_VISION_FXNS (IALG function table) and
+    # the TIDL maxpool entry point that DLOAD modules reference. Without
+    # --retain, the linker eliminates them as "unused" since nothing in the
+    # firmware calls them directly.
+    target_link_options(${PROJECT_NAME}.out PRIVATE
+        --retain=TIDL_VISION_FXNS
+        --retain=c7x_int8_max_pool_tidl
+    )
+
+    # TIDL max pool wrapper: compiled into firmware, exported to DLOAD
+    # modules. Lives in mmalib/ (alongside the MMALIB wrappers) since it
+    # requires MMALIB at link (see force logic above).
+    # Resolve TIDL source root for include headers.  TIDL_LIB_PATH goes deep
+    # into the lib tree so we derive it from C7X_MMA_TIDL_PATH directly.
+    if(DEFINED ENV{C7X_MMA_TIDL_PATH})
+        set(_TIDL_SRC_ROOT "$ENV{C7X_MMA_TIDL_PATH}/ti_dl")
+    else()
+        set(_TIDL_SRC_ROOT "${PSDK_INSTALL_PATH}/c7x-mma-tidl/ti_dl")
+    endif()
+    target_sources(${PROJECT_NAME}.out PRIVATE
+        ${TVM_DSP_RUNTIME_DIR}/mmalib/tidl_maxpool_wrapper.cpp
+    )
+    target_include_directories(${PROJECT_NAME}.out PRIVATE
+        ${TVM_DSP_RUNTIME_DIR}/mmalib
+        # TIDL headers needed by tidl_maxpool_wrapper.cpp
+        ${_TIDL_SRC_ROOT}/inc
+        ${_TIDL_SRC_ROOT}/algo/inc
+        ${_TIDL_SRC_ROOT}/algo/src/tidsp/inc
+        # ivision.h is included by itidl_ti.h (TI IVISION interface)
+        ${PSDK_INSTALL_PATH}/ivision
+    )
+    target_compile_definitions(${PROJECT_NAME}.out PRIVATE USE_TIDL_RUNTIME=1)
+
+    message(STATUS "TIDL Runtime: ENABLED")
+    message(STATUS "  TIDL libs: ${TIDL_LIB_PATH}")
+endif()
+
+if(USE_TI_MMALIB)
+    # PSDK_INSTALL_PATH / MMALIB_PATH resolved by boards.cmake (env override
+    # still wins).
+    set(MMALIB_LIB_PATH "${MMALIB_PATH}/lib/C7524/release")
+
     if(NOT EXISTS "${MMALIB_LIB_PATH}/mmalib_C7524.lib")
         message(FATAL_ERROR "MMALIB libraries not found at: ${MMALIB_LIB_PATH} "
                              "(MMALIB_PATH='${MMALIB_PATH}'). MMALIB_PATH is "
@@ -319,21 +380,15 @@ if(USE_TIDL_RUNTIME)
                              "SDK.")
     endif()
 
-    set(TIDL_RUNTIME_LIBS
-        ${TIDL_LIB_PATH}/tidl_algo.lib
-        ${TIDL_LIB_PATH}/tidl_obj_algo.lib
-        ${TIDL_LIB_PATH}/tidl_priv_algo.lib
-        ${TIDL_LIB_PATH}/tidl_custom.lib
+    list(APPEND TIDL_RUNTIME_LIBS
         ${MMALIB_LIB_PATH}/mmalib_C7524.lib
         ${MMALIB_LIB_PATH}/mmalib_cn_C7524.lib
         ${MMALIB_LIB_PATH}/common_C7524.lib
     )
-    # Force the linker to retain TIDL_VISION_FXNS (IALG function table)
-    # and key TIDL algo entry points that DLOAD modules reference.
-    # Without --retain, the linker eliminates them as "unused" since
-    # nothing in the firmware calls them directly.
+    # Force the linker to retain key MMALIB entry points that DLOAD modules
+    # reference. Without --retain, the linker eliminates them as "unused"
+    # since nothing in the firmware calls them directly.
     target_link_options(${PROJECT_NAME}.out PRIVATE
-        --retain=TIDL_VISION_FXNS
         --retain=mmalib_conv2d_i8
         --retain=mmalib_conv2d_i8_grouped_loop
         --retain=mmalib_conv2d_i16
@@ -341,48 +396,36 @@ if(USE_TIDL_RUNTIME)
         --retain=mmalib_matmul_i16
     )
 
-    # MMALIB wrappers + TIDL max pool wrapper: compiled into firmware, exported
-    # to DLOAD modules.  Both live in mmalib/ and require TIDL + MMALIB at link.
+    # MMALIB wrappers: compiled into firmware, exported to DLOAD modules.
     # Resolve MMALIB include path from MMALIB_LIB_PATH (go up to root).
     get_filename_component(_MMALIB_ROOT "${MMALIB_LIB_PATH}/../../../" ABSOLUTE)
-    # Resolve TIDL source root for include headers.  TIDL_LIB_PATH goes deep
-    # into the lib tree so we derive it from C7X_MMA_TIDL_PATH directly.
-    if(DEFINED ENV{C7X_MMA_TIDL_PATH})
-        set(_TIDL_SRC_ROOT "$ENV{C7X_MMA_TIDL_PATH}/ti_dl")
-    else()
-        set(_TIDL_SRC_ROOT "${PSDK_INSTALL_PATH}/c7x-mma-tidl/ti_dl")
-    endif()
     target_sources(${PROJECT_NAME}.out PRIVATE
         ${TVM_DSP_RUNTIME_DIR}/mmalib/mmalib_wrappers.cpp
-        ${TVM_DSP_RUNTIME_DIR}/mmalib/tidl_maxpool_wrapper.cpp
     )
     target_include_directories(${PROJECT_NAME}.out PRIVATE
         ${TVM_DSP_RUNTIME_DIR}/mmalib
         ${_MMALIB_ROOT}/ti/mmalib/src
         ${_MMALIB_ROOT}/ti/mmalib/src/common
-        # TIDL headers needed by tidl_maxpool_wrapper.cpp
-        ${_TIDL_SRC_ROOT}/inc
-        ${_TIDL_SRC_ROOT}/algo/inc
-        ${_TIDL_SRC_ROOT}/algo/src/tidsp/inc
-        # ivision.h is included by itidl_ti.h (TI IVISION interface)
-        ${PSDK_INSTALL_PATH}/ivision
     )
-    target_link_options(${PROJECT_NAME}.out PRIVATE
-        --retain=c7x_int8_max_pool_tidl
-        --retain=c7x_int8_channel_scale_multiply
-        --retain=c7x_int8_concat_rescale
-    )
+    target_compile_definitions(${PROJECT_NAME}.out PRIVATE USE_TI_MMALIB=1)
 
-    message(STATUS "TIDL Runtime: ENABLED")
-    message(STATUS "  TIDL libs: ${TIDL_LIB_PATH}")
-    message(STATUS "  MMALIB: ${MMALIB_LIB_PATH}")
+    message(STATUS "MMALIB: ENABLED")
+    message(STATUS "  MMALIB libs: ${MMALIB_LIB_PATH}")
 endif()
 
 # Link libraries
 # dmautils_standalone (from source, standalone UDMA) must come BEFORE
 # drivers.lib so its UDMA symbols satisfy the runtime's references first,
 # preventing drivers.lib from pulling in the full UDMA driver.
-target_link_options(${PROJECT_NAME}.out PRIVATE --reread_libs)
+# c7x_int8_channel_scale_multiply/c7x_int8_concat_rescale are always-compiled
+# native kernels (kernels/c7x_activation.cpp, kernels/c7x_concat.cpp) with no
+# TIDL/MMALIB dependency -- retained unconditionally so they survive linker GC
+# regardless of USE_TIDL_RUNTIME/USE_TI_MMALIB.
+target_link_options(${PROJECT_NAME}.out PRIVATE
+    --reread_libs
+    --retain=c7x_int8_channel_scale_multiply
+    --retain=c7x_int8_concat_rescale
+)
 target_link_libraries(${PROJECT_NAME}.out
     syscfg_generated
     ${MCUPSDK_ROOT}/source/kernel/freertos/lib/freertos.${DEVICE}.c75x.ti-c7000.${PROFILE}.lib

@@ -171,21 +171,25 @@ extern int32_t c7x_int8_max_pool(const void *, void *,
                                  int32_t, int32_t, int32_t, int32_t,
                                  int32_t, int32_t, int32_t, int32_t,
                                  int32_t, int32_t, int32_t, int32_t);
+#ifdef USE_TIDL_RUNTIME
 /* TIDL-backed max pool — wraps TIDL_spatialMaxPool_ixX_oxX_init/exec */
 extern int32_t c7x_int8_max_pool_tidl(const void *, void *,
                                       int32_t, int32_t, int32_t, int32_t,
                                       int32_t, int32_t, int32_t, int32_t,
                                       int32_t, int32_t, int32_t, int32_t);
+#endif
 extern int32_t c7x_int8_relu(const void *, void *, int32_t, int32_t);
 extern int32_t c7x_int8_clamp(const void *, void *, int32_t, int32_t, int32_t);
 extern int32_t c7x_int8_requantize_clamp(const void *, void *, int32_t, float, int32_t, int32_t);
 extern int32_t c7x_int8_quantize(const float *, int8_t *, int32_t, float, int32_t);
 extern int32_t c7x_int8_quantize_rgb(const void *, void *, int32_t, int32_t,
                                       float, float, float, float, float, float);
+#ifdef USE_TI_MMALIB
 extern int32_t mmalib_conv2d_i8_sliced(void *, void *, void *, void *, void *, void *,
                                         int32_t, int32_t, int32_t, int32_t,
                                         int32_t, int32_t, int32_t, int32_t,
                                         int32_t, int32_t, int32_t, int32_t, int32_t);
+#endif
 /* C7x-native concat with per-input rescaling */
 extern int32_t c7x_int8_concat_rescale(
                                    const void *, int32_t, float, int32_t,
@@ -279,12 +283,16 @@ extern void TVM_unlockInterrupts(int32_t);
 extern void TVM_cacheWbInv(void);
 extern int32_t TVM_cacheWbInvRegion(void *addr, uint32_t size);
 extern void dsp_trace_msg(const char *msg);
+#ifdef USE_TIDL_RUNTIME
 /* TIDL_VISION_FXNS: IALG function table from tidl_algo.lib.
  * Must be exported so DLOAD modules can call into TIDL. */
 extern char TIDL_VISION_FXNS[];
+#endif
 
+#ifdef USE_TI_MMALIB
 /* MMALIB wrappers: compiled into firmware, exported to DLOAD modules. */
 #include "mmalib_wrappers.h"
+#endif
 
 /*
  * DebugP_log is a macro in MCU+ SDK, so we can't take its address.
@@ -389,7 +397,9 @@ static const DspSymEntry dsp_syms[] = {
     SYM(c7x_int8_avg_pool),
     /* C7x-native max-pool and relu — transparent ops, no float conversion at runtime */
     SYM(c7x_int8_max_pool),
+#ifdef USE_TIDL_RUNTIME
     SYM(c7x_int8_max_pool_tidl),
+#endif
     SYM(c7x_int8_relu),
     SYM(c7x_int8_clamp),
     SYM(c7x_int8_requantize_clamp),
@@ -442,8 +452,11 @@ static const DspSymEntry dsp_syms[] = {
     SYM(TVM_cacheWbInv),
     SYM(TVM_cacheWbInvRegion),
     SYM(dsp_trace_msg),
+#ifdef USE_TIDL_RUNTIME
     SYM(TIDL_VISION_FXNS),
+#endif
 
+#ifdef USE_TI_MMALIB
     /* MMALIB wrappers (int8/int16 matmul and conv2d) */
     SYM(mmalib_conv2d_i8),
     SYM(mmalib_conv2d_i8_sliced),
@@ -455,6 +468,7 @@ static const DspSymEntry dsp_syms[] = {
     SYM(mmalib_depthwise_conv2d_i16),
     SYM(mmalib_matmul_bias_i8),
     SYM(mmalib_matmul_bias_i16),
+#endif
 };
 
 #define NUM_DSP_SYMS (sizeof(dsp_syms) / sizeof(dsp_syms[0]))
