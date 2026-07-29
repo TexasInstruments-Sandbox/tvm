@@ -117,6 +117,19 @@ _TRANSPARENT_OPS = frozenset(
 )
 
 
+def _is_float_tensor(node: Node) -> bool:
+    """True if node's traced FakeTensor value is a floating-point tensor.
+
+    view/permute/flatten/add/mm are generic ops that can also match on
+    non-quantizable integer buffers -- e.g. torchvision MaxViT's
+    relative_position_index, reshaped via .view(-1) before being used as a
+    gather index. Annotating an int64 tensor with a float QuantizationSpec
+    makes convert_pt2e emit quantize_per_tensor on it, which crashes.
+    """
+    val = node.meta.get("val")
+    return isinstance(val, torch.Tensor) and val.is_floating_point()
+
+
 class C7xMMAQuantizer(Quantizer):
     """torchao PT2E quantizer targeting TI C7x MMALIB.
 
@@ -244,7 +257,7 @@ class C7xMMAQuantizer(Quantizer):
                 }
             elif node.target in (_TIDL_ACT_OPS | _AVG_POOL_OPS | _NORM_OPS):
                 # Single activation input; weight/bias (if any) stay float32.
-                if not isinstance(node.args[0], Node):
+                if not isinstance(node.args[0], Node) or not _is_float_tensor(node.args[0]):
                     continue
                 input_qspec_map = {node.args[0]: act_spec}  # type: ignore[index]
             elif node.target in _TRANSPARENT_OPS:
@@ -253,7 +266,7 @@ class C7xMMAQuantizer(Quantizer):
                 # SharedQuantizationSpec(n) requires n to already be annotated;
                 # fall back to independent act_spec when it isn't (e.g. relu_
                 # after cat, or relu_ after an unannotated in-place op).
-                if not isinstance(node.args[0], Node):
+                if not isinstance(node.args[0], Node) or not _is_float_tensor(node.args[0]):
                     continue
                 input_qspec_map = {node.args[0]: act_spec}  # type: ignore[index]
                 input_node = node.args[0]
@@ -265,10 +278,16 @@ class C7xMMAQuantizer(Quantizer):
                 torch.ops.aten.add.Tensor,
                 torch.ops.aten.add_.Tensor,
             ):
-                # Skip if either argument is a scalar (not an FX Node).
-                # This happens for ops like `x + 0` in attention masking;
-                # only Tensor + Tensor residual adds should be quantized.
-                if not isinstance(node.args[0], Node) or not isinstance(node.args[1], Node):
+                # Skip if either argument is a scalar (not an FX Node) or not
+                # a floating-point tensor. This happens for ops like `x + 0`
+                # in attention masking; only Tensor + Tensor residual adds
+                # between float activations should be quantized.
+                if (
+                    not isinstance(node.args[0], Node)
+                    or not isinstance(node.args[1], Node)
+                    or not _is_float_tensor(node.args[0])
+                    or not _is_float_tensor(node.args[1])
+                ):
                     continue
                 input_qspec_map = {
                     node.args[0]: act_spec,  # type: ignore[index]
