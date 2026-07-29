@@ -167,6 +167,13 @@ pipeline {
         PSDK_INSTALL_PATH              = '/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06'
         MCU_PLUS_SDK_PATH              = '/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mcu_plus_sdk_j722s_11_00_00_12'
         C7X_MMA_TIDL_PATH             = "${WORKSPACE}/c7x-mma-tidl"
+        // pytest-isolate defaults its state file to /tmp, shared across all
+        // users on this build machine -- a stale file left by one user's
+        // pytest run (e.g. local testing as a different Linux user) makes
+        // pytest_isolate's pytest_configure() PermissionError on removal
+        // for every subsequent run, on every stage, not just --isolate ones.
+        // Scope it to this build's own workspace instead.
+        PYTEST_ISOLATE_STATE_FOLDER    = "${WORKSPACE}/results"
         AM67A_TARGET                   = 'am67a'
         ENABLE_SDK_11_0_COMPATIBILITY  = '1'
         SMOLLM_MODEL_DIR               = "${HOME}/.cache/smollm/SmolLM-135M-Instruct"
@@ -231,7 +238,7 @@ pipeline {
                                 exit 1
                             fi
                             test -d .venv || uv venv .venv
-                            uv pip install "numpy==2.5.1" pytest scipy psutil ml_dtypes build pandas tqdm seaborn transformers
+                            uv pip install "numpy==2.5.1" pytest pytest-isolate scipy psutil ml_dtypes build pandas tqdm seaborn transformers
                             uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --extra-index-url https://download.pytorch.org/whl/cpu
                             uv pip install "torchao==0.16.0" --extra-index-url https://download.pytorch.org/whl/cpu
                             uv pip install ultralytics
@@ -704,6 +711,7 @@ pipeline {
                             pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
                                 --dsp-mode=c7x_dload \
                                 --mmalib \
+                                --isolate \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/quantized_mmalib_dload.xml
                         '''

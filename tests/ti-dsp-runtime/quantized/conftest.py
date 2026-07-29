@@ -130,39 +130,36 @@ def mmalib(request):
 # Cycle performance tracking
 # ---------------------------------------------------------------------------
 
-_cycle_data: dict = {}
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _cycle_writer(request):
-    """Write collected cycle data to cycles.csv at session end."""
-    yield
-    non_zero = {k: v for k, v in _cycle_data.items() if v > 0}
-    if not non_zero:
-        return
-    out_dir = Path(os.environ.get("WORKSPACE", ".")) / "results"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / "cycles.csv"
-    existing: dict = {}
-    if out_file.exists():
-        lines = out_file.read_text().splitlines()
-        if len(lines) >= 2:
-            headers = lines[0].split(",")
-            values = lines[1].split(",")
-            for h, v in zip(headers, values):
-                existing[h] = v
-    existing.update({k: str(v) for k, v in non_zero.items()})
-    sorted_keys = sorted(existing.keys())
-    with open(out_file, "w") as f:
-        f.write(",".join(sorted_keys) + "\n")
-        f.write(",".join(existing[k] for k in sorted_keys) + "\n")
-
 
 @pytest.fixture
 def record_cycles():
-    """Record cycle count for a model. Written to cycles.csv at session end."""
+    """Record cycle count for a model, written to cycles.csv immediately.
+
+    Writes per-call (not batched at session end) so the count survives even
+    if this test runs in a forked subprocess (pytest --forked / --isolate),
+    where in-memory state can't cross the fork boundary back to the parent.
+    Safe without locking: --forked runs tests one at a time, never in
+    parallel (that would require -n/xdist, which combining with --forked
+    would violate the single-DSP-session hardware rule anyway).
+    """
 
     def _record(name: str, cycles: int):
-        _cycle_data[name] = cycles
+        if cycles <= 0:
+            return
+        out_dir = Path(os.environ.get("WORKSPACE", ".")) / "results"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_file = out_dir / "cycles.csv"
+        existing: dict = {}
+        if out_file.exists():
+            lines = out_file.read_text().splitlines()
+            if len(lines) >= 2:
+                headers = lines[0].split(",")
+                values = lines[1].split(",")
+                existing = dict(zip(headers, values))
+        existing[name] = str(cycles)
+        sorted_keys = sorted(existing.keys())
+        with open(out_file, "w") as f:
+            f.write(",".join(sorted_keys) + "\n")
+            f.write(",".join(existing[k] for k in sorted_keys) + "\n")
 
     return _record
