@@ -32,12 +32,17 @@ replaces it with a call_extern to c7x_int8_max_pool_tidl — a simple C loop tha
 cl7x can auto-vectorize with SIMD int8 instructions.  EliminateQDQTransparent
 then finds no remaining max_pool2d QDQ patterns.
 
+When the firmware has no TIDL-backed kernels (target attr `tidl-kernels=0`,
+e.g. a no-TIDL beagley-ai build), this pass falls back to the native scalar
+`c7x_int8_max_pool` kernel instead -- functionally correct but unvectorized.
+
 Pattern matched:
   dq(x_i8, d_scale, d_zp) → relax.nn.max_pool2d → q(out, o_scale, o_zp)
   → call_extern c7x_int8_max_pool_tidl(in, out, N, C, H_in, W_in, H_out, W_out,
                                    kH, kW, sH, sW, pH, pW)
 
-Kernel: src/runtime/ti_dsp/kernels/tidl_pool_relu_wrappers.c
+Kernel: src/runtime/ti_dsp/mmalib/tidl_maxpool_wrapper.cpp
+        (fallback: src/runtime/ti_dsp/kernels/c7x_pool_relu.cpp)
 """
 
 import logging
@@ -109,9 +114,10 @@ def _check_maxpool(ctx) -> bool:
 class _MaxPoolLowerer(PyExprMutator):
     """Lower TIDL max_pool2d composites to call_extern."""
 
-    def __init__(self, mod: IRModule):
+    def __init__(self, mod: IRModule, use_tidl_maxpool: bool = True):
         super().__init__(mod)
         self.count = 0
+        self.use_tidl_maxpool = use_tidl_maxpool
 
     def visit_call_(self, call):
         if not isinstance(call.op, relax.GlobalVar):
@@ -180,12 +186,13 @@ class _MaxPoolLowerer(PyExprMutator):
         _N, _C = N_v, C_v
         _H_in, _W_in, _H_out, _W_out = H_in_v, W_in_v, H_out_v, W_out_v
         _kH, _kW, _sH, _sW, _pH, _pW = kH_v, kW_v, sH_v, sW_v, pH_v, pW_v
+        kernel_name = "c7x_int8_max_pool_tidl" if self.use_tidl_maxpool else "c7x_int8_max_pool"
 
         def te_max_pool(x_t):
             def fcompute(ins, outs):
                 return tir.call_extern(
                     "int32",
-                    "c7x_int8_max_pool_tidl",
+                    kernel_name,
                     ins[0].data,
                     outs[0].data,
                     tir.IntImm("int32", _N),
@@ -210,11 +217,12 @@ class _MaxPoolLowerer(PyExprMutator):
                 dtype="int8",
             )
 
-        result = self.builder_.call_te(te_max_pool, x_arg, primfunc_name_hint="c7x_int8_max_pool_tidl")
+        result = self.builder_.call_te(te_max_pool, x_arg, primfunc_name_hint=kernel_name)
         self.count += 1
         logger.debug(
-            "Fused c7x_int8_max_pool_tidl: N=%d C=%d H_in=%d W_in=%d "
+            "Fused %s: N=%d C=%d H_in=%d W_in=%d "
             "kH=%d kW=%d sH=%d sW=%d pH=%d pW=%d",
+            kernel_name,
             N_v,
             C_v,
             H_in_v,
@@ -236,11 +244,24 @@ class _MaxPoolLowerer(PyExprMutator):
 
 @tvm.transform.module_pass(opt_level=0, name="FuseQDQToTIDLMaxPool")
 class FuseQDQToTIDLMaxPool:
-    """Fuse QDQ-wrapped max_pool2d into a c7x_int8_max_pool_tidl C kernel call.
+    """Fuse QDQ-wrapped max_pool2d into a c7x max-pool C kernel call.
+
+    Emits c7x_int8_max_pool_tidl by default, or the scalar c7x_int8_max_pool
+    fallback when use_tidl_maxpool is False (see Parameters).
 
     Must run before EliminateQDQTransparent: that pass removes the Q/DQ
     context that this pass needs to identify and match the pattern.
+
+    Parameters
+    ----------
+    use_tidl_maxpool : bool
+        Whether the firmware has the TIDL-backed max pool kernel available.
+        When False (no-TIDL builds), falls back to the native scalar
+        c7x_int8_max_pool kernel instead.
     """
+
+    def __init__(self, use_tidl_maxpool: bool = True):
+        self.use_tidl_maxpool = use_tidl_maxpool
 
     def transform_module(self, mod: IRModule, _ctx: PassContext) -> IRModule:
         pat, annotations = _make_max_pool_pattern()
@@ -248,7 +269,7 @@ class FuseQDQToTIDLMaxPool:
 
         mod = relax.transform.FuseOpsByPattern(patterns, bind_constants=False)(mod)
 
-        lowerer = _MaxPoolLowerer(mod)
+        lowerer = _MaxPoolLowerer(mod, self.use_tidl_maxpool)
         for gv, func in mod.functions_items():
             if isinstance(func, relax.Function):
                 if "Composite" in (func.attrs or {}):
