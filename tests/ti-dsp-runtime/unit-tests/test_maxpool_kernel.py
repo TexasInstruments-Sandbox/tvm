@@ -33,7 +33,6 @@ sys.path.insert(0, str(_DSP_CPP_DIR))
 
 from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Numpy reference
 # ---------------------------------------------------------------------------
@@ -69,8 +68,7 @@ def _numpy_max_pool(x_nchw, kH, kW, sH, sW, pH, pW):
 # ---------------------------------------------------------------------------
 
 
-def _build_maxpool_module(kernel_name, N, C, H_in, W_in, H_out, W_out,
-                           kH, kW, sH, sW, pH, pW):
+def _build_maxpool_module(kernel_name, N, C, H_in, W_in, H_out, W_out, kH, kW, sH, sW, pH, pW):
     """Build a Relax module that calls the given max pool kernel via call_extern."""
     _N, _C = N, C
     _H_in, _W_in, _H_out, _W_out = H_in, W_in, H_out, W_out
@@ -79,18 +77,30 @@ def _build_maxpool_module(kernel_name, N, C, H_in, W_in, H_out, W_out,
     def te_maxpool(x_t):
         def fcompute(ins, outs):
             return tir.call_extern(
-                "int32", kernel_name,
-                ins[0].data, outs[0].data,
-                tir.IntImm("int32", _N), tir.IntImm("int32", _C),
-                tir.IntImm("int32", _H_in), tir.IntImm("int32", _W_in),
-                tir.IntImm("int32", _H_out), tir.IntImm("int32", _W_out),
-                tir.IntImm("int32", _kH), tir.IntImm("int32", _kW),
-                tir.IntImm("int32", _sH), tir.IntImm("int32", _sW),
-                tir.IntImm("int32", _pH), tir.IntImm("int32", _pW),
+                "int32",
+                kernel_name,
+                ins[0].data,
+                outs[0].data,
+                tir.IntImm("int32", _N),
+                tir.IntImm("int32", _C),
+                tir.IntImm("int32", _H_in),
+                tir.IntImm("int32", _W_in),
+                tir.IntImm("int32", _H_out),
+                tir.IntImm("int32", _W_out),
+                tir.IntImm("int32", _kH),
+                tir.IntImm("int32", _kW),
+                tir.IntImm("int32", _sH),
+                tir.IntImm("int32", _sW),
+                tir.IntImm("int32", _pH),
+                tir.IntImm("int32", _pW),
             )
+
         return te.extern(
-            [_N, _C, _H_out, _W_out], [x_t], fcompute,
-            name="maxpool_out", dtype="int8",
+            [_N, _C, _H_out, _W_out],
+            [x_t],
+            fcompute,
+            name="maxpool_out",
+            dtype="int8",
         )
 
     bb = relax.BlockBuilder()
@@ -103,10 +113,8 @@ def _build_maxpool_module(kernel_name, N, C, H_in, W_in, H_out, W_out,
     return bb.finalize()
 
 
-def _run_maxpool(dsp_mode, kernel_name, x, N, C, H_in, W_in, H_out, W_out,
-                  kH, kW, sH, sW, pH, pW):
-    mod = _build_maxpool_module(kernel_name, N, C, H_in, W_in, H_out, W_out,
-                                 kH, kW, sH, sW, pH, pW)
+def _run_maxpool(dsp_mode, kernel_name, x, N, C, H_in, W_in, H_out, W_out, kH, kW, sH, sW, pH, pW):
+    mod = _build_maxpool_module(kernel_name, N, C, H_in, W_in, H_out, W_out, kH, kW, sH, sW, pH, pW)
     target = get_target_string(dsp_mode, use_cpp_api=True)
     results = compile_and_run_dsp(
         mod=mod,
@@ -146,8 +154,21 @@ def test_tidl_maxpool_resnet18_correctness(dsp_mode, record_cycles):
     ref = _numpy_max_pool(x, kH, kW, sH, sW, pH, pW)
 
     out_tidl, cycles = _run_maxpool(
-        dsp_mode, "c7x_int8_max_pool_tidl",
-        x, N, C, H, W, H_out, W_out, kH, kW, sH, sW, pH, pW,
+        dsp_mode,
+        "c7x_int8_max_pool_tidl",
+        x,
+        N,
+        C,
+        H,
+        W,
+        H_out,
+        W_out,
+        kH,
+        kW,
+        sH,
+        sW,
+        pH,
+        pW,
     )
 
     record_cycles("maxpool_tidl_112x112x64", cycles)
@@ -156,17 +177,14 @@ def test_tidl_maxpool_resnet18_correctness(dsp_mode, record_cycles):
         f"Output mismatch: max_diff={np.abs(out_tidl.astype(int) - ref.astype(int)).max()}"
     )
     if cycles:
-        print(f"\n  max pool 112×112×64: {cycles:,} cycles "
-              f"({cycles / 1e6:.2f} ms @ 1 GHz)")
+        print(f"\n  max pool 112×112×64: {cycles:,} cycles ({cycles / 1e6:.2f} ms @ 1 GHz)")
         if cycles < 5_000_000:
             print("  → TIDL vectorized kernel active")
         else:
             print("  → scalar fallback active (TIDL_MAXPOOL_USE_TIDL_KERNEL disabled)")
     # When TIDL kernel is active: expect < 5M; scalar fallback: ~18-19M.
     # Both are valid; the test documents the expected range for each path.
-    assert cycles == 0 or cycles < 25_000_000, (
-        f"Unexpectedly high cycle count: {cycles:,}"
-    )
+    assert cycles == 0 or cycles < 25_000_000, f"Unexpectedly high cycle count: {cycles:,}"
 
 
 @pytest.mark.quick
@@ -183,12 +201,38 @@ def test_tidl_vs_scalar_identical_output(dsp_mode):
     x = rng.integers(-128, 127, (N, C, H, W), dtype=np.int8)
 
     out_tidl, _ = _run_maxpool(
-        dsp_mode, "c7x_int8_max_pool_tidl",
-        x, N, C, H, W, H_out, W_out, kH, kW, sH, sW, pH, pW,
+        dsp_mode,
+        "c7x_int8_max_pool_tidl",
+        x,
+        N,
+        C,
+        H,
+        W,
+        H_out,
+        W_out,
+        kH,
+        kW,
+        sH,
+        sW,
+        pH,
+        pW,
     )
     out_scalar, _ = _run_maxpool(
-        dsp_mode, "c7x_int8_max_pool",
-        x, N, C, H, W, H_out, W_out, kH, kW, sH, sW, pH, pW,
+        dsp_mode,
+        "c7x_int8_max_pool",
+        x,
+        N,
+        C,
+        H,
+        W,
+        H_out,
+        W_out,
+        kH,
+        kW,
+        sH,
+        sW,
+        pH,
+        pW,
     )
 
     assert np.array_equal(out_tidl, out_scalar), (
@@ -213,8 +257,21 @@ def test_tidl_maxpool_padding_correctness(dsp_mode):
 
     ref = _numpy_max_pool(x, kH, kW, sH, sW, pH, pW)
     out, _ = _run_maxpool(
-        dsp_mode, "c7x_int8_max_pool_tidl",
-        x, N, C, H, W, H_out, W_out, kH, kW, sH, sW, pH, pW,
+        dsp_mode,
+        "c7x_int8_max_pool_tidl",
+        x,
+        N,
+        C,
+        H,
+        W,
+        H_out,
+        W_out,
+        kH,
+        kW,
+        sH,
+        sW,
+        pH,
+        pW,
     )
     assert np.array_equal(out, ref)
 
@@ -234,7 +291,168 @@ def test_tidl_maxpool_no_padding(dsp_mode):
 
     ref = _numpy_max_pool(x, kH, kW, sH, sW, pH, pW)
     out, _ = _run_maxpool(
-        dsp_mode, "c7x_int8_max_pool_tidl",
-        x, N, C, H, W, H_out, W_out, kH, kW, sH, sW, pH, pW,
+        dsp_mode,
+        "c7x_int8_max_pool_tidl",
+        x,
+        N,
+        C,
+        H,
+        W,
+        H_out,
+        W_out,
+        kH,
+        kW,
+        sH,
+        sW,
+        pH,
+        pW,
     )
     assert np.array_equal(out, ref)
+
+
+# ---------------------------------------------------------------------------
+# Tests: c7x_int8_max_pool scalar-symbol kernel (SE-vectorized fast path)
+#
+# Unlike the TIDL tests above, these run on both c7x_host and c7x_dload:
+# the fast path (max_pool_interior_fast in c7x_pool_relu.cpp) is a pure C7x
+# kernel with no TIDL dependency, and __C7524__ is defined by <c7x.h> itself
+# under host emulation too, so it's bit-exact-testable without hardware.
+# ---------------------------------------------------------------------------
+
+
+def _check_maxpool(dsp_mode, x, kH, kW, sH, sW, pH, pW, record_cycles=None, cycle_name=None):
+    if dsp_mode not in ("c7x_host", "c7x_dload"):
+        pytest.skip("requires c7x_host or c7x_dload")
+    N, C, H, W = x.shape
+    H_out = (H + 2 * pH - kH) // sH + 1
+    W_out = (W + 2 * pW - kW) // sW + 1
+    ref = _numpy_max_pool(x, kH, kW, sH, sW, pH, pW)
+    out, cycles = _run_maxpool(
+        dsp_mode,
+        "c7x_int8_max_pool",
+        x,
+        N,
+        C,
+        H,
+        W,
+        H_out,
+        W_out,
+        kH,
+        kW,
+        sH,
+        sW,
+        pH,
+        pW,
+    )
+    if record_cycles is not None and cycle_name is not None:
+        record_cycles(cycle_name, cycles)
+    assert np.array_equal(out, ref), (
+        f"max_diff={np.abs(out.astype(int) - ref.astype(int)).max()}, "
+        f"n_mismatch={np.sum(out != ref)}"
+    )
+    return cycles
+
+
+@pytest.mark.quick
+def test_scalar_symbol_maxpool_resnet18_fastpath(dsp_mode, record_cycles):
+    """3×3/s2/p1, 112×112×64 -> 56×56×64: the ResNet-18 fast-path target.
+
+    Interior is 55×55 (ph_lo,ph_hi=1,56; pw_lo,pw_hi=1,56) — not a multiple
+    of 8, so this exercises numBlocks=6 SE-vectorized blocks *and* a
+    7-column scalar remainder per row, plus a top/left-only border (no
+    bottom/right border for this exact shape: pH/sH divides evenly at the
+    far edge). C=64 exercises the per-channel loop at production scale.
+
+    Measured on AM67A/BeagleY-AI hardware (c7x_dload): ~6.14M cycles, a 3x
+    drop from the ~18.5M scalar baseline. The unvectorized 7-column
+    remainder (~222K scalar tap-comparisons across all 64 channels) costs
+    more than the 6-block SE-vectorized interior itself (~190K SE-advance+
+    max pairs, each producing 8 outputs) -- reaching TIDL's ~300-600K would
+    need vectorizing that remainder too, which is out of scope here (the
+    design intentionally leaves border/remainder handling to the scalar
+    path; see maxpool_vectorized_notidl.md's Scope boundaries).
+    """
+    rng = np.random.default_rng(10)
+    N, C, H, W = 1, 64, 112, 112
+    x = rng.integers(-128, 128, (N, C, H, W), dtype=np.int8)
+    cycles = _check_maxpool(
+        dsp_mode,
+        x,
+        3,
+        3,
+        2,
+        2,
+        1,
+        1,
+        record_cycles=record_cycles,
+        cycle_name="maxpool_scalar_symbol_resnet18",
+    )
+    if dsp_mode == "c7x_dload" and cycles:
+        print(f"\n  c7x_int8_max_pool fastpath 112×112×64: {cycles:,} cycles")
+        # Measured ~6.14M on hardware; 10M leaves headroom while still
+        # firmly gating against a regression to the ~18.5M scalar baseline.
+        assert cycles < 10_000_000, (
+            f"Fast path did not reduce cycles as expected: {cycles:,} "
+            "cycles (scalar baseline is ~18.5M)"
+        )
+
+
+_SHAPE_CASES = {
+    # 3x3/s1/p1, 28x28x32 (same-size pool): interior 26x26 -> numBlocks=3,
+    # colRem=2 -- a distinct blocks+remainder combination from a different
+    # shape (stride 1, no DECIM) than the ResNet-18 case above.
+    "3x3_stride1": (11, 1, 32, 28, 28, 3, 3, 1, 1, 1, 1),
+    # 2x2/s2/p0, 8x8: interior=4 < 8, so numBlocks=0 and the entire interior
+    # falls through the scalar column-remainder path -- the fast SE loop
+    # never fires. Also has zero border (p0), unlike every other case.
+    "2x2_stride2_below_vector_width": (12, 1, 1, 8, 8, 2, 2, 2, 2, 0, 0),
+    # 2x2/s2/p0, 32x32x4: interior=16 -> numBlocks=2, colRem=0 (clean
+    # block-only path, no remainder). C=4 exercises the per-channel loop for
+    # this shape -- the ResNet-18 case above is otherwise the only
+    # multi-channel test in this file.
+    "2x2_stride2_multichannel": (13, 1, 4, 32, 32, 2, 2, 2, 2, 0, 0),
+    # 3x3/s2/p1 on a 3x3 input -> 1x1 output: ph_lo==ph_hi==1 (zero interior
+    # rows/cols). The fast path must recognize rows<=0/numBlocks<=0 and
+    # no-op cleanly, leaving the border strips to cover the entire
+    # (degenerate, all-border) output -- the one case where a missed guard
+    # on the DECIM-based fast path would show up.
+    "zero_interior": (14, 1, 1, 3, 3, 3, 3, 2, 2, 1, 1),
+    # 5x5/s1/p2 ("same" pool with a 5x5 window): not in the fast-path shape
+    # table, so the whole image must use max_pool_scalar_rect -- confirms no
+    # regression for shapes outside the fast path.
+    "non_eligible_fallback": (15, 1, 2, 16, 16, 5, 5, 1, 1, 2, 2),
+}
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(
+    "seed, N, C, H, W, kH, kW, sH, sW, pH, pW",
+    _SHAPE_CASES.values(),
+    ids=_SHAPE_CASES.keys(),
+)
+def test_scalar_symbol_maxpool_shapes(dsp_mode, seed, N, C, H, W, kH, kW, sH, sW, pH, pW):
+    """See _SHAPE_CASES above for what each case exercises."""
+    rng = np.random.default_rng(seed)
+    x = rng.integers(-128, 128, (N, C, H, W), dtype=np.int8)
+    _check_maxpool(dsp_mode, x, kH, kW, sH, sW, pH, pW)
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize("value", [-128, 127], ids=["all_min", "all_max"])
+def test_scalar_symbol_maxpool_saturating_constant(dsp_mode, value):
+    """Constant -128 / 127 input on the stride-2 fast path: stresses the
+    vector max-reduction and __vstore_pack_byte at the int8 sign boundary,
+    which random inputs don't reliably hit."""
+    N, C, H, W = 1, 2, 20, 20
+    x = np.full((N, C, H, W), value, dtype=np.int8)
+    _check_maxpool(dsp_mode, x, 3, 3, 2, 2, 1, 1)
+
+
+@pytest.mark.quick
+def test_scalar_symbol_maxpool_saturating_checkerboard(dsp_mode):
+    """Alternating -128/127 checkerboard on the stride-2 fast path."""
+    N, C, H, W = 1, 2, 20, 20
+    idx = np.indices((H, W)).sum(axis=0) % 2
+    plane = np.where(idx == 0, -128, 127).astype(np.int8)
+    x = np.broadcast_to(plane, (N, C, H, W)).copy()
+    _check_maxpool(dsp_mode, x, 3, 3, 2, 2, 1, 1)
