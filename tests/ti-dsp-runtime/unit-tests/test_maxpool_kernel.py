@@ -398,9 +398,13 @@ def test_scalar_symbol_maxpool_resnet18_fastpath(dsp_mode, record_cycles):
 
 
 _SHAPE_CASES = {
-    # 3x3/s1/p1, 28x28x32 (same-size pool): interior 26x26 -> numBlocks=3,
-    # colRem=2 -- a distinct blocks+remainder combination from a different
-    # shape (stride 1, no DECIM) than the ResNet-18 case above.
+    # 3x3/s1/p1, 28x28x32 (same-size pool): interior 26x26. Routes through
+    # max_pool_interior_fast_dualrow (all 3x3/s1 shapes do), but interior
+    # width 26 < dual_block_width (30), so numBlocks_dual=0 here and the
+    # SE0/SE1 vectorized reduction never actually fires -- this case only
+    # exercises the early-return guard and the all-scalar-remainder path.
+    # See the dualrow_* cases below for shapes that actually run the
+    # vectorized path.
     "3x3_stride1": (11, 1, 32, 28, 28, 3, 3, 1, 1, 1, 1),
     # 2x2/s2/p0, 8x8: interior=4 < 8, so numBlocks=0 and the entire interior
     # falls through the scalar column-remainder path -- the fast SE loop
@@ -421,6 +425,22 @@ _SHAPE_CASES = {
     # table, so the whole image must use max_pool_scalar_rect -- confirms no
     # regression for shapes outside the fast path.
     "non_eligible_fallback": (15, 1, 2, 16, 16, 5, 5, 1, 1, 2, 2),
+    # 3x3/s1/p1, 64x64x2: interior 62x62 (even row count -> row_pairs=31,
+    # no trailing row), interior_w=62 -> numBlocks_dual=2, remainder=2.
+    # First case wide/tall enough to actually run max_pool_interior_fast_
+    # dualrow's SE0/SE1 vectorized reduction (vertical-max + horizontal
+    # shift), not just its early-return guard.
+    "dualrow_even_rows": (16, 1, 2, 64, 64, 3, 3, 1, 1, 1, 1),
+    # 3x3/s1/p1, 63x64x2 (H odd, W even): interior rows=61 (odd ->
+    # row_pairs=30 + one trailing row), interior_w=62 (numBlocks_dual=2,
+    # remainder=2). Exercises the trailing-row fallback to the single-row
+    # max_pool_interior_fast, and its own (differently-sized) remainder
+    # split, alongside the paired rows' remainder.
+    "dualrow_odd_rows": (17, 1, 2, 63, 64, 3, 3, 1, 1, 1, 1),
+    # 3x3/s1/p1, 34x32x1: interior rows=32 (even), interior_w=30 -- exactly
+    # one dual_block_width-wide block, remainder=0. Isolates the pure
+    # block-only path (no remainder noise) for the vectorized reduction.
+    "dualrow_exact_block_multiple": (18, 1, 1, 34, 32, 3, 3, 1, 1, 1, 1),
 }
 
 
@@ -446,6 +466,19 @@ def test_scalar_symbol_maxpool_saturating_constant(dsp_mode, value):
     N, C, H, W = 1, 2, 20, 20
     x = np.full((N, C, H, W), value, dtype=np.int8)
     _check_maxpool(dsp_mode, x, 3, 3, 2, 2, 1, 1)
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize("value", [-128, 127], ids=["all_min", "all_max"])
+def test_scalar_symbol_maxpool_dualrow_saturating_constant(dsp_mode, value):
+    """Constant -128 / 127 input on the 3x3/s1 dualrow path (64x64, same
+    shape as dualrow_even_rows above): stresses the unpromoted __char32
+    max-reduction and register-shift horizontal combine at the int8 sign
+    boundary -- a different arithmetic path than the promoted-__int8
+    stride-2 fast path above, so needs its own saturating-value check."""
+    N, C, H, W = 1, 2, 64, 64
+    x = np.full((N, C, H, W), value, dtype=np.int8)
+    _check_maxpool(dsp_mode, x, 3, 3, 1, 1, 1, 1)
 
 
 @pytest.mark.quick
