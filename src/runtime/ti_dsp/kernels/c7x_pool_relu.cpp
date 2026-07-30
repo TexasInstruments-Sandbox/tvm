@@ -106,6 +106,12 @@ static const int32_t kFastpathMaxWidth = 128;
  * never drift apart. */
 static const int32_t kFastpathEleCount = 8;
 
+/* C7524: 32 int8 lanes/advance -- the full vector width used (unpromoted)
+ * by max_pool_interior_fast_dualrow below. Same sharing rationale as
+ * kFastpathEleCount: the dispatcher's own numBlocks/remainder computation
+ * for the dualrow path must use the identical value. */
+static const int32_t kDualRowVecWidth = 32;
+
 /* =========================================================================
  * max_pool_interior_fast — SE-vectorized windowed max, one call per
  * (kH, kW, sW) shape. Templated instead of duplicated per shape: kH*kW (the
@@ -181,6 +187,158 @@ static void max_pool_interior_fast(
     __SE0_CLOSE();
 }
 
+/* =========================================================================
+ * max_pool_interior_fast_dualrow — two output rows per pass, stride-1
+ * shapes only (kW deinterleave for stride-2 shapes is future work; see
+ * maxpool_vectorized_notidl.md and the two-output-rows-per-pass follow-on
+ * plan). Structurally different from max_pool_interior_fast above, not an
+ * extension of it: this fetches each of the kH window rows once (kH SE
+ * advances, not kH*kW) and gets the kW-1 remaining horizontal taps by
+ * *shifting* the vertically-reduced row instead of re-fetching — so the
+ * full window costs kH fetches + (kH-1)+(kW-1) __max calls, not kH*kW
+ * fetches + kH*kW-1 max calls. This restructuring, not just adding a
+ * second SE stream, is what a real accelerated max-pool kernel actually
+ * does; verified against (not copied from) TI's own C7x max-pool
+ * implementation for understanding only.
+ *
+ * No PROMOTE here (unlike max_pool_interior_fast): __max exists directly
+ * on unpromoted __char32/__uchar32, and max has no overflow/accuracy need
+ * for int32 headroom the way rescale arithmetic does. That also means a
+ * fetch covers 32 raw int8 columns per SE advance (this device's full
+ * vector width) instead of 8 post-promotion lanes.
+ *
+ * Two Streaming Engines process two *adjacent* output rows concurrently:
+ * SE0's kH-row window is this pair's first output row's; SE1's is the
+ * next output row's, based exactly sH input rows below SE0's (same
+ * template, offset base address only -- the same dual-SE pattern already
+ * proven in this codebase by c7x_residual_add.cpp, not the mismatched-
+ * template pattern avgpool's history flagged as a hang risk).
+ *
+ * Horizontal-shift boundary handling: __shift_right_full zero-fills the
+ * vacated tail lanes rather than pulling in the next block's data (I
+ * confirmed this empirically -- host-emulation intrinsic behavior isn't
+ * fully nailed down by the ISA doc comments alone), so the last kW-1
+ * lanes of every 32-lane fetch are unusable as outputs. Each SE advance
+ * therefore only yields `kVecWidth - (kW - 1)` valid output columns, and
+ * consecutive column-block fetches overlap in their raw reads by kW-1
+ * columns to cover the gap -- DIM2 below is the output-block width, not
+ * the fetch width. Mirrors this file's existing scratch+memcpy idiom, one
+ * level narrower: a plain vector store (no __vstore_pack_byte -- m0/m1 are
+ * already byte-wide, nothing to pack down from) writes the full (partially
+ * garbage) 32-lane result into a small scratch, and only the valid prefix
+ * gets memcpy'd into the real per-block position -- no predicated store
+ * needed.
+ * ========================================================================= */
+
+/* __shift_right_full's shift amount must be a genuine compile-time
+ * constant on the real cl7x cross-compiler (host emulation's C++ library
+ * implementation is more lenient and accepts a runtime argument, which is
+ * how this got past c7x_host but failed cl7x with "input argument is not
+ * a valid constant"). ShiftBytes as a template parameter, instantiated
+ * only at literal call sites below, keeps the argument a literal. */
+template <int32_t ShiftBytes>
+static inline __char32 shift_right_bytes(__char32 v) {
+    __long4 s = __shift_right_full(
+        *reinterpret_cast<__long4*>(&v), (uint8_t)(8 * ShiftBytes));
+    return *reinterpret_cast<__char32*>(&s);
+}
+
+template <int32_t kH, int32_t kW>
+static void max_pool_interior_fast_dualrow(
+        const int8_t* in_bc, int8_t* out_bc,
+        int32_t W_in, int32_t sH, int32_t W_out, int32_t pH, int32_t pW,
+        int32_t ph_lo, int32_t pw_lo, int32_t pw_hi, int32_t row_pairs,
+        int32_t numBlocks) {
+    static_assert(kW == 2 || kW == 3,
+                  "horizontal reduction below is hand-unrolled for kW 2-3 only");
+    const int32_t block_out_width = kDualRowVecWidth - (kW - 1);
+
+    if (row_pairs <= 0 || numBlocks <= 0) return;
+
+    __SE_TEMPLATE_v1 se = __gen_SE_TEMPLATE_v1();
+    se.ELETYPE = __SE_ELETYPE_8BIT;
+    se.VECLEN  = __SE_VECLEN_32ELEMS;
+    se.DIMFMT  = __SE_DIMFMT_4D;
+    se.ICNT0   = kDualRowVecWidth;
+    se.ICNT1   = kH; se.DIM1 = W_in;                     /* kh: vertical tap */
+    se.ICNT2   = numBlocks; se.DIM2 = block_out_width;    /* column blocks */
+    se.ICNT3   = row_pairs; se.DIM3 = 2 * sH * W_in;      /* row-pair loop */
+
+    const int8_t* base0 = in_bc + (ph_lo * sH - pH) * W_in + (pw_lo - pW);
+    const int8_t* base1 = base0 + sH * W_in;
+    __SE0_OPEN(const_cast<int8_t*>(base0), se);
+    __SE1_OPEN(const_cast<int8_t*>(base1), se);
+
+    int8_t row_scratch0[kFastpathMaxWidth];
+    int8_t row_scratch1[kFastpathMaxWidth];
+    int8_t tmp0[kDualRowVecWidth];
+    int8_t tmp1[kDualRowVecWidth];
+
+    for (int32_t rp = 0; rp < row_pairs; rp++) {
+        for (int32_t b = 0; b < numBlocks; b++) {
+            /* Vertical max: kH row-fetches, kH-1 __max calls. */
+            __char32 m0 = __SE0ADV(char32);
+            for (int32_t kh = 1; kh < kH; kh++) m0 = __max(m0, __SE0ADV(char32));
+            __char32 m1 = __SE1ADV(char32);
+            for (int32_t kh = 1; kh < kH; kh++) m1 = __max(m1, __SE1ADV(char32));
+
+            /* Horizontal max: kW-1 taps via register shift of the
+             * vertically-reduced row (no re-fetch). Each shift is taken
+             * from the original vertically-maxed row (vmax0/vmax1), not
+             * the progressively-updated m0/m1 -- shifting an
+             * already-shifted result would combine kw+1 taps instead of
+             * exactly kw taps by the last iteration. Tail (kW-1) lanes of
+             * the shifted view are zero-filled (confirmed empirically),
+             * not real neighbor data -- harmless here since only the
+             * leading block_out_width lanes of m0/m1 ever get copied out
+             * below. Unrolled by hand (kW == 2 or 3 only, matching this
+             * file's eligible-shape table) rather than a runtime loop over
+             * shift amounts: see shift_right_bytes's comment. */
+            const __char32 vmax0 = m0;
+            const __char32 vmax1 = m1;
+            m0 = __max(m0, shift_right_bytes<1>(vmax0));
+            m1 = __max(m1, shift_right_bytes<1>(vmax1));
+            if (kW >= 3) {
+                m0 = __max(m0, shift_right_bytes<2>(vmax0));
+                m1 = __max(m1, shift_right_bytes<2>(vmax1));
+            }
+
+            *reinterpret_cast<__char32*>(tmp0) = m0;
+            memcpy(row_scratch0 + b * block_out_width, tmp0, block_out_width);
+            *reinterpret_cast<__char32*>(tmp1) = m1;
+            memcpy(row_scratch1 + b * block_out_width, tmp1, block_out_width);
+        }
+        memcpy(out_bc + (ph_lo + 2 * rp) * W_out + pw_lo,
+               row_scratch0, numBlocks * block_out_width);
+        memcpy(out_bc + (ph_lo + 2 * rp + 1) * W_out + pw_lo,
+               row_scratch1, numBlocks * block_out_width);
+    }
+
+    __SE0_CLOSE();
+    __SE1_CLOSE();
+}
+
+/* Shared by both fastpath branches in c7x_int8_max_pool below: apply the
+ * (up to 4) border strips outside the interior rectangle, skipping any
+ * range collapsed to empty (e.g. the common case where padding only
+ * touches one edge, as in the ResNet-18 3x3/s2/p1 shape, or not at all, as
+ * in the 2x2/s2/p0 shape). */
+static void apply_border_ranges(
+        const int8_t* in_bc, int8_t* out_bc,
+        int32_t H_in, int32_t W_in, int32_t W_out,
+        int32_t kH, int32_t kW, int32_t sH, int32_t sW, int32_t pH, int32_t pW,
+        const int32_t border_ranges[4][4]) {
+    for (int32_t r = 0; r < 4; r++) {
+        if (border_ranges[r][0] >= border_ranges[r][1] ||
+            border_ranges[r][2] >= border_ranges[r][3])
+            continue;
+        max_pool_scalar_rect(
+            in_bc, out_bc, H_in, W_in, W_out, kH, kW, sH, sW, pH, pW,
+            border_ranges[r][0], border_ranges[r][1],
+            border_ranges[r][2], border_ranges[r][3]);
+    }
+}
+
 #endif  /* __C7524__ */
 
 extern "C"
@@ -215,35 +373,75 @@ int32_t c7x_int8_max_pool(
         const int32_t ph_hi = (H_in - kH + pH) / sH + 1;
         const int32_t pw_lo = (pW + sW - 1) / sW;
         const int32_t pw_hi = (W_in - kW + pW) / sW + 1;
-        const int32_t numBlocks = (pw_hi - pw_lo) / kFastpathEleCount;
 
-        /* Shape -> template instantiation is a per-call constant, not a
-         * per-channel one: pick the function once instead of re-branching
-         * on every (b, c) iteration below. All three instantiations share
-         * one signature, so a plain function pointer works. */
-        using FastPathFn = void (*)(const int8_t*, int8_t*, int32_t, int32_t,
-                                     int32_t, int32_t, int32_t, int32_t,
-                                     int32_t, int32_t, int32_t);
-        const FastPathFn fastpath_fn =
-            shape_3x3_s1 ? &max_pool_interior_fast<3, 3, 1>
-            : shape_3x3_s2 ? &max_pool_interior_fast<3, 3, 2>
-                           : &max_pool_interior_fast<2, 2, 2>;
-
-        /* Everything outside the interior rectangle: the column remainder
-         * (interior width not a multiple of kFastpathEleCount) plus the 4
-         * border strips (top/bottom full-width, then left/right of the
-         * middle row band) — same partition avg_pool's border_ranges uses.
-         * Also a per-call constant; built once, iterated per (b, c) below,
-         * skipping any range collapsed to empty (e.g. the common case where
-         * padding only touches one edge, as in the ResNet-18 3x3/s2/p1
-         * shape, or not at all, as in the 2x2/s2/p0 shape). */
-        const int32_t border_ranges[5][4] = {
-            {ph_lo, ph_hi, pw_lo + numBlocks * kFastpathEleCount, pw_hi},
+        /* Border strips outside the interior rectangle: top/bottom
+         * full-width, then left/right of the middle row band — same
+         * partition avg_pool's border_ranges uses. Shape-agnostic (both
+         * branches below cover the full [ph_lo,ph_hi) interior between
+         * them), so computed once for either path. */
+        const int32_t border_ranges[4][4] = {
             {0, ph_lo, 0, W_out},
             {ph_hi, H_out, 0, W_out},
             {ph_lo, ph_hi, 0, pw_lo},
             {ph_lo, ph_hi, pw_hi, W_out},
         };
+
+        if (shape_3x3_s1) {
+            /* Two-output-rows-per-pass path (max_pool_interior_fast_dualrow):
+             * pairs of adjacent interior rows via SE0+SE1; a trailing odd
+             * row (if the interior row count is odd) falls back to the
+             * single-row max_pool_interior_fast, which has its own,
+             * differently-sized column-remainder split (its block width is
+             * kFastpathEleCount, not the dualrow path's 32-(kW-1)). */
+            const int32_t row_pairs = (ph_hi - ph_lo) / 2;
+            const int32_t trailing_ph = ph_lo + row_pairs * 2;
+            const int32_t dual_block_width = kDualRowVecWidth - (kW - 1);
+            const int32_t num_blocks_dual = (pw_hi - pw_lo) / dual_block_width;
+            const int32_t num_blocks_single = (pw_hi - pw_lo) / kFastpathEleCount;
+
+            for (int32_t b = 0; b < N; b++) {
+                for (int32_t c = 0; c < C; c++) {
+                    const int8_t* in_bc  = p + (b * C + c) * H_in  * W_in;
+                    int8_t*       out_bc = q + (b * C + c) * H_out * W_out;
+
+                    max_pool_interior_fast_dualrow<3, 3>(
+                        in_bc, out_bc, W_in, sH, W_out, pH, pW,
+                        ph_lo, pw_lo, pw_hi, row_pairs, num_blocks_dual);
+                    max_pool_scalar_rect(
+                        in_bc, out_bc, H_in, W_in, W_out, kH, kW, sH, sW, pH, pW,
+                        ph_lo, trailing_ph,
+                        pw_lo + num_blocks_dual * dual_block_width, pw_hi);
+
+                    if (trailing_ph < ph_hi) {
+                        max_pool_interior_fast<3, 3, 1>(
+                            in_bc, out_bc, W_in, sH, W_out, pH, pW,
+                            trailing_ph, trailing_ph + 1, pw_lo, pw_hi);
+                        max_pool_scalar_rect(
+                            in_bc, out_bc, H_in, W_in, W_out, kH, kW, sH, sW, pH, pW,
+                            trailing_ph, trailing_ph + 1,
+                            pw_lo + num_blocks_single * kFastpathEleCount, pw_hi);
+                    }
+
+                    apply_border_ranges(in_bc, out_bc, H_in, W_in, W_out,
+                                        kH, kW, sH, sW, pH, pW, border_ranges);
+                }
+            }
+            return 0;
+        }
+
+        /* shape_3x3_s2 / shape_2x2_s2: single-row fast path, unchanged. */
+        const int32_t numBlocks = (pw_hi - pw_lo) / kFastpathEleCount;
+
+        /* Shape -> template instantiation is a per-call constant, not a
+         * per-channel one: pick the function once instead of re-branching
+         * on every (b, c) iteration below. Both instantiations share one
+         * signature, so a plain function pointer works. */
+        using FastPathFn = void (*)(const int8_t*, int8_t*, int32_t, int32_t,
+                                     int32_t, int32_t, int32_t, int32_t,
+                                     int32_t, int32_t, int32_t);
+        const FastPathFn fastpath_fn =
+            shape_3x3_s2 ? &max_pool_interior_fast<3, 3, 2>
+                         : &max_pool_interior_fast<2, 2, 2>;
 
         for (int32_t b = 0; b < N; b++) {
             for (int32_t c = 0; c < C; c++) {
@@ -252,8 +450,11 @@ int32_t c7x_int8_max_pool(
 
                 fastpath_fn(in_bc, out_bc, W_in, sH, W_out, pH, pW,
                             ph_lo, ph_hi, pw_lo, pw_hi);
+                max_pool_scalar_rect(
+                    in_bc, out_bc, H_in, W_in, W_out, kH, kW, sH, sW, pH, pW,
+                    ph_lo, ph_hi, pw_lo + numBlocks * kFastpathEleCount, pw_hi);
 
-                for (int32_t r = 0; r < 5; r++) {
+                for (int32_t r = 0; r < 4; r++) {
                     if (border_ranges[r][0] >= border_ranges[r][1] ||
                         border_ranges[r][2] >= border_ranges[r][3])
                         continue;
