@@ -357,20 +357,23 @@ def _check_maxpool(dsp_mode, x, kH, kW, sH, sW, pH, pW, record_cycles=None, cycl
 def test_scalar_symbol_maxpool_resnet18_fastpath(dsp_mode, record_cycles):
     """3×3/s2/p1, 112×112×64 -> 56×56×64: the ResNet-18 fast-path target.
 
-    Interior is 55×55 (ph_lo,ph_hi=1,56; pw_lo,pw_hi=1,56) — not a multiple
-    of 8, so this exercises numBlocks=6 SE-vectorized blocks *and* a
-    7-column scalar remainder per row, plus a top/left-only border (no
-    bottom/right border for this exact shape: pH/sH divides evenly at the
-    far edge). C=64 exercises the per-channel loop at production scale.
+    Interior is 55×55 (ph_lo,ph_hi=1,56; pw_lo,pw_hi=1,56); routes through
+    max_pool_interior_fast_dualrow_s2 (row_pairs=27 + 1 trailing row).
+    dual_block_width=15 gives num_blocks_dual=3 with a 10-column
+    remainder -- covered by the tail-overlap block (one more, slightly
+    redundant, vectorized block landing exactly on pw_hi) rather than the
+    scalar path. C=64 exercises the per-channel loop at production scale.
 
-    Measured on AM67A/BeagleY-AI hardware (c7x_dload): ~6.14M cycles, a 3x
-    drop from the ~18.5M scalar baseline. The unvectorized 7-column
-    remainder (~222K scalar tap-comparisons across all 64 channels) costs
-    more than the 6-block SE-vectorized interior itself (~190K SE-advance+
-    max pairs, each producing 8 outputs) -- reaching TIDL's ~300-600K would
-    need vectorizing that remainder too, which is out of scope here (the
-    design intentionally leaves border/remainder handling to the scalar
-    path; see maxpool_vectorized_notidl.md's Scope boundaries).
+    Measured on AM67A/BeagleY-AI hardware (c7x_dload): ~2.73M cycles, a
+    6.8x drop from the ~18.5M scalar baseline. This wasn't the first
+    number measured here: the initial
+    two-output-rows-per-pass port (no tail-overlap, plain scalar
+    remainder) actually *regressed* to ~6.92M vs. the single-row stride-2
+    path's ~6.15M -- the wider dual_block_width (15 vs. the single-row
+    path's 8) left a larger remainder for this specific width (55), and
+    the extra scalar work outweighed the vectorized win. The tail-overlap
+    block (see max_pool_interior_fast_dualrow_s2's comment) fixed that by
+    eliminating the remainder scalar path entirely instead of shrinking it.
     """
     rng = np.random.default_rng(10)
     N, C, H, W = 1, 64, 112, 112
@@ -389,9 +392,10 @@ def test_scalar_symbol_maxpool_resnet18_fastpath(dsp_mode, record_cycles):
     )
     if dsp_mode == "c7x_dload" and cycles:
         print(f"\n  c7x_int8_max_pool fastpath 112×112×64: {cycles:,} cycles")
-        # Measured ~6.14M on hardware; 10M leaves headroom while still
-        # firmly gating against a regression to the ~18.5M scalar baseline.
-        assert cycles < 10_000_000, (
+        # Measured ~2.73M on hardware; 4M leaves headroom while still
+        # firmly gating against a regression to either the ~18.5M scalar
+        # baseline or the ~6.15M/~6.92M single-row/pre-tail-overlap points.
+        assert cycles < 4_000_000, (
             f"Fast path did not reduce cycles as expected: {cycles:,} "
             "cycles (scalar baseline is ~18.5M)"
         )
@@ -406,14 +410,18 @@ _SHAPE_CASES = {
     # See the dualrow_* cases below for shapes that actually run the
     # vectorized path.
     "3x3_stride1": (11, 1, 32, 28, 28, 3, 3, 1, 1, 1, 1),
-    # 2x2/s2/p0, 8x8: interior=4 < 8, so numBlocks=0 and the entire interior
-    # falls through the scalar column-remainder path -- the fast SE loop
-    # never fires. Also has zero border (p0), unlike every other case.
+    # 2x2/s2/p0, 8x8: interior=4. Routes through
+    # max_pool_interior_fast_dualrow_s2 (all 2x2/s2 shapes do), but
+    # dual_block_width for kW=2 is 16, so num_blocks_dual=0 here -- the
+    # vectorized pack_consec combination never fires, only the early-return
+    # guard and the all-scalar-remainder path. Also has zero border (p0),
+    # unlike every other case. See the dualrow_s2_* cases below for shapes
+    # that actually run the vectorized path.
     "2x2_stride2_below_vector_width": (12, 1, 1, 8, 8, 2, 2, 2, 2, 0, 0),
-    # 2x2/s2/p0, 32x32x4: interior=16 -> numBlocks=2, colRem=0 (clean
-    # block-only path, no remainder). C=4 exercises the per-channel loop for
-    # this shape -- the ResNet-18 case above is otherwise the only
-    # multi-channel test in this file.
+    # 2x2/s2/p0, 32x32x4: interior=16 -> num_blocks_dual=1 (dual_block_width
+    # =16 for kW=2, no boundary loss), remainder=0 -- exercises the
+    # vectorized pack_consec(vmax1,vmax0) combination for kW=2 (no
+    # shift_right_bytes term needed). C=4 exercises the per-channel loop.
     "2x2_stride2_multichannel": (13, 1, 4, 32, 32, 2, 2, 2, 2, 0, 0),
     # 3x3/s2/p1 on a 3x3 input -> 1x1 output: ph_lo==ph_hi==1 (zero interior
     # rows/cols). The fast path must recognize rows<=0/numBlocks<=0 and
@@ -441,6 +449,27 @@ _SHAPE_CASES = {
     # one dual_block_width-wide block, remainder=0. Isolates the pure
     # block-only path (no remainder noise) for the vectorized reduction.
     "dualrow_exact_block_multiple": (18, 1, 1, 34, 32, 3, 3, 1, 1, 1, 1),
+    # 3x3/s2/p1, 34x34x2: interior 16x16 (even rows -> row_pairs=8, no
+    # trailing), interior_w=16 -> num_blocks_dual=1 (dual_block_width=15
+    # for kW=3), remainder=1. First case sized to actually run
+    # max_pool_interior_fast_dualrow_s2's pack_consec-based vectorized
+    # combination for the stride-2 shape family.
+    "dualrow_s2_3x3_even_rows": (19, 1, 2, 34, 34, 3, 3, 2, 2, 1, 1),
+    # 3x3/s2/p1, 32x34x2 (H odd interior, W even interior): interior
+    # rows=15 (odd -> row_pairs=7 + one trailing row), interior_w=16
+    # (num_blocks_dual=1, remainder=1). Exercises the trailing-row fallback
+    # for the stride-2 dualrow path specifically.
+    "dualrow_s2_3x3_odd_rows": (20, 1, 2, 32, 34, 3, 3, 2, 2, 1, 1),
+    # 3x3/s2/p1, 34x62x1: interior 16x30 -> num_blocks_dual=2, remainder=0
+    # -- clean block-only path (no remainder noise) for kW=3's
+    # shift_right_bytes<1> combination term.
+    "dualrow_s2_3x3_exact_block_multiple": (21, 1, 1, 34, 62, 3, 3, 2, 2, 1, 1),
+    # 2x2/s2/p0, 16x64x2: interior 8x32 (even rows -> row_pairs=4, no
+    # trailing), num_blocks_dual=2 (dual_block_width=16), remainder=0.
+    "dualrow_s2_2x2_even_rows": (22, 1, 2, 16, 64, 2, 2, 2, 2, 0, 0),
+    # 2x2/s2/p0, 14x64x2: interior rows=7 (odd -> row_pairs=3 + trailing),
+    # num_blocks_dual=2, remainder=0. Trailing-row fallback for kW=2.
+    "dualrow_s2_2x2_odd_rows": (23, 1, 2, 14, 64, 2, 2, 2, 2, 0, 0),
 }
 
 
@@ -460,10 +489,25 @@ def test_scalar_symbol_maxpool_shapes(dsp_mode, seed, N, C, H, W, kH, kW, sH, sW
 @pytest.mark.quick
 @pytest.mark.parametrize("value", [-128, 127], ids=["all_min", "all_max"])
 def test_scalar_symbol_maxpool_saturating_constant(dsp_mode, value):
-    """Constant -128 / 127 input on the stride-2 fast path: stresses the
-    vector max-reduction and __vstore_pack_byte at the int8 sign boundary,
-    which random inputs don't reliably hit."""
+    """Constant -128 / 127 input on the 3x3/s2 shape at 20x20: too narrow
+    (interior_w=9 < dual_block_width=15) to reach the vectorized
+    pack_consec combination -- exercises the scalar remainder/border paths
+    at the sign boundary. See
+    test_scalar_symbol_maxpool_dualrow_s2_saturating_constant below for a
+    size that actually reaches the vectorized path."""
     N, C, H, W = 1, 2, 20, 20
+    x = np.full((N, C, H, W), value, dtype=np.int8)
+    _check_maxpool(dsp_mode, x, 3, 3, 2, 2, 1, 1)
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize("value", [-128, 127], ids=["all_min", "all_max"])
+def test_scalar_symbol_maxpool_dualrow_s2_saturating_constant(dsp_mode, value):
+    """Constant -128 / 127 input on the 3x3/s2 dualrow path (34x34, same
+    shape as dualrow_s2_3x3_even_rows above): stresses the pack_consec
+    deinterleave-and-combine plus shift_right_bytes<1> at the int8 sign
+    boundary."""
+    N, C, H, W = 1, 2, 34, 34
     x = np.full((N, C, H, W), value, dtype=np.int8)
     _check_maxpool(dsp_mode, x, 3, 3, 2, 2, 1, 1)
 

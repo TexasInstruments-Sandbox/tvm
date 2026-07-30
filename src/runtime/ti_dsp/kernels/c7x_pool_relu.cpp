@@ -318,6 +318,148 @@ static void max_pool_interior_fast_dualrow(
     __SE1_CLOSE();
 }
 
+/* =========================================================================
+ * max_pool_interior_fast_dualrow_s2 — two output rows per pass, stride-2
+ * shapes (3x3/s2, 2x2/s2). Structurally different from the stride-1
+ * dualrow path above, not a variant of it: stride-2 needs to both
+ * deinterleave (keep every 2nd raw column) and combine the two streams'
+ * rows, which __pack_consec_low/high do simultaneously. This is *why*
+ * this path doesn't use DECIM_2 (the mechanism the older single-row
+ * max_pool_interior_fast uses for its stride-2 shapes): DECIM_2 discards
+ * exactly the odd-column data a register-shift tap reuse would need, so
+ * it doesn't compose with this design the way pack_consec does.
+ *
+ * Semantics confirmed empirically against this exact C7524 target via a
+ * standalone host-emulation probe before this function was written (not
+ * assumed from documentation, which doesn't disambiguate the byte-level
+ * VBPACKH/VBPACKL behavior clearly enough to be sure):
+ *   pack_consec_low(A, B)  = { evens(B) in lanes [0,16), evens(A) in [16,32) }
+ *   pack_consec_high(A, B) = { odds(B)  in lanes [0,16), odds(A)  in [16,32) }
+ * So pack_consec_low(vmax1, vmax0) puts stream0's (vmax0's) even columns
+ * in the LOW half and stream1's (vmax1's) even columns in the HIGH half:
+ * one combined vector holding both output rows, deinterleaved by stride
+ * in the same operation -- no separate row-combine step needed.
+ *
+ * For kW==3, the third tap (kw=2) is "the next even column" relative to
+ * vA's own lanes: a 1-lane shift of vA itself (shift_right_bytes<1>), not
+ * a further pack_consec call. That shift crosses from the low half into
+ * the high half at lane 15->16, so lane 15 (stream0's last lane) and lane
+ * 31 (stream1's last lane, shifted-in as zero) are not valid outputs --
+ * confirmed by the same probe. So each half yields only
+ * (kDualRowVecWidth/2)-1 valid output columns for kW==3, not
+ * kDualRowVecWidth/2; for kW==2 no shift is needed (hmax=max(vA,vB)
+ * directly) and all kDualRowVecWidth/2 lanes per half are valid. This was
+ * cross-checked against (not copied from) TI's own reported tile-advance
+ * for the equivalent 3x3/stride-2 case, for understanding only.
+ * ========================================================================= */
+
+/* Vertical max (kH row-fetches from whichever SE0/SE1 session is currently
+ * open) + horizontal pack_consec/shift combination -- the per-block body
+ * shared by max_pool_interior_fast_dualrow_s2's main block loop and its
+ * tail-overlap pass below, so the combination logic isn't duplicated
+ * between them. */
+template <int32_t kH, int32_t kW>
+static inline __char32 dualrow_s2_block_hmax() {
+    __char32 vmax0 = __SE0ADV(char32);
+    for (int32_t kh = 1; kh < kH; kh++) vmax0 = __max(vmax0, __SE0ADV(char32));
+    __char32 vmax1 = __SE1ADV(char32);
+    for (int32_t kh = 1; kh < kH; kh++) vmax1 = __max(vmax1, __SE1ADV(char32));
+
+    __char32 vA = __pack_consec_low(vmax1, vmax0);
+    __char32 vB = __pack_consec_high(vmax1, vmax0);
+    if (kW == 3) return __max(vA, __max(vB, shift_right_bytes<1>(vA)));
+    return __max(vA, vB);
+}
+
+/* Open SE0/SE1 at (pw_lo_local, numBlocks_local) and run the full
+ * row-pair x block loop -- shared by max_pool_interior_fast_dualrow_s2's
+ * main pass (numBlocks_local = num_blocks_dual, at pw_lo) and its
+ * tail-overlap pass (numBlocks_local = 1, at a different offset). The
+ * tail is not a structurally distinct case: with ICNT2 = 1 the "column
+ * blocks" loop dimension simply doesn't iterate a second time, so one
+ * shared 4D template covers both -- no separate 3D template needed. */
+template <int32_t kH, int32_t kW>
+static void dualrow_s2_process_blocks(
+        const int8_t* in_bc, int8_t* out_bc,
+        int32_t W_in, int32_t sH, int32_t W_out, int32_t pH, int32_t pW,
+        int32_t ph_lo, int32_t pw_lo_local, int32_t row_pairs,
+        int32_t numBlocks_local) {
+    const int32_t half_width = kDualRowVecWidth / 2;                 /* 16 */
+    const int32_t block_out_width = half_width - (kW == 3 ? 1 : 0);  /* 15 or 16 */
+    const int32_t raw_block_advance = 2 * block_out_width;           /* sW == 2 */
+
+    __SE_TEMPLATE_v1 se = __gen_SE_TEMPLATE_v1();
+    se.ELETYPE = __SE_ELETYPE_8BIT;
+    se.VECLEN  = __SE_VECLEN_32ELEMS;
+    se.DIMFMT  = __SE_DIMFMT_4D;
+    se.ICNT0   = kDualRowVecWidth;
+    se.ICNT1   = kH; se.DIM1 = W_in;                              /* kh: vertical tap */
+    se.ICNT2   = numBlocks_local; se.DIM2 = raw_block_advance;    /* column blocks */
+    se.ICNT3   = row_pairs; se.DIM3 = 2 * sH * W_in;              /* row-pair loop */
+
+    const int8_t* base0 = in_bc + (ph_lo * sH - pH) * W_in + (pw_lo_local * 2 - pW);
+    const int8_t* base1 = base0 + sH * W_in;
+    __SE0_OPEN(const_cast<int8_t*>(base0), se);
+    __SE1_OPEN(const_cast<int8_t*>(base1), se);
+
+    int8_t row_scratch0[kFastpathMaxWidth];
+    int8_t row_scratch1[kFastpathMaxWidth];
+    int8_t tmp[kDualRowVecWidth];
+
+    for (int32_t rp = 0; rp < row_pairs; rp++) {
+        for (int32_t b = 0; b < numBlocks_local; b++) {
+            __char32 hmax = dualrow_s2_block_hmax<kH, kW>();
+            *reinterpret_cast<__char32*>(tmp) = hmax;
+            memcpy(row_scratch0 + b * block_out_width, tmp, block_out_width);
+            memcpy(row_scratch1 + b * block_out_width, tmp + half_width, block_out_width);
+        }
+        memcpy(out_bc + (ph_lo + 2 * rp) * W_out + pw_lo_local,
+               row_scratch0, numBlocks_local * block_out_width);
+        memcpy(out_bc + (ph_lo + 2 * rp + 1) * W_out + pw_lo_local,
+               row_scratch1, numBlocks_local * block_out_width);
+    }
+
+    __SE0_CLOSE();
+    __SE1_CLOSE();
+}
+
+template <int32_t kH, int32_t kW>
+static void max_pool_interior_fast_dualrow_s2(
+        const int8_t* in_bc, int8_t* out_bc,
+        int32_t W_in, int32_t sH, int32_t W_out, int32_t pH, int32_t pW,
+        int32_t ph_lo, int32_t pw_lo, int32_t pw_hi, int32_t row_pairs,
+        int32_t numBlocks) {
+    static_assert(kW == 2 || kW == 3,
+                  "horizontal combination below is hand-unrolled for kW 2-3 only");
+    const int32_t block_out_width = kDualRowVecWidth / 2 - (kW == 3 ? 1 : 0);
+
+    if (row_pairs <= 0) return;
+
+    if (numBlocks > 0) {
+        dualrow_s2_process_blocks<kH, kW>(in_bc, out_bc, W_in, sH, W_out, pH, pW,
+                                           ph_lo, pw_lo, row_pairs, numBlocks);
+    }
+
+    /* Tail-overlap block: if the interior width isn't a multiple of
+     * block_out_width, do ONE more block positioned so it lands exactly on
+     * pw_hi -- overlapping (redundantly recomputing, harmlessly) the tail
+     * of the last regular block -- instead of falling back to the much
+     * slower scalar remainder path. This is what turned stage 3 from a
+     * regression on the ResNet-18 shape (interior_w=55, block_out_width=15
+     * leaves a 10-column remainder) into a net win: the caller skips its
+     * own remainder max_pool_scalar_rect call whenever this path is taken
+     * (see c7x_int8_max_pool below) since this fully covers [pw_lo, pw_hi)
+     * on its own. Only applies when there's at least one full block's
+     * worth of width to overlap into; narrower interiors are left entirely
+     * to the caller's scalar fallback, same as the numBlocks<=0 case. */
+    const int32_t interior_w = pw_hi - pw_lo;
+    if (interior_w > numBlocks * block_out_width && interior_w >= block_out_width) {
+        dualrow_s2_process_blocks<kH, kW>(in_bc, out_bc, W_in, sH, W_out, pH, pW,
+                                           ph_lo, pw_hi - block_out_width,
+                                           row_pairs, /*numBlocks_local=*/1);
+    }
+}
+
 /* Shared by both fastpath branches in c7x_int8_max_pool below: apply the
  * (up to 4) border strips outside the interior rectangle, skipping any
  * range collapsed to empty (e.g. the common case where padding only
@@ -337,6 +479,31 @@ static void apply_border_ranges(
             border_ranges[r][0], border_ranges[r][1],
             border_ranges[r][2], border_ranges[r][3]);
     }
+}
+
+using FastPathFn = void (*)(const int8_t*, int8_t*, int32_t, int32_t,
+                             int32_t, int32_t, int32_t, int32_t,
+                             int32_t, int32_t, int32_t);
+
+/* Shared by both fastpath branches in c7x_int8_max_pool below: when the
+ * dual-row interior row count is odd, the one trailing row falls back to
+ * single_row_fn (always max_pool_interior_fast<kH,kW,sW> for whichever
+ * shape is active), plus its own column-remainder split -- block width
+ * kFastpathEleCount, not either dual-row path's wider block. */
+static void apply_trailing_row_fallback(
+        const int8_t* in_bc, int8_t* out_bc,
+        int32_t H_in, int32_t W_in, int32_t W_out,
+        int32_t kH, int32_t kW, int32_t sH, int32_t sW, int32_t pH, int32_t pW,
+        int32_t trailing_ph, int32_t ph_hi, int32_t pw_lo, int32_t pw_hi,
+        FastPathFn single_row_fn) {
+    if (trailing_ph >= ph_hi) return;
+    single_row_fn(in_bc, out_bc, W_in, sH, W_out, pH, pW,
+                  trailing_ph, trailing_ph + 1, pw_lo, pw_hi);
+    const int32_t num_blocks_single = (pw_hi - pw_lo) / kFastpathEleCount;
+    max_pool_scalar_rect(
+        in_bc, out_bc, H_in, W_in, W_out, kH, kW, sH, sW, pH, pW,
+        trailing_ph, trailing_ph + 1,
+        pw_lo + num_blocks_single * kFastpathEleCount, pw_hi);
 }
 
 #endif  /* __C7524__ */
@@ -386,6 +553,18 @@ int32_t c7x_int8_max_pool(
             {ph_lo, ph_hi, pw_hi, W_out},
         };
 
+        /* Row-pairing and the trailing-odd-row split are shape-agnostic
+         * (both dual-row paths below pair up interior rows the same way),
+         * so computed once for either branch. The trailing row always
+         * falls back to the single-row max_pool_interior_fast, whichever
+         * shape's instantiation applies. */
+        const int32_t row_pairs = (ph_hi - ph_lo) / 2;
+        const int32_t trailing_ph = ph_lo + row_pairs * 2;
+        const FastPathFn single_row_fn =
+            shape_3x3_s1 ? &max_pool_interior_fast<3, 3, 1>
+            : shape_3x3_s2 ? &max_pool_interior_fast<3, 3, 2>
+                           : &max_pool_interior_fast<2, 2, 2>;
+
         if (shape_3x3_s1) {
             /* Two-output-rows-per-pass path (max_pool_interior_fast_dualrow):
              * pairs of adjacent interior rows via SE0+SE1; a trailing odd
@@ -393,11 +572,8 @@ int32_t c7x_int8_max_pool(
              * single-row max_pool_interior_fast, which has its own,
              * differently-sized column-remainder split (its block width is
              * kFastpathEleCount, not the dualrow path's 32-(kW-1)). */
-            const int32_t row_pairs = (ph_hi - ph_lo) / 2;
-            const int32_t trailing_ph = ph_lo + row_pairs * 2;
             const int32_t dual_block_width = kDualRowVecWidth - (kW - 1);
             const int32_t num_blocks_dual = (pw_hi - pw_lo) / dual_block_width;
-            const int32_t num_blocks_single = (pw_hi - pw_lo) / kFastpathEleCount;
 
             for (int32_t b = 0; b < N; b++) {
                 for (int32_t c = 0; c < C; c++) {
@@ -412,16 +588,9 @@ int32_t c7x_int8_max_pool(
                         ph_lo, trailing_ph,
                         pw_lo + num_blocks_dual * dual_block_width, pw_hi);
 
-                    if (trailing_ph < ph_hi) {
-                        max_pool_interior_fast<3, 3, 1>(
-                            in_bc, out_bc, W_in, sH, W_out, pH, pW,
-                            trailing_ph, trailing_ph + 1, pw_lo, pw_hi);
-                        max_pool_scalar_rect(
-                            in_bc, out_bc, H_in, W_in, W_out, kH, kW, sH, sW, pH, pW,
-                            trailing_ph, trailing_ph + 1,
-                            pw_lo + num_blocks_single * kFastpathEleCount, pw_hi);
-                    }
-
+                    apply_trailing_row_fallback(
+                        in_bc, out_bc, H_in, W_in, W_out, kH, kW, sH, sW, pH, pW,
+                        trailing_ph, ph_hi, pw_lo, pw_hi, single_row_fn);
                     apply_border_ranges(in_bc, out_bc, H_in, W_in, W_out,
                                         kH, kW, sH, sW, pH, pW, border_ranges);
                 }
@@ -429,40 +598,51 @@ int32_t c7x_int8_max_pool(
             return 0;
         }
 
-        /* shape_3x3_s2 / shape_2x2_s2: single-row fast path, unchanged. */
-        const int32_t numBlocks = (pw_hi - pw_lo) / kFastpathEleCount;
+        /* shape_3x3_s2 / shape_2x2_s2: two-output-rows-per-pass stride-2
+         * path (max_pool_interior_fast_dualrow_s2). Same row-pairing +
+         * trailing-odd-row-fallback structure as shape_3x3_s1 above, but a
+         * different block width (pack_consec-based, half-vector-width
+         * minus 1 for kW==3, or the full half-vector-width for kW==2 --
+         * see that function's comment) and its own SE1 kh-tap dispatch
+         * since kH/kW differ (3 vs 2) between the two shapes sharing this
+         * branch. */
+        const int32_t dual_block_width =
+            kDualRowVecWidth / 2 - (shape_3x3_s2 ? 1 : 0);
+        const int32_t num_blocks_dual = (pw_hi - pw_lo) / dual_block_width;
 
-        /* Shape -> template instantiation is a per-call constant, not a
-         * per-channel one: pick the function once instead of re-branching
-         * on every (b, c) iteration below. Both instantiations share one
-         * signature, so a plain function pointer works. */
-        using FastPathFn = void (*)(const int8_t*, int8_t*, int32_t, int32_t,
-                                     int32_t, int32_t, int32_t, int32_t,
-                                     int32_t, int32_t, int32_t);
-        const FastPathFn fastpath_fn =
-            shape_3x3_s2 ? &max_pool_interior_fast<3, 3, 2>
-                         : &max_pool_interior_fast<2, 2, 2>;
+        /* Shape -> template instantiation is a per-call constant: pick
+         * once instead of re-branching every (b, c). */
+        using DualRowS2Fn = void (*)(const int8_t*, int8_t*, int32_t, int32_t,
+                                      int32_t, int32_t, int32_t, int32_t,
+                                      int32_t, int32_t, int32_t, int32_t);
+        const DualRowS2Fn dualrow_s2_fn =
+            shape_3x3_s2 ? &max_pool_interior_fast_dualrow_s2<3, 3>
+                         : &max_pool_interior_fast_dualrow_s2<2, 2>;
 
         for (int32_t b = 0; b < N; b++) {
             for (int32_t c = 0; c < C; c++) {
                 const int8_t* in_bc  = p + (b * C + c) * H_in  * W_in;
                 int8_t*       out_bc = q + (b * C + c) * H_out * W_out;
 
-                fastpath_fn(in_bc, out_bc, W_in, sH, W_out, pH, pW,
-                            ph_lo, ph_hi, pw_lo, pw_hi);
-                max_pool_scalar_rect(
-                    in_bc, out_bc, H_in, W_in, W_out, kH, kW, sH, sW, pH, pW,
-                    ph_lo, ph_hi, pw_lo + numBlocks * kFastpathEleCount, pw_hi);
-
-                for (int32_t r = 0; r < 4; r++) {
-                    if (border_ranges[r][0] >= border_ranges[r][1] ||
-                        border_ranges[r][2] >= border_ranges[r][3])
-                        continue;
+                dualrow_s2_fn(in_bc, out_bc, W_in, sH, W_out, pH, pW,
+                              ph_lo, pw_lo, pw_hi, row_pairs, num_blocks_dual);
+                /* max_pool_interior_fast_dualrow_s2 covers the *entire*
+                 * [pw_lo, pw_hi) width itself via its tail-overlap block
+                 * whenever there's at least one full block (num_blocks_dual
+                 * > 0) -- no remainder call needed in that case. Only
+                 * num_blocks_dual == 0 (which the function does nothing
+                 * for) needs the full width scalar'd here. */
+                if (num_blocks_dual == 0) {
                     max_pool_scalar_rect(
                         in_bc, out_bc, H_in, W_in, W_out, kH, kW, sH, sW, pH, pW,
-                        border_ranges[r][0], border_ranges[r][1],
-                        border_ranges[r][2], border_ranges[r][3]);
+                        ph_lo, trailing_ph, pw_lo, pw_hi);
                 }
+
+                apply_trailing_row_fallback(
+                    in_bc, out_bc, H_in, W_in, W_out, kH, kW, sH, sW, pH, pW,
+                    trailing_ph, ph_hi, pw_lo, pw_hi, single_row_fn);
+                apply_border_ranges(in_bc, out_bc, H_in, W_in, W_out,
+                                    kH, kW, sH, sW, pH, pW, border_ranges);
             }
         }
         return 0;
