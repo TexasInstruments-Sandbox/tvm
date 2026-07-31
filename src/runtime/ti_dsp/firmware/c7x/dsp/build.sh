@@ -51,34 +51,14 @@ done
 # Backward-compat: TIDL defaulted ON unconditionally before --tidl existed.
 TVM_TIDL="${TVM_TIDL:-ON}"
 
-# Effective MMALIB: CMakeLists force-enables MMALIB whenever TIDL is ON
-# (TIDL's algo lib has unresolved MMALIB_CNN_*/MMALIB_LINALG_* symbols).
-# Mirror that here so the build-dir key and the banner reflect what is
-# actually linked -- otherwise both misreport MMALIB=OFF on a default build.
-MMALIB="${TVM_MMALIB:-OFF}"
-[ "$TVM_TIDL" = "ON" ] && MMALIB="ON"
-
-# Board/ddr -> build-dir suffix (naming only; cmake/boards.cmake is the
-# sole source of truth for what actually gets built).
-BOARD="${TVM_BOARD:-j722s-evm}"
-if [ -n "$TVM_DDR" ]; then
-    DDR="$TVM_DDR"
-elif [ "$BOARD" = "beagley-ai" ]; then
-    DDR="4gb"
-else
-    DDR="8gb"
-fi
-BUILD_SUFFIX=""
-if [ "$BOARD" != "j722s-evm" ] || [ "$DDR" != "8gb" ]; then
-    BUILD_SUFFIX="-${BOARD}-${DDR}"
-fi
-# Non-default TIDL/MMALIB also key the build dir so switching --tidl/--mmalib
-# never reuses a stale build (same guarantee as --board/--ddr). The default
-# (TIDL=ON, which forces MMALIB=ON) keeps the plain 'build/' name for
-# backward compat; only no-TIDL builds get a suffix.
-if [ "$TVM_TIDL" != "ON" ]; then
-    BUILD_SUFFIX="${BUILD_SUFFIX}-tidl-${TVM_TIDL}-mmalib-${MMALIB}"
-fi
+# Board/ddr/tidl/mmalib -> build-dir suffix. Shared with build_runtime.sh
+# and firmware/c7x/arm/build.sh so all three always agree on where a
+# given board's artifacts live; cmake/boards.cmake remains the sole
+# source of truth for what actually gets built. Also sets MMALIB (the
+# CMakeLists force-enables MMALIB whenever TIDL is ON, so this mirrors
+# that here for the build-dir key and the banner below).
+source "${SCRIPT_DIR}/../../../board_build_dir.sh"
+resolve_board_build_dir
 BUILD_DIR="${SCRIPT_DIR}/build${BUILD_SUFFIX}"
 
 # Plain strings, not arrays: values are always simple enum tokens (no

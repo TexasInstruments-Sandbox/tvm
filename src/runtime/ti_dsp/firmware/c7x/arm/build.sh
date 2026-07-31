@@ -37,20 +37,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Board/ddr -> build-dir suffix (naming only; cmake/boards.cmake is the
-# sole source of truth for what actually gets built).
-BOARD="${TVM_BOARD:-j722s-evm}"
-if [ -n "$TVM_DDR" ]; then
-    DDR="$TVM_DDR"
-elif [ "$BOARD" = "beagley-ai" ]; then
-    DDR="4gb"
-else
-    DDR="8gb"
-fi
-BUILD_SUFFIX=""
-if [ "$BOARD" != "j722s-evm" ] || [ "$DDR" != "8gb" ]; then
-    BUILD_SUFFIX="-${BOARD}-${DDR}"
-fi
+# Board/ddr -> build-dir suffix. Shared with build_runtime.sh and
+# firmware/c7x/dsp/build.sh so all three always agree on where a given
+# board's artifacts live; cmake/boards.cmake remains the sole source of
+# truth for what actually gets built.
+source "${SCRIPT_DIR}/../../../board_build_dir.sh"
+resolve_board_build_dir
 BUILD_DIR="${SCRIPT_DIR}/build${BUILD_SUFFIX}"
 
 # Plain string, not an array: values are always simple enum tokens (no

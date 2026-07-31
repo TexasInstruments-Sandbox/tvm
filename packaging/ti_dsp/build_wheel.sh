@@ -9,12 +9,16 @@
 #   - TVM built (cmake + ninja) with libtvm.so in $TVM_HOME/build/
 #   - DSP runtime built: build_runtime.sh c7x_host && build_runtime.sh c7x
 #   - Firmware built: firmware/c7x/dsp/build.sh && firmware/c7x/arm/build.sh
-#   - TIDL .so built (for x86 wheel only)
+#   - TIDL .so built (x86 wheel only, and only when --tidl ON, the default --
+#     matches firmware/c7x/dsp/build.sh's own --tidl convention. beagley-ai
+#     firmware is always built --tidl OFF, so its x86 wheel needs --tidl OFF
+#     here too; no TIDL bridge/source files get bundled in that case)
 #   - Python packages: pip install build
 #
 # Usage:
-#   bash packaging/ti_dsp/build_wheel.sh                # x86 compile wheel
-#   bash packaging/ti_dsp/build_wheel.sh --target arm64  # aarch64 inference wheel
+#   bash packaging/ti_dsp/build_wheel.sh                       # x86 compile wheel
+#   bash packaging/ti_dsp/build_wheel.sh --target arm64         # aarch64 inference wheel
+#   bash packaging/ti_dsp/build_wheel.sh --tidl OFF              # x86 wheel, no TIDL
 #
 # Environment variables:
 #   TVM_HOME           - TVM repo root (default: script's grandparent dir)
@@ -33,15 +37,22 @@ DSP_RT="$TVM_HOME/src/runtime/ti_dsp"
 
 # --- Parse arguments ---
 TARGET="x86"
+TIDL="ON"
 while [ $# -gt 0 ]; do
     case "$1" in
         --target) TARGET="$2"; shift 2 ;;
+        --tidl) TIDL="$2"; shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
 
 if [[ "$TARGET" != "x86" && "$TARGET" != "arm64" ]]; then
     echo "ERROR: --target must be x86 or arm64 (got: $TARGET)"
+    exit 1
+fi
+
+if [[ "$TIDL" != "ON" && "$TIDL" != "OFF" ]]; then
+    echo "ERROR: --tidl must be ON or OFF (got: $TIDL)"
     exit 1
 fi
 
@@ -72,6 +83,7 @@ build_x86() {
     echo "=== tvm-ti-c7x-compile wheel (x86) ==="
     echo "  TVM_HOME:      $TVM_HOME"
     echo "  DSP_BUILD_NUM: $DSP_BUILD_NUM"
+    echo "  TIDL:          $TIDL"
     echo ""
 
     # --- Validate ---
@@ -86,13 +98,16 @@ build_x86() {
     check_file "$DSP_RT/firmware/c7x/arm/build/c7x_compute" \
         "Build ARM client: cd firmware/c7x/arm && ./build.sh"
 
-    TIDL_SO="${TIDL_RELAX_SO:-}"
-    if [ -z "$TIDL_SO" ]; then
-        C7X_TIDL="${C7X_MMA_TIDL_PATH:-$HOME/ml/c7x-mma-tidl}"
-        TIDL_SO="$C7X_TIDL/ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
+    TIDL_SO=""
+    if [ "$TIDL" = "ON" ]; then
+        TIDL_SO="${TIDL_RELAX_SO:-}"
+        if [ -z "$TIDL_SO" ]; then
+            C7X_TIDL="${C7X_MMA_TIDL_PATH:-$HOME/ml/c7x-mma-tidl}"
+            TIDL_SO="$C7X_TIDL/ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
+        fi
+        check_file "$TIDL_SO" \
+            "Build TIDL .so or set TIDL_RELAX_SO / C7X_MMA_TIDL_PATH (or pass --tidl OFF for a beagley-ai-style no-TIDL wheel)"
     fi
-    check_file "$TIDL_SO" \
-        "Build TIDL .so or set TIDL_RELAX_SO / C7X_MMA_TIDL_PATH"
 
     # --- Clean ---
     rm -rf "$STAGING"
@@ -143,11 +158,14 @@ build_x86() {
 
     # TIDL — copy both the TVM bridge and its runtime dependency so the
     # dynamic linker can find tidl_model_custom_import.so when loading
-    # tidl_model_import_relax.so from the installed wheel path.
-    cp "$TIDL_SO" "$DATA/tidl/"
-    TIDL_CUSTOM="$(dirname "$TIDL_SO")/tidl_model_custom_import.so"
-    if [ -f "$TIDL_CUSTOM" ]; then
-        cp "$TIDL_CUSTOM" "$DATA/tidl/"
+    # tidl_model_import_relax.so from the installed wheel path. Skipped
+    # entirely for --tidl OFF (e.g. beagley-ai, which never builds TIDL).
+    if [ "$TIDL" = "ON" ]; then
+        cp "$TIDL_SO" "$DATA/tidl/"
+        TIDL_CUSTOM="$(dirname "$TIDL_SO")/tidl_model_custom_import.so"
+        if [ -f "$TIDL_CUSTOM" ]; then
+            cp "$TIDL_CUSTOM" "$DATA/tidl/"
+        fi
     fi
     # TIDL API C sources compiled into lib0.out when USE_TIDL=ON.
     # dynmod/CMakeLists.txt references ${DSP_RUNTIME_DIR}/tidl/*.c directly.
