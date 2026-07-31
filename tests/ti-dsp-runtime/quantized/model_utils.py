@@ -168,6 +168,15 @@ class YOLOWrapper(nn.Module):
             self.model = yolo_model.model
         else:
             self.model = yolo_model
+        if version == "v26":
+            # yolo26's Detect head defaults to the NMS-free "one2one" deploy
+            # branch, which returns post-topk [1, 300, 6] boxes (already
+            # thresholded/selected), not a raw per-anchor tensor. Force the
+            # auxiliary "one2many" branch instead, which decodes to a
+            # [1, 4+nc, anchors] tensor structurally analogous to v5/v8's
+            # raw detection tensor (yolo26 has reg_max=1, i.e. no DFL — box
+            # regression is direct, unlike v5/v8's distribution-based DFL).
+            self.model.model[-1].end2end = False
         self.model.eval()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -207,7 +216,12 @@ def _load_yolov5(model_name: str):
 
 
 def _load_yolov8(model_name: str):
-    """Load YOLOv8 model via ultralytics package."""
+    """Load a YOLOv8/YOLO26 model via the ultralytics package.
+
+    The ultralytics.YOLO() constructor loads any model architecture the
+    installed ultralytics package recognizes by checkpoint name, so this
+    loader is not v8-specific — it's reused as-is for yolo26.
+    """
     from ultralytics import YOLO  # noqa: PLC0415
 
     model = YOLO(f"{model_name}.pt")
@@ -241,8 +255,10 @@ def _load_yolo_calibration_frames(size: int = 320) -> list:
 def create_quantized_yolo_model(model_name: str, version: str, seed: int = 42) -> tuple:
     """Create INT8 quantized YOLO model. Input: [1, 3, 320, 320].
 
-    model_name: e.g. "yolov5n", "yolov5s", "yolov8n", "yolov8s".
-    version: "v5" or "v8" — selects the loader (torch.hub vs ultralytics).
+    model_name: e.g. "yolov5n", "yolov5s", "yolov8n", "yolov8s", "yolo26n".
+    version: "v5" (torch.hub loader) or "v8"/"v26" (ultralytics package
+    loader — identical loading code; "v26" additionally forces yolo26's
+    one2many detection head in YOLOWrapper, see its docstring).
     """
     raw_model = _load_yolov5(model_name) if version == "v5" else _load_yolov8(model_name)
     wrapped = YOLOWrapper(raw_model, version=version).eval()
