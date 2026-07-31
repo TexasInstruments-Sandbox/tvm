@@ -173,6 +173,7 @@ SECTIONS
 --import=c7x_int8_layer_norm
 --import=c7x_int8_concat_rescale
 --import=c7x_sdpa_decode
+--import=c7x_topk
 
 /* TVM platform */
 --import=tvm_dsp_alloc

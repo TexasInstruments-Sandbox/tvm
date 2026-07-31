@@ -165,18 +165,28 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
 
     # MMALIB path: skip NHWC, custom int16 legalization.
     # Non-MMALIB path: convert to NHWC, default legalization.
+    # relax.topk has no default TIR legalization on this backend (its only
+    # CPU lowering is a packed-function call via DispatchSortScan, which
+    # c_static's pipeline never runs and whose standalone-C executables
+    # couldn't satisfy anyway -- see ti_c7x_topk_legalize.py). Register the
+    # C7x kernel-backed legalization for it on every c7x target, independent
+    # of -mmalib=1.
+    custom_legalize_map = {}
+    if is_c7x:
+        from tvm.relax.transform.ti_c7x_topk_legalize import c7x_topk_legalize
+
+        custom_legalize_map["relax.topk"] = c7x_topk_legalize
     if is_c7x and target.attrs.get("mmalib", False):
         from tvm.relax.transform.ti_mmalib_passes import get_mmalib_legalize_map
 
-        passes.append(
-            tvm.relax.transform.LegalizeOps(
-                customize_legalize_map=get_mmalib_legalize_map()
-            )
-        )
+        custom_legalize_map.update(get_mmalib_legalize_map())
+        passes.append(tvm.relax.transform.LegalizeOps(customize_legalize_map=custom_legalize_map))
     else:
         if is_c7x:
             passes.append(_ConvertLayoutNHWC())
-        passes.append(tvm.relax.transform.LegalizeOps())
+        passes.append(
+            tvm.relax.transform.LegalizeOps(customize_legalize_map=custom_legalize_map or None)
+        )
     passes += [
         tvm.relax.transform.AnnotateTIROpPattern(),
         tvm.relax.transform.FoldConstant(),

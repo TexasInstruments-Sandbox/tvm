@@ -101,6 +101,7 @@ if(TVM_DSP_TARGET STREQUAL "host")
         kernels/c7x_quantize.cpp
         kernels/c7x_dequantize_vecmatmul.cpp
         kernels/c7x_sdpa_decode.cpp
+        kernels/c7x_topk.cpp
     )
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wno-unused-parameter")
 
@@ -150,6 +151,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x")
         kernels/c7x_quantize.cpp
         kernels/c7x_dequantize_vecmatmul.cpp
         kernels/c7x_sdpa_decode.cpp
+        kernels/c7x_topk.cpp
     )
     # Enable assembly language for C7x
     enable_language(ASM)
@@ -193,6 +195,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
         kernels/c7x_quantize.cpp
         kernels/c7x_dequantize_vecmatmul.cpp
         kernels/c7x_sdpa_decode.cpp
+        kernels/c7x_topk.cpp
     )
     # TI C7000 Host Emulation library
     if(DEFINED ENV{TI_CGT_C7000_PATH})

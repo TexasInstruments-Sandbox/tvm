@@ -168,15 +168,18 @@ class YOLOWrapper(nn.Module):
             self.model = yolo_model.model
         else:
             self.model = yolo_model
-        if version == "v26":
-            # yolo26's Detect head defaults to the NMS-free "one2one" deploy
-            # branch, which returns post-topk [1, 300, 6] boxes (already
-            # thresholded/selected), not a raw per-anchor tensor. Force the
-            # auxiliary "one2many" branch instead, which decodes to a
-            # [1, 4+nc, anchors] tensor structurally analogous to v5/v8's
-            # raw detection tensor (yolo26 has reg_max=1, i.e. no DFL — box
-            # regression is direct, unlike v5/v8's distribution-based DFL).
-            self.model.model[-1].end2end = False
+        # yolo26 ("v26") runs its default NMS-free "one2one" deploy head
+        # (end2end=True), returning already-selected [1, 300, 6] detections
+        # (x1,y1,x2,y2,confidence,class_idx) — its actual production
+        # inference path, not the auxiliary "one2many" training branch.
+        # This requires three fixes elsewhere: _div/_rsub dtype handling and
+        # _index_tensor's ndim computation in base_fx_graph_translator.py
+        # (the postprocess's `ori_index[arange, index // nc]` needs both),
+        # and C7xMMAQuantizer's _TRANSPARENT_OPS skipping any flatten that
+        # feeds a topk (see c7x_mma_quantizer.py) — without it, the
+        # score-ranking flatten->topk gets quantized with a scale calibrated
+        # for tiny sigmoid probabilities, corrupting which detections topk
+        # selects.
         self.model.eval()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -257,8 +260,8 @@ def create_quantized_yolo_model(model_name: str, version: str, seed: int = 42) -
 
     model_name: e.g. "yolov5n", "yolov5s", "yolov8n", "yolov8s", "yolo26n".
     version: "v5" (torch.hub loader) or "v8"/"v26" (ultralytics package
-    loader — identical loading code; "v26" additionally forces yolo26's
-    one2many detection head in YOLOWrapper, see its docstring).
+    loader — identical loading code). "v26" runs yolo26's real one2one
+    deploy head; see YOLOWrapper's docstring for what that requires.
     """
     raw_model = _load_yolov5(model_name) if version == "v5" else _load_yolov8(model_name)
     wrapped = YOLOWrapper(raw_model, version=version).eval()

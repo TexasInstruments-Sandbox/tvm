@@ -554,9 +554,15 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         inp_1 = args[0]
         inp_2 = args[1]
 
-        # Handle scalar cases
+        # Handle scalar cases -- match the constant's dtype to the tensor
+        # operand's dtype (relax.const()'s bare default remaps python int to
+        # int32 unconditionally, which breaks e.g. an int64 tensor // int).
         if isinstance(inp_2, (int, float)):
-            inp_2 = relax.const(inp_2)
+            dtype = inp_1.struct_info.dtype if isinstance(inp_1, relax.Expr) else None
+            inp_2 = relax.const(inp_2, dtype)
+        elif isinstance(inp_1, (int, float)):
+            dtype = inp_2.struct_info.dtype if isinstance(inp_2, relax.Expr) else None
+            inp_1 = relax.const(inp_1, dtype)
 
         # Get rounding_mode from node kwargs
         rounding_mode = args[2] if len(node.args) > 2 else node.kwargs.get("rounding_mode", None)
@@ -595,7 +601,8 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         rhs = args[1]
 
         if isinstance(rhs, (int, float)):
-            rhs = relax.const(rhs)
+            dtype = lhs.struct_info.dtype if isinstance(lhs, relax.Expr) else None
+            rhs = relax.const(rhs, dtype)
 
         return self.block_builder.emit(relax.op.subtract(rhs, lhs))
 
@@ -1937,7 +1944,11 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         # they were not contiguous (the "move to front" rule) -- both produced
         # by the same permute+index_tensor pair, just a different final
         # permutation.
-        ndim = len(indices)
+        # `indices` may be shorter than data's ndim -- aten.index.Tensor
+        # implicitly treats any trailing dims not covered by `indices` as
+        # full slices (untouched), so ndim must come from the tensor itself,
+        # not len(indices).
+        ndim = data.struct_info.ndim
         real_axes = [i for i, _ in non_none_indices]
         real_indices = [idx for _, idx in non_none_indices]
         untouched_axes = [i for i in range(ndim) if i not in real_axes]

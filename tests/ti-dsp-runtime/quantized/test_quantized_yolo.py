@@ -8,15 +8,24 @@ TIDL offload path: MMALIB bakes quantization scales into the compiled code at
 build time, so there is no separate PC-calibration inference step to
 disagree with the DSP (the source of TIDL's documented DFL-softmax NaN).
 
-yolo26 has no DFL (reg_max=1, direct box regression) and defaults to an
-NMS-free "one2one" deploy head; YOLOWrapper (model_utils.py) forces its
-auxiliary "one2many" head instead, which still yields a raw per-anchor
-detection tensor structurally analogous to v5/v8's.
+v5/v8 return a single raw per-anchor detection tensor; NMS is not exercised
+for them (same scope as the source test). Those tensors mix small-magnitude
+box regression with bounded-range class scores, so pass/fail uses cosine
+similarity rather than element-wise tolerance.
 
-All 4 variants return a single raw detection tensor; NMS is not exercised
-here (same scope as the source test). Detection tensors mix small-magnitude
-box regression with bounded-range class scores, so — like the source test —
-pass/fail uses cosine similarity rather than element-wise tolerance.
+yolo26 ("v26") runs its actual production one2one head (NMS-free, internal
+top-k selection) instead — see YOLOWrapper's docstring in model_utils.py for
+the three fixes this required. Its output is already-selected [1,300,6]
+detections ([x1,y1,x2,y2,confidence,class_idx]), not a raw per-anchor tensor,
+so a single flattened cosine similarity is the wrong metric: DSP (real
+MMALIB kernel) and quantized_gm (PyTorch's fake-quant simulation) are two
+*different* int8 implementations of the *same* quantized graph, and topk's
+selection boundary is inherently sensitive to tiny numeric differences
+between them — a near-tied candidate can legitimately swap which anchor
+"wins" on one side vs. the other, producing a totally different row at that
+index despite both being correct. yolo26 instead uses greedy IoU+class
+matching (see _match_fraction) between the two detection sets, which is
+robust to that kind of legitimate reordering.
 
 --mmalib is required (tests skip without it): the non-MMALIB path runs
 _ConvertLayoutNHWC, whose NCHW fallback for YOLO's 3D detection-head
@@ -72,6 +81,48 @@ def _skip_yolo_if_no_ultralytics(model_name):
     )
 
 
+def _iou_xyxy(box_a: np.ndarray, box_b: np.ndarray) -> float:
+    """IoU between two [x1, y1, x2, y2] boxes."""
+    x1 = max(box_a[0], box_b[0])
+    y1 = max(box_a[1], box_b[1])
+    x2 = min(box_a[2], box_b[2])
+    y2 = min(box_a[3], box_b[3])
+    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    area_a = max(0.0, box_a[2] - box_a[0]) * max(0.0, box_a[3] - box_a[1])
+    area_b = max(0.0, box_b[2] - box_b[0]) * max(0.0, box_b[3] - box_b[1])
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _match_fraction(dsp_dets: np.ndarray, ref_dets: np.ndarray, iou_thresh: float = 0.5) -> float:
+    """Fraction of dsp_dets rows with a same-class ref_dets match at IoU >= iou_thresh.
+
+    Greedy, single-pass matching (each ref row used at most once, best IoU
+    wins) — the standard way to compare two detection sets when row order
+    isn't expected to align (see module docstring). dsp_dets/ref_dets are
+    [N, 6] arrays of [x1, y1, x2, y2, confidence, class_idx]. O(N*M), fine
+    for N, M <= a few hundred.
+    """
+    if len(dsp_dets) == 0:
+        return 1.0
+    used = np.zeros(len(ref_dets), dtype=bool)
+    n_matched = 0
+    for det in dsp_dets:
+        best_iou = 0.0
+        best_j = -1
+        for j, ref in enumerate(ref_dets):
+            if used[j] or ref[5] != det[5]:
+                continue
+            iou = _iou_xyxy(det[:4], ref[:4])
+            if iou > best_iou:
+                best_iou = iou
+                best_j = j
+        if best_j >= 0 and best_iou >= iou_thresh:
+            used[best_j] = True
+            n_matched += 1
+    return n_matched / len(dsp_dets)
+
+
 def _run_test(
     model_name: str,
     version: str,
@@ -104,17 +155,32 @@ def _run_test(
     )
 
     # Populate *_vs_ref_max_diff for display, then override *_vs_ref_passed
-    # with cosine similarity — detection tensors mix small box-regression
-    # values with bounded class scores, so element-wise tolerance is not a
-    # meaningful pass/fail signal (see module docstring).
+    # with a metric suited to this model's output (see module docstring for
+    # why v26's already-selected detections need a different metric than
+    # v5/v8's raw per-anchor tensor).
     comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=2e1)
     flat_ref = torch_result.flatten()
     for key in list(comparison.keys()):
         if not key.endswith("_passed"):
             continue
         result_key = key.replace("_vs_ref_passed", "_result")
-        if result_key in dsp_results:
-            flat_dsp = dsp_results[result_key].flatten()
+        if result_key not in dsp_results:
+            continue
+        dsp_result = dsp_results[result_key]
+        if version == "v26":
+            # Threshold set with margin below the ~0.56 observed on this
+            # test's random-noise input, c7x_host + MMALIB (see module
+            # docstring): with no real objects present, almost all of the
+            # 2100 anchors' class scores land in the same few discrete int8
+            # buckets, so a large fraction of legitimate near-tied ranking
+            # flips is expected -- this is a regression guard against
+            # structural breakage (e.g. the pre-fix state, which matched
+            # near 0%), not a tight accuracy bar.
+            match_frac = _match_fraction(dsp_result[0], torch_result[0], iou_thresh=0.5)
+            comparison[key] = match_frac >= 0.40
+            comparison[key.replace("_passed", "_match_frac")] = match_frac
+        else:
+            flat_dsp = dsp_result.flatten()
             cos_sim = float(
                 np.dot(flat_ref, flat_dsp)
                 / (np.linalg.norm(flat_ref) * np.linalg.norm(flat_dsp) + 1e-10)
@@ -195,10 +261,14 @@ def main():
         if key in dsp_results:
             diff = np.max(np.abs(dsp_results[key] - torch_result))
             passed = results["comparison"].get(key.replace("_result", "_vs_ref_passed"), False)
-            cos_sim = results["comparison"].get(key.replace("_result", "_vs_ref_cos_sim"))
             status = "PASS" if passed else "FAIL"
-            cos_sim_str = f"{cos_sim:.6f}" if cos_sim is not None else "n/a"
-            print(f"  {key}: max_diff={diff:.2e} cos_sim={cos_sim_str} [{status}]")
+            if version == "v26":
+                match_frac = results["comparison"].get(key.replace("_result", "_vs_ref_match_frac"))
+                metric_str = f"match_frac={match_frac:.4f}" if match_frac is not None else "n/a"
+            else:
+                cos_sim = results["comparison"].get(key.replace("_result", "_vs_ref_cos_sim"))
+                metric_str = f"cos_sim={cos_sim:.6f}" if cos_sim is not None else "n/a"
+            print(f"  {key}: max_diff={diff:.2e} {metric_str} [{status}]")
 
     return 0 if all(v for k, v in results["comparison"].items() if k.endswith("_passed")) else 1
 

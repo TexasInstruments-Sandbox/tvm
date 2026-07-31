@@ -27,6 +27,7 @@ See docs/dsp/c7x_mma_quantizer.md for the full pipeline and usage examples.
 """
 
 import logging
+import operator
 import warnings
 
 import torch
@@ -47,9 +48,7 @@ _INT16_MIN, _INT16_MAX = -32768, 32767
 # torch.export produces conv2d.default, not convolution.default.
 # These ops have a weight tensor at args[1]; the quantizer assigns a per-channel
 # spec to that arg (args[0] gets the activation spec, args[2] bias stays float32).
-_WEIGHT_OPS = frozenset(
-    [torch.ops.aten.conv2d.default, torch.ops.aten.linear.default]
-)
+_WEIGHT_OPS = frozenset([torch.ops.aten.conv2d.default, torch.ops.aten.linear.default])
 
 # Both inputs are activations; no per-channel weight spec applies.
 # add.Tensor / add_.Tensor produce the dq(x)+dq(skip)->q pattern consumed by
@@ -115,6 +114,55 @@ _TRANSPARENT_OPS = frozenset(
         torch.ops.aten.flatten.using_ints,
     ]
 )
+
+
+_STRUCTURAL_OPS = frozenset(
+    [
+        operator.getitem,
+        torch.ops.aten.split_with_sizes.default,
+        torch.ops.aten.split.Tensor,
+    ]
+)
+
+# Ops that don't need their own annotation (not quantizable ops in the first
+# place) but must not block _feeds_topk's search -- e.g. a detection head's
+# `scores.max(dim=-1)[0].topk(...)` puts max.dim directly between a
+# transparent/structural op and the topk that makes it selection-sensitive.
+_REACHABILITY_PASSTHROUGH_OPS = frozenset(
+    [
+        torch.ops.aten.max.dim,
+        torch.ops.aten.min.dim,
+    ]
+)
+
+
+def _feeds_topk(node: Node) -> bool:
+    """True if `node`'s output reaches an `aten.topk.default` call through a
+    chain of transparent/structural/passthrough ops only (permute, view,
+    flatten, getitem, split, max.dim/min.dim) -- i.e. it is part of a
+    detection-style postprocess selection region, not a genuine compute path.
+
+    This only follows a bounded set of edges, not arbitrary graph paths, so
+    it won't over-reach into an unrelated conv/linear branch that happens to
+    share an ancestor with a topk elsewhere in the model.
+    """
+    seen = set()
+    frontier = list(node.users)
+    while frontier:
+        user = frontier.pop()
+        if user in seen:
+            continue
+        seen.add(user)
+        target = getattr(user, "target", None)
+        if target is torch.ops.aten.topk.default:
+            return True
+        if (
+            target in _TRANSPARENT_OPS
+            or target in _STRUCTURAL_OPS
+            or target in _REACHABILITY_PASSTHROUGH_OPS
+        ):
+            frontier.extend(user.users)
+    return False
 
 
 def _is_float_tensor(node: Node) -> bool:
@@ -186,9 +234,7 @@ class C7xMMAQuantizer(Quantizer):
         else:
             torch_dtype, quant_min, quant_max = torch.int16, _INT16_MIN, _INT16_MAX
         qscheme = (
-            torch.per_tensor_symmetric
-            if self.symmetric_activations
-            else torch.per_tensor_affine
+            torch.per_tensor_symmetric if self.symmetric_activations else torch.per_tensor_affine
         )
         return QuantizationSpec(
             dtype=torch_dtype,
@@ -239,8 +285,12 @@ class C7xMMAQuantizer(Quantizer):
             if node.op != "call_function":
                 continue
             all_ops = (
-                _WEIGHT_OPS | _ACT_ONLY_OPS | _TRANSPARENT_OPS
-                | _TIDL_ACT_OPS | _AVG_POOL_OPS | _NORM_OPS
+                _WEIGHT_OPS
+                | _ACT_ONLY_OPS
+                | _TRANSPARENT_OPS
+                | _TIDL_ACT_OPS
+                | _AVG_POOL_OPS
+                | _NORM_OPS
             )
             if node.target not in all_ops:
                 continue
@@ -267,6 +317,21 @@ class C7xMMAQuantizer(Quantizer):
                 # fall back to independent act_spec when it isn't (e.g. relu_
                 # after cat, or relu_ after an unannotated in-place op).
                 if not isinstance(node.args[0], Node) or not _is_float_tensor(node.args[0]):
+                    continue
+                if _feeds_topk(node):
+                    # A transparent op feeding a topk -- directly, or through
+                    # a chain of further transparent/structural ops (e.g. the
+                    # permute right after a detection head's box+score concat,
+                    # which flows through split/getitem/max into topk in
+                    # yolo26's postprocess) -- must stay float. topk's ranking
+                    # is sensitive to the relative ordering of values, and
+                    # quantizing this region with a scale calibrated for a
+                    # different value range (e.g. box coordinates up to ~320
+                    # sharing a tensor with [0,1] sigmoid probabilities)
+                    # corrupts that ordering -- in the worst case crushing
+                    # every score to the same quantized value, so topk's
+                    # selection degenerates to picking by tie-break order
+                    # instead of by score.
                     continue
                 input_qspec_map = {node.args[0]: act_spec}  # type: ignore[index]
                 input_node = node.args[0]

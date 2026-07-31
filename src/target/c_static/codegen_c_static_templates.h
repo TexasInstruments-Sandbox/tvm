@@ -80,6 +80,7 @@ constexpr const char* kDSPHeaders = R"(
 #include "mmalib/tidl_maxpool_wrapper.h"
 #include "kernels/c7x_dequantize_vecmatmul.h"
 #include "kernels/c7x_sdpa_decode.h"
+#include "kernels/c7x_topk.h"
 #include <cstdint>
 #include <cstring>
 #include <cmath>
