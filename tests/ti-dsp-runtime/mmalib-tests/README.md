@@ -106,6 +106,5 @@ when `-mmalib=1` is set.
   cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host
   ```
 - For `c7x_dload` tests: firmware rebuilt and deployed — see the
-  operations runbook listed in `README_TI.md`'s
-  [Documentation](../../../README_TI.md#documentation) section
-  (TI-internal only) and the firmware skill for the full procedure
+  [C7x Hardware Deployment](../../../README.md#c7x-hardware-deployment)
+  section in the main README and the firmware skill for the full procedure
