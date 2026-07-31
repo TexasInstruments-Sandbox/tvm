@@ -1,8 +1,8 @@
 # Quantized Model Tests
 
-End-to-end tests for INT8-quantized TorchVision models (PT2E `C7xMMAQuantizer`)
-on the TVM `c_static` backend, with and without MMALIB offload, on C7x host
-emulation and AM67A hardware.
+End-to-end tests for INT8-quantized TorchVision and YOLO models (PT2E
+`C7xMMAQuantizer`) on the TVM `c_static` backend, with and without MMALIB
+offload, on C7x host emulation and real hardware (AM67A and BeagleY-AI).
 
 ## Running
 
@@ -13,8 +13,12 @@ export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
 # One model, host emulation
 pytest --rootdir=. quantized/test_quantized_resnet.py -v --dsp-mode=c7x_host --mmalib
 
-# One model, AM67A hardware
+# One model, AM67A hardware (default c7x_dload target)
 pytest --rootdir=. quantized/test_quantized_resnet.py -v --dsp-mode=c7x_dload --mmalib
+
+# One model, BeagleY-AI hardware
+BOARD_HOSTNAME=beagley-ai pytest --rootdir=. quantized/test_quantized_yolo.py \
+    -v --dsp-mode=c7x_dload --mmalib -k yolo26n
 
 # Full TorchVision classification sweep, one model
 pytest --rootdir=. "quantized/test_quantized_torchvision.py::test_quantized_torchvision_dsp[resnet50]" \
@@ -24,9 +28,13 @@ pytest --rootdir=. "quantized/test_quantized_torchvision.py::test_quantized_torc
 python quantized/test_quantized_resnet.py --dsp-mode c7x_host --mmalib
 ```
 
-`c7x_dload` tests talk to real AM67A hardware: run them one at a time,
-in the foreground, never in the background or concurrently (single DSP
-core; conflicts hang the firmware and require a board reboot/power cycle).
+`c7x_dload` tests talk to real DSP hardware (AM67A by default, or
+BeagleY-AI via `BOARD_HOSTNAME=beagley-ai`): run them one at a time, in
+the foreground, never in the background or concurrently (single DSP core;
+conflicts hang the firmware and require a board reboot/power cycle).
+BeagleY-AI's firmware has no TIDL kernels linked, so its `c_static` target
+string needs `-tidl-kernels=0`; `get_target_string()` in `dsp-cpp/dsp_utils.py`
+adds this automatically whenever `BOARD_HOSTNAME=beagley-ai` is set.
 
 ## Test files
 
@@ -39,7 +47,7 @@ core; conflicts hang the firmware and require a board reboot/power cycle).
 | `test_quantized_mobilenet_v2.py` | MobileNetV2 | PASS |
 | `test_quantized_mobilenet_v3.py` | MobileNetV3-Large | PASS |
 | `test_quantized_shufflenet_v2.py` | ShuffleNetV2 (x0.5) | PASS |
-| `test_quantized_yolo.py` | YOLOv5n/s, YOLOv8n/s (object detection) | PASS, all 4 (AM67A hardware) |
+| `test_quantized_yolo.py` | YOLOv5n/s, YOLOv8n/s, YOLO26n (object detection) | PASS, all 5 (see below) |
 | `test_quantized_torchvision.py` | All 80 TorchVision ImageNet classifiers, via `cl_torchvision.py`'s dynamic loader | see sweep below |
 
 The first 7 use `model_utils.py`'s per-model `create_quantized_*_model`
@@ -49,6 +57,77 @@ functions (hardcoded torchvision import, synthetic random input, PT2E via
 preprocessing) and `pt2e-tests/pt2e_utils.py` (`e2e_quantize_and_import` /
 `run_and_check`) directly, so it covers whatever TorchVision model
 `cl_torchvision.py` can load without needing a dedicated function per model.
+
+## `test_quantized_yolo.py` status
+
+YOLOv5n/s and YOLOv8n/s return a raw per-anchor detection tensor
+(`[1, 4+nc, num_anchors]`, no NMS/top-k selection applied) — mixing
+small-magnitude box regression with bounded-range class scores, so
+pass/fail uses cosine similarity against the PyTorch fake-quantized
+reference rather than an element-wise tolerance (see `run_and_check`'s
+tolerance discussion under "Shared infrastructure" below for why whole
+models need a different bar than single-op unit tests).
+
+YOLO26n instead runs its actual production inference path: the NMS-free
+"one2one" detection head, which does an internal top-k selection over
+class scores and returns already-decided `[1, 300, 6]` detections
+(`x1, y1, x2, y2, confidence, class_idx`). Getting there required three
+fixes, none of them YOLO26-specific — they'd block any model whose graph
+does a `topk`/advanced-indexing-heavy postprocess:
+
+1. **`aten.div`/`aten.rsub` dtype bug** (`base_fx_graph_translator.py`):
+   dividing an int64 tensor by a Python int built the divisor constant
+   with a hardcoded int32 default, tripping `floor_divide`'s dtype-match
+   check. Fixed to match the tensor operand's dtype, mirroring the
+   existing `_binary_op` pattern used by `add`/`mul`/`sub` in the same
+   file.
+2. **`aten.index.Tensor` ndim bug** (same file): assumed the index list
+   always covers every tensor dimension, but PyTorch allows a shorter list
+   with trailing dimensions implicitly left untouched. Fixed to derive
+   `ndim` from the tensor itself.
+3. **`C7xMMAQuantizer` over-annotation** (`c7x_mma_quantizer.py`): its
+   quantization-transparent-op annotation (`_TRANSPARENT_OPS`) is applied
+   purely by op type, with no check for what consumes the result. A
+   `flatten` sitting between the detection head's score gather and its
+   `topk` selection was getting quantized with a scale calibrated for the
+   *box* coordinates it shared a tensor with — crushing every class score
+   toward zero and making `topk`'s selection degenerate to picking by
+   tie-break order instead of by actual score. Fixed with a `_feeds_topk`
+   reachability check that keeps any region feeding a `topk` in float,
+   regardless of which transparent/structural ops sit in between.
+
+Beyond the frontend, `relax.topk` itself had no DSP-compilable
+implementation at all: its only lowering is a runtime packed-function call
+(`tvm.contrib.sort.topk`), which `c_static`'s standalone-C executables have
+no way to satisfy. A hand-written kernel
+(`src/runtime/ti_dsp/kernels/c7x_topk.cpp`, wired in via `call_extern` the
+same way MMALIB conv2d is) closes this gap for every C7x target, not just
+MMALIB builds.
+
+Because YOLO26n's output is a set of already-*selected* detections rather
+than a raw tensor, comparing it against the reference is a different
+problem than for v5/v8: a near-tied class score can legitimately cause the
+DSP (real kernel execution) and the PyTorch reference (fake-quant
+simulation of the same graph) to pick a different anchor at the selection
+boundary — both correct, but producing a totally different row at that
+index. `test_quantized_yolo.py` handles this with greedy IoU+class
+matching (`_match_fraction`) instead of cosine similarity for this model:
+each DSP detection is matched to its best same-class, highest-IoU
+counterpart in the reference set, and the pass bar is a fraction of
+detections matched above an IoU threshold.
+
+All 5 models pass on `c7x_host` and on BeagleY-AI hardware (via
+`BOARD_HOSTNAME=beagley-ai`); YOLOv5n/s and YOLOv8n/s were previously
+verified on AM67A hardware as well, though not re-run there since the
+MMALIB fix described next. BeagleY-AI's firmware links no TIDL kernels,
+and bringing up this test on that board independently surfaced a second,
+model-agnostic bug in the MMALIB QDQ fusion passes: conv bias was resolved
+via a bare `isinstance(x, relax.Constant)` check, but PT2E represents conv
+bias as `reshape(Constant)`, so every MMALIB-offloaded conv across every
+model in this suite was silently running with zero bias. Fixed with a
+shared constant-resolution helper in `ti_mmalib_legalize.py` that unwraps
+`reshape`/`expand_dims`/`squeeze`/`astype` down to the constant leaf — this
+improved accuracy for every existing MMALIB model, not just YOLO.
 
 ## `test_quantized_torchvision.py` sweep status
 
@@ -403,6 +482,7 @@ of relying on the default.
 - TVM built with the `c_static` backend (`TVM_HOME` set, `PYTHONPATH`
   includes `python/`)
 - `TI_CGT_C7000_PATH` for DSP tests
-- For `c7x_dload`: firmware deployed on AM67A (`deploy-c7x.sh`)
+- For `c7x_dload`: firmware deployed on the target board (`deploy-c7x.sh`,
+  `--board beagley-ai` for that board; AM67A is the default)
 - `--mmalib` fixture/flag (from `conftest.py`) selects the MMALIB target;
   omitting it runs the generic (non-MMALIB) int8 codegen path instead

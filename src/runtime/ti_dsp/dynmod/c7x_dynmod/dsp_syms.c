@@ -129,6 +129,7 @@ __declspec(dllexport) void c7x_int8_residual_add_relu() {}
 __declspec(dllexport) void c7x_int16_residual_add_relu() {}
 __declspec(dllexport) void c7x_dequantize_vecmatmul() {}
 __declspec(dllexport) void c7x_sdpa_decode() {}
+__declspec(dllexport) int32_t c7x_topk() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_gelu() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_silu() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_hardsigmoid() { return 0; }

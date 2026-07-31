@@ -205,6 +205,8 @@ extern int32_t c7x_int8_layer_norm(const void *, const void *,
 extern int   c7x_sdpa_decode(const void *, const void *,
                              const void *, const void *, void *,
                              int32_t, int32_t, int32_t, int32_t);
+extern int32_t c7x_topk(const float *, float *, int64_t *,
+                         int32_t, int32_t, int32_t);
 
 /* TVM DSP Runtime - VM builtins */
 extern void *TVMDSPBuiltinAllocStorage(int64_t, int32_t, DLDataType);
@@ -386,6 +388,7 @@ static const DspSymEntry dsp_syms[] = {
     SYM(c7x_int16_residual_add_relu),
     SYM(c7x_dequantize_vecmatmul),
     SYM(c7x_sdpa_decode),
+    SYM(c7x_topk),
     /* C7x-native activation kernels (no TIDL library calls) */
     SYM(c7x_int8_gelu),
     SYM(c7x_int8_silu),
