@@ -41,20 +41,11 @@ while [ $# -gt 0 ]; do
 done
 
 # --- Board/ddr -> build-dir suffix ---
-# Mirrors cmake/boards.cmake's per-board default ddr, for naming only;
+# Shared with firmware/c7x/dsp/build.sh and firmware/c7x/arm/build.sh so
+# all three always agree on where a given board's artifacts live;
 # cmake/boards.cmake remains the sole source of truth for what is built.
-BOARD="${TVM_BOARD:-j722s-evm}"
-if [ -n "$TVM_DDR" ]; then
-    DDR="$TVM_DDR"
-elif [ "$BOARD" = "beagley-ai" ]; then
-    DDR="4gb"
-else
-    DDR="8gb"
-fi
-BUILD_SUFFIX=""
-if [ "$BOARD" != "j722s-evm" ] || [ "$DDR" != "8gb" ]; then
-    BUILD_SUFFIX="-${BOARD}-${DDR}"
-fi
+source "${SCRIPT_DIR}/board_build_dir.sh"
+resolve_board_build_dir
 
 # Plain string, not an array: values are always simple enum tokens (no
 # spaces), and an empty array expanded under `set -u` is an unbound-variable

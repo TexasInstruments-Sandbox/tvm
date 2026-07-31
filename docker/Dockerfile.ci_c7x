@@ -1,0 +1,139 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# CI docker CPU env
+# Docker Hub is blocked on the TI network; pull ubuntu:24.04 through TI's
+# Artifactory mirror instead.
+FROM artifactory.itg.ti.com/docker-public/ubuntu:24.04
+
+# Corporate proxy, passed in via --build-arg (the TI network has no direct
+# internet access from inside a docker build). Declaring these as ARGs puts
+# them in scope for every RUN below and in BuildKit's cache key.
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+# Ubuntu's official 24.04 image ships a default "ubuntu" user at uid/gid
+# 1000. docker/bash.sh's with_the_same_user wrapper creates a container user
+# matching the host uid so bind-mounted build output isn't owned by the
+# wrong user on the host -- but it skips creating that user if the uid is
+# already taken, which silently breaks it for any host user at uid 1000
+# (a very common first-user uid). Remove the default user to free it up.
+# Guarded on existence (not a blanket `|| true`) so a future base-image
+# update that stops shipping this user doesn't fail the build, while a
+# genuine userdel failure (e.g. a busy resource) still surfaces loudly.
+RUN if id -u ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi
+
+RUN apt-get update --fix-missing
+
+COPY install/ubuntu_setup_tz.sh /install/ubuntu_setup_tz.sh
+RUN bash /install/ubuntu_setup_tz.sh
+
+# Core C++ build tools (same package list as install/ubuntu_install_core.sh,
+# minus lsb-core: it no longer exists on noble, and nothing here calls
+# lsb_release now that ubuntu_install_python.sh's deadsnakes-PPA logic --
+# the only consumer -- was dropped). adduser is added on top of that list:
+# docker/with_the_same_user (used by docker/bash.sh) needs addgroup/adduser,
+# which this base image doesn't ship by default (only useradd/groupadd).
+RUN apt-get install -y --no-install-recommends \
+    adduser \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    g++ \
+    gdb \
+    git \
+    graphviz \
+    libcurl4-openssl-dev \
+    libopenblas-dev \
+    libssl-dev \
+    libtinfo-dev \
+    libz-dev \
+    make \
+    ninja-build \
+    parallel \
+    pkg-config \
+    sudo \
+    unzip \
+    wget
+
+# TVM requires cmake >=3.18 (see CMakeLists.txt); Ubuntu 24.04's apt cmake
+# (3.28) already satisfies that, so no need to build cmake from source.
+RUN apt-get install -y --no-install-recommends cmake
+
+# aarch64 cross-compiler, for the ARM client (c7x_compute CLI) that runs on
+# the BeagleY-AI/AM67A board -- see src/runtime/ti_dsp/firmware/c7x/arm/build.sh
+RUN apt-get install -y --no-install-recommends \
+    g++-aarch64-linux-gnu \
+    gcc-aarch64-linux-gnu
+
+# uv, used directly by tests/ti-dsp-runtime/Jenkinsfile ("uv venv .venv",
+# "uv pip install ...") for the ti-dsp-runtime build/test Python env. uv
+# manages its own Python interpreter, so no system python3 is baked in here.
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
+# LLVM (USE_LLVM ON by default in cmake/config.cmake; TVM only needs
+# llvm-config, headers and libs -- see cmake/utils/FindLLVM.cmake). Ubuntu
+# 24.04 ships LLVM 15-19 natively, so no apt.llvm.org PPA is needed (the
+# install/ubuntu2204_install_llvm.sh script targets jammy/22.04 repos, which
+# don't match this image's noble/24.04 base).
+RUN apt-get install -y --no-install-recommends llvm-18-dev
+
+# Venv for `python -m build` (packaging/ti_dsp/build_wheel.sh), baked into
+# the image rather than created on the fly in the mounted repo -- avoids
+# venv-collision/leftover-state confusion across container runs, needing
+# a .gitignore entry, and PEP 668 blocking a plain `pip install --system`
+# into the system python3 llvm-18-dev pulled in just above (uv picks that
+# interpreter up automatically, same as it did in a plain `uv venv` test
+# run against this same image).
+RUN uv venv /opt/venv-build && VIRTUAL_ENV=/opt/venv-build uv pip install build "setuptools>=61.0"
+
+# TI C7000 code generation tools (cl7x et al.). Board-independent -- used
+# for both am67a/j722s-evm and beagley-ai (see CLAUDE.md).
+RUN mkdir -p /opt/ti/c7x && \
+    wget -q -O /tmp/ti_cgt_c7000_installer.bin \
+        https://dr-download.ti.com/software-development/ide-configuration-compiler-or-debugger/MD-707zYe3Rik/5.0.1.LTS/ti_cgt_c7000_5.0.1.LTS_linux-x64_installer.bin && \
+    chmod +x /tmp/ti_cgt_c7000_installer.bin && \
+    /tmp/ti_cgt_c7000_installer.bin --mode unattended --prefix /opt/ti/c7x --unattendedmodeui minimal && \
+    rm -f /tmp/ti_cgt_c7000_installer.bin
+ENV TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+
+# TI SysConfig CLI (sysconfig_cli.sh), used by firmware/c7x/dsp/build.sh to
+# generate driver config from c75ss0.syscfg. The beagley-ai/11.02 MCU+ SDK
+# requires >=1.26.2 (see src/runtime/ti_dsp/firmware/c7x/dsp/CMakeLists.txt).
+RUN mkdir -p /opt/ti/sysconfig-1.28 && \
+    wget -q -O /tmp/sysconfig-setup.run \
+        https://dr-download.ti.com/software-development/ide-configuration-compiler-or-debugger/MD-nsUM6f7Vvb/1.28.0.4712/sysconfig-1.28.0_4712-setup.run && \
+    chmod +x /tmp/sysconfig-setup.run && \
+    /tmp/sysconfig-setup.run --mode unattended --prefix /opt/ti/sysconfig-1.28 --unattendedmodeui minimal && \
+    rm -f /tmp/sysconfig-setup.run
+ENV TI_SYSCONFIG_ROOT=/opt/ti/sysconfig-1.28
+
+# TI Processor SDK RTOS for J722S (BeagleY-AI board, 4gb DDR variant). This
+# tarball unpacks with MCU+ SDK and MMALIB already laid out as subdirectories
+# underneath it -- see tvm-relax-c7x:build skill "Two boards" section.
+RUN mkdir -p /opt/ti/am67a && \
+    wget -q -O /tmp/psdk-rtos.tar.gz \
+        https://dr-download.ti.com/software-development/software-development-kit-sdk/MD-1bSfTnVt5d/11.02.01.03/ti-processor-sdk-rtos-j722s-evm-11_02_01_03.tar.gz && \
+    tar -xzf /tmp/psdk-rtos.tar.gz -C /opt/ti/am67a && \
+    rm -f /tmp/psdk-rtos.tar.gz
+ENV PSDK_INSTALL_PATH=/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_02_01_03
+ENV MCU_PLUS_SDK_PATH=${PSDK_INSTALL_PATH}/mcu_plus_sdk_j722s_11_02_01_05
+ENV MMALIB_PATH=${PSDK_INSTALL_PATH}/mmalib_11_02_00_11
+
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+
