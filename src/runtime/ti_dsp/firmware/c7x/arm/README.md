@@ -3,7 +3,7 @@
 Arm-side inference API for TVM `c_static` modules running on the C7x DSP.
 Provides a `relax.VirtualMachine`-compatible interface in both Python and
 C++, routing inference to the DSP via the `c7x_compute` IPC service. See
-[`README_TI.md`](../../../../../../README_TI.md) for how this fits into the
+[`README.md`](../../../../../../README.md) for how this fits into the
 overall compile/deploy pipeline.
 
 ---

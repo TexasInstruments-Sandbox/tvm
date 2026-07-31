@@ -317,7 +317,7 @@ each subgraph gets its own `_process()` function and instance.
 |-----|---------|-------------|
 | `artifacts_dir` | `/tmp/tidl_artifacts` | Output directory for TIDL binaries |
 | `tidl_tools_path` | auto-detect from `C7X_MMA_TIDL_PATH` | Path to device_config.cfg; `tidl_model_import_relax.so` is derived from its parent dir |
-| `calibration_inputs` | **required** | List of per-frame numpy arrays (one `(1,C,H,W)` array per calibration image); random data is rejected — see "Recent Fix" in the repo `CLAUDE.md` for why |
+| `calibration_inputs` | **required** | List of per-frame numpy arrays (one `(1,C,H,W)` array per calibration image); random data is rejected -- TIDL derives int8 quantization scales from the *statistics* of these inputs, so random noise yields scales that don't reflect real activation ranges and produces wrong classification results downstream (use real, representative images) |
 | `num_calibration_frames` | 1 | Calibration iterations |
 | `skip_failing_subgraphs` | `False` | Fall back to TVM instead of raising when a subgraph fails `TIDL_relaxOptimizeNet`/`PostProcessNet` |
 | `max_subgraphs` | `None` | Cap the number of subgraphs offloaded to TIDL, keeping the top-N by estimated FLOPs |

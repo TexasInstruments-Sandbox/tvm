@@ -4,11 +4,6 @@ C7x runtime API for TIDL subgraph execution.  These files are compiled
 into the **DLOAD module** (.out), NOT the firmware.  The firmware
 provides TIDL algo libraries and shared resources (UDMA, memory pools).
 
-For the full offloading pipeline (Python partitioning, import, codegen,
-bridge), see the TIDL design doc listed in `README_TI.md`'s
-[Documentation](../../../../README_TI.md#documentation) section
-(TI-internal only).
-
 ## Files
 
 | File | Purpose |

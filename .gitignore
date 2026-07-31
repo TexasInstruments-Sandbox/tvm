@@ -287,3 +287,6 @@ docs/dsp/pptx-workspace/
 packaging/ti_dsp/staging-arm64/
 packaging/ti_dsp/staging-x86/
 packaging/ti_dsp/staging/
+
+# Internal-only project instructions, not for external distribution
+CLAUDE.md

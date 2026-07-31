@@ -6,7 +6,8 @@
 # src/runtime/ti_dsp/build_all.sh ...` so it runs against the
 # bind-mounted repo inside the ci_c7x container, but nothing here is
 # docker-specific -- it runs the same way directly on a host with the TI
-# toolchain/SDKs already on PATH/env, matching CLAUDE.md's Build section.
+# toolchain/SDKs already on PATH/env, matching this project's own Build
+# instructions.
 #
 # Usage:
 #   src/runtime/ti_dsp/build_all.sh [--board <j722s-evm|beagley-ai>]
@@ -18,11 +19,10 @@
 # to it via symlinks (see below) -- more moving parts than the plain
 # artifact build, so it's opt-in rather than the default path.
 #
-# Board-specific TIDL/MMALIB linkage follows the project convention
-# documented in CLAUDE.md: beagley-ai always builds --tidl OFF --mmalib
-# ON (no TIDL subgraph offload on that board); j722s-evm/am67a uses
-# firmware/c7x/dsp/build.sh's own default (--tidl ON, which forces
-# --mmalib ON too).
+# Board-specific TIDL/MMALIB linkage follows this project's convention:
+# beagley-ai always builds --tidl OFF --mmalib ON (no TIDL subgraph
+# offload on that board); j722s-evm/am67a uses firmware/c7x/dsp/build.sh's
+# own default (--tidl ON, which forces --mmalib ON too).
 
 set -euo pipefail
 
@@ -53,8 +53,7 @@ done
 DDR_ARGS=()
 [ -n "$TVM_DDR" ] && DDR_ARGS=(--ddr "$TVM_DDR")
 
-# Only beagley-ai needs an explicit TIDL/MMALIB override -- see CLAUDE.md's
-# Board support section.
+# Only beagley-ai needs an explicit TIDL/MMALIB override.
 FW_TIDL_ARGS=()
 [ "$TVM_BOARD" = "beagley-ai" ] && FW_TIDL_ARGS=(--tidl OFF --mmalib ON)
 
