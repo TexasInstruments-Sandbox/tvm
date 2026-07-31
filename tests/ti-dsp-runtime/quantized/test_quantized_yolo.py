@@ -47,6 +47,7 @@ import numpy as np
 import pytest
 import torch
 from dsp_utils import (
+    add_board_arg,
     assert_dsp_comparison,
     compare_results,
     compile_and_run_dsp,
@@ -234,6 +235,7 @@ def main():
     parser = argparse.ArgumentParser(description="Quantized YOLO DSP Test")
     parser.add_argument("--model", required=True, choices=model_names)
     parser.add_argument("--dsp-mode", required=True, choices=["c7x_host", "c7x_dload"])
+    add_board_arg(parser)
     parser.add_argument("--mmalib", action="store_true")
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")

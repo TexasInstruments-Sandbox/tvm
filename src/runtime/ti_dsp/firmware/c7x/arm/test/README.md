@@ -31,10 +31,10 @@ when the `arm/` CMakeLists detects the source file:
 cd src/runtime/ti_dsp/firmware/c7x/arm
 
 # Cross-compile for ARM64 (default)
-./build.sh
+./build.sh --board j722s-evm
 
 # Or natively on the AM67A board
-./build.sh native
+./build.sh --board j722s-evm native
 ```
 
 Outputs written to `arm/build/`:
@@ -49,7 +49,7 @@ test_c7x_runtime        — this test binary
 
 ```bash
 cd src/runtime/ti_dsp/firmware/c7x/arm
-./build.sh deploy
+./build.sh --board j722s-evm deploy
 ```
 
 This SCPs all three binaries plus `c7x_runtime.h` to the board and
@@ -62,8 +62,9 @@ am67a:/usr/local/lib/libc7x_arm_runtime.so
 am67a:/usr/local/include/c7x_runtime.h
 ```
 
-The AM67A hostname is taken from the `BOARD_HOSTNAME` environment variable
-(default: `am67a`).
+The deploy hostname is a deterministic function of `--board`
+(`beagley-ai` -> `beagley-ai`, else `am67a`) -- add an SSH-config alias if
+your board is reachable under a different name.
 
 ## Preparing test inputs
 

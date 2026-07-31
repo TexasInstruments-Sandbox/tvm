@@ -13,6 +13,7 @@ The module supports:
 - Output comparison against reference (PyTorch, LLVM, etc.)
 """
 
+import argparse
 import json
 import logging
 import os
@@ -125,11 +126,71 @@ _C7X_MODES = ("c7x_host", "c7x_dload")
 # Module-level test name for workspace naming (set by pytest fixture)
 _current_test_name: Optional[str] = None
 
+# Board selected via --board (set by tests/ti-dsp-runtime/conftest.py).
+# None means no board was specified -- only an error for code paths that
+# actually need one (c7x_dload); c7x_host emulation never reads this.
+_current_board: Optional[str] = None
+
+# am67a is j722s-evm's default SSH hostname, not a distinct board.
+_BOARD_DEFAULT_HOSTNAME = {"j722s-evm": "am67a", "beagley-ai": "beagley-ai"}
+
 
 def set_current_test_name(name: Optional[str]) -> None:
     """Set the current test name for workspace directory naming."""
     global _current_test_name
     _current_test_name = name
+
+
+def set_current_board(board: Optional[str]) -> None:
+    """Set the target board (j722s-evm|beagley-ai) selected via --board."""
+    global _current_board
+    _current_board = board
+
+
+def get_current_board() -> Optional[str]:
+    """Get the target board selected via --board, or None if unspecified."""
+    return _current_board
+
+
+def get_board_hostname(board: Optional[str] = None) -> Optional[str]:
+    """Deterministic SSH hostname for a board (defaults to the current one).
+
+    Returns None if no board is given/selected -- there is no env-var
+    override; a lab host reachable under a different name is an SSH-config
+    alias problem, not a code one.
+    """
+    board = board if board is not None else get_current_board()
+    return _BOARD_DEFAULT_HOSTNAME[board] if board is not None else None
+
+
+class _SetCurrentBoardAction(argparse.Action):
+    """argparse action that also calls set_current_board() as it parses.
+
+    Lets every standalone script's --board wire itself up with a single
+    add_board_arg(parser) call instead of each one separately importing
+    and calling set_current_board(args.board) after parse_args().
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        assert isinstance(values, str)
+        setattr(namespace, self.dest, values)
+        set_current_board(values)
+
+
+def add_board_arg(parser: argparse.ArgumentParser) -> None:
+    """Add --board to a standalone script's parser, wired to set_current_board().
+
+    Mirrors what tests/ti-dsp-runtime/conftest.py does for pytest runs, so
+    a standalone `python foo.py --dsp-mode c7x_dload --board ...` behaves
+    the same as the equivalent pytest invocation.
+    """
+    parser.add_argument(
+        "--board",
+        choices=list(_BOARD_DEFAULT_HOSTNAME),
+        default=None,
+        action=_SetCurrentBoardAction,
+        help="Target board, required for --dsp-mode=c7x_dload",
+    )
 
 
 def get_target_string(
@@ -159,14 +220,22 @@ def get_target_string(
         target += " -profile-layers"
     if use_cpp_api:
         target += " -use-cpp-api=1"
-    if dsp_mode == "c7x_dload" and os.environ.get("BOARD_HOSTNAME", "am67a") == "beagley-ai":
-        # BeagleY-AI firmware is built --tidl OFF (no TIDL algo libs linked --
-        # see tvm-relax-c7x:build / firmware/c7x/dsp/build.sh). The default
-        # tidl-kernels=1 lowers max_pool2d to c7x_int8_max_pool_tidl, which
-        # isn't exported there and fails to resolve at DLOAD load time on
-        # the board (not at compile time). c7x_host emulation is unaffected
-        # -- it's a separate build, not the deployed board firmware.
-        target += " -tidl-kernels=0"
+    if dsp_mode == "c7x_dload":
+        board = get_current_board()
+        if board is None:
+            raise RuntimeError(
+                "No board specified: pass --board <j722s-evm|beagley-ai> "
+                "(c7x_dload targets real deployed firmware, whose exported "
+                "kernels depend on which board it was built for)"
+            )
+        if board == "beagley-ai":
+            # BeagleY-AI firmware is built --tidl OFF (no TIDL algo libs linked --
+            # see tvm-relax-c7x:build / firmware/c7x/dsp/build.sh). The default
+            # tidl-kernels=1 lowers max_pool2d to c7x_int8_max_pool_tidl, which
+            # isn't exported there and fails to resolve at DLOAD load time on
+            # the board (not at compile time). c7x_host emulation is unaffected
+            # -- it's a separate build, not the deployed board firmware.
+            target += " -tidl-kernels=0"
     return target
 
 
@@ -1012,7 +1081,7 @@ def run_dsp_dload(
     module_path: Union[str, Path],
     weights_path: Union[str, Path],
     input_tensors: List[np.ndarray],
-    target_host: str = os.environ.get("BOARD_HOSTNAME", "am67a"),
+    target_host: Optional[str] = None,
     target_user: str = "root",
     remote_dir: str = "/tmp/c7x_compute",
     c7x_compute_cli: str = "/usr/local/bin/c7x_compute",
@@ -1063,6 +1132,14 @@ def run_dsp_dload(
     """
     module_path = Path(module_path).resolve()
     weights_path = Path(weights_path).resolve()
+
+    if target_host is None:
+        target_host = get_board_hostname()
+        if target_host is None:
+            raise RuntimeError(
+                "No board specified: pass --board <j722s-evm|beagley-ai> "
+                "(needed to pick the SSH host to deploy to)"
+            )
 
     remote = f"{target_user}@{target_host}"
     remote_module = f"{remote_dir}/lib0.out"

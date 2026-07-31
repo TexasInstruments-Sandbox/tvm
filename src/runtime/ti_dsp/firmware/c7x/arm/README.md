@@ -190,11 +190,11 @@ The Arm shared library is cross-compiled for aarch64 on the dev host.
 cd src/runtime/ti_dsp/firmware/c7x/arm
 
 # Cross-compile for aarch64 (default):
-./build.sh
+./build.sh --board j722s-evm
 # Produces: build/libc7x_arm_runtime.so, build/c7x_compute, build/test_c7x_runtime
 
 # Deploy to AM67A (scp + ldconfig):
-./build.sh deploy
+./build.sh --board j722s-evm deploy
 # Installs:
 #   /usr/local/lib/libc7x_arm_runtime.so
 #   /usr/local/bin/c7x_compute
@@ -202,14 +202,17 @@ cd src/runtime/ti_dsp/firmware/c7x/arm
 #   /usr/local/bin/test_c7x_runtime  (if built)
 
 # Native build (run on the AM67A itself):
-./build.sh native
+./build.sh --board j722s-evm native
 ```
 
-`BOARD_HOSTNAME` (default `am67a`) and `CROSS_COMPILE` (default
-`aarch64-linux-gnu-`) are configurable via environment variables. `--board
-<j722s-evm|beagley-ai>` / `--ddr <4gb|8gb>` are also accepted, forwarded
-purely for build-dir naming consistency with `build_runtime.sh` and
-`dsp/build.sh` — they don't change what's compiled here.
+`--board <j722s-evm|beagley-ai>` is required (`--ddr <4gb|8gb>` stays
+optional, default per-board): besides build-dir naming consistency with
+`build_runtime.sh` and `dsp/build.sh`, `--board` also picks the `deploy`
+subcommand's default SSH host (`beagley-ai` -> `beagley-ai`, else
+`am67a`). `CROSS_COMPILE` (default `aarch64-linux-gnu-`) is still
+configurable via an environment variable; there's no `BOARD_HOSTNAME`
+override for the deploy host — add an SSH-config alias if your board is
+reachable under a different name.
 
 See [`test/README.md`](test/README.md) for the standalone C++ test binary
 that exercises this API end-to-end against live DSP firmware.

@@ -10,7 +10,7 @@
 # instructions.
 #
 # Usage:
-#   src/runtime/ti_dsp/build_all.sh [--board <j722s-evm|beagley-ai>]
+#   src/runtime/ti_dsp/build_all.sh --board <j722s-evm|beagley-ai>
 #       [--ddr <4gb|8gb>] [--wheels]
 #
 # --wheels additionally builds the x86/arm64 packaging wheels. Off by
@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export TVM_HOME="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 source "$SCRIPT_DIR/board_build_dir.sh"
 
-TVM_BOARD="j722s-evm"
+TVM_BOARD=""
 TVM_DDR=""
 BUILD_WHEELS=0
 # Deliberately not the plain `build/` name, so this script never
@@ -49,6 +49,11 @@ while [ $# -gt 0 ]; do
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
+
+if [ -z "$TVM_BOARD" ]; then
+    echo "Error: --board <j722s-evm|beagley-ai> is required" >&2
+    exit 1
+fi
 
 DDR_ARGS=()
 [ -n "$TVM_DDR" ] && DDR_ARGS=(--ddr "$TVM_DDR")

@@ -266,6 +266,11 @@ tvm-site/
 # Test sample data files
 !tests/python/ci/sample_prs/*.json
 
+# Symlinks auto-created by tests/cstatic/unit-tests/conftest.py
+tests/cstatic/unit-tests/cpp
+tests/cstatic/unit-tests/test_images
+tests/ti-dsp-runtime/results/
+
 # Used in CI to communicate between Python and Jenkins
 .docker-image-names/
 

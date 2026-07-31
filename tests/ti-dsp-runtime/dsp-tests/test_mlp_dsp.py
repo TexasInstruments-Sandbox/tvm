@@ -40,7 +40,13 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import compile_and_run_dsp, compare_results, get_target_string, assert_dsp_comparison  # noqa: E402
+from dsp_utils import (  # noqa: E402
+    add_board_arg,
+    assert_dsp_comparison,
+    compare_results,
+    compile_and_run_dsp,
+    get_target_string,
+)
 from model_utils import create_mlp_model  # noqa: E402
 
 # Configure logging
@@ -161,6 +167,7 @@ def main():
     parser.add_argument("--hidden-size", type=int, default=128, help="Hidden layer size")
     parser.add_argument("--output-size", type=int, default=10, help="Output dimension")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    add_board_arg(parser)
     args = parser.parse_args()
 
     # Configure logging

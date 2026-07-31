@@ -63,6 +63,7 @@ sys.path.insert(0, str(_DSP_CPP_DIR))
 
 from dsp_utils import (  # noqa: E402, I001
     INPUT_BIN_FILE,
+    add_board_arg,
     build_dsp_c7x_host,
     build_dsp_dynmod,
     compile_for_dsp,
@@ -1441,6 +1442,7 @@ examples:
             "ill-conditioned weights at ~27%% cycle overhead."
         ),
     )
+    add_board_arg(p_compile)
 
     # -- infer --
     p_infer = subparsers.add_parser("infer", help="Run inference from pre-compiled artifacts")
@@ -1455,6 +1457,7 @@ examples:
         default=None,
         help="DSP execution mode (default: from metadata)",
     )
+    add_board_arg(p_infer)
 
     # -- test --
     p_test = subparsers.add_parser("test", help="Compile + infer in one shot")
@@ -1483,6 +1486,7 @@ examples:
         dest="fp_reassoc_off",
         help="Compile lib0.c with --fp_reassoc=off (c7x_dload only, see compile --help)",
     )
+    add_board_arg(p_test)
 
     # -- compile-chat --
     p_cc = subparsers.add_parser(
@@ -1543,6 +1547,7 @@ examples:
         help="Enable per-layer cycle profiling in the decode model. "
         "Wraps each kernel call with TSC measurement and emits TVMPrintLayerProfile().",
     )
+    add_board_arg(p_cc)
 
     # -- deploy --
     p_dep = subparsers.add_parser(

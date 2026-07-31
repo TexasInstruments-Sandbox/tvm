@@ -54,6 +54,7 @@ _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
 from dsp_utils import (  # noqa: E402
+    add_board_arg,
     assert_dsp_comparison,
     compare_results,
     compile_and_run_dsp,
@@ -251,6 +252,7 @@ Examples:
         "--timeout", type=int, default=60000,
         help="DSP execution timeout in ms (default: 60000)",
     )
+    add_board_arg(parser)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 

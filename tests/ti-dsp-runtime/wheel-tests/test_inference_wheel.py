@@ -115,15 +115,21 @@ def _board_reachable(board):
         return False
 
 
-_BOARD = os.environ.get("BOARD_HOSTNAME", "am67a")
+# dsp-cpp is already on sys.path by now -- inserted by the top-level
+# tests/ti-dsp-runtime/conftest.py, which pytest loads before this module.
+from dsp_utils import get_board_hostname  # noqa: E402
+
+_BOARD = get_board_hostname()
 
 _skip_no_wheel = pytest.mark.skipif(
     _find_inference_wheel() is None,
     reason="aarch64 inference wheel not found (build with: build_wheel.sh --target arm64)",
 )
 _skip_no_board = pytest.mark.skipif(
-    not _board_reachable(_BOARD),
-    reason=f"AM67A board ({_BOARD}) not reachable via SSH",
+    not _BOARD or not _board_reachable(_BOARD),
+    reason="--board not specified (required for wheel e2e hardware tests)"
+    if not _BOARD
+    else f"AM67A board ({_BOARD}) not reachable via SSH",
 )
 
 
