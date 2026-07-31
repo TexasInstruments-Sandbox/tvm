@@ -39,8 +39,16 @@ _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 sys.path.insert(0, str(_THIS_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
-from gtcrn_c7x import DEFAULT_T, chunk_samples, export_and_bind, istft_chunk, load_model, stft_chunk, FS  # noqa: E402
+from dsp_utils import add_board_arg, compile_and_run_dsp, get_target_string  # noqa: E402
+from gtcrn_c7x import (  # noqa: E402
+    DEFAULT_T,
+    FS,
+    chunk_samples,
+    export_and_bind,
+    istft_chunk,
+    load_model,
+    stft_chunk,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +155,7 @@ def main():
     parser = argparse.ArgumentParser(description="GTCRN DSP Test")
     parser.add_argument("--dsp-mode", required=True, choices=["c7x_host", "c7x_dload"])
     parser.add_argument("--frames", type=int, default=DEFAULT_T)
+    add_board_arg(parser)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 

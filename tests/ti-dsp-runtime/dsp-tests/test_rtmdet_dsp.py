@@ -40,7 +40,7 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import add_board_arg, compile_and_run_dsp, get_target_string  # noqa: E402
 
 pytestmark = [pytest.mark.c7x_only]
 
@@ -305,6 +305,7 @@ def main():
         help="DSP execution mode",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    add_board_arg(parser)
     args = parser.parse_args()
 
     # Configure logging

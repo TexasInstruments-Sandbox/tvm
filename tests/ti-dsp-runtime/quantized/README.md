@@ -13,28 +13,30 @@ export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
 # One model, host emulation
 pytest --rootdir=. quantized/test_quantized_resnet.py -v --dsp-mode=c7x_host --mmalib
 
-# One model, AM67A hardware (default c7x_dload target)
-pytest --rootdir=. quantized/test_quantized_resnet.py -v --dsp-mode=c7x_dload --mmalib
+# One model, AM67A hardware
+pytest --rootdir=. quantized/test_quantized_resnet.py -v --dsp-mode=c7x_dload --board j722s-evm --mmalib
 
 # One model, BeagleY-AI hardware
-BOARD_HOSTNAME=beagley-ai pytest --rootdir=. quantized/test_quantized_yolo.py \
-    -v --dsp-mode=c7x_dload --mmalib -k yolo26n
+pytest --rootdir=. quantized/test_quantized_yolo.py \
+    -v --dsp-mode=c7x_dload --board beagley-ai --mmalib -k yolo26n
 
 # Full TorchVision classification sweep, one model
 pytest --rootdir=. "quantized/test_quantized_torchvision.py::test_quantized_torchvision_dsp[resnet50]" \
-    -v --dsp-mode=c7x_dload --mmalib
+    -v --dsp-mode=c7x_dload --board j722s-evm --mmalib
 
 # Standalone script
 python quantized/test_quantized_resnet.py --dsp-mode c7x_host --mmalib
 ```
 
-`c7x_dload` tests talk to real DSP hardware (AM67A by default, or
-BeagleY-AI via `BOARD_HOSTNAME=beagley-ai`): run them one at a time, in
-the foreground, never in the background or concurrently (single DSP core;
-conflicts hang the firmware and require a board reboot/power cycle).
-BeagleY-AI's firmware has no TIDL kernels linked, so its `c_static` target
-string needs `-tidl-kernels=0`; `get_target_string()` in `dsp-cpp/dsp_utils.py`
-adds this automatically whenever `BOARD_HOSTNAME=beagley-ai` is set.
+`c7x_dload` tests talk to real DSP hardware and require `--board
+<j722s-evm|beagley-ai>` (no default -- omitting it is an error, since the
+codegen target and the SSH deploy host both depend on it): run them one at
+a time, in the foreground, never in the background or concurrently (single
+DSP core; conflicts hang the firmware and require a board reboot/power
+cycle). BeagleY-AI's firmware has no TIDL kernels linked, so its `c_static`
+target string needs `-tidl-kernels=0`; `get_target_string()` in
+`dsp-cpp/dsp_utils.py` adds this automatically whenever `--board
+beagley-ai` is passed.
 
 ## Test files
 
@@ -117,7 +119,7 @@ counterpart in the reference set, and the pass bar is a fraction of
 detections matched above an IoU threshold.
 
 All 5 models pass on `c7x_host` and on BeagleY-AI hardware (via
-`BOARD_HOSTNAME=beagley-ai`); YOLOv5n/s and YOLOv8n/s were previously
+`--board beagley-ai`); YOLOv5n/s and YOLOv8n/s were previously
 verified on AM67A hardware as well, though not re-run there since the
 MMALIB fix described next. BeagleY-AI's firmware links no TIDL kernels,
 and bringing up this test on that board independently surfaced a second,
@@ -482,7 +484,8 @@ of relying on the default.
 - TVM built with the `c_static` backend (`TVM_HOME` set, `PYTHONPATH`
   includes `python/`)
 - `TI_CGT_C7000_PATH` for DSP tests
-- For `c7x_dload`: firmware deployed on the target board (`deploy-c7x.sh`,
-  `--board beagley-ai` for that board; AM67A is the default)
+- For `c7x_dload`: firmware deployed on the target board (`deploy-c7x.sh
+  --board <j722s-evm|beagley-ai>`), and the matching `pytest --board
+  <j722s-evm|beagley-ai>` -- both required, no default
 - `--mmalib` fixture/flag (from `conftest.py`) selects the MMALIB target;
   omitting it runs the generic (non-MMALIB) int8 codegen path instead

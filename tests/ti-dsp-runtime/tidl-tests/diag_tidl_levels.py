@@ -481,7 +481,9 @@ def main():
         print(f"Unknown level {level}. Use 0, 1, or 2.")
         sys.exit(1)
 
-    from dsp_utils import build_dsp_dynmod, run_dsp_dload
+    from dsp_utils import build_dsp_dynmod, run_dsp_dload, set_current_board
+
+    set_current_board(sys.argv[2] if len(sys.argv) > 2 else None)
 
     # Check prerequisites
     if not os.environ.get("TI_CGT_C7000_PATH"):

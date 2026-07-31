@@ -40,7 +40,12 @@ _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 sys.path.insert(0, str(_THIS_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string, set_current_test_name  # noqa: E402
+from dsp_utils import (  # noqa: E402
+    add_board_arg,
+    compile_and_run_dsp,
+    get_target_string,
+    set_current_test_name,
+)
 from smollm_c7x import SmolLMWrapper, quantize_linear  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -270,6 +275,7 @@ def main():
         dest="fp_reassoc_off",
         help="Compile with --fp_reassoc=off (c7x_dload only)",
     )
+    add_board_arg(p_test)
 
     args = parser.parse_args()
 

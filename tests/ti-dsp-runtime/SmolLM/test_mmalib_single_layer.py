@@ -27,7 +27,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch import nn
 from torch.export import export
 
 import tvm
@@ -39,7 +38,7 @@ _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 sys.path.insert(0, str(_THIS_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import add_board_arg, compile_and_run_dsp, get_target_string  # noqa: E402
 from smollm_c7x import SmolLMWrapper, quantize_linear  # noqa: E402
 from smollm_w16a16 import (  # noqa: E402
     collect_act_scales,
@@ -70,12 +69,12 @@ def _make_selective_mmalib_pass(target_indices):
     Uses the same pattern matching as LegalizeMLPToMMALIBInt16 but skips
     layers whose index is not in target_indices.
     """
+    from tvm.ir.module import IRModule
+    from tvm.ir.transform import PassContext
     from tvm.relax.transform.ti_mmalib_i16_fc import (
         _MMALIBInt16FCMutator,
         _pre_scan_bindings,
     )
-    from tvm.ir.module import IRModule
-    from tvm.ir.transform import PassContext
 
     @tvm.transform.module_pass(opt_level=0, name="SelectiveMMALIBInt16")
     class SelectiveMMALIBInt16:
@@ -239,6 +238,7 @@ def main():
         "--all-mmalib", action="store_true",
         help="Also test with all layers as MMALIB (reproduces the bug).",
     )
+    add_board_arg(parser)
     args = parser.parse_args()
 
     print("=" * 70)

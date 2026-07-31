@@ -31,12 +31,11 @@ _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 sys.path.insert(0, str(_THIS_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+import numpy as np  # noqa: E402
+from dsp_utils import add_board_arg, compile_and_run_dsp, get_target_string  # noqa: E402
 from model_utils import create_quantized_conv2d_stack_model  # noqa: E402
 
-import numpy as np  # noqa: E402
 import tvm.relax.transform.schedule_c7x_dma as _dma_mod  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Model registry
@@ -46,8 +45,9 @@ def _create_qresnet18():
     """Create quantized ResNet-18 (INT8, PT2E, 224x224 input)."""
     import torch
     from torch.export import export
-    from torchvision.models.resnet import ResNet18_Weights, resnet18
     from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+    from torchvision.models.resnet import ResNet18_Weights, resnet18
+
     from tvm import relax
     from tvm.relax.frontend.torch import C7xMMAQuantizer, from_exported_program
 
@@ -232,6 +232,7 @@ def main():
         default=300000,
         help="Execution timeout in ms (default: 300000)",
     )
+    add_board_arg(parser)
     args = parser.parse_args()
 
     model_desc, model_fn = MODELS[args.model]

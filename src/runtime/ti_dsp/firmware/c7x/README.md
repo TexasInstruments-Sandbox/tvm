@@ -37,7 +37,7 @@ Automated test script: `test/test_dynmod.sh` (19/19 tests pass).
 
 ```bash
 cd src/runtime/ti_dsp/firmware/c7x/dsp
-./build.sh
+./build.sh --board j722s-evm
 # Output: build/c7x_compute.out (~6.9 MB with DLOAD + TVM runtime)
 ```
 
@@ -61,7 +61,7 @@ cmake --build .
 
 ```bash
 cd src/runtime/ti_dsp/firmware/c7x/arm
-./build.sh                  # Cross-compile with aarch64-linux-gnu-g++
+./build.sh --board j722s-evm   # Cross-compile with aarch64-linux-gnu-g++
 ```
 
 Requires:
@@ -71,25 +71,26 @@ Requires:
 ## Deployment
 
 All deployment commands below are run from the **Linux development host**.
-The deploy script SSHs into the AM67A target (default hostname: `am67a`,
-override with `BOARD_HOSTNAME` env var) and uses remoteproc to manage the
-DSP firmware.
+`--board` is required: the deploy script SSHs into the hostname it maps to
+(`beagley-ai` -> `beagley-ai`, else `am67a`) and uses remoteproc to manage
+the DSP firmware. Add an SSH-config alias if your board answers to a
+different name -- there's no env-var override.
 
 ```bash
 # Deploy firmware (stop -> copy -> start -> verify)
-./deploy-c7x.sh dsp/build/c7x_compute.out
+./deploy-c7x.sh --board j722s-evm dsp/build/c7x_compute.out
 
 # Deploy with trace buffer dump
-./deploy-c7x.sh dsp/build/c7x_compute.out --trace
+./deploy-c7x.sh --board j722s-evm dsp/build/c7x_compute.out --trace
 
 # Check status
-./deploy-c7x.sh --status
+./deploy-c7x.sh --board j722s-evm --status
 
 # Stop DSP cleanly
-./deploy-c7x.sh --stop
+./deploy-c7x.sh --board j722s-evm --stop
 
 # Deploy host CLI to the AM67A board
-cd arm && ./build.sh deploy
+cd arm && ./build.sh --board j722s-evm deploy
 ```
 
 The deploy script and host CLI both discover hardware by matching the device
@@ -313,7 +314,7 @@ may be leaking DMA-BUF attachments. Ensure:
 
 If the C7x becomes unresponsive:
 
-1. **Remoteproc restart**: `./deploy-c7x.sh --stop && ./deploy-c7x.sh --start`
+1. **Remoteproc restart**: `./deploy-c7x.sh --board j722s-evm --stop && ./deploy-c7x.sh --board j722s-evm --start`
 2. **Reboot board**: `ssh root@am67a reboot`
 3. **Power cycle** (when SSH unreachable):
    ```bash

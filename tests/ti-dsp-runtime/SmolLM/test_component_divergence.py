@@ -39,6 +39,7 @@ from dsp_utils import (  # noqa: E402
     compile_for_dsp,
     run_dsp_dload,
     run_dsp_host,
+    set_current_board,
     write_tensors_to_file,
 )
 
@@ -171,6 +172,7 @@ def compile_and_test(model, x, dsp_mode, test_name, apply_dequant=True):
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "c7x_host"
+    set_current_board(sys.argv[2] if len(sys.argv) > 2 else None)
     dim = 576
     hidden = 1536
     seq_len = 16

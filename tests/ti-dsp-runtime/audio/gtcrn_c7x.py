@@ -140,6 +140,7 @@ def main():
     )
     parser.add_argument("--frames", type=int, default=DEFAULT_T, help="Fixed STFT frame count")
     parser.add_argument("--checkpoint", default="model_trained_on_dns3.tar")
+    dsp_utils.add_board_arg(parser)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")

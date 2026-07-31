@@ -51,7 +51,7 @@ from cl_torchvision import (  # noqa: E402
 
 _PT2E_TESTS_DIR = _QUANTIZED_DIR.parent / "pt2e-tests"
 sys.path.insert(0, str(_PT2E_TESTS_DIR))
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import add_board_arg, compile_and_run_dsp, get_target_string  # noqa: E402
 from pt2e_utils import e2e_quantize_and_import, run_and_check  # noqa: E402
 
 pytestmark = [pytest.mark.c7x_only]
@@ -204,6 +204,7 @@ def main():
     parser = argparse.ArgumentParser(description="Quantized TorchVision DSP Test")
     parser.add_argument("--model", required=True, choices=TORCHVISION_MODELS)
     parser.add_argument("--dsp-mode", required=True, choices=["c7x_host", "c7x_dload"])
+    add_board_arg(parser)
     parser.add_argument("--mmalib", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()

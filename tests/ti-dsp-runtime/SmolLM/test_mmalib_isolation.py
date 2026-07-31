@@ -43,7 +43,7 @@ _MODEL_DIR = _THIS_DIR / "model"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 sys.path.insert(0, str(_THIS_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import add_board_arg, compile_and_run_dsp, get_target_string  # noqa: E402
 from smollm_c7x import quantize_linear  # noqa: E402
 
 _CALIBRATION_PROMPTS = [
@@ -352,6 +352,7 @@ def main():
         "--layer", type=str, default=None,
         help="Test only this layer (e.g., q_proj, lm_head)",
     )
+    add_board_arg(parser)
     args = parser.parse_args()
 
     M = args.seq_len

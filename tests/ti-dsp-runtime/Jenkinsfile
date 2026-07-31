@@ -76,6 +76,11 @@ pipeline {
             defaultValue: 'relax-c7x-mma',
             description: 'Branch to build and test'
         )
+        choice(
+            name: 'BOARD',
+            choices: ['j722s-evm', 'beagley-ai'],
+            description: 'Target board for hardware build/deploy/test stages'
+        )
         booleanParam(
             name: 'SKIP_LONG_TESTS',
             defaultValue: false,
@@ -174,7 +179,8 @@ pipeline {
         // for every subsequent run, on every stage, not just --isolate ones.
         // Scope it to this build's own workspace instead.
         PYTEST_ISOLATE_STATE_FOLDER    = "${WORKSPACE}/results"
-        BOARD_HOSTNAME                 = 'am67a'
+        BOARD                          = "${params.BOARD}"
+        BOARD_TARGET_HOST              = "${params.BOARD == 'beagley-ai' ? 'beagley-ai' : 'am67a'}"
         ENABLE_SDK_11_0_COMPATIBILITY  = '1'
         SMOLLM_MODEL_DIR               = "${HOME}/.cache/smollm/SmolLM-135M-Instruct"
     }
@@ -264,7 +270,7 @@ pipeline {
                         sh '''
                             cd src/runtime/ti_dsp
                             bash build_runtime.sh c7x_host
-                            bash build_runtime.sh c7x
+                            bash build_runtime.sh c7x --board ${BOARD}
                         '''
                     }
                 }
@@ -300,9 +306,15 @@ pipeline {
 
                 stage('C7x Firmware') {
                     steps {
+                        script {
+                            // beagley-ai has no TIDL algo libs linked -- see CLAUDE.md
+                            // Build / tvm-relax-c7x:build. j722s-evm uses build.sh's
+                            // own default (--tidl ON, forces --mmalib ON).
+                            env.FW_TIDL_ARGS = (params.BOARD == 'beagley-ai') ? '--tidl OFF --mmalib ON' : ''
+                        }
                         sh '''
                             cd src/runtime/ti_dsp/firmware/c7x/dsp
-                            ./build.sh
+                            ./build.sh --board ${BOARD} ${FW_TIDL_ARGS}
                         '''
                     }
                 }
@@ -311,7 +323,7 @@ pipeline {
                     steps {
                         sh '''
                             cd src/runtime/ti_dsp/firmware/c7x/arm
-                            ./build.sh
+                            ./build.sh --board ${BOARD}
                         '''
                     }
                 }
@@ -334,40 +346,40 @@ pipeline {
                     steps {
                         sh '''
                             ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                root@${BOARD_HOSTNAME} reboot || true
+                                root@${BOARD_TARGET_HOST} reboot || true
                             sleep 30
                             for i in $(seq 1 12); do
                                 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-                                    root@${BOARD_HOSTNAME} true 2>/dev/null && break
+                                    root@${BOARD_TARGET_HOST} true 2>/dev/null && break
                                 echo "Waiting for EVM to come back up... ($i/12)"
                                 sleep 10
                             done
                             ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                root@${BOARD_HOSTNAME} true
+                                root@${BOARD_TARGET_HOST} true
                         '''
                         sh '''
                             cd src/runtime/ti_dsp/firmware/c7x
-                            ./deploy-c7x.sh dsp/build/c7x_compute.out
+                            ./deploy-c7x.sh --board ${BOARD} dsp/build/c7x_compute.out
                         '''
                         sh '''
                             cd src/runtime/ti_dsp/firmware/c7x/arm
-                            ./build.sh deploy
+                            ./build.sh --board ${BOARD} deploy
                         '''
                         // Reboot so remoteproc autostart loads the new firmware.
                         // Copying while the board is running avoids the EBUSY
                         // error from stopping remoteproc mid-vdev-negotiation.
                         sh '''
                             ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                root@${BOARD_HOSTNAME} reboot || true
+                                root@${BOARD_TARGET_HOST} reboot || true
                             sleep 30
                             for i in $(seq 1 12); do
                                 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-                                    root@${BOARD_HOSTNAME} true 2>/dev/null && break
+                                    root@${BOARD_TARGET_HOST} true 2>/dev/null && break
                                 echo "Waiting for EVM to come back up... ($i/12)"
                                 sleep 10
                             done
                             ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                root@${BOARD_HOSTNAME} true
+                                root@${BOARD_TARGET_HOST} true
                         '''
                     }
                 }
@@ -555,34 +567,34 @@ pipeline {
                         sh '''
                             ssh -o ConnectTimeout=10 \
                                 -o StrictHostKeyChecking=no \
-                                root@${BOARD_HOSTNAME} \
+                                root@${BOARD_TARGET_HOST} \
                                 "/usr/local/bin/c7x_compute status" \
                             || {
                                 echo "Board unresponsive -- attempting stop/start recovery"
                                 cd src/runtime/ti_dsp/firmware/c7x
-                                ./deploy-c7x.sh --stop || true
+                                ./deploy-c7x.sh --board ${BOARD} --stop || true
                                 sleep 3
-                                ./deploy-c7x.sh --start
+                                ./deploy-c7x.sh --board ${BOARD} --start
                                 sleep 3
                                 ssh -o ConnectTimeout=10 \
                                     -o StrictHostKeyChecking=no \
-                                    root@${BOARD_HOSTNAME} \
+                                    root@${BOARD_TARGET_HOST} \
                                     "/usr/local/bin/c7x_compute status" \
                                 || {
                                     echo "Stop/start failed -- rebooting board"
                                     ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                        root@${BOARD_HOSTNAME} reboot || true
+                                        root@${BOARD_TARGET_HOST} reboot || true
                                     sleep 30
                                     for i in $(seq 1 12); do
                                         ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-                                            root@${BOARD_HOSTNAME} true 2>/dev/null && break
+                                            root@${BOARD_TARGET_HOST} true 2>/dev/null && break
                                         echo "Waiting for board to come back up... ($i/12)"
                                         sleep 10
                                     done
                                     ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                        root@${BOARD_HOSTNAME} true
+                                        root@${BOARD_TARGET_HOST} true
                                     ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                                        root@${BOARD_HOSTNAME} \
+                                        root@${BOARD_TARGET_HOST} \
                                         "/usr/local/bin/c7x_compute status"
                                 }
                             }
@@ -614,7 +626,8 @@ pipeline {
                             pytest -p no:tvm.testing.plugin --rootdir=. dsp-tests/ \
                                 -m "quick and not c66x_only" \
                                 --dsp-mode=c7x_dload \
-                                --board-target=${BOARD_HOSTNAME} \
+                                --board ${BOARD} \
+                                --board-target=${BOARD_TARGET_HOST} \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/c7x_dload_quick.xml
                         '''
@@ -635,7 +648,8 @@ pipeline {
                             pytest -p no:tvm.testing.plugin --rootdir=. dsp-tests/ \
                                 -m "not c66x_only and not quick" \
                                 --dsp-mode=c7x_dload \
-                                --board-target=${BOARD_HOSTNAME} \
+                                --board ${BOARD} \
+                                --board-target=${BOARD_TARGET_HOST} \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/c7x_dload_full.xml
                         '''
@@ -652,6 +666,7 @@ pipeline {
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. mmalib-tests/ \
                                 --dsp-mode=c7x_dload \
+                                --board ${BOARD} \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/mmalib_dload.xml
                         '''
@@ -669,6 +684,7 @@ pipeline {
                             pytest -p no:tvm.testing.plugin --rootdir=. pt2e-tests/ \
                                 -m quick \
                                 --dsp-mode=c7x_dload \
+                                --board ${BOARD} \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/pt2e_dload.xml
                         '''
@@ -692,6 +708,7 @@ pipeline {
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
                                 --dsp-mode=c7x_dload \
+                                --board ${BOARD} \
                                 --ignore=quantized/test_quantized_inception_v3.py \
                                 --ignore=quantized/test_quantized_resnext101.py \
                                 -v \
@@ -710,6 +727,7 @@ pipeline {
                             cd tests/ti-dsp-runtime
                             pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
                                 --dsp-mode=c7x_dload \
+                                --board ${BOARD} \
                                 --mmalib \
                                 --isolate \
                                 -v \
@@ -732,6 +750,7 @@ pipeline {
                             pytest -p no:tvm.testing.plugin --rootdir=. \
                                 SmolLM/test_smollm_chat_e2e.py \
                                 --dsp-mode=c7x_dload \
+                                --board ${BOARD} \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/smollm_chat_e2e.xml
                         '''
@@ -749,6 +768,7 @@ pipeline {
                             pytest -p no:tvm.testing.plugin --rootdir=. tidl-tests/ \
                                 -m quick \
                                 --dsp-mode=c7x_dload \
+                                --board ${BOARD} \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/tidl_hw_quick.xml
                         '''
@@ -769,6 +789,7 @@ pipeline {
                             pytest -p no:tvm.testing.plugin --rootdir=. tidl-tests/ \
                                 -m "not quick" \
                                 --dsp-mode=c7x_dload \
+                                --board ${BOARD} \
                                 -v \
                                 --junit-xml=${WORKSPACE}/results/tidl_hw_full.xml
                         '''
@@ -781,9 +802,9 @@ pipeline {
                     sh '''
                         echo "Hardware stage failed -- attempting firmware recovery"
                         cd src/runtime/ti_dsp/firmware/c7x
-                        ./deploy-c7x.sh --stop  || true
+                        ./deploy-c7x.sh --board ${BOARD} --stop  || true
                         sleep 3
-                        ./deploy-c7x.sh --start || true
+                        ./deploy-c7x.sh --board ${BOARD} --start || true
                     '''
                 }
             }

@@ -48,6 +48,7 @@ sys.path.insert(0, str(_DSP_CPP_DIR))
 
 from dsp_utils import (  # noqa: E402
     INPUT_BIN_FILE,
+    add_board_arg,
     build_dsp_c7x_host,
     build_dsp_dynmod,
     compile_for_dsp,
@@ -188,6 +189,7 @@ if __name__ == "__main__":
     parser.add_argument("dsp_mode", choices=["c7x_host", "c7x_dload"], help="DSP execution mode")
     parser.add_argument("layers", nargs="*", type=int, default=[1, 2], help="Layer counts to test")
     parser.add_argument("--fp32", action="store_true", help="Also test FP32")
+    add_board_arg(parser)
     args = parser.parse_args()
 
     print(f"\n=== SmolLM-135M truncated on {args.dsp_mode} ===")

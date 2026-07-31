@@ -8,18 +8,17 @@
 #   ./build.sh clean    - Clean build directory
 #   ./build.sh deploy   - Deploy to target
 #
-#   --board <j722s-evm|beagley-ai>      - Target board (default: j722s-evm)
+#   --board <j722s-evm|beagley-ai>      - Target board (required)
 #   --ddr <4gb|8gb>                     - Shared-DMA DDR size (default: per-board)
 #
-# --board/--ddr only affect the cosmetic C7X_SHARED_PHYS_BASE sanity check
-# in c7x_compute_client.cpp (see cmake/boards.cmake); forwarded here purely
-# for build-dir naming consistency with build_runtime.sh/dsp/build.sh.
+# --board/--ddr affect the cosmetic C7X_SHARED_PHYS_BASE sanity check in
+# c7x_compute_client.cpp (see cmake/boards.cmake), build-dir naming, and
+# (for `deploy`) which host's hostname default is used.
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET_HOST="${BOARD_HOSTNAME:-am67a}"
 
 # ARM64 cross-compiler (Ubuntu packages: gcc-aarch64-linux-gnu, g++-aarch64-linux-gnu)
 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
@@ -36,6 +35,19 @@ while [ $# -gt 0 ]; do
         *) SUBCOMMAND="$1"; shift ;;
     esac
 done
+
+if [ -z "$TVM_BOARD" ]; then
+    echo "Error: --board <j722s-evm|beagley-ai> is required" >&2
+    exit 1
+fi
+
+# Deploy host is a deterministic function of --board (am67a is j722s-evm's
+# hostname, not a distinct board); use an SSH-config alias if your board is
+# reachable under a different name.
+case "$TVM_BOARD" in
+    beagley-ai) TARGET_HOST="beagley-ai" ;;
+    *)          TARGET_HOST="am67a" ;;
+esac
 
 # Board/ddr -> build-dir suffix. Shared with build_runtime.sh and
 # firmware/c7x/dsp/build.sh so all three always agree on where a given

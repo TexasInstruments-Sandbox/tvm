@@ -24,10 +24,11 @@ release, see
 
 Two boards are supported via `--board`/`--ddr` on the runtime and
 firmware build scripts (see the usage header in
-[`build_runtime.sh`](src/runtime/ti_dsp/build_runtime.sh)):
+[`build_runtime.sh`](src/runtime/ti_dsp/build_runtime.sh)); `--board` is
+required for any hardware build -- there is no default:
 
-- **[AM67A EVM](https://www.ti.com/tool/J722SXH01EVM)** (`j722s-evm`,
-  default) -- TI's evaluation module, orderable directly from TI.
+- **[AM67A EVM](https://www.ti.com/tool/J722SXH01EVM)** (`j722s-evm`)
+  -- TI's evaluation module, orderable directly from TI.
 - **[BeagleY-AI](https://www.beagleboard.org/boards/beagley-ai)**
   (`beagley-ai`) -- an open-hardware single-board computer built around
   the same J722S SoC.

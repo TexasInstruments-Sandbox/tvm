@@ -25,11 +25,10 @@ import argparse
 import logging
 import re
 import sys
-
-import pytest
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 from torch.export import export
 from torchvision.models.resnet import ResNet18_Weights, resnet18
@@ -42,7 +41,13 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import compile_and_run_dsp, compare_results, get_target_string, assert_dsp_comparison  # noqa: E402
+from dsp_utils import (  # noqa: E402
+    add_board_arg,
+    assert_dsp_comparison,
+    compare_results,
+    compile_and_run_dsp,
+    get_target_string,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -188,6 +193,7 @@ def main():
         help="Generate interactive HTML visualization (e.g. resnet18.html)",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    add_board_arg(parser)
     args = parser.parse_args()
 
     # Configure logging

@@ -7,7 +7,7 @@
 #   ./build.sh clean    - Clean build directory
 #   ./build.sh deploy   - Deploy and start firmware
 #
-#   --board <j722s-evm|beagley-ai>      - Target board (default: j722s-evm)
+#   --board <j722s-evm|beagley-ai>      - Target board (required)
 #   --ddr <4gb|8gb>                     - Shared-DMA DDR size (default: per-board)
 #   --tidl <ON|OFF>                     - Link TIDL algo libs (default: ON)
 #   --mmalib <ON|OFF>                   - Link MMALIB direct-integration libs
@@ -50,6 +50,11 @@ done
 
 # Backward-compat: TIDL defaulted ON unconditionally before --tidl existed.
 TVM_TIDL="${TVM_TIDL:-ON}"
+
+if [ -z "$TVM_BOARD" ]; then
+    echo "Error: --board <j722s-evm|beagley-ai> is required" >&2
+    exit 1
+fi
 
 # Board/ddr/tidl/mmalib -> build-dir suffix. Shared with build_runtime.sh
 # and firmware/c7x/arm/build.sh so all three always agree on where a

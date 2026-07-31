@@ -9,12 +9,14 @@
 #   ./build_runtime.sh c7x_host         # Build C7x host emulation only
 #   ./build_runtime.sh clean            # Remove all build directories
 #
-#   --board <j722s-evm|beagley-ai>      # Target board (default: j722s-evm)
+#   --board <j722s-evm|beagley-ai>      # Target board (required for c7x)
 #   --ddr <4gb|8gb>                     # Shared-DMA DDR size (default: per-board)
 #
 # Board/ddr resolve to SDK paths and the shared-DMA physical base entirely
 # in cmake/boards.cmake -- this script only forwards the flags and picks a
-# build-dir name so switching --ddr never reuses a stale build.
+# build-dir name so switching --ddr never reuses a stale build. --board is
+# only required for the c7x (hardware) target -- c66x_host/c66x/c7x_host
+# emulation targets don't depend on board identity at all.
 #
 # Environment variables (auto-detected if not set):
 #   TI_CGT_C6000_PATH   - TI C6000 compiler (required for c66x target)
@@ -130,6 +132,10 @@ build_c66x() {
 }
 
 build_c7x() {
+    if [ -z "$TVM_BOARD" ]; then
+        echo "Error: --board <j722s-evm|beagley-ai> is required for the c7x target" >&2
+        exit 1
+    fi
     echo ""
     echo "=== Building C7x cross-compiled runtime (board=$BOARD ddr=$DDR) ==="
     rm -rf "build-c7x${BUILD_SUFFIX}"
@@ -169,7 +175,8 @@ case "$TARGET" in
     clean)     do_clean ;;
     all)       build_c66x; build_c7x; build_c7x_host ;;
     *)
-        echo "Usage: $0 [c66x_host|c66x|c7x|c7x_host|clean|all] [--board <j722s-evm|beagley-ai>] [--ddr <4gb|8gb>]"
+        echo "Usage: $0 [c66x_host|c66x|c7x|c7x_host|clean|all] --board <j722s-evm|beagley-ai> [--ddr <4gb|8gb>]"
+        echo "  (--board is required only for the c7x target)"
         exit 1
         ;;
 esac
