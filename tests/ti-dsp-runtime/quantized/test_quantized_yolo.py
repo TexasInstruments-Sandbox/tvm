@@ -1,12 +1,17 @@
 """
 Quantized YOLO object detection DSP test.
 
-Tests INT8 quantized YOLOv5/v8 (PT2E QDQ + MMALIB offload) on DSP comparing
-against the PyTorch fake-quantized reference (quantized_gm), like the other
-tests in this directory. This replaces tidl-tests/test_yolo_dsp.py's TIDL
-offload path: MMALIB bakes quantization scales into the compiled code at
+Tests INT8 quantized YOLOv5/v8/26 (PT2E QDQ + MMALIB offload) on DSP
+comparing against the PyTorch fake-quantized reference (quantized_gm), like
+the other tests in this directory. This replaces tidl-tests/test_yolo_dsp.py's
+TIDL offload path: MMALIB bakes quantization scales into the compiled code at
 build time, so there is no separate PC-calibration inference step to
 disagree with the DSP (the source of TIDL's documented DFL-softmax NaN).
+
+yolo26 has no DFL (reg_max=1, direct box regression) and defaults to an
+NMS-free "one2one" deploy head; YOLOWrapper (model_utils.py) forces its
+auxiliary "one2many" head instead, which still yields a raw per-anchor
+detection tensor structurally analogous to v5/v8's.
 
 All 4 variants return a single raw detection tensor; NMS is not exercised
 here (same scope as the source test). Detection tensors mix small-magnitude
@@ -44,21 +49,22 @@ pytestmark = [pytest.mark.c7x_only]
 
 logger = logging.getLogger(__name__)
 
-# (model_name, version) — version is "v5" or "v8"
+# (model_name, version) — version is "v5", "v8", or "v26"
 YOLO_MODELS = [
     ("yolov5n", "v5"),
     ("yolov5s", "v5"),
     ("yolov8n", "v8"),
     ("yolov8s", "v8"),
+    ("yolo26n", "v26"),
 ]
 
 
 def _skip_yolo_if_no_ultralytics(model_name):
     """Skip if ultralytics is not installed.
 
-    Both v5 and v8 depend on the ultralytics package: v8 directly imports
-    ultralytics.YOLO, and v5's torch.hub entry point also requires it (the
-    modern yolov5 hubconf.py imports from it).
+    v5, v8, and v26 all depend on the ultralytics package: v8/v26 directly
+    import ultralytics.YOLO, and v5's torch.hub entry point also requires it
+    (the modern yolov5 hubconf.py imports from it).
     """
     pytest.importorskip(
         "ultralytics",
