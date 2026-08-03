@@ -43,7 +43,7 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
-from .ti_mmalib_legalize import _float_to_scale_shift
+from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +284,12 @@ def _check_mmalib_qdq_dwconv2d(ctx) -> bool:
         if str(data.struct_info.dtype) != "int8":
             return False
 
+    # Bias (if present) must resolve to a compile-time constant -- see the
+    # matching comment in ti_mmalib_qdq_fusion.py's _check_mmalib_qdq_conv2d.
+    if "bias" in ctx.annotated_expr:
+        if _resolve_constant_tensor(ctx.annotated_expr["bias"]) is None:
+            return False
+
     # Geometry constraints shared with i16 path (3x3/5x5/7x7, stride-2 ≤ 5x5)
     return _check_dwconv2d_geometry(ctx, allowed_kh_sizes=(3, 5, 7), max_kh_stride2=5)
 
@@ -372,8 +378,9 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
         bias_np = None
         if has_bias and "bias" in roles:
             bias_arg = param_to_arg[roles["bias"]]
-            if isinstance(bias_arg, relax.Constant):
-                bias_np = bias_arg.data.numpy().flatten()
+            resolved = _resolve_constant_tensor(bias_arg, lookup=self.lookup_binding)
+            if resolved is not None:
+                bias_np = resolved.flatten()
 
         # Extract dimensions
         attrs = roles["conv_attrs"]

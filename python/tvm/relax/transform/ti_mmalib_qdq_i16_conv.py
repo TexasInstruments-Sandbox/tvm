@@ -52,7 +52,11 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
-from .ti_mmalib_legalize import _check_conv2d_mmalib_constraints, _float_to_scale_shift
+from .ti_mmalib_legalize import (
+    _check_conv2d_mmalib_constraints,
+    _float_to_scale_shift,
+    _resolve_constant_tensor,
+)
 from .ti_mmalib_qdq_fusion import _MMALIBQDQLowerer as _I8Lowerer
 
 logger = logging.getLogger(__name__)
@@ -255,6 +259,12 @@ def _check_mmalib_qdq_i16_conv2d(ctx) -> bool:
         if str(data.struct_info.dtype) != "int16":
             return False
 
+    # Bias (if present) must resolve to a compile-time constant -- see the
+    # matching comment in ti_mmalib_qdq_fusion.py's _check_mmalib_qdq_conv2d.
+    if "bias" in ctx.annotated_expr:
+        if _resolve_constant_tensor(ctx.annotated_expr["bias"]) is None:
+            return False
+
     # Extract conv2d call to validate spatial/channel constraints
     conv = ctx.annotated_expr["conv"]
     if not isinstance(conv, relax.Call):
@@ -367,8 +377,9 @@ class _MMALIB_QDQI16Conv2dLowerer(PyExprMutator):
         bias_np = None
         if has_bias and "bias" in roles:
             bias_arg = param_to_arg[roles["bias"]]
-            if isinstance(bias_arg, relax.Constant):
-                bias_np = bias_arg.data.numpy().flatten()
+            resolved = _resolve_constant_tensor(bias_arg, lookup=self.lookup_binding)
+            if resolved is not None:
+                bias_np = resolved.flatten()
 
         # Extract conv2d dimensions
         attrs = roles["conv_attrs"]
