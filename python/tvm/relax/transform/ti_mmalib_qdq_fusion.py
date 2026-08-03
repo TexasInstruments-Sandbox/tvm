@@ -45,7 +45,11 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
-from .ti_mmalib_legalize import _check_conv2d_mmalib_constraints, _float_to_scale_shift
+from .ti_mmalib_legalize import (
+    _check_conv2d_mmalib_constraints,
+    _float_to_scale_shift,
+    _resolve_constant_tensor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +214,16 @@ def _check_mmalib_qdq_conv2d(ctx) -> bool:
     if not _is_const_zero(w_zp):
         return False
 
+    # Bias (if present) must resolve to a compile-time constant -- e.g.
+    # PT2E's conv-bias decomposition wraps it in reshape(bias_const, (1, C,
+    # 1, 1)) rather than passing the constant directly. _resolve_constant_
+    # tensor() (used by _lower() below) unwraps that; if it *still* can't
+    # resolve to a constant, reject the match here rather than silently
+    # lowering with a dropped (all-zero) bias.
+    if "bias" in ctx.annotated_expr:
+        if _resolve_constant_tensor(ctx.annotated_expr["bias"]) is None:
+            return False
+
     # w_int8 must be int8
     w = ctx.annotated_expr["w_int8"]
     if isinstance(w, relax.Constant):
@@ -355,8 +369,9 @@ class _MMALIBQDQLowerer(PyExprMutator):
         bias_np = None
         if has_bias and "bias" in roles:
             bias_arg = param_to_arg[roles["bias"]]
-            if isinstance(bias_arg, relax.Constant):
-                bias_np = bias_arg.data.numpy().flatten()
+            resolved = _resolve_constant_tensor(bias_arg, lookup=self.lookup_binding)
+            if resolved is not None:
+                bias_np = resolved.flatten()
 
         # Extract conv2d dimensions from attrs and weight shape
         attrs = roles["conv_attrs"]

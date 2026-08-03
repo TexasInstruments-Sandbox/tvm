@@ -44,7 +44,7 @@ from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
-from .ti_mmalib_legalize import _float_to_scale_shift
+from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor
 from .ti_mmalib_qdq_dwconv import (
     _check_dwconv2d_geometry,
     _MMALIBQDQDwConvLowerer,
@@ -108,6 +108,12 @@ def _check_mmalib_qdq_dwconv2d_i16(ctx) -> bool:
         return False
     if hasattr(data, "struct_info") and hasattr(data.struct_info, "dtype"):
         if str(data.struct_info.dtype) != "int16":
+            return False
+
+    # Bias (if present) must resolve to a compile-time constant -- see the
+    # matching comment in ti_mmalib_qdq_fusion.py's _check_mmalib_qdq_conv2d.
+    if "bias" in ctx.annotated_expr:
+        if _resolve_constant_tensor(ctx.annotated_expr["bias"]) is None:
             return False
 
     # Shared geometry constraints (groups==C_in, strides, dilation, N==1, static shapes).
@@ -223,8 +229,9 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
         bias_np = None
         if has_bias and "bias" in roles:
             bias_arg = param_to_arg[roles["bias"]]
-            if isinstance(bias_arg, relax.Constant):
-                bias_np = bias_arg.data.numpy().flatten()
+            resolved = _resolve_constant_tensor(bias_arg, lookup=self.lookup_binding)
+            if resolved is not None:
+                bias_np = resolved.flatten()
 
         # Extract dimensions: weight is [C_out, 1, KH, KW] (OIHW) for depthwise
         attrs = roles["conv_attrs"]
@@ -283,11 +290,11 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
                 return tir.call_extern(
                     "int32",
                     "mmalib_depthwise_conv2d_i16",
-                    ins[0].data,   # input  [1, C, H_in, W_in], int16
-                    ins[1].data,   # weights [C*KH*KW], int16 (natural order)
-                    ins[2].data,   # bias  [C], int64
-                    ins[3].data,   # scale [C], uint8
-                    ins[4].data,   # shift [C], uint8
+                    ins[0].data,  # input  [1, C, H_in, W_in], int16
+                    ins[1].data,  # weights [C*KH*KW], int16 (natural order)
+                    ins[2].data,  # bias  [C], int64
+                    ins[3].data,  # scale [C], uint8
+                    ins[4].data,  # shift [C], uint8
                     outs[0].data,  # output [1, C, H_out, W_out], int16
                     channels,
                     H_in,

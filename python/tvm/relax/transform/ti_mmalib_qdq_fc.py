@@ -41,7 +41,7 @@ from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_mmalib_constants import MMA_SIZE_I8, MMA_SIZE_I16
-from .ti_mmalib_legalize import _float_to_scale_shift
+from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor
 
 logger = logging.getLogger(__name__)
 
@@ -262,10 +262,11 @@ def _check_mmalib_qdq_fc(ctx) -> bool:
             if list(w_perm.attrs.axes) != expected:
                 return False
 
-    # Bias (if present) must be a Constant
+    # Bias (if present) must resolve to a compile-time constant -- unwraps
+    # e.g. reshape(bias_const, broadcast_shape) via _resolve_constant_tensor,
+    # same as the conv2d/dwconv checkers (see ti_mmalib_qdq_fusion.py).
     if "bias" in ctx.annotated_expr:
-        b = ctx.annotated_expr["bias"]
-        if not isinstance(b, relax.Constant):
+        if _resolve_constant_tensor(ctx.annotated_expr["bias"]) is None:
             return False
 
     return True
@@ -354,8 +355,9 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
         bias_np = None
         if has_bias and "bias" in roles:
             bias_arg = param_to_arg[roles["bias"]]
-            if isinstance(bias_arg, relax.Constant):
-                bias_np = bias_arg.data.numpy().flatten()
+            resolved = _resolve_constant_tensor(bias_arg, lookup=self.lookup_binding)
+            if resolved is not None:
+                bias_np = resolved.flatten()
 
         # Weight shape: [N_out, K]
         N_out, K = w_int8_np.shape
@@ -612,9 +614,11 @@ def _check_mmalib_qdq_fc_i16(ctx) -> bool:
             if list(w_perm.attrs.axes) != expected:
                 return False
 
+    # Bias (if present) must resolve to a compile-time constant -- unwraps
+    # e.g. reshape(bias_const, broadcast_shape) via _resolve_constant_tensor,
+    # same as the conv2d/dwconv checkers (see ti_mmalib_qdq_fusion.py).
     if "bias" in ctx.annotated_expr:
-        b = ctx.annotated_expr["bias"]
-        if not isinstance(b, relax.Constant):
+        if _resolve_constant_tensor(ctx.annotated_expr["bias"]) is None:
             return False
 
     return True
@@ -718,8 +722,9 @@ class _MMALIB_QDQI16FCLowerer(PyExprMutator):
         bias_np = None
         if has_bias and "bias" in roles:
             bias_arg = param_to_arg[roles["bias"]]
-            if isinstance(bias_arg, relax.Constant):
-                bias_np = bias_arg.data.numpy().flatten()
+            resolved = _resolve_constant_tensor(bias_arg, lookup=self.lookup_binding)
+            if resolved is not None:
+                bias_np = resolved.flatten()
 
         N_out, K = w_i16_np.shape
         data_sinfo = data_arg.struct_info

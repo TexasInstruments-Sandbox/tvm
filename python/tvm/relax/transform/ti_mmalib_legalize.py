@@ -341,6 +341,62 @@ def _float_to_scale_shift(rescale: np.ndarray):
     return scale_out, shift_out
 
 
+# Shape-only ops that PT2E/ATen's conv-bias decomposition may interpose
+# between a bias `relax.Constant` leaf and the `relax.add` that broadcasts
+# it against the conv/matmul output (e.g. reshape (C,) -> (1, C, 1, 1)).
+_CONSTANT_FOLDABLE_SHAPE_OPS = (
+    "relax.reshape",
+    "relax.expand_dims",
+    "relax.squeeze",
+    "relax.astype",
+)
+
+
+def _resolve_constant_tensor(expr, lookup=None):
+    """Resolve `expr` to a numpy array if it is a compile-time constant.
+
+    Returns the literal array for a bare `relax.Constant`. Also unwraps
+    chains of shape-only ops (reshape/expand_dims/squeeze/astype) applied
+    to a `relax.Constant` leaf -- e.g. PT2E's conv-bias decomposition
+    represents `add(conv_out, bias)` as `add(conv_out, reshape(bias_const,
+    (1, C, 1, 1)))` rather than passing the bias constant directly, so a
+    bare `isinstance(x, relax.Constant)` check misses it and the bias is
+    silently dropped (folded as all-zero) by every MMALIB QDQ lowering
+    pass. Returns None if `expr` is not a compile-time constant.
+
+    `lookup`: optional `Var -> Optional[Expr]` callable (e.g. a
+    `PyExprMutator.lookup_binding` bound method) used to dereference a
+    `relax.Var`/`DataflowVar` to its bound value. Needed when `expr` comes
+    from a composite call's call-site argument (as in each pass's `_lower`)
+    rather than from `PatternCheckContext.annotated_expr` (which is already
+    fully dereferenced during pattern matching).
+    """
+    if isinstance(expr, relax.Constant):
+        return expr.data.numpy()
+    if isinstance(expr, relax.Var):
+        if lookup is None:
+            return None
+        bound = lookup(expr)
+        if bound is None:
+            return None
+        return _resolve_constant_tensor(bound, lookup)
+    if (
+        isinstance(expr, relax.Call)
+        and hasattr(expr.op, "name")
+        and expr.op.name in _CONSTANT_FOLDABLE_SHAPE_OPS
+        and expr.struct_info is not None
+        and expr.struct_info.shape is not None
+    ):
+        inner = _resolve_constant_tensor(expr.args[0], lookup)
+        if inner is None:
+            return None
+        if expr.op.name == "relax.astype":
+            return inner.astype(str(expr.struct_info.dtype))
+        out_shape = [int(s) for s in expr.struct_info.shape]
+        return inner.reshape(out_shape)
+    return None
+
+
 # =======================================================================
 # Public passes
 # =======================================================================
