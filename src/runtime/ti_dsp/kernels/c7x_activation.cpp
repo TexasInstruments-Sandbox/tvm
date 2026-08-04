@@ -28,7 +28,8 @@
  * c7x_int8_silu: SE + float vectorized on C7524, same shape as hardswish
  *   but with a real sigmoid gate instead of a piecewise-linear one.  C7x has
  *   no vectorized transcendental intrinsic, so the gate uses a vectorized
- *   4th-order Taylor-series exp with range reduction (exp_taylor, below)
+ *   4th-order Taylor-series exp with range reduction (exp_taylor, in
+ *   c7x_qdq_common.h)
  *   instead of a scalar expf() call per element.  Unlike hardswish/gelu/
  *   hardsigmoid, SiLU is YOLOv8's primary activation and runs on full
  *   feature maps, not just tiny SE-block tensors -- it was the dominant
@@ -50,20 +51,10 @@
 
 #include "c7x_activation.h"
 
-#include <float.h>
 #include <math.h>
 #include <stdint.h>
 
-/* Unconditional include (not gated on __C7524__): on the c7x_host g++
- * toolchain, __C7524__ is defined *by* <c7x.h> itself, not predefined by
- * the compiler — gating the include on the macro it defines is a
- * chicken-and-egg check that always evaluates false, silently disabling
- * the vectorized path on host emulation (the real c7x cross-compiler
- * predefines __C7524__ as a builtin before any header runs, so this only
- * broke host emulation, not hardware builds). See
- * c7x_avgpool.cpp / c7x_pool_relu.cpp / c7x_quantize.cpp
- * for the same fix. */
-#include <c7x.h>
+#include "c7x_qdq_common.h"
 
 /* M_SQRT1_2 = 1/sqrt(2) ≈ 0.7071067811865476 */
 #ifndef M_SQRT1_2
@@ -72,19 +63,8 @@
 
 /* =========================================================================
  * Scalar helpers (used by scalar fallbacks and gelu/silu/hardsigmoid)
+ * dq_f/rq_f come from c7x_qdq_common.h.
  * ========================================================================= */
-
-static inline float dq_f(int8_t x, int32_t zp, float scale) {
-    return ((float)(x - zp)) * scale;
-}
-
-static inline int8_t rq_f(float y, int32_t zp, float scale) {
-    int32_t v = (int32_t)(y / scale + 0.5f);
-    v += zp;
-    if (v < -128) v = -128;
-    if (v >  127) v =  127;
-    return (int8_t)v;
-}
 
 static inline float _gelu(float x) {
     return x * 0.5f * (1.0f + erff(x * (float)M_SQRT1_2));
@@ -168,11 +148,7 @@ static void hardswish_vec(
     const int32_t nvec4 = nvec & ~3;
 
     /* SE streams int8 sign-extended to int32 (PROMOTE=4X_SIGNEXT). */
-    __SE_TEMPLATE_v1 se = __gen_SE_TEMPLATE_v1();
-    se.ELETYPE = __SE_ELETYPE_8BIT;
-    se.VECLEN  = __SE_VECLEN_8ELEMS;
-    se.PROMOTE = __SE_PROMOTE_4X_SIGNEXT;
-    se.ICNT0   = (uint32_t)(nvec * 8);
+    __SE_TEMPLATE_v1 se = se_int8_signext_template((uint32_t)(nvec * 8));
 
     __SE0_OPEN(const_cast<int8_t*>(in), se);
 
@@ -257,7 +233,7 @@ int32_t c7x_int8_hardswish(
  * hardswish_vec does. The only difference is the gate: silu needs a real
  * sigmoid, and C7x has no vectorized transcendental intrinsic, so exp(x) is
  * computed via a 4th-order Taylor-series polynomial with range reduction
- * (exp_taylor, below) instead of a scalar libm call per element.
+ * (exp_taylor, in c7x_qdq_common.h) instead of a scalar libm call per element.
  *
  * exp_taylor's approximation degrades for |x| beyond ~9.7 (clips to 0 or
  * FLT_MAX rather than the true, still-finite value, to avoid a 64-bit
@@ -271,55 +247,7 @@ int32_t c7x_int8_hardswish(
 
 #ifdef __C7524__
 
-static __float8 exp_taylor(__float8 x) {
-    const __float8 ln2           = (__float8)0.693147180559945f;
-    const __float8 invln2        = (__float8)1.44269504090f;
-    const __float8 oneBy6        = (__float8)0.1666667f;
-    const __float8 oneBy24       = (__float8)0.0416667f;
-    const __float8 one           = (__float8)1.0f;
-    const __float8 half          = (__float8)0.5f;
-    const __float8 zero          = (__float8)0.0f;
-    const __float8 pkdOneBy65536 = (__float8)0.0000152587890625f;
-    const __float8 fltMax        = (__float8)FLT_MAX;
-
-    __float8 y  = invln2 * x;
-    __int8   yI = __float_to_int(y);           /* round-to-nearest (VSPINT) */
-    __float8 yf = y - __int_to_float(yI);
-
-    __float8 r1 = yf * ln2;
-    __float8 r2 = r1 * r1;
-    __float8 r3 = r2 * r1;
-    __float8 r4 = r2 * r2;
-    __float8 twoPwF = one + r1 + r2 * half + r3 * oneBy6 + r4 * oneBy24;
-
-    __vpred vpPos  = __cmp_gt_pred(yI, (__int8)0);
-    __int8  shiftL = __shift_left((__int8)(1 << 16), yI);
-    __int8  shiftR = __shift_right((__int8)(1 << 16), (__int8)0 - yI);
-    __int8  shift  = __select(vpPos, shiftL, shiftR);
-
-    __float8 ePwX = twoPwF * __int_to_float(shift) * pkdOneBy65536;
-
-    __vpred vpLo = __cmp_gt_pred((__int8)(-16), yI);
-    ePwX = __select(vpLo, zero, ePwX);
-    __vpred vpHi = __cmp_gt_pred(yI, (__int8)14);
-    ePwX = __select(vpHi, fltMax, ePwX);
-
-    return ePwX;
-}
-
-/* Vector reciprocal: __recip (VRCPSP) alone is only an ~8-bit-mantissa
- * seed; two Newton-Raphson iterations (x1 = x0*(2 - v*x0)) double the
- * mantissa accuracy each time, reaching full float32 precision. Plain `/`
- * on __float8 was tried first and rejected: it compiles to eight sequential
- * scalar __c7xabi_divf calls per vector op (checked via --keep_asm), not a
- * real vector instruction -- this refinement sequence is the actual
- * vectorized path. */
-static __float8 vec_recip(__float8 v) {
-    __float8 x = __recip(v);
-    x = x * (((__float8)2.0f) - v * x);
-    x = x * (((__float8)2.0f) - v * x);
-    return x;
-}
+/* exp_taylor / vec_recip come from c7x_qdq_common.h. */
 
 static void silu_vec(
         const int8_t* __restrict__ in,
@@ -338,11 +266,7 @@ static void silu_vec(
     const int32_t nvec  = n / 8;
     const int32_t nvec4 = nvec & ~3;
 
-    __SE_TEMPLATE_v1 se = __gen_SE_TEMPLATE_v1();
-    se.ELETYPE = __SE_ELETYPE_8BIT;
-    se.VECLEN  = __SE_VECLEN_8ELEMS;
-    se.PROMOTE = __SE_PROMOTE_4X_SIGNEXT;
-    se.ICNT0   = (uint32_t)(nvec * 8);
+    __SE_TEMPLATE_v1 se = se_int8_signext_template((uint32_t)(nvec * 8));
 
     __SE0_OPEN(const_cast<int8_t*>(in), se);
 
@@ -470,11 +394,7 @@ static void channel_scale_multiply_vec(
         const int32_t nvec  = H_W / 8;
         const int32_t nvec4 = nvec & ~3;
 
-        __SE_TEMPLATE_v1 se = __gen_SE_TEMPLATE_v1();
-        se.ELETYPE = __SE_ELETYPE_8BIT;
-        se.VECLEN  = __SE_VECLEN_8ELEMS;
-        se.PROMOTE = __SE_PROMOTE_4X_SIGNEXT;
-        se.ICNT0   = (uint32_t)(nvec * 8);
+        __SE_TEMPLATE_v1 se = se_int8_signext_template((uint32_t)(nvec * 8));
 
         __SE0_OPEN(const_cast<int8_t*>(fm_ch), se);
 

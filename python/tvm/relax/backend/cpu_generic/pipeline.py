@@ -122,6 +122,13 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # eliminated by EliminateQDQTransparent and fall through to a slow scalar
     # float32 loop without this pass.
     passes.append(tvm.relax.transform.FuseQDQToC7xConcat())
+    # Fuse QDQ-wrapped data-movement glue (reshape rescale; the SiLU'd FPN
+    # resize2d-nearest-2x + concat upsample-skip pattern) into
+    # c7x_int8_rescale / c7x_int8_resize2d_nearest2x call_extern chains.
+    # Must run after FuseQDQToC7xActivation (whose SiLU pattern requires a
+    # direct trailing quantize -- this pass covers the SiLU-then-resize2d
+    # case that pattern doesn't match) and before FuseQDQToInt8Conv2D.
+    passes.append(tvm.relax.transform.FuseQDQToC7xMovement())
     # Fuse QDQ-wrapped average pooling into c7x_int8_*_avg_pool kernels.
     passes.append(tvm.relax.transform.FuseQDQToC7xAvgPool())
     # Fuse QDQ-wrapped layer_norm into c7x_int8_layer_norm kernel.
