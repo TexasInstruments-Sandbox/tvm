@@ -173,6 +173,7 @@ SECTIONS
 --import=c7x_int8_quantize_rgb
 --import=c7x_int8_layer_norm
 --import=c7x_int8_concat_rescale
+--import=c7x_int8_concat_sigmoid
 --import=c7x_int8_rescale
 --import=c7x_int8_resize2d_nearest2x
 --import=c7x_int8_fpn_upsample_concat

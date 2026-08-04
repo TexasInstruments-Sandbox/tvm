@@ -147,6 +147,7 @@ __declspec(dllexport) int32_t c7x_int8_quantize() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_quantize_rgb() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_layer_norm() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_concat_rescale() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_concat_sigmoid() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_rescale() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_resize2d_nearest2x() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_fpn_upsample_concat() { return 0; }

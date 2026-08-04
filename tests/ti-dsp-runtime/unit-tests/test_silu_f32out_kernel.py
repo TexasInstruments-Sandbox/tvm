@@ -62,14 +62,24 @@ def _exp_taylor(x):
     r4 = r2 * r2
     two_pw_f = f32(1.0) + r1 + r2 * f32(0.5) + r3 * one_by_6 + r4 * one_by_24
 
-    pos = yI > 0
-    shift_l = np.left_shift(np.int32(1 << 16), np.clip(yI, 0, 30))
-    shift_r = np.right_shift(np.int32(1 << 16), np.clip(-yI, 0, 30))
-    shift = np.where(pos, shift_l, shift_r)
+    def _pow2_shift16(amt):
+        pos = amt > 0
+        shift_l = np.left_shift(np.int32(1 << 16), np.clip(amt, 0, 30))
+        shift_r = np.right_shift(np.int32(1 << 16), np.clip(-amt, 0, 30))
+        return np.where(pos, shift_l, shift_r)
 
-    e_pw_x = two_pw_f * shift.astype(f32) * pkd_one_by_65536
-    e_pw_x = np.where(yI < -16, f32(0.0), e_pw_x)
-    e_pw_x = np.where(yI > 14, f32(_FLT_MAX), e_pw_x)
+    # Two chained safe rings (each clamped to +/-14, the widest single
+    # shift that can't overflow int32) extend the exact range to yI in
+    # [-28,28] instead of one unclamped ring -- see c7x_qdq_common.h's
+    # exp_taylor for why.
+    yI_lo = np.clip(yI, -14, 14)
+    excess = yI - yI_lo
+    excess_lo = np.clip(excess, -14, 14)
+
+    e_pw_x = two_pw_f * _pow2_shift16(yI_lo).astype(f32) * pkd_one_by_65536
+    e_pw_x = e_pw_x * _pow2_shift16(excess_lo).astype(f32) * pkd_one_by_65536
+    e_pw_x = np.where(yI < -28, f32(0.0), e_pw_x)
+    e_pw_x = np.where(yI > 28, f32(_FLT_MAX), e_pw_x)
     return e_pw_x
 
 

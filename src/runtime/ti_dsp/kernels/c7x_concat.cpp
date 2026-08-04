@@ -19,7 +19,8 @@
 
 /**
  * @file c7x_concat.cpp
- * @brief Vectorized int8 channel-axis concat with per-input rescaling.
+ * @brief Vectorized int8 concat kernels: channel-axis rescale, and last-axis
+ *        dequantize+sigmoid.
  *
  * c7x_int8_concat_rescale: up to 4 inputs, fixed-signature 4-slot API.
  *   - Transparent slot (s_i == s_out, z_i == z_out): memcpy, ~2 cycles/elem.
@@ -27,6 +28,12 @@
  *     fallback on other targets.  Follows the same SE+Q13 pattern as
  *     c7x_int8_requantize_clamp in c7x_pool_relu.cpp.
  *   - Slots with C_i == 0 are skipped entirely.
+ *
+ * c7x_int8_concat_sigmoid: same 4-slot API, but concatenating along the last
+ * (flattened spatial/anchor) axis with a shared leading channel count C, and
+ * ending in a sigmoid (float32 out) instead of a requantize -- the YOLO
+ * multi-scale class-score glue (see ti_fuse_qdq_c7x_concat.py's
+ * _make_concat_sigmoid_pattern). Slots with n_i == 0 are skipped entirely.
  *
  * The #ifdef __C7524__ guard is required: __int8/__float8 = 256-bit containers
  * specific to the C7524 variant; wider-vector parts would produce wrong results.
@@ -108,5 +115,62 @@ int32_t c7x_int8_concat_rescale(
     if (C3 > 0) {
         process_slot((const int8_t*)in3, dst, C3 * HW, s3, z3, s_out, z_out);
     }
+    return 0;
+}
+
+/* =========================================================================
+ * c7x_int8_concat_sigmoid: last-axis concat + dequantize + sigmoid
+ *
+ * Branches share a leading channel count C; only the trailing width n_i
+ * differs per branch (e.g. per-detection-scale anchor counts in the YOLO
+ * multi-scale class-score glue: dq(reshape(x_i)) -> concat(axis=-1) ->
+ * sigmoid, no multiply, no trailing quantize). Unlike c7x_int8_concat_rescale
+ * (concat along the outermost non-batch axis, so branches are contiguous
+ * blocks), concatenating along the last axis interleaves branches per
+ * channel: output row c is [branch0 row c][branch1 row c]...
+ *
+ * dequant_sigmoid_vec (c7x_qdq_common.h) is c7x_int8_silu_f32out's SE +
+ * exp_taylor/vec_recip core minus the self-gate multiply.
+ * ========================================================================= */
+
+static void process_branch_sigmoid(
+        const int8_t* src,
+        float* dst_base,
+        int32_t C,
+        int32_t n_elem,
+        int32_t n_total,
+        float s_in, int32_t z_in) {
+    if (n_elem <= 0) return;
+
+    for (int32_t c = 0; c < C; ++c) {
+        const int8_t* row_src = src + (int64_t)c * n_elem;
+        float* row_dst = dst_base + (int64_t)c * n_total;
+#ifdef __C7524__
+        dequant_sigmoid_vec(row_src, row_dst, n_elem, z_in, s_in);
+#else
+        for (int32_t j = 0; j < n_elem; ++j)
+            row_dst[j] = sigmoid_f(dq_f(row_src[j], z_in, s_in));
+#endif
+    }
+}
+
+extern "C"
+int32_t c7x_int8_concat_sigmoid(
+        const void* in0, int32_t n0, float s0, int32_t z0,
+        const void* in1, int32_t n1, float s1, int32_t z1,
+        const void* in2, int32_t n2, float s2, int32_t z2,
+        const void* in3, int32_t n3, float s3, int32_t z3,
+        void* out, int32_t C) {
+    const int32_t n_total = n0 + n1 + n2 + n3;
+    float* dst = (float*)out;
+    int32_t offset = 0;
+
+    process_branch_sigmoid((const int8_t*)in0, dst + offset, C, n0, n_total, s0, z0);
+    offset += n0;
+    process_branch_sigmoid((const int8_t*)in1, dst + offset, C, n1, n_total, s1, z1);
+    offset += n1;
+    process_branch_sigmoid((const int8_t*)in2, dst + offset, C, n2, n_total, s2, z2);
+    offset += n2;
+    process_branch_sigmoid((const int8_t*)in3, dst + offset, C, n3, n_total, s3, z3);
     return 0;
 }
