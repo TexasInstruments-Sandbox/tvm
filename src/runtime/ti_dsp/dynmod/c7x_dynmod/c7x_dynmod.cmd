@@ -158,6 +158,7 @@ SECTIONS
 --import=c7x_dequantize_vecmatmul
 --import=c7x_int8_gelu
 --import=c7x_int8_silu
+--import=c7x_int8_silu_f32out
 --import=c7x_int8_hardsigmoid
 --import=c7x_int8_hardswish
 --import=c7x_int8_channel_scale_multiply
@@ -176,6 +177,7 @@ SECTIONS
 --import=c7x_int8_resize2d_nearest2x
 --import=c7x_int8_fpn_upsample_concat
 --import=c7x_int8_fpn_upsample_concat_ex
+--import=c7x_int8_dfl_softmax
 --import=c7x_sdpa_decode
 --import=c7x_topk
 

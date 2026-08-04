@@ -132,6 +132,7 @@ __declspec(dllexport) void c7x_sdpa_decode() {}
 __declspec(dllexport) int32_t c7x_topk() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_gelu() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_silu() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_silu_f32out() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_hardsigmoid() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_hardswish() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_channel_scale_multiply() { return 0; }
@@ -150,6 +151,7 @@ __declspec(dllexport) int32_t c7x_int8_rescale() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_resize2d_nearest2x() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_fpn_upsample_concat() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_fpn_upsample_concat_ex() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_dfl_softmax() { return 0; }
 
 /* ========================================================================
  * MCU+ SDK cache operations

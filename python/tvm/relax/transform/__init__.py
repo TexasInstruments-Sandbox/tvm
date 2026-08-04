@@ -111,7 +111,7 @@ from .rewrite_dequantize import RewriteDequantize
 from .schedule_c7x_dma import ScheduleC7xDMATiling
 from .ti_eliminate_qdq_transparent import EliminateQDQTransparent
 from .ti_fuse_qdq_c7x_concat import FuseQDQToC7xConcat
-from .ti_fuse_qdq_c7x_activation import FuseQDQToC7xActivation
+from .ti_fuse_qdq_c7x_activation import FuseQDQToC7xActivation, FuseQDQToC7xSiluF32Out
 from .ti_fuse_qdq_c7x_movement import FuseQDQToC7xMovement
 from .ti_fuse_qdq_c7x_avgpool import FuseQDQToC7xAvgPool
 from .ti_fuse_qdq_c7x_layernorm import FuseQDQToC7xLayerNorm

@@ -72,6 +72,49 @@ def _make_silu_pattern():
     return q, {"x": x, "d_scale": d_s, "d_zp": d_z, "o_scale": o_s, "o_zp": o_z}
 
 
+def _make_silu_f32out_pattern():
+    """dq → sigmoid(dq) → multiply(dq, sigmoid) — same self-gated SiLU as
+    _make_silu_pattern, but the composite ends at the multiply itself: no
+    trailing quantize, float32 output.
+
+    This is the C2f-block shape (YOLOv8/v5/26 backbone bottleneck blocks):
+    Conv → SiLU → split into two channel halves, each routed to a different
+    downstream branch before a later concat+quantize. _make_silu_pattern
+    requires a direct trailing quantize, which this shape never has -- the
+    SiLU'd float32 value feeds `split`/`concat` movement instead. Confirmed
+    via direct IR inspection of compiled yolo26n/yolov8n: every remaining
+    (post-FuseQDQToC7xActivation) bare sigmoid+multiply pair in both graphs
+    matches exactly this shape, immediately consumed by R.split or R.concat.
+    """
+    x, d_s, d_z = wildcard(), wildcard(), wildcard()
+    dq = is_op("relax.dequantize")(x, d_s, d_z)
+    sig = is_op("relax.sigmoid")(dq)
+    mul = is_op("relax.multiply")(dq, sig)
+    return mul, {"x": x, "d_scale": d_s, "d_zp": d_z}
+
+
+def _make_dfl_softmax_pattern():
+    """dq(x[B,A,K,N]) → permute_dims → softmax → q → [B,K,A,N].
+
+    YOLOv8's DFL (Distribution Focal Loss) head: softmax over the K=16
+    reg_max distribution bins, independently for each of B*A*N (batch,
+    box-coordinate, anchor) positions. The real compiled shape always has
+    a permute_dims between the dequantize and the softmax (confirmed via
+    direct IR inspection) -- softmax's own axis attr applies to the
+    *permuted* tensor, not the original [B,A,K,N] layout, so the lowerer
+    validates the permute's axes + softmax's axis together and derives
+    B/A/K/N from the pre-permute shape (see c7x_softmax.h for why fusing
+    the permute in, rather than materializing it, is the actual win here).
+    """
+    x, d_s, d_z = wildcard(), wildcard(), wildcard()
+    dq = is_op("relax.dequantize")(x, d_s, d_z)
+    perm = is_op("relax.permute_dims")(dq)
+    sm = is_op("relax.nn.softmax")(perm)
+    o_s, o_z = wildcard(), wildcard()
+    q = is_op("relax.quantize")(sm, o_s, o_z)
+    return q, {"x": x, "d_scale": d_s, "d_zp": d_z, "o_scale": o_s, "o_zp": o_z}
+
+
 def _make_hardsigmoid_pattern():
     """dq → add(dq, 3) → clip → clip → divide(_, 6) → q"""
     x, d_s, d_z = wildcard(), wildcard(), wildcard()
@@ -166,14 +209,22 @@ def _make_channel_scale_multiply_pattern_commuted():
 
 
 # (composite_name, pattern_factory)
+# NOTE: "tidl_act.silu_f32out" is deliberately NOT run as part of this
+# pass's own Round 1 -- see FuseQDQToC7xSiluF32Out below for why it needs
+# to run later, after FuseQDQToC7xMovement. It's still listed here (rather
+# than in a wholly separate registry) so _COMPOSITE_NAMES/_ActivationLowerer
+# recognize and lower it correctly when that later pass invokes the same
+# _run_patterns/_ActivationLowerer machinery.
 _PATTERN_REGISTRY = [
     ("tidl_act.gelu", _make_gelu_pattern),
     ("tidl_act.silu", _make_silu_pattern),
+    ("tidl_act.silu_f32out", _make_silu_f32out_pattern),
     ("tidl_act.hardsigmoid", _make_hardsigmoid_pattern),
     ("tidl_act.hardswish", _make_hardswish_pattern),
     ("tidl_act.hardswish_commuted", _make_hardswish_pattern_commuted),
     ("tidl_act.channel_scale_multiply", _make_channel_scale_multiply_pattern),
     ("tidl_act.channel_scale_multiply_commuted", _make_channel_scale_multiply_pattern_commuted),
+    ("tidl_act.dfl_softmax", _make_dfl_softmax_pattern),
 ]
 
 _COMPOSITE_NAMES = frozenset(name for name, _ in _PATTERN_REGISTRY)
@@ -185,6 +236,13 @@ _CHANNEL_SCALE_MULTIPLY_NAMES = frozenset(
         "tidl_act.channel_scale_multiply_commuted",
     }
 )
+
+# Composite names with no trailing quantize (float32 output) -- use
+# _check_silu_f32out instead of _check_activation.
+_F32OUT_NAMES = frozenset({"tidl_act.silu_f32out"})
+
+# Composite names that use the dedicated DFL-softmax lowering path.
+_DFL_SOFTMAX_NAMES = frozenset({"tidl_act.dfl_softmax"})
 
 
 def _check_activation(ctx) -> bool:
@@ -200,6 +258,26 @@ def _check_activation(ctx) -> bool:
         return False
 
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
+        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+            return False
+    return True
+
+
+def _check_silu_f32out(ctx) -> bool:
+    """Same as _check_activation, minus the o_scale/o_zp check -- this
+    pattern has no trailing quantize, so there is no output scale/zp to
+    validate."""
+    x = ctx.annotated_expr["x"]
+    if isinstance(x, relax.Constant):
+        if x.data.dtype != "int8":
+            return False
+    elif hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
+        if str(x.struct_info.dtype) != "int8":
+            return False
+    else:
+        return False
+
+    for name in ("d_scale", "d_zp"):
         if not isinstance(ctx.annotated_expr[name], relax.Constant):
             return False
     return True
@@ -276,11 +354,63 @@ class _ActivationLowerer(PyExprMutator):
 
         if name in _CHANNEL_SCALE_MULTIPLY_NAMES:
             return self._lower_channel_scale_multiply(call, func)
+        if name in _DFL_SOFTMAX_NAMES:
+            return self._lower_dfl_softmax(call, func)
         return self._lower_single_input(call, func, name)
 
+    def _lower_silu_f32out(self, call, call_sinfo, x_arg, d_scale_val, d_zp_val):
+        """Lower a silu_f32out composite to c7x_int8_silu_f32out.
+
+        No trailing quantize, so no is_tuple_out companion-dequantize case to
+        handle the way _lower_single_input's int8-output path does: a tuple
+        struct_info here would mean the multiply's float32 result itself has
+        an external consumer, which isn't observed on the real compiled
+        yolo26n/yolov8n graphs (every self-gated SiLU without a trailing
+        quantize is consumed exactly once, by the split/concat that follows
+        it). Decline rather than guess at the right reconstruction if it
+        ever occurs.
+        """
+        if isinstance(call_sinfo, relax.TupleStructInfo):
+            return super().visit_call_(call)
+        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+            return super().visit_call_(call)
+
+        output_shape = [int(s) for s in call_sinfo.shape]
+        n_elem = 1
+        for s in output_shape:
+            n_elem *= s
+
+        extern_name = "c7x_int8_silu_f32out"
+        d_zp_v = int(d_zp_val)
+        d_scale_v = float(d_scale_val)
+        n = n_elem
+
+        def te_silu_f32out(x_t):
+            def fcompute(ins, outs):
+                return tir.call_extern(
+                    "int32",
+                    extern_name,
+                    ins[0].data,
+                    outs[0].data,
+                    tir.IntImm("int32", n),
+                    tir.IntImm("int32", d_zp_v),
+                    tir.FloatImm("float32", d_scale_v),
+                )
+
+            return te.extern(output_shape, [x_t], fcompute, name="tidl_act_f32out", dtype="float32")
+
+        result = self.builder_.call_te(te_silu_f32out, x_arg, primfunc_name_hint=extern_name)
+        self.count += 1
+        logger.debug(
+            "Fused %s: n=%d d_zp=%d d_scale=%.6g", extern_name, n_elem, d_zp_v, d_scale_v
+        )
+        return result
+
     def _lower_single_input(self, call, func, composite_name):
-        """Lower single-input activation composites (gelu/silu/hardsigmoid/hardswish)."""
+        """Lower single-input activation composites (gelu/silu/hardsigmoid/hardswish/
+        silu_f32out)."""
         param_to_arg = dict(zip(func.params, call.args))
+        is_f32out = composite_name in _F32OUT_NAMES
 
         x_arg = None
         d_scale_val = d_zp_val = o_scale_val = o_zp_val = None
@@ -305,10 +435,15 @@ class _ActivationLowerer(PyExprMutator):
                 o_scale_val = float(s.data.numpy())
                 o_zp_val = int(z.data.numpy())
 
-        if x_arg is None or o_scale_val is None:
+        if x_arg is None or d_scale_val is None:
+            return super().visit_call_(call)
+        if not is_f32out and o_scale_val is None:
             return super().visit_call_(call)
 
         call_sinfo = call.struct_info
+
+        if is_f32out:
+            return self._lower_silu_f32out(call, call_sinfo, x_arg, d_scale_val, d_zp_val)
 
         # Determine output shape.  For hardswish layers whose float32 intermediate
         # is shared with an SE-block multiply, FuseOpsByPattern creates a
@@ -505,10 +640,132 @@ class _ActivationLowerer(PyExprMutator):
         )
         return result
 
+    def _lower_dfl_softmax(self, call, func):
+        """Lower a dfl_softmax composite to c7x_int8_dfl_softmax.
+
+        Unlike _lower_single_input's patterns, the intermediate permute_dims
+        and softmax ops here carry attrs (axes / axis) that must match the
+        one real shape this kernel implements -- validated here by walking
+        the composite's bindings directly, following the same convention as
+        ti_fuse_qdq_c7x_movement.py's resize2d attr validation (the pattern's
+        own check() only validates dtype/constant-ness of the wildcards;
+        op-specific attribute validation happens in the lowerer, which can
+        decline by falling through to the generic path rather than guessing).
+        """
+        param_to_arg = dict(zip(func.params, call.args))
+
+        x_arg = None
+        d_scale_val = d_zp_val = o_scale_val = o_zp_val = None
+        permute_axes = None
+        softmax_axis = None
+
+        for binding in func.body.blocks[0].bindings:
+            val = binding.value
+            if not isinstance(val, relax.Call) or not hasattr(val.op, "name"):
+                continue
+            op_name = str(val.op.name)
+            if "dequantize" in op_name:
+                x_param = val.args[0]
+                x_arg = param_to_arg.get(x_param, x_param)
+                s = param_to_arg.get(val.args[1], val.args[1])
+                z = param_to_arg.get(val.args[2], val.args[2])
+                d_scale_val = float(s.data.numpy())
+                d_zp_val = int(z.data.numpy())
+            elif op_name == "relax.permute_dims":
+                axes = val.attrs["axes"] if val.attrs else None
+                permute_axes = [int(a) for a in axes] if axes is not None else None
+            elif op_name == "relax.nn.softmax":
+                softmax_axis = int(val.attrs["axis"])
+            elif "quantize" in op_name and x_arg is not None:
+                s = param_to_arg.get(val.args[1], val.args[1])
+                z = param_to_arg.get(val.args[2], val.args[2])
+                o_scale_val = float(s.data.numpy())
+                o_zp_val = int(z.data.numpy())
+
+        if x_arg is None or d_scale_val is None or o_scale_val is None:
+            return super().visit_call_(call)
+
+        x_sinfo = getattr(x_arg, "struct_info", None)
+        if not isinstance(x_sinfo, relax.TensorStructInfo) or not x_sinfo.shape:
+            return super().visit_call_(call)
+        pre_shape = list(x_sinfo.shape)
+        if len(pre_shape) != 4 or any(not isinstance(s, tir.IntImm) for s in pre_shape):
+            return super().visit_call_(call)
+
+        # Only the one real shape this kernel implements: permute swaps
+        # axes 1 and 2 ([0,2,1,3]), softmax reduces the permuted tensor's
+        # axis 1 -- i.e. the pre-permute axis 2 ("K", reg_max bins). Any
+        # other permute/axis combination declines to fuse rather than
+        # mis-deriving B/A/K/N.
+        if permute_axes != [0, 2, 1, 3] or softmax_axis not in (1, -3):
+            return super().visit_call_(call)
+
+        B_v, A_v, K_v, N_v = (int(s) for s in pre_shape)
+        d_zp_v = int(d_zp_val)
+        d_scale_v = float(d_scale_val)
+        o_zp_v = int(o_zp_val)
+        o_scale_v = float(o_scale_val)
+
+        def te_dfl_softmax(x_t):
+            def fcompute(ins, outs):
+                return tir.call_extern(
+                    "int32",
+                    "c7x_int8_dfl_softmax",
+                    ins[0].data,
+                    outs[0].data,
+                    tir.IntImm("int32", B_v),
+                    tir.IntImm("int32", A_v),
+                    tir.IntImm("int32", K_v),
+                    tir.IntImm("int32", N_v),
+                    tir.IntImm("int32", d_zp_v),
+                    tir.FloatImm("float32", d_scale_v),
+                    tir.IntImm("int32", o_zp_v),
+                    tir.FloatImm("float32", o_scale_v),
+                )
+
+            return te.extern(
+                [B_v, K_v, A_v, N_v], [x_t], fcompute, name="dfl_softmax_out", dtype="int8"
+            )
+
+        result = self.builder_.call_te(
+            te_dfl_softmax, x_arg, primfunc_name_hint="c7x_int8_dfl_softmax"
+        )
+        self.count += 1
+        logger.debug(
+            "Fused c7x_int8_dfl_softmax: B=%d A=%d K=%d N=%d", B_v, A_v, K_v, N_v
+        )
+        return result
+
 
 # =========================================================================
 # Public pass
 # =========================================================================
+
+
+def _run_activation_patterns(mod: IRModule, pattern_list: list):
+    """Run FuseOpsByPattern + lowering for one set of patterns.
+
+    Returns (mod, count, tuple_fields) where tuple_fields maps emitted
+    Tuple Vars to their field Var lists (for TupleGetItem inlining).
+
+    Module-level (not a method) so both FuseQDQToC7xActivation and
+    FuseQDQToC7xSiluF32Out can call it -- @tvm.transform.module_pass wraps
+    the decorated class into an opaque Pass object, so a classmethod/
+    staticmethod defined on FuseQDQToC7xActivation is not reachable from
+    outside its own transform_module after decoration.
+    """
+    mod = relax.transform.FuseOpsByPattern(pattern_list, bind_constants=False)(mod)
+    lowerer = _ActivationLowerer(mod)
+    for gv, func in mod.functions_items():
+        if isinstance(func, relax.Function):
+            if "Composite" in (func.attrs or {}):
+                continue
+            func = lowerer.visit_expr(func)
+            lowerer.builder_.update_func(gv, func)
+    mod = lowerer.builder_.get()
+    if lowerer.count > 0:
+        mod = relax.transform.DeadCodeElimination()(mod)
+    return mod, lowerer.count, lowerer._tuple_fields
 
 
 @tvm.transform.module_pass(opt_level=0, name="FuseQDQToC7xActivation")
@@ -521,26 +778,6 @@ class FuseQDQToC7xActivation:
 
     Applicable to both MMALIB and non-MMALIB C7x targets.
     """
-
-    @staticmethod
-    def _run_patterns(mod: IRModule, pattern_list: list):
-        """Run FuseOpsByPattern + lowering for one set of patterns.
-
-        Returns (mod, count, tuple_fields) where tuple_fields maps emitted
-        Tuple Vars to their field Var lists (for TupleGetItem inlining).
-        """
-        mod = relax.transform.FuseOpsByPattern(pattern_list, bind_constants=False)(mod)
-        lowerer = _ActivationLowerer(mod)
-        for gv, func in mod.functions_items():
-            if isinstance(func, relax.Function):
-                if "Composite" in (func.attrs or {}):
-                    continue
-                func = lowerer.visit_expr(func)
-                lowerer.builder_.update_func(gv, func)
-        mod = lowerer.builder_.get()
-        if lowerer.count > 0:
-            mod = relax.transform.DeadCodeElimination()(mod)
-        return mod, lowerer.count, lowerer._tuple_fields
 
     @staticmethod
     def _inline_tuple_getitems(mod: IRModule, _ignored: dict = None) -> IRModule:
@@ -672,19 +909,19 @@ class FuseQDQToC7xActivation:
         round1 = []
         round2 = []
         for composite_name, factory in _PATTERN_REGISTRY:
+            if composite_name in _F32OUT_NAMES:
+                # Handled by FuseQDQToC7xSiluF32Out, later in the pipeline
+                # (after FuseQDQToC7xMovement) -- see that pass's docstring.
+                continue
             pat, annotations = factory()
-            check = (
-                _check_channel_scale_multiply
-                if composite_name in _CHANNEL_SCALE_MULTIPLY_NAMES
-                else _check_activation
-            )
-            entry = (composite_name, pat, annotations, check)
             if composite_name in _CHANNEL_SCALE_MULTIPLY_NAMES:
-                round2.append(entry)
+                check = _check_channel_scale_multiply
+                round2.append((composite_name, pat, annotations, check))
             else:
-                round1.append(entry)
+                check = _check_activation
+                round1.append((composite_name, pat, annotations, check))
 
-        mod, n1, tuple_fields = self._run_patterns(mod, round1)
+        mod, n1, tuple_fields = _run_activation_patterns(mod, round1)
 
         # Round 1 hardswish composites with a shared SE-multiply output produce
         # Tuple([int8_hs, float32_hs]).  Downstream SE multiplies access float32_hs
@@ -696,10 +933,42 @@ class FuseQDQToC7xActivation:
         # Round 2: channel_scale_multiply.  After Round 1 + TupleGetItem inlining,
         # all SE-block multiply instances expose dq(int8_hs)[1,C,H,W] × dq(int8_sig)
         # [1,C,1,1] → q directly, so FuseOpsByPattern can match them.
-        mod, n2, _ = self._run_patterns(mod, round2)
+        mod, n2, _ = _run_activation_patterns(mod, round2)
 
         total = n1 + n2
         if total > 0:
             logger.info("FuseQDQToC7xActivation: fused %d activation ops", total)
 
+        return mod
+
+
+@tvm.transform.module_pass(opt_level=0, name="FuseQDQToC7xSiluF32Out")
+class FuseQDQToC7xSiluF32Out:
+    """Fuse the no-trailing-quantize self-gated SiLU composite (dq → sigmoid
+    → multiply(self), float32 output) into c7x_int8_silu_f32out.
+
+    Must run AFTER FuseQDQToC7xMovement, not as part of FuseQDQToC7xActivation's
+    own Round 1 (where every other single-input activation pattern runs).
+    FuseQDQToC7xMovement's FPN upsample-concat pattern matches this exact
+    dq→sigmoid→multiply shape directly (as its branch-1 sub-structure feeding
+    resize2d) and needs to see it raw. Running this pass before Movement
+    would silently break Step 2's FPN fusion: confirmed by direct IR
+    inspection -- c7x_int8_fpn_upsample_concat stopped appearing in the
+    compiled yolo26n/yolov8n graphs entirely when this pattern ran first,
+    because it greedily consumed the resize2d-feeding SiLU chains before
+    Movement's own FuseOpsByPattern call ever saw them.
+
+    This composite covers the C2f-block shape instead: a SiLU'd feature map
+    that feeds a `split`/`concat` rather than a resize2d, which Movement's
+    own patterns don't (and shouldn't) match. By running after Movement,
+    this pass only ever sees what Movement's FPN pattern didn't already
+    consume, plus everything that was never resize2d-adjacent to begin with.
+    """
+
+    def transform_module(self, mod: IRModule, _ctx: PassContext) -> IRModule:
+        pat, annotations = _make_silu_f32out_pattern()
+        entry = ("tidl_act.silu_f32out", pat, annotations, _check_silu_f32out)
+        mod, count, _ = _run_activation_patterns(mod, [entry])
+        if count > 0:
+            logger.info("FuseQDQToC7xSiluF32Out: fused %d ops", count)
         return mod

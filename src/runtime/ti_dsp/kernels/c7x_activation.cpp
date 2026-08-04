@@ -36,6 +36,12 @@
  *   single kernel (>55% of total cycles) in a quantized yolov8s profile
  *   before this vectorization.
  *
+ * c7x_int8_silu_f32out: same gate as c7x_int8_silu, float32 output instead
+ *   of a requantized int8 -- for the C2f-block shape where the SiLU'd
+ *   result feeds a further split/concat directly in float rather than a
+ *   trailing quantize (see ti_fuse_qdq_c7x_activation.py's
+ *   _make_silu_f32out_pattern).
+ *
  * c7x_int8_channel_scale_multiply: SE + Q13 integer per-channel vectorized
  *   on C7524.  Handles the SE-block broadcast pattern [1,C,1,1] × [1,C,H,W]
  *   by looping over C channels with per-channel Q13 scale derived from the
@@ -336,6 +342,96 @@ int32_t c7x_int8_silu(
     int8_t* q_out = (int8_t*)out;
     for (int32_t i = 0; i < n; i++)
         q_out[i] = rq_f(_silu(dq_f(p[i], zx, sx)), zy, sy);
+    return 0;
+#endif
+}
+
+/* =========================================================================
+ * c7x_int8_silu_f32out — SE + float vectorized on C7524
+ *
+ * Same gate as c7x_int8_silu (self-gated: y = x * sigmoid(x)), but the
+ * result is written directly as float32 -- no output zero-point/scale, no
+ * clamp/requantize.  For the C2f-block shape where a SiLU'd feature map
+ * feeds a further split/concat in float rather than a trailing quantize
+ * (see FuseQDQToC7xActivation's _make_silu_f32out_pattern for the graph
+ * shape this backs): dq -> sigmoid -> multiply(self) with no quantize
+ * after.  Reuses exp_taylor/vec_recip exactly like silu_vec; only the
+ * store differs (direct float8 write instead of pack-to-int8).
+ * ========================================================================= */
+
+#ifdef __C7524__
+
+static void silu_f32out_vec(
+        const int8_t* __restrict__ in,
+        float*        __restrict__ out,
+        int32_t n,
+        int32_t zx, float sx) {
+
+    const __float8 vzx  = (__float8)((float)zx);
+    const __float8 vsx  = (__float8)sx;
+    const __float8 vone = (__float8)1.0f;
+
+    const int32_t nvec  = n / 8;
+    const int32_t nvec4 = nvec & ~3;
+
+    __SE_TEMPLATE_v1 se = se_int8_signext_template((uint32_t)(nvec * 8));
+
+    __SE0_OPEN(const_cast<int8_t*>(in), se);
+
+    int32_t i = 0;
+
+    /* 4x unrolled, same rationale as silu_vec: no MUST_ITERATE pragma
+     * (nvec4 can legitimately be 0 for small n). */
+    for (; i < nvec4; i += 4) {
+        __float8 vf0 = __int_to_float(__SE0ADV(int8));
+        __float8 vf1 = __int_to_float(__SE0ADV(int8));
+        __float8 vf2 = __int_to_float(__SE0ADV(int8));
+        __float8 vf3 = __int_to_float(__SE0ADV(int8));
+
+        vf0 = (vf0 - vzx) * vsx;
+        vf1 = (vf1 - vzx) * vsx;
+        vf2 = (vf2 - vzx) * vsx;
+        vf3 = (vf3 - vzx) * vsx;
+
+        __float8 s0 = vec_recip(exp_taylor((__float8)0.0f - vf0) + vone);
+        __float8 s1 = vec_recip(exp_taylor((__float8)0.0f - vf1) + vone);
+        __float8 s2 = vec_recip(exp_taylor((__float8)0.0f - vf2) + vone);
+        __float8 s3 = vec_recip(exp_taylor((__float8)0.0f - vf3) + vone);
+
+        *(__float8*)(out + (i+0)*8) = vf0 * s0;
+        *(__float8*)(out + (i+1)*8) = vf1 * s1;
+        *(__float8*)(out + (i+2)*8) = vf2 * s2;
+        *(__float8*)(out + (i+3)*8) = vf3 * s3;
+    }
+
+    for (; i < nvec; ++i) {
+        __float8 vf = __int_to_float(__SE0ADV(int8));
+        vf = (vf - vzx) * vsx;
+        __float8 s = vec_recip(exp_taylor((__float8)0.0f - vf) + vone);
+        *(__float8*)(out + i*8) = vf * s;
+    }
+
+    __SE0_CLOSE();
+
+    /* Scalar tail: n % 8 remaining elements. */
+    for (int32_t j = nvec * 8; j < n; ++j)
+        out[j] = _silu(dq_f(in[j], zx, sx));
+}
+
+#endif  /* __C7524__ */
+
+extern "C"
+int32_t c7x_int8_silu_f32out(
+        const void* in, void* out, int32_t n,
+        int32_t zx, float sx) {
+#ifdef __C7524__
+    silu_f32out_vec((const int8_t*)in, (float*)out, n, zx, sx);
+    return 0;
+#else
+    const int8_t* p = (const int8_t*)in;
+    float* f_out = (float*)out;
+    for (int32_t i = 0; i < n; i++)
+        f_out[i] = _silu(dq_f(p[i], zx, sx));
     return 0;
 #endif
 }

@@ -59,6 +59,15 @@ int32_t c7x_int8_silu(
     const void* in, void* out, int32_t n,
     int32_t zx, float sx, int32_t zy, float sy);
 
+/* Same math as c7x_int8_silu, but writes the float32 SiLU value directly
+ * (no output requantize) -- for SiLU results that feed further movement
+ * (split/concat) rather than a trailing quantize. See c7x_activation.cpp
+ * for why this doesn't overlap with c7x_int8_silu's own is_tuple_out
+ * companion-dequantize path. */
+int32_t c7x_int8_silu_f32out(
+    const void* in, void* out, int32_t n,
+    int32_t zx, float sx);
+
 int32_t c7x_int8_hardsigmoid(
     const void* in, void* out, int32_t n,
     int32_t zx, float sx, int32_t zy, float sy);

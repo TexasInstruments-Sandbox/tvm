@@ -148,6 +148,8 @@ extern int32_t c7x_int8_gelu(const void *, void *, int32_t,
                                int32_t, float, int32_t, float);
 extern int32_t c7x_int8_silu(const void *, void *, int32_t,
                                int32_t, float, int32_t, float);
+extern int32_t c7x_int8_silu_f32out(const void *, void *, int32_t,
+                               int32_t, float);
 extern int32_t c7x_int8_hardsigmoid(const void *, void *, int32_t,
                                      int32_t, float, int32_t, float);
 extern int32_t c7x_int8_hardswish(const void *, void *, int32_t,
@@ -210,6 +212,10 @@ extern int32_t c7x_int8_fpn_upsample_concat_ex(
                                    const void *, int32_t, int32_t, int32_t, int32_t, float,
                                    const void *, int32_t, int32_t, float,
                                    void *, float, int32_t, void *);
+/* C7x-native fused DFL dequantize/transpose/softmax/quantize (YOLOv8 head) */
+extern int32_t c7x_int8_dfl_softmax(const void *, void *,
+                                     int32_t, int32_t, int32_t, int32_t,
+                                     int32_t, float, int32_t, float);
 /* C7x-native normalization kernels (no TIDL library calls) */
 extern int32_t c7x_int8_layer_norm(const void *, const void *,
                                     const void *, void *,
@@ -405,6 +411,7 @@ static const DspSymEntry dsp_syms[] = {
     /* C7x-native activation kernels (no TIDL library calls) */
     SYM(c7x_int8_gelu),
     SYM(c7x_int8_silu),
+    SYM(c7x_int8_silu_f32out),
     SYM(c7x_int8_hardsigmoid),
     SYM(c7x_int8_hardswish),
     SYM(c7x_int8_channel_scale_multiply),
@@ -428,6 +435,7 @@ static const DspSymEntry dsp_syms[] = {
     SYM(c7x_int8_resize2d_nearest2x),
     SYM(c7x_int8_fpn_upsample_concat),
     SYM(c7x_int8_fpn_upsample_concat_ex),
+    SYM(c7x_int8_dfl_softmax),
 
     /* TVM L2 SRAM bump allocator (getter functions) */
     SYM(tvm_dsp_get_l2_base),
