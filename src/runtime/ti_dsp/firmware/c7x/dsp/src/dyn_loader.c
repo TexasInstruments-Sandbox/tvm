@@ -199,6 +199,13 @@ extern int32_t c7x_int8_concat_rescale(
                                    const void *, int32_t, float, int32_t,
                                    const void *, int32_t, float, int32_t,
                                    void *, int32_t, float, int32_t);
+/* C7x-native last-axis concat with dequantize+sigmoid (no requantize) */
+extern int32_t c7x_int8_concat_sigmoid(
+                                   const void *, int32_t, float, int32_t,
+                                   const void *, int32_t, float, int32_t,
+                                   const void *, int32_t, float, int32_t,
+                                   const void *, int32_t, float, int32_t,
+                                   void *, int32_t);
 /* C7x-native QDQ-glue movement kernels (flat rescale, nearest 2x upsample) */
 extern int32_t c7x_int8_rescale(const void *, void *, int32_t,
                                  int32_t, float, int32_t, float);
@@ -431,6 +438,7 @@ static const DspSymEntry dsp_syms[] = {
     /* C7x-native normalization kernels (no TIDL library calls) */
     SYM(c7x_int8_layer_norm),
     SYM(c7x_int8_concat_rescale),
+    SYM(c7x_int8_concat_sigmoid),
     SYM(c7x_int8_rescale),
     SYM(c7x_int8_resize2d_nearest2x),
     SYM(c7x_int8_fpn_upsample_concat),

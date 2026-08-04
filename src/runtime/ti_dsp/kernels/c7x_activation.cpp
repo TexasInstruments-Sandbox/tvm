@@ -241,11 +241,12 @@ int32_t c7x_int8_hardswish(
  * computed via a 4th-order Taylor-series polynomial with range reduction
  * (exp_taylor, in c7x_qdq_common.h) instead of a scalar libm call per element.
  *
- * exp_taylor's approximation degrades for |x| beyond ~9.7 (clips to 0 or
- * FLT_MAX rather than the true, still-finite value, to avoid a 64-bit
- * shift for the exponent reconstruction) -- but this doesn't matter here:
- * sigmoid's reciprocal collapses both the true (very large or very small)
- * value and the clipped one to the same ~0 or ~1 after int8 requantization.
+ * exp_taylor's approximation degrades for |x| beyond ~19.4 (clips to 0 or
+ * FLT_MAX rather than the true, still-finite value, once the exponent
+ * reconstruction's two chained int32 rings saturate) -- but this doesn't
+ * matter here: sigmoid's reciprocal collapses both the true (very large or
+ * very small) value and the clipped one to the same ~0 or ~1 after int8
+ * requantization.
  * Verified against the exact float32 reference across the full int8 input
  * range for every (scale, zero_point) actually seen by SiLU in a compiled
  * yolov8s model: zero requantized-output error in every case.

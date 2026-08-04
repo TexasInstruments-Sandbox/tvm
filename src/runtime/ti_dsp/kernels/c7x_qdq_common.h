@@ -58,6 +58,7 @@
 #define TVM_C7X_QDQ_COMMON_H_
 
 #include <float.h>
+#include <math.h>
 #include <stdint.h>
 
 #include <c7x.h>
@@ -68,6 +69,10 @@
 
 static inline float dq_f(int8_t x, int32_t zp, float scale) {
     return ((float)(x - zp)) * scale;
+}
+
+static inline float sigmoid_f(float x) {
+    return 1.0f / (1.0f + expf(-x));
 }
 
 static inline int8_t rq_f(float y, int32_t zp, float scale) {
@@ -165,6 +170,19 @@ static inline void rescale_i8_q13_vec(
  * From c7x_activation.cpp's exp_taylor/vec_recip.
  * ========================================================================= */
 
+/* (1<<16) << amt for amt>=0, (1<<16) >> -amt for amt<0 -- the reconstruction
+ * core of exp_taylor's 2^yI step. amt must be in [-14,14]: (1<<16)<<14 ==
+ * 1<<30 is the largest left shift that still fits in signed int32 (amt=15
+ * gives 1<<31, which overflows to negative). Factored out so exp_taylor can
+ * chain two of these safe rings instead of one -- see its comment below for
+ * why. */
+static inline __int8 _pow2_shift16(__int8 amt) {
+    __vpred vpPos = __cmp_gt_pred(amt, (__int8)0);
+    __int8  shiftL = __shift_left((__int8)(1 << 16), amt);
+    __int8  shiftR = __shift_right((__int8)(1 << 16), (__int8)0 - amt);
+    return __select(vpPos, shiftL, shiftR);
+}
+
 static inline __float8 exp_taylor(__float8 x) {
     const __float8 ln2           = (__float8)0.693147180559945f;
     const __float8 invln2        = (__float8)1.44269504090f;
@@ -186,16 +204,34 @@ static inline __float8 exp_taylor(__float8 x) {
     __float8 r4 = r2 * r2;
     __float8 twoPwF = one + r1 + r2 * half + r3 * oneBy6 + r4 * oneBy24;
 
-    __vpred vpPos  = __cmp_gt_pred(yI, (__int8)0);
-    __int8  shiftL = __shift_left((__int8)(1 << 16), yI);
-    __int8  shiftR = __shift_right((__int8)(1 << 16), (__int8)0 - yI);
-    __int8  shift  = __select(vpPos, shiftL, shiftR);
+    /* Reconstruct 2^yI * twoPwF via two chained _pow2_shift16 rings, each
+     * clamped to [-14,14] (the widest single _pow2_shift16 call that can't
+     * overflow int32), instead of one unclamped call -- doubles the exactly
+     * -reconstructed range to yI in [-28,28] (x/ln2, i.e. |x| up to ~19.4)
+     * with no extra risk: the second ring's amount is 0 whenever |yI|<=14,
+     * making it a provable no-op there (unchanged behavior from before this
+     * widening). Below the old +/-14..16 cutoff, sigmoid(x) (this function's
+     * main caller, via 1/(1+exp(-x))) was hitting this clamp for |x| as
+     * small as ~9.7 and collapsing to exactly 0.0/1.0 well before it's
+     * mathematically indistinguishable from 0/1 in float32 (~|x|>20) --
+     * turning many legitimately-distinct small sigmoid values into hard
+     * ties. See c7x_int8_concat_sigmoid's kernel test / the yolo26n
+     * match_frac regression this fixed for the concrete failure mode.
+     * Beyond +/-28, the final saturate below is exact, not approximate:
+     * float32 genuinely can't represent the difference from 0/FLT_MAX out
+     * there. */
+    __int8 fourteen    = (__int8)14;
+    __int8 negFourteen = (__int8)(-14);
+    __int8 yI_lo    = __max(__min(yI, fourteen), negFourteen);
+    __int8 excess   = yI - yI_lo;
+    __int8 excessLo = __max(__min(excess, fourteen), negFourteen);
 
-    __float8 ePwX = twoPwF * __int_to_float(shift) * pkdOneBy65536;
+    __float8 ePwX = twoPwF * __int_to_float(_pow2_shift16(yI_lo)) * pkdOneBy65536;
+    ePwX = ePwX * __int_to_float(_pow2_shift16(excessLo)) * pkdOneBy65536;
 
-    __vpred vpLo = __cmp_gt_pred((__int8)(-16), yI);
+    __vpred vpLo = __cmp_gt_pred((__int8)(-28), yI);
     ePwX = __select(vpLo, zero, ePwX);
-    __vpred vpHi = __cmp_gt_pred(yI, (__int8)14);
+    __vpred vpHi = __cmp_gt_pred(yI, (__int8)28);
     ePwX = __select(vpHi, fltMax, ePwX);
 
     return ePwX;
@@ -213,6 +249,63 @@ static inline __float8 vec_recip(__float8 v) {
     x = x * (((__float8)2.0f) - v * x);
     x = x * (((__float8)2.0f) - v * x);
     return x;
+}
+
+/* =========================================================================
+ * Dequantize + sigmoid, float32 output, no self-multiply -- the core of
+ * c7x_activation.cpp's c7x_int8_silu_f32out minus the self-gate multiply.
+ * Shared with c7x_concat.cpp's c7x_int8_concat_sigmoid (bare-sigmoid concat
+ * glue: dq -> concat -> sigmoid, no multiply, no trailing quantize).
+ * ========================================================================= */
+
+static inline void dequant_sigmoid_vec(
+        const int8_t* __restrict__ in,
+        float*        __restrict__ out,
+        int32_t n,
+        int32_t zx, float sx) {
+
+    const __float8 vzx  = (__float8)((float)zx);
+    const __float8 vsx  = (__float8)sx;
+    const __float8 vone = (__float8)1.0f;
+
+    const int32_t nvec  = n / 8;
+    const int32_t nvec4 = nvec & ~3;
+
+    __SE_TEMPLATE_v1 se = se_int8_signext_template((uint32_t)(nvec * 8));
+
+    __SE0_OPEN(const_cast<int8_t*>(in), se);
+
+    int32_t i = 0;
+
+    /* No #pragma MUST_ITERATE(1,,): see the header-level comment above. */
+    for (; i < nvec4; i += 4) {
+        __float8 vf0 = __int_to_float(__SE0ADV(int8));
+        __float8 vf1 = __int_to_float(__SE0ADV(int8));
+        __float8 vf2 = __int_to_float(__SE0ADV(int8));
+        __float8 vf3 = __int_to_float(__SE0ADV(int8));
+
+        vf0 = (vf0 - vzx) * vsx;
+        vf1 = (vf1 - vzx) * vsx;
+        vf2 = (vf2 - vzx) * vsx;
+        vf3 = (vf3 - vzx) * vsx;
+
+        *(__float8*)(out + (i+0)*8) = vec_recip(exp_taylor((__float8)0.0f - vf0) + vone);
+        *(__float8*)(out + (i+1)*8) = vec_recip(exp_taylor((__float8)0.0f - vf1) + vone);
+        *(__float8*)(out + (i+2)*8) = vec_recip(exp_taylor((__float8)0.0f - vf2) + vone);
+        *(__float8*)(out + (i+3)*8) = vec_recip(exp_taylor((__float8)0.0f - vf3) + vone);
+    }
+
+    for (; i < nvec; ++i) {
+        __float8 vf = __int_to_float(__SE0ADV(int8));
+        vf = (vf - vzx) * vsx;
+        *(__float8*)(out + i*8) = vec_recip(exp_taylor((__float8)0.0f - vf) + vone);
+    }
+
+    __SE0_CLOSE();
+
+    /* Scalar tail: n % 8 remaining elements. */
+    for (int32_t j = nvec * 8; j < n; ++j)
+        out[j] = sigmoid_f(dq_f(in[j], zx, sx));
 }
 
 #endif  /* __C7524__ */
