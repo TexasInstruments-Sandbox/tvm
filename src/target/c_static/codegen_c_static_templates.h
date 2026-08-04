@@ -75,6 +75,7 @@ constexpr const char* kDSPHeaders = R"(
 #include "kernels/c7x_avgpool.h"
 #include "kernels/c7x_norm.h"
 #include "kernels/c7x_concat.h"
+#include "kernels/c7x_rescale.h"
 #include "kernels/c7x_pool_relu.h"
 #include "kernels/c7x_quantize.h"
 #include "mmalib/tidl_maxpool_wrapper.h"

@@ -37,92 +37,12 @@
 #include <stdint.h>
 #include <string.h>
 
-/* Unconditional include (not gated on __C7524__): on the c7x_host g++
- * toolchain, __C7524__ is defined *by* <c7x.h> itself, not predefined by
- * the compiler — gating the include on the macro it defines is a
- * chicken-and-egg check that always evaluates false, silently disabling
- * the vectorized path on host emulation (the real c7x cross-compiler
- * predefines __C7524__ as a builtin before any header runs, so this only
- * broke host emulation, not hardware builds). See
- * c7x_avgpool.cpp for the same fix. */
-#include <c7x.h>
+#include "c7x_qdq_common.h"
 
 /* =========================================================================
- * Scalar helpers
+ * Per-slot rescale helpers.  rq_i (scalar) and rescale_i8_q13_vec (SE
+ * vectorized) come from c7x_qdq_common.h.
  * ========================================================================= */
-
-static inline int8_t rq_i(int32_t x, int32_t scale_q, int32_t offset) {
-    /* Q13 fixed-point requantize: ((x * scale_q) >> 13) + offset, clamped. */
-    int32_t v = ((int32_t)x * scale_q >> 13) + offset;
-    if (v < -128) v = -128;
-    if (v >  127) v =  127;
-    return (int8_t)v;
-}
-
-/* =========================================================================
- * Per-slot rescale helpers
- * ========================================================================= */
-
-#ifdef __C7524__
-
-static void rescale_slot_vec(
-        const int8_t* __restrict__ src,
-        int8_t*       __restrict__ dst,
-        int32_t n_elem,
-        int32_t scale_q,
-        int32_t offset) {
-    const __int8 scale_v = (__int8)scale_q;
-    const __int8 off_v   = (__int8)offset;
-    const __int8 lo_v    = (__int8)(-128);
-    const __int8 hi_v    = (__int8)(127);
-    const int32_t SHIFT  = 13;
-
-    const int32_t nvec  = n_elem / 8;
-    const int32_t nvec4 = nvec & ~3;
-
-    __SE_TEMPLATE_v1 se = __gen_SE_TEMPLATE_v1();
-    se.ELETYPE = __SE_ELETYPE_8BIT;
-    se.VECLEN  = __SE_VECLEN_8ELEMS;
-    se.PROMOTE = __SE_PROMOTE_4X_SIGNEXT;
-    se.ICNT0   = (uint32_t)(nvec * 8);
-
-    __SE0_OPEN(const_cast<int8_t*>(src), se);
-
-    int32_t i = 0;
-
-    /* No #pragma MUST_ITERATE(1,,): nvec4 can be 0 for small n_elem --
-     * see c7x_quantize.cpp's quantize_1plane for the full investigation. */
-    for (; i < nvec4; i += 4) {
-        __int8 vx0 = __SE0ADV(int8);
-        __int8 vx1 = __SE0ADV(int8);
-        __int8 vx2 = __SE0ADV(int8);
-        __int8 vx3 = __SE0ADV(int8);
-
-        __int8 a0 = __max(__min((vx0 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-        __int8 a1 = __max(__min((vx1 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-        __int8 a2 = __max(__min((vx2 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-        __int8 a3 = __max(__min((vx3 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-
-        __vstore_pack_byte((__char8*)(dst + (i+0)*8), a0);
-        __vstore_pack_byte((__char8*)(dst + (i+1)*8), a1);
-        __vstore_pack_byte((__char8*)(dst + (i+2)*8), a2);
-        __vstore_pack_byte((__char8*)(dst + (i+3)*8), a3);
-    }
-
-    for (; i < nvec; ++i) {
-        __int8 vx = __SE0ADV(int8);
-        __int8 a  = __max(__min((vx * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-        __vstore_pack_byte((__char8*)(dst + i*8), a);
-    }
-
-    __SE0_CLOSE();
-
-    /* Scalar tail: n_elem % 8 remaining elements. */
-    for (int32_t j = nvec * 8; j < n_elem; ++j)
-        dst[j] = rq_i((int32_t)src[j], scale_q, offset);
-}
-
-#endif  /* __C7524__ */
 
 /* =========================================================================
  * Process one input slot into the output buffer
@@ -152,7 +72,7 @@ static void process_slot(
     int32_t offset  = z_out - (int32_t)(((int64_t)z_in * scale_q) >> SHIFT);
 
 #ifdef __C7524__
-    rescale_slot_vec(src, dst, n_elem, scale_q, offset);
+    rescale_i8_q13_vec(src, dst, n_elem, scale_q, offset);
 #else
     for (int32_t j = 0; j < n_elem; ++j)
         dst[j] = rq_i((int32_t)src[j], scale_q, offset);

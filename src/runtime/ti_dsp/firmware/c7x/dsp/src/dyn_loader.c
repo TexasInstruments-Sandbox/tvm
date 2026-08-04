@@ -197,6 +197,19 @@ extern int32_t c7x_int8_concat_rescale(
                                    const void *, int32_t, float, int32_t,
                                    const void *, int32_t, float, int32_t,
                                    void *, int32_t, float, int32_t);
+/* C7x-native QDQ-glue movement kernels (flat rescale, nearest 2x upsample) */
+extern int32_t c7x_int8_rescale(const void *, void *, int32_t,
+                                 int32_t, float, int32_t, float);
+extern int32_t c7x_int8_resize2d_nearest2x(const void *, void *,
+                                            int32_t, int32_t, int32_t);
+extern int32_t c7x_int8_fpn_upsample_concat(
+                                   const void *, int32_t, int32_t, int32_t, int32_t, float,
+                                   const void *, int32_t, int32_t, float,
+                                   void *, float, int32_t);
+extern int32_t c7x_int8_fpn_upsample_concat_ex(
+                                   const void *, int32_t, int32_t, int32_t, int32_t, float,
+                                   const void *, int32_t, int32_t, float,
+                                   void *, float, int32_t, void *);
 /* C7x-native normalization kernels (no TIDL library calls) */
 extern int32_t c7x_int8_layer_norm(const void *, const void *,
                                     const void *, void *,
@@ -411,6 +424,10 @@ static const DspSymEntry dsp_syms[] = {
     /* C7x-native normalization kernels (no TIDL library calls) */
     SYM(c7x_int8_layer_norm),
     SYM(c7x_int8_concat_rescale),
+    SYM(c7x_int8_rescale),
+    SYM(c7x_int8_resize2d_nearest2x),
+    SYM(c7x_int8_fpn_upsample_concat),
+    SYM(c7x_int8_fpn_upsample_concat_ex),
 
     /* TVM L2 SRAM bump allocator (getter functions) */
     SYM(tvm_dsp_get_l2_base),
