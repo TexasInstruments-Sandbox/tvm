@@ -129,6 +129,12 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # direct trailing quantize -- this pass covers the SiLU-then-resize2d
     # case that pattern doesn't match) and before FuseQDQToInt8Conv2D.
     passes.append(tvm.relax.transform.FuseQDQToC7xMovement())
+    # Fuse the no-trailing-quantize self-gated SiLU composite (C2f-block
+    # shape: SiLU'd float32 feeding a further split/concat) into
+    # c7x_int8_silu_f32out. Must run after FuseQDQToC7xMovement -- Movement's
+    # FPN pattern matches the same dq->sigmoid->multiply shape directly when
+    # it feeds a resize2d, and needs to see it before this pass consumes it.
+    passes.append(tvm.relax.transform.FuseQDQToC7xSiluF32Out())
     # Fuse QDQ-wrapped average pooling into c7x_int8_*_avg_pool kernels.
     passes.append(tvm.relax.transform.FuseQDQToC7xAvgPool())
     # Fuse QDQ-wrapped layer_norm into c7x_int8_layer_norm kernel.

@@ -98,6 +98,7 @@ if(TVM_DSP_TARGET STREQUAL "host")
         kernels/c7x_norm.c
         kernels/c7x_concat.cpp
         kernels/c7x_rescale.cpp
+        kernels/c7x_softmax.cpp
         kernels/c7x_pool_relu.cpp
         kernels/c7x_quantize.cpp
         kernels/c7x_dequantize_vecmatmul.cpp
@@ -149,6 +150,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x")
         kernels/c7x_norm.c
         kernels/c7x_concat.cpp
         kernels/c7x_rescale.cpp
+        kernels/c7x_softmax.cpp
         kernels/c7x_pool_relu.cpp
         kernels/c7x_quantize.cpp
         kernels/c7x_dequantize_vecmatmul.cpp
@@ -194,6 +196,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
         kernels/c7x_norm.c
         kernels/c7x_concat.cpp
         kernels/c7x_rescale.cpp
+        kernels/c7x_softmax.cpp
         kernels/c7x_pool_relu.cpp
         kernels/c7x_quantize.cpp
         kernels/c7x_dequantize_vecmatmul.cpp
