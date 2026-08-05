@@ -149,9 +149,6 @@ static int32_t conv2d_impl(void* input, void* kernel,
     if (!input || !kernel || !output) {
         return -1;
     }
-    if (C_out > 1024) {
-        return -1;
-    }
 
     int32_t elem_size = (int32_t)sizeof(ElemT);
     int32_t H_out = (H_in + pad_top + pad_bottom - KH) / stride_h + 1;
@@ -161,8 +158,20 @@ static int32_t conv2d_impl(void* input, void* kernel,
     int32_t outChSize = H_out * W_out;
     int32_t bias_elem_size = (BiasDtype == MMALIB_INT64) ? 8 : 4;
 
-    int32_t chunk = (stride_h > 1 || stride_w > 1) ?
-        (C_out > MmaSize ? MmaSize : C_out) : C_out;
+    // Output-channel tiling. stride>1 requires subMChannels <= MmaSize (a
+    // real MMA hardware SIMD-pairing constraint). stride==1 has no such
+    // constraint but is still capped at 1024 -- not a hardware limit, just
+    // the largest chunk size empirically validated end-to-end (see
+    // test_mmalib_conv2d_cout_boundary_dsp.py); tiling at that size for
+    // larger C_out keeps per-call overhead low (few chunks) while never
+    // invoking MMALIB with an unvalidated channel count.
+    constexpr int32_t MAX_VALIDATED_CHUNK = 1024;
+    int32_t chunk;
+    if (stride_h > 1 || stride_w > 1) {
+        chunk = (C_out > MmaSize) ? MmaSize : C_out;
+    } else {
+        chunk = (C_out > MAX_VALIDATED_CHUNK) ? MAX_VALIDATED_CHUNK : C_out;
+    }
 
     // Default bias/scale/shift when caller passes NULL
     Workspace wb, ws, wsh;

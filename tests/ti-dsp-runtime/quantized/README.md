@@ -72,6 +72,10 @@ all 4 `shufflenet_v2_*` sizes, `swin_s`, `swin_t`, all 8 vgg variants
 (11/13/16/19, with and without `_bn`), `vit_b_16`, `vit_b_32`,
 wide_resnet50_2/101_2.
 
+`mnasnet1_0` regressed after `e992d3e5b7`, was briefly excluded pending
+root-cause, and is back here after the actual fix — see "mnasnet1_0"
+below, a separate issue from SqueezeNet's.
+
 Native cl7x cross-compilation for `swin_s`/`swin_t`/`vit_b_16`/`vit_b_32`
 is slow — up to ~12 minutes for `vit_b_16`, dominated by cl7x's `cg7x`
 code generator pegged at 99%+ CPU. This is genuine compute (confirmed via
@@ -140,6 +144,97 @@ wider, noisier range") turned out to be wrong. Root-caused instead:
   Excluded (`_EXCLUDED_MISCLASSIFY` in `test_quantized_torchvision.py`)
   rather than loosening its tolerance, which would hide a genuine
   misclassification.
+
+### mnasnet1_0 — fixed: `mmalib_conv2d_i8` silently no-op'd for C_out > 1024
+
+`mnasnet1_0` passed this sweep previously; it regressed after
+`e992d3e5b7` ("Resolve MMALIB conv bias through reshape") started
+correctly including MMALIB conv2d/dwconv bias instead of silently
+dropping it to zero. MMALIB path started picking class `428` instead of
+the correct `258` (top-5 disjoint from the reference's) — **not
+benign**, same category as `squeezenet1_0`. Briefly excluded
+(`_EXCLUDED_MISCLASSIFY`) pending root-cause; now fixed and back in the
+66-PASS list above.
+
+**Root cause: unrelated to the bias fix, unrelated to depthwise conv,
+and not new — a pre-existing latent bug in the regular (non-depthwise)
+MMALIB conv2d path that the bias fix happened to expose.**
+
+`conv2d_impl` in `mmalib_wrappers.cpp` (backing `mmalib_conv2d_i8`, used
+by `ti_mmalib_qdq_fusion.py` for every `groups==1` MMALIB conv2d) starts
+with:
+```cpp
+if (C_out > 1024) {
+    return -1;
+}
+```
+The TE/TIR code emitting the `call_extern` to this function
+(`ti_mmalib_qdq_fusion.py`'s `_emit_conv2d`/`te_mmalib_conv2d`) never
+checks this return value — the extern call's result is discarded, not
+propagated as a build or runtime error. When `C_out > 1024`, the
+function returns immediately without writing anything to `output`, so
+the output tensor is left as whatever was already in that memory
+(observed as all-zero in practice). mnasnet1_0's final feature-expansion
+conv (a very common MobileNet-family pattern: 1×1 conv from 320→1280
+channels right before global average pooling) has `C_out=1280 > 1024`,
+so its MMALIB path always silently computed nothing.
+
+**Isolated, minimal, from-scratch confirmation** (no mnasnet1_0
+involved) — reusing `test_mmalib_conv2d_i8_dsp.py`'s own QDQ conv2d
+model builder, parametrized only on `C_out`:
+
+| `C_out` | max_diff | DSP output zero-fraction | Reference zero-fraction |
+|---|---|---|---|
+| 512  | 1  | 0.047 | 0.047 |
+| 1024 | 1  | 0.039 | 0.038 |
+| 1280 | 20 | **1.000** | 0.040 |
+
+At `C_out=1280` the entire output tensor comes back zero regardless of
+input — not a numeric/rounding error, a complete no-op.
+
+**Why the bias fix exposed it instead of causing it:** before
+`e992d3e5b7`, every MMALIB conv2d/dwconv silently ran with zero bias, so
+the *correct* (reference) value feeding into mnasnet1_0's 1280-channel
+layer was already close to zero for most positions — this bug's
+always-zero output happened to coincidentally match. Bisection
+confirmed this precisely: forcing just the last depthwise layer (1152ch,
+right before the two conv2d layers leading into the 1280ch expansion)
+back to the old zero-bias behavior, with everything else on the real
+fix, makes the test pass again — not because that depthwise layer itself
+is wrong (a from-scratch replay of its exact real
+weight/bias/scale/activation, extracted directly from the running
+pipeline via a temporary tuple-output instrumentation, reproduces it
+correctly, `max_diff=1`), but because it changes the upstream activation
+enough that the *correct* value for the broken 1280-channel layer is now
+large and positive for ~96% of its channels (confirmed: DSP output for
+that layer is 97% exactly zero per-channel across all spatial positions,
+vs. the reference's 78% zero, with the same TVM-generic-ops path
+computing that reference too — not a MMALIB-vs-generic rounding
+difference, an outright missing computation).
+
+**Fix:** `conv2d_impl` now tiles `C_out` for the `stride==1` case too,
+the same way it already did for `stride>1` (there capped at `MmaSize`
+for a real MMA hardware SIMD-pairing constraint; here capped at 1024,
+not a hardware limit, just the largest chunk size empirically validated
+end-to-end). The stale `if (C_out > 1024) return -1;` guard is removed
+entirely — it dates back to when default bias/scale/shift used
+fixed-`[1024]`-sized stack buffers (see `c577e1a894`); those were later
+converted to dynamic `TVMBackendAllocWorkspace` allocation sized to the
+actual `C_out`, but the guard was never removed, so it kept silently
+rejecting (well, silently doing nothing for) exactly the channel counts
+its own now-dynamic buffers had no problem with.
+
+Regression coverage: `test_mmalib_conv2d_cout_boundary_dsp.py`,
+parametrized at `C_out` in `{512, 1024, 1280, 2048}` — the last two
+exercise the new tiling path (single extra chunk, and two full 1024
+chunks). All pass at `max_diff<=1`; before the fix, `1280` and `2048`
+came back with 100% zero output. mnasnet1_0 end-to-end: `max_diff`
+29→2, top-1 258 (correct) restored.
+
+Given mnasnet-family/MobileNet-family models commonly expand to
+1280+ channels right before their classifier head, worth checking
+whether this also explains any other excluded/borderline model in this
+sweep.
 
 ### 1 EXCLUDED — quantizer bug fixed; now blocked by a separate TVM pass bug
 
