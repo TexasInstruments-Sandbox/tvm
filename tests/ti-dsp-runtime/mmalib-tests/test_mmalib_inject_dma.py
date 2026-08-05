@@ -205,3 +205,98 @@ def test_guard_i8_unpadded_stride2():
     assert 128 in sizes, (
         f"Expected 128-byte fallback guard. Got: {sorted(sizes)}"
     )
+
+
+def _make_dwconv_primfunc(kernel_name, channels, H_in, W_in, KH, KW,
+                          stride_h, stride_w, pad_top, pad_bottom, pad_left, pad_right):
+    """Build the minimal TIR PrimFunc InjectMMALIBDMA expects for a depthwise call.
+
+    call_extern(kernel_name, input, weight, bias, scale, shift, output,
+                channels, H_in, W_in, KH, KW, stride_h, stride_w,
+                pad_top, pad_bottom, pad_left, pad_right, num_groups)
+    """
+    h_input = tir.Var("input", "handle")
+    h_weight = tir.Var("weight", "handle")
+    h_bias = tir.Var("bias", "handle")
+    h_scale = tir.Var("scale", "handle")
+    h_shift = tir.Var("shift", "handle")
+    h_output = tir.Var("output", "handle")
+
+    call = tir.call_extern(
+        "int32",
+        kernel_name,
+        h_input,
+        h_weight,
+        h_bias,
+        h_scale,
+        h_shift,
+        h_output,
+        tir.const(channels, "int32"),   # args[7]
+        tir.const(H_in, "int32"),       # args[8]
+        tir.const(W_in, "int32"),       # args[9]
+        tir.const(KH, "int32"),         # args[10]
+        tir.const(KW, "int32"),         # args[11]
+        tir.const(stride_h, "int32"),   # args[12]
+        tir.const(stride_w, "int32"),   # args[13]
+        tir.const(pad_top, "int32"),    # args[14]
+        tir.const(pad_bottom, "int32"), # args[15]
+        tir.const(pad_left, "int32"),   # args[16]
+        tir.const(pad_right, "int32"),  # args[17]
+        tir.const(channels, "int32"),   # args[18] num_groups (== channels, true depthwise)
+    )
+    body = tir.Evaluate(call)
+    return tir.PrimFunc([h_input, h_weight, h_bias, h_scale, h_shift, h_output], body)
+
+
+def test_dwconv_i8_weight_bytes_uses_groups_not_channels_squared():
+    """Depthwise weight tensor is [channels, 1, KH, KW], not [channels, channels, KH, KW].
+
+    Before the fix, _extract_dims_dwconv2d_i8 set c_in=channels with no
+    `groups`, so weight_bytes = channels * channels * KH * KW -- quadratic
+    in channels instead of linear, over-reading past the real weight
+    buffer by a factor of `channels`. For channels=128, KH=KW=3: the wrong
+    size is 147456 bytes vs. the correct 1152 (128*1*3*3).
+    """
+    channels, H_in, W_in, KH, KW = 128, 8, 8, 3, 3
+    func = _make_dwconv_primfunc(
+        "mmalib_depthwise_conv2d_i8", channels, H_in, W_in, KH, KW,
+        stride_h=1, stride_w=1, pad_top=1, pad_bottom=1, pad_left=1, pad_right=1,
+    )
+    mod = tvm.IRModule({"mmalib_dwconv2d": func})
+    mod_after = InjectMMALIBDMA(_L2_BUDGET)(mod)
+    sizes = _collect_allocate_sizes(mod_after["mmalib_dwconv2d"])
+
+    correct_weight_bytes = channels * 1 * KH * KW
+    wrong_weight_bytes = channels * channels * KH * KW
+    assert correct_weight_bytes in sizes, (
+        f"Correct weight size {correct_weight_bytes} (channels*1*KH*KW) not found. "
+        f"Got allocations: {sorted(sizes)}."
+    )
+    assert wrong_weight_bytes not in sizes, (
+        f"Found the quadratic-in-channels wrong weight size {wrong_weight_bytes} "
+        f"(channels*channels*KH*KW) -- the groups fix regressed. "
+        f"Allocations: {sorted(sizes)}."
+    )
+
+
+def test_dwconv_i16_weight_bytes_uses_groups_not_channels_squared():
+    """Same bug/fix as the i8 test, for mmalib_depthwise_conv2d_i16 (elem_bytes=2)."""
+    channels, H_in, W_in, KH, KW = 96, 14, 14, 3, 3
+    func = _make_dwconv_primfunc(
+        "mmalib_depthwise_conv2d_i16", channels, H_in, W_in, KH, KW,
+        stride_h=1, stride_w=1, pad_top=1, pad_bottom=1, pad_left=1, pad_right=1,
+    )
+    mod = tvm.IRModule({"mmalib_dwconv2d_i16_fn": func})
+    mod_after = InjectMMALIBDMA(_L2_BUDGET)(mod)
+    sizes = _collect_allocate_sizes(mod_after["mmalib_dwconv2d_i16_fn"])
+
+    correct_weight_bytes = channels * 1 * KH * KW * 2
+    wrong_weight_bytes = channels * channels * KH * KW * 2
+    assert correct_weight_bytes in sizes, (
+        f"Correct weight size {correct_weight_bytes} not found. "
+        f"Got allocations: {sorted(sizes)}."
+    )
+    assert wrong_weight_bytes not in sizes, (
+        f"Found the quadratic-in-channels wrong weight size {wrong_weight_bytes}. "
+        f"Allocations: {sorted(sizes)}."
+    )
