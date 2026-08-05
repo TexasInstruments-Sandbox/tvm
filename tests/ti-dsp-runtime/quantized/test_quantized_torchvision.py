@@ -96,6 +96,15 @@ _EXCLUDED_QUANT_BUG = {"maxvit_t"}
 # instead of the correct 258) on the standard test image -- a genuine
 # misclassification, not numeric noise. Excluded rather than loosening
 # the tolerance, which would hide it. See README.md.
+#
+# mnasnet1_0 is NOT excluded here despite having regressed after
+# e992d3e5b7 ("Resolve MMALIB conv bias through reshape") -- see
+# README.md's "mnasnet1_0" section. Root cause was a pre-existing latent
+# bug in mmalib_conv2d_i8 (conv2d_impl in mmalib_wrappers.cpp silently
+# no-op'd for C_out > 1024, a stale guard left over from when default
+# bias/scale/shift used fixed-size stack buffers), now fixed by tiling
+# C_out in conv2d_impl. Regression test: test_mmalib_conv2d_cout_
+# boundary_dsp.py.
 _EXCLUDED_MISCLASSIFY = {"squeezenet1_0"}
 
 _EXCLUDED = (
