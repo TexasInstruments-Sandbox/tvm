@@ -184,7 +184,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
     # hardware defaults to accommodate models during development)
     add_compile_definitions(
         TVM_DSP_L2_SIZE_FALLBACK=4*1024*1024
-        TVM_DSP_DDR_SIZE_FALLBACK=256*1024*1024
+        TVM_DSP_DDR_SIZE_FALLBACK=352*1024*1024
     )
     set(PLATFORM_SOURCES
         platform/c7x/c7x_platform.c
