@@ -76,16 +76,16 @@ extern char __TVM_DSP_DDR_HEAP_END[];
 #endif
 
 /*
- * Fallback sizes for non-TI compilers (host emulation)
- * These can be overridden via CMake compile definitions, e.g. for
- * c7x_host builds that need larger pools than the hardware defaults.
+ * Non-TI compilers (host emulation) have no linker-provided heap size, so
+ * these must come from the build system (see CMakeLists.txt's c7x_host
+ * target) instead of a silently-stale default here.
  */
 #ifndef __TI_COMPILER_VERSION__
 #ifndef TVM_DSP_L2_SIZE_FALLBACK
-#define TVM_DSP_L2_SIZE_FALLBACK (256 * 1024)   /* 256KB for host emulation */
+#error "TVM_DSP_L2_SIZE_FALLBACK must be defined by the build system for host emulation"
 #endif
 #ifndef TVM_DSP_DDR_SIZE_FALLBACK
-#define TVM_DSP_DDR_SIZE_FALLBACK (256 * 1024 * 1024) /* 256MB for host emulation */
+#error "TVM_DSP_DDR_SIZE_FALLBACK must be defined by the build system for host emulation"
 #endif
 #endif
 
