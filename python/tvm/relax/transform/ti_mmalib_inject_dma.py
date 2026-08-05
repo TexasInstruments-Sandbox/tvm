@@ -173,6 +173,13 @@ def _extract_dims_dwconv2d_i8(call_args):
         "c_out": channels,
         "kh": kh,
         "kw": kw,
+        # True depthwise: weight tensor is [channels, 1, KH, KW], not
+        # [channels, channels, KH, KW]. `c_in` above is deliberately the
+        # full channel count (correct for input_bytes = c_in*h_in*w_in),
+        # so `groups=channels` is needed here to make weight_bytes's
+        # `c_in // groups` resolve to 1 instead of over-reading the
+        # weight buffer by a factor of `channels`.
+        "groups": channels,
     }
 
 
@@ -220,6 +227,9 @@ def _extract_dims_dwconv2d_i16(call_args):
         "c_out": channels,
         "kh": kh,
         "kw": kw,
+        # See the matching comment in _extract_dims_dwconv2d_i8 -- true
+        # depthwise weight tensor is [channels, 1, KH, KW].
+        "groups": channels,
     }
 
 
