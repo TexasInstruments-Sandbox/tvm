@@ -65,7 +65,12 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
         "--max-cache-len", "256",
         "-o", str(artifacts_dir),
     ]
-    result = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=600)
+    # 700s (was 600s): the FuseQDQToC7xMovement ConstReachability guard
+    # (see ti_fuse_qdq_c7x_movement.py) fixed the swin_s/swin_t segfault
+    # without needing a second full-graph FoldConstant pass, but compile
+    # time on this box still lands close to 600s -- bump for headroom
+    # against machine-to-machine variance.
+    result = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=700)
     assert result.returncode == 0, f"Compile failed:\n{result.stderr[-500:]}"
 
     # Step 2: Deploy
