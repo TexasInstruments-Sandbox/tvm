@@ -2424,7 +2424,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         # implicitly treats any trailing dims not covered by `indices` as
         # full slices (untouched), so ndim must come from the tensor itself,
         # not len(indices).
-        ndim = data.struct_info.ndim
+        ndim = data.ty.ndim
         real_axes = [i for i, _ in non_none_indices]
         real_indices = [idx for _, idx in non_none_indices]
         untouched_axes = [i for i in range(ndim) if i not in real_axes]

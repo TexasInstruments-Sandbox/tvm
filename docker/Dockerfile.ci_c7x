@@ -49,6 +49,16 @@ RUN bash /install/ubuntu_setup_tz.sh
 # the only consumer -- was dropped). adduser is added on top of that list:
 # docker/with_the_same_user (used by docker/bash.sh) needs addgroup/adduser,
 # which this base image doesn't ship by default (only useradd/groupadd).
+# openssh-client is also added on top: not needed for the build itself, but
+# firmware deploy (deploy-c7x.sh, arm/build.sh deploy) and the DSP test
+# suite (dsp_utils.run_dsp_dload) shell out to plain ssh/scp against the
+# target board. python3-dev is added on top too: llvm-18-dev transitively
+# pulls in a *headerless* python3.12 (via python3-pygments), which is fine
+# for TVM core itself but not enough for `uv pip install -e 3rdparty/tvm-ffi`
+# (run at container runtime by tests/ti-dsp-runtime/setup_test_env.sh) --
+# that package builds a Cython/CMake extension module and needs
+# Development.Module/Development.SABIModule, which CMake's FindPython can
+# only see with the actual dev headers/libs installed.
 RUN apt-get install -y --no-install-recommends \
     adduser \
     apt-transport-https \
@@ -65,8 +75,10 @@ RUN apt-get install -y --no-install-recommends \
     libz-dev \
     make \
     ninja-build \
+    openssh-client \
     parallel \
     pkg-config \
+    python3-dev \
     sudo \
     unzip \
     wget

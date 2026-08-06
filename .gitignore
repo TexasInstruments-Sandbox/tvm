@@ -16,6 +16,7 @@ build/
 build-*/
 !.github/actions/build-*/
 !.github/actions/build-*/action.yml
+.venv-ci-c7x/
 develop-eggs/
 dist/
 downloads/
@@ -304,6 +305,7 @@ docs/dsp/pptx-workspace/
 
 *.pt
 .serena
+tests/ti-dsp-runtime/examples/yolo26_detections/
 
 # Temporary wheel build directories
 packaging/ti_dsp/staging-arm64/

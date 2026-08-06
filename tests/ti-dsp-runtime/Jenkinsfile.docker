@@ -1,0 +1,170 @@
+// TVM C7x DSP Docker-based Build + Hardware Validation Pipeline (beagley-ai)
+//
+// Builds the full C7x stack for beagley-ai and runs the quantized-model
+// test suite on real c7x_dload hardware, entirely inside the
+// docker/Dockerfile.ci_c7x container -- the node itself only needs Docker,
+// none of the TI toolchain/SDKs tests/ti-dsp-runtime/Jenkinsfile's
+// "relax-c7x" node setup otherwise requires.
+//
+// Deliberately a separate pipeline/job from that Jenkinsfile rather than a
+// branch inside it: this covers beagley-ai only (docker/Dockerfile.ci_c7x
+// has no TIDL/c7x-mma-tidl toolchain, so it can't build the am67a/j722s-evm
+// path yet), and both pipelines reach the SAME physical beagley-ai board --
+// see "Do not run concurrently" below.
+//
+// Jenkins setup:
+//   1. Install plugins: Pipeline, JUnit, Timestamper, Build Timeout,
+//      Pipeline Stage View (same set tests/ti-dsp-runtime/Jenkinsfile uses)
+//   2. Pipeline job: SCM, script path
+//      "tests/ti-dsp-runtime/Jenkinsfile.docker"
+//   3. Label the node "relax-c7x" (same node the native Jenkinsfile uses)
+//   4. Add the Jenkins build user (sdomcbuild) to the "docker" group on
+//      that node so it can run `docker build`/`docker run` without sudo.
+//      Docker itself is already installed there; this is the only host
+//      prerequisite for this job.
+//
+// Do not run concurrently with tests/ti-dsp-runtime/Jenkinsfile against
+// BOARD=beagley-ai -- there's no shared lock between the two pipelines yet,
+// and two sessions touching the same physical DSP at once corrupts state
+// exactly like two concurrent c7x_dload sessions from one pipeline would.
+// This job has no cron trigger for that reason; trigger it manually until
+// a shared Lockable Resource is added.
+
+pipeline {
+    agent { label 'relax-c7x' }
+
+    options {
+        timestamps()
+        timeout(time: 3, unit: 'HOURS')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        disableConcurrentBuilds()
+    }
+
+    parameters {
+        string(
+            name: 'BRANCH',
+            defaultValue: 'relax-c7x-mma',
+            description: 'Branch to build and test (also set as the SCM branch spec on this job)'
+        )
+        booleanParam(
+            name: 'SKIP_DEPLOY',
+            defaultValue: false,
+            description: 'Skip firmware/ARM client deploy (assume beagley-ai already has this build)'
+        )
+        booleanParam(
+            name: 'CLEAN_WORKSPACE',
+            defaultValue: false,
+            description: 'Wipe the workspace before building (full clean rebuild)'
+        )
+        booleanParam(
+            name: 'KEEP_TEMP_DIRS',
+            defaultValue: false,
+            description: 'Retain /tmp/dsp_build_* directories for post-mortem debugging'
+        )
+    }
+
+    environment {
+        DOCKER_IMAGE           = 'tvm.ci_c7x:latest'
+        DOCKERFILE             = 'docker/Dockerfile.ci_c7x'
+        http_proxy             = 'http://webproxy.ext.ti.com:80'
+        https_proxy            = 'http://webproxy.ext.ti.com:80'
+        no_proxy               = 'ti.com,.ti.com,localhost,127.0.0.1'
+        // sdomcbuild's own ~/.ssh already has passwordless root access to
+        // beagley-ai (the same access tests/ti-dsp-runtime/Jenkinsfile
+        // relies on) and ~/.cache/torch already has the pre-cached
+        // torchvision weights that stage's "Python Setup" needs -- both
+        // bind-mounted read-only into the container at its $HOME (== the
+        // repo mount point under Jenkins; see validate_all.sh /
+        // setup_test_env.sh). No separate deploy key or model cache is
+        // needed for this job.
+        HOST_SSH_DIR            = "${HOME}/.ssh"
+        HOST_TORCH_CACHE        = "${HOME}/.cache/torch"
+    }
+
+    stages {
+        stage('Init') {
+            steps {
+                sh 'rm -rf results && mkdir -p results'
+                script {
+                    if (params.KEEP_TEMP_DIRS) {
+                        env.DSP_KEEP_TEMP = '1'
+                    }
+                }
+            }
+        }
+
+        stage('Clean Workspace') {
+            when { expression { return params.CLEAN_WORKSPACE } }
+            steps {
+                sh 'git clean -fdx'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                // Invoke `docker build` directly, not docker/build.sh --
+                // that wrapper has no --build-arg passthrough, and this
+                // Dockerfile needs the proxy args to reach the internet at
+                // all from the TI network (see tvm-relax-c7x:build skill).
+                sh '''
+                    docker build -t ${DOCKER_IMAGE} \
+                        --build-arg http_proxy=${http_proxy} \
+                        --build-arg https_proxy=${https_proxy} \
+                        --build-arg no_proxy=${no_proxy} \
+                        -f ${DOCKERFILE} docker/
+                '''
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh '''
+                    docker/bash.sh --net=host ${DOCKER_IMAGE} -- \
+                        bash src/runtime/ti_dsp/build_all.sh --board beagley-ai
+                '''
+            }
+        }
+
+        stage('Validate') {
+            steps {
+                script {
+                    // Same pattern the native Jenkinsfile uses for its own
+                    // FW_TIDL_ARGS: compute in Groovy, then reference as a
+                    // plain shell var from a single-quoted sh block below,
+                    // rather than mixing GString interpolation into the sh
+                    // step itself.
+                    env.SKIP_DEPLOY_ARG = params.SKIP_DEPLOY ? '--skip-deploy' : ''
+                }
+                // --build-arg only reaches `docker build` -- setup_test_env.sh's
+                // `uv pip install` runs at container *runtime* against the
+                // mounted repo (fetching from pypi.org/download.pytorch.org),
+                // so the proxy has to be passed again here as --env.
+                sh '''
+                    docker/bash.sh --net=host \
+                        -v ${HOST_SSH_DIR}:/workspace/.ssh:ro \
+                        -v ${HOST_TORCH_CACHE}:/workspace/.cache/torch:ro \
+                        --env http_proxy=${http_proxy} \
+                        --env https_proxy=${https_proxy} \
+                        --env no_proxy=${no_proxy} \
+                        --env DSP_KEEP_TEMP=${DSP_KEEP_TEMP:-} \
+                        ${DOCKER_IMAGE} -- \
+                        bash src/runtime/ti_dsp/validate_all.sh --board beagley-ai ${SKIP_DEPLOY_ARG}
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            junit testResults: 'results/*.xml', allowEmptyResults: true
+        }
+        cleanup {
+            script {
+                if (!params.KEEP_TEMP_DIRS) {
+                    sh 'find /tmp -maxdepth 1 -name "dsp_*" -user "$(id -un)" -exec rm -rf {} + 2>/dev/null || true'
+                    sh 'find /tmp -maxdepth 1 -name "tvm_dsp_*" -user "$(id -un)" -exec rm -rf {} + 2>/dev/null || true'
+                }
+            }
+        }
+    }
+}
