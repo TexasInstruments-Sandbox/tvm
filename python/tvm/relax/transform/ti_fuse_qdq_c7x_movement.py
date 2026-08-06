@@ -79,6 +79,7 @@ from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, is_tuple, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
+from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +219,7 @@ class _MovementLowerer(PyExprMutator):
     def __init__(self, mod: IRModule):
         super().__init__(mod)
         self.count = 0
+        self._const_reach = ConstReachability(mod)
 
     def visit_call_(self, call):
         if not isinstance(call.op, relax.GlobalVar):
@@ -260,6 +262,16 @@ class _MovementLowerer(PyExprMutator):
                 o_zp_val = int(z.data.numpy())
 
         if x_arg is None or o_scale_val is None:
+            return super().visit_call_(call)
+
+        # A compile-time-constant x_arg (e.g. Swin's relative-position-bias
+        # table: a constant table gathered by a constant index) would later
+        # be evaluated eagerly by FoldConstant via a host LLVM JIT, which
+        # can't resolve this call_extern's C7x-only symbol and segfaults
+        # instead of raising -- see ti_c7x_const_reachability.py. Leave the
+        # un-lowered composite call in place; ordinary LegalizeOps/
+        # FoldConstant will handle it safely via generic ops.
+        if self._const_reach.is_const(x_arg):
             return super().visit_call_(call)
 
         call_sinfo = call.struct_info
@@ -386,6 +398,15 @@ class _MovementLowerer(PyExprMutator):
         branch1_arg, s1_v, z1_v = dq_entries[dq1_var]
         (dq2_var,) = [v for v in dq_entries if v != dq1_var]
         branch2_arg, s2_v, z2_v = dq_entries[dq2_var]
+
+        # Same all-constant hazard as _lower_reshape above: a
+        # compile-time-constant branch would make this call_tir
+        # all-constant, and the pipeline's later FoldConstant pass would
+        # segfault trying to JIT-fold the unresolvable DSP-only extern
+        # symbol. Decline and let the un-lowered composite fall through to
+        # generic ops instead.
+        if self._const_reach.is_const(branch1_arg) or self._const_reach.is_const(branch2_arg):
+            return super().visit_call_(call)
 
         # The kernel always places branch 1 (the resize2d branch) first in
         # the output channel order -- only the canonical tuple order
