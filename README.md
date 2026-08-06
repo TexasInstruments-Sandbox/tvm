@@ -200,6 +200,45 @@ your host user, so build output lands in the same working tree you
 already have checked out, owned by you -- nothing is copied into or
 built inside the image itself. Scoped to BeagleY-AI only today.
 
+Hardware validation -- deploy firmware and run the quantized-model test
+suite on a real BeagleY-AI board -- works the same way, via
+`src/runtime/ti_dsp/validate_all.sh`. It needs two things beyond a
+plain build: SSH access to the board, and the proxy passed again as
+`--env` (the `--build-arg`s above only reach `docker build`; this
+script's `uv pip install` runs at container *runtime*, fetching from
+PyPI/download.pytorch.org):
+
+```bash
+docker/bash.sh --net=host \
+    -v ~/.ssh:$(pwd)/.ssh:ro \
+    -v ~/.cache/torch:$(pwd)/.cache/torch:ro \
+    --env http_proxy=$http_proxy --env https_proxy=$https_proxy \
+    tvm.ci_c7x -- \
+    bash src/runtime/ti_dsp/validate_all.sh --board beagley-ai
+```
+
+`docker/bash.sh` sets the container's `$HOME` to wherever the repo gets
+mounted, so the `-v ~/.ssh:...` mount above has to land at that same
+path -- `$(pwd)/.ssh` when running this by hand, or `/workspace/.ssh`
+under Jenkins (see `tests/ti-dsp-runtime/Jenkinsfile.docker`). It's
+just your existing SSH config/key already trusted by the board, not a
+new credential -- but `--board beagley-ai` always connects to the
+literal hostname `beagley-ai` (never an IP), so your `~/.ssh/config`
+needs a `Host beagley-ai` entry (or equivalent DNS/hosts-file entry)
+pointing at wherever the board actually is; this is the same
+board-name-to-host convention `deploy-c7x.sh` and the pytest suite
+already use, not something specific to Docker. `~/.cache/torch` is the
+pre-cached torchvision weights the test suite needs -- mount it in if
+your build environment can't reach download.pytorch.org directly.
+
+`tests/ti-dsp-runtime/Jenkinsfile.docker` wires this whole flow --
+image build, `build_all.sh`, `validate_all.sh` -- into a Jenkins
+pipeline, so the node itself only needs Docker, none of the
+Prerequisites below. It's a separate, manual-trigger-only job from
+`tests/ti-dsp-runtime/Jenkinsfile`'s native (non-Docker) nightly
+pipeline -- the two must never run concurrently against the same
+physical board.
+
 ### Prerequisites
 
 ```bash

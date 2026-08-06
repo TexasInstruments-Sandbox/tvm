@@ -12,6 +12,7 @@ __pycache__/
 env/
 build/
 build-*/
+.venv-ci-c7x/
 develop-eggs/
 dist/
 downloads/
@@ -283,10 +284,9 @@ tests/ti-dsp-runtime/results/
 # Less command history file
 .lesshst
 
-docs/dsp/pptx-workspace/
-
 *.pt
 .serena
+tests/ti-dsp-runtime/examples/yolo26_detections/
 
 # Temporary wheel build directories
 packaging/ti_dsp/staging-arm64/
