@@ -81,6 +81,7 @@ from tvm.relax.dpl.pattern import is_op, is_tuple, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 from tvm.relax.transform.ti_c7x_composite_inline import inline_declined_composite
 from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
+from tvm.relax.transform.ti_c7x_span_utils import find_composite_span, propagate_span
 
 logger = logging.getLogger(__name__)
 
@@ -332,7 +333,7 @@ class _MovementLowerer(PyExprMutator):
             o_zp_v,
             o_scale_v,
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
     # -- Pattern 2: FPN upsample-concat ----------------------------------
 
@@ -548,11 +549,14 @@ class _MovementLowerer(PyExprMutator):
                 )
 
             fpn_result = self.builder_.emit(
-                self.builder_.call_te(
-                    te_fpn_ex,
-                    branch1_arg,
-                    branch2_arg,
-                    primfunc_name_hint="c7x_int8_fpn_upsample_concat_ex",
+                propagate_span(
+                    self.builder_.call_te(
+                        te_fpn_ex,
+                        branch1_arg,
+                        branch2_arg,
+                        primfunc_name_hint="c7x_int8_fpn_upsample_concat_ex",
+                    ),
+                    find_composite_span(func),
                 )
             )
             int8_result = self.builder_.emit(relax.TupleGetItem(fpn_result, 0))
@@ -599,11 +603,14 @@ class _MovementLowerer(PyExprMutator):
                     output_shape, [t1, t2], fcompute, name="movement_fpn_out", dtype="int8"
                 )
 
-            result = self.builder_.call_te(
-                te_fpn,
-                branch1_arg,
-                branch2_arg,
-                primfunc_name_hint="c7x_int8_fpn_upsample_concat",
+            result = propagate_span(
+                self.builder_.call_te(
+                    te_fpn,
+                    branch1_arg,
+                    branch2_arg,
+                    primfunc_name_hint="c7x_int8_fpn_upsample_concat",
+                ),
+                find_composite_span(func),
             )
 
         self.count += 1

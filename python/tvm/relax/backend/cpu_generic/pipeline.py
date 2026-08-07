@@ -22,6 +22,11 @@ from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 
 
+def _is_c7x_target(target: tvm.target.Target) -> bool:
+    """True for a ``c_static -mcpu=c7x`` target (DSP vector pipeline)."""
+    return target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x"
+
+
 @tvm.transform.module_pass(opt_level=0, name="ConvertLayoutNHWC")
 class _ConvertLayoutNHWC:
     """Convert conv2d NCHW -> NHWC for C7x.
@@ -72,7 +77,7 @@ def library_dispatch_passes(target: tvm.target.Target):  # pylint: disable=unuse
 
 def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
     """The default legalization passes for CPU backend."""
-    is_c7x = target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x"
+    is_c7x = _is_c7x_target(target)
     passes = []
 
     # MMALIB QDQ fusion runs FIRST — matches the original PT2E QDQ pattern
@@ -213,14 +218,27 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     return passes
 
 
-def dataflow_lower_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
+def dataflow_lower_passes(target: tvm.target.Target):
     """The default dataflow lowering passes for CPU backend."""
-    return [
+    is_c7x = _is_c7x_target(target)
+    passes = [
         relax.transform.RewriteDataflowReshape(),
         relax.transform.ToNonDataflow(),
         relax.transform.RemovePurityChecking(),
         relax.transform.CallTIRRewrite(),
     ]
+    # Snapshot main's top-level compute-kernel calls (name + offload backend)
+    # right here: CallTIRRewrite has just collapsed relax.call_tir(gvar, args)
+    # into a direct, walkable Call(gvar, args), and finalize_passes hasn't yet
+    # injected relax.vm.alloc_tensor/kill_object/null_value memory-management
+    # plumbing. Verified against a real per-layer DSP profile (see
+    # ti_c7x_layer_manifest.py's docstring) that this is exactly the set of
+    # calls the C codegen's -profile-layers instrumentation later profiles.
+    if is_c7x:
+        from tvm.relax.transform.ti_c7x_layer_manifest import EmitC7xLayerManifest
+
+        passes.append(EmitC7xLayerManifest())
+    return passes
 
 
 def finalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argument

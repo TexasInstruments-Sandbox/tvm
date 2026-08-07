@@ -40,6 +40,7 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_constants import MMA_SIZE_I8, MMA_SIZE_I16
 from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor
 
@@ -436,6 +437,7 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
             scale_relax,
             shift_relax,
             primfunc_name_hint="mmalib_fc",
+            primfunc_attrs={"c7x_offload_backend": "mmalib"},
         )
 
         self.count += 1
@@ -446,7 +448,7 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
             N_out,
             " +bias" if has_bias else "",
         )
-        return result
+        return propagate_span(result, roles["matmul_call"])
 
     @staticmethod
     def _extract_roles(func, has_bias):
@@ -466,6 +468,7 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
                 if not hasattr(val.op, "name"):
                     continue
                 if val.op.name == "relax.matmul":
+                    roles["matmul_call"] = val
                     matmul_data_var = val.args[0]
                     matmul_weight_var = val.args[1]
                     break
@@ -788,6 +791,7 @@ class _MMALIB_QDQI16FCLowerer(PyExprMutator):
             scale_relax,
             shift_relax,
             primfunc_name_hint="mmalib_fc_i16",
+            primfunc_attrs={"c7x_offload_backend": "mmalib"},
         )
 
         self.count += 1
@@ -798,7 +802,7 @@ class _MMALIB_QDQI16FCLowerer(PyExprMutator):
             N_out,
             " +bias" if has_bias else "",
         )
-        return result
+        return propagate_span(result, roles["matmul_call"])
 
 
 # =========================================================================

@@ -421,7 +421,7 @@ def main():
     import json
 
     from tvm.relax.backend.tidl import TIDLOffloadCompiler
-    from tvm.relax.backend.tidl.visualize import visualize_partitioning
+    from tvm.contrib.c7x.visualize import visualize_partitioning
 
     mod, param_dict, _torch_model, _input_data = _create_resnet18()
 

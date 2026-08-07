@@ -41,6 +41,7 @@ from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 
 from .legalize_ops.linear_algebra import _matmul
+from .ti_c7x_span_utils import propagate_span
 from .legalize_ops.nn import _nn_conv2d
 
 # =======================================================================
@@ -119,11 +120,15 @@ def _mmalib_matmul_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
             dtype="int16",
         )
 
-    return bb.call_te(
-        te_mmalib_matmul,
-        call.args[0],
-        call.args[1],
-        primfunc_name_hint="mmalib_matmul",
+    return propagate_span(
+        bb.call_te(
+            te_mmalib_matmul,
+            call.args[0],
+            call.args[1],
+            primfunc_name_hint="mmalib_matmul",
+            primfunc_attrs={"c7x_offload_backend": "mmalib"},
+        ),
+        call,
     )
 
 
@@ -283,14 +288,18 @@ def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
             dtype="int16",
         )
 
-    return bb.call_te(
-        te_mmalib_conv2d,
-        call.args[0],
-        call.args[1],
-        bias_const,
-        scale_const,
-        shift_const,
-        primfunc_name_hint="mmalib_conv2d",
+    return propagate_span(
+        bb.call_te(
+            te_mmalib_conv2d,
+            call.args[0],
+            call.args[1],
+            bias_const,
+            scale_const,
+            shift_const,
+            primfunc_name_hint="mmalib_conv2d",
+            primfunc_attrs={"c7x_offload_backend": "mmalib"},
+        ),
+        call,
     )
 
 

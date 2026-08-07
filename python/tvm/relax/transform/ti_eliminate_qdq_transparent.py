@@ -226,7 +226,9 @@ class _QDQTransparentLowerer(PyExprMutator):
                 param_to_arg.get(a, a) for a in op_call.args[1:]
             ]
 
-        result = relax.Call(op_call.op, new_args, op_call.attrs, op_call.sinfo_args)
+        result = relax.Call(
+            op_call.op, new_args, op_call.attrs, op_call.sinfo_args, span=op_call.span
+        )
         result = self.builder_.emit(result)
 
         self.count += 1

@@ -53,3 +53,30 @@ script's own flags, for running it by hand.
 Each run prints per-image DSP cycles and wall-clock latency alongside the
 surviving detections, and saves annotated JPEGs to
 `examples/yolo26_detections/`.
+
+### Visualizing the MMALIB offload
+
+```bash
+python examples/run_yolo26_detection.py --visualize yolo26n_mmalib.html
+```
+
+Generates an interactive HTML graph of which ops get offloaded to MMALIB vs.
+run as TVM-generated C (`tvm.contrib.c7x.visualize.visualize_compile`), by
+recompiling the model up through the Relax passes independently of the rest
+of the pipeline -- no board required. `--visualize` works with
+`--compile-only`, and combines with any other flag, since it doesn't depend
+on deployment or inference. Without `--profile-layers` (see below) it has no
+per-layer cycle counts to overlay, so the graph is structural only.
+
+### Per-layer cycle profiling
+
+```bash
+python examples/run_yolo26_detection.py --profile-layers
+python examples/run_yolo26_detection.py --profile-layers --visualize yolo26n_mmalib.html
+```
+
+`--profile-layers` compiles the model with per-layer DSP cycle counting and
+prints a `===== TVM Layer Profile =====` block after each image runs on the
+board. Combine with `--visualize` to overlay those cycle counts on the
+offload graph instead of a structural-only one. Requires a real board run,
+so it does not combine with `--compile-only`.

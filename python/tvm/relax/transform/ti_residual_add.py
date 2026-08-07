@@ -48,6 +48,8 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import find_composite_span, propagate_span
+
 logger = logging.getLogger(__name__)
 
 _SHIFT_BITS = 15
@@ -479,7 +481,7 @@ class _ResidualAddLowerer(PyExprMutator):
             has_relu,
             num_elements,
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
 
 # =========================================================================

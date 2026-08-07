@@ -245,6 +245,10 @@ class _QuantizeLowerer(PyExprMutator):
             _inv_scale,
             _zp,
         )
+        # No source-span propagation here: the c7x.input_quantize composite
+        # is a lone relax.quantize op, and quantize/dequantize bindings carry
+        # only the quantizer's own non-user-facing span (see find_composite_span
+        # in ti_c7x_span_utils.py), so there is no meaningful span to attach.
         return result
 
 

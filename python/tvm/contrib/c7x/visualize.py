@@ -1,13 +1,26 @@
 """Visualize Relax module partitioning as an interactive HTML page.
 
-Generates a graph showing which ops are offloaded to TIDL vs executed
-as TVM-generated C code on the C7x scalar pipeline.  Optionally
-overlays per-layer cycle profiling data from DSP execution.
+Generates a graph showing which ops are offloaded to TIDL, offloaded to
+MMALIB, or executed as TVM-generated C on the C7x scalar/vector pipeline.
+Optionally overlays per-layer cycle profiling data from DSP execution.
 
-Usage::
+Usage (c7x/MMALIB -- the common case, one call)::
+
+    from tvm.contrib.c7x.visualize import visualize_compile
+
+    # mod is the Relax module *before* compilation (e.g. straight from
+    # from_exported_program) -- visualize_compile applies the compile
+    # pipeline itself, cheaply, and needs the un-lowered module to do so.
+    visualize_compile(
+        mod, "c_static -mcpu=c7x -mmalib=1", "/tmp/graph.html",
+        title="yolov8n MMALIB Offload",
+        dsp_stdout=dsp_results.get("c7x_dload_stdout", ""),  # optional
+    )
+
+Usage (TIDL, or any already-partitioned/lowered module)::
 
     from tvm.relax.backend.tidl import TIDLOffloadCompiler
-    from tvm.relax.backend.tidl.visualize import (
+    from tvm.contrib.c7x.visualize import (
         visualize_partitioning,
         parse_layer_profile,
     )
@@ -24,7 +37,12 @@ Usage::
     visualize_partitioning(partitioned, "/tmp/graph.html",
                            profile_data=profile)
 
-Works with any partitioned Relax module (with or without TIDL offload).
+``visualize_compile`` is a convenience wrapper around
+``visualize_partitioning`` for the c7x/MMALIB case, where the right module
+snapshot to visualize isn't something a caller should have to construct by
+hand (see ``ti_c7x_layer_manifest.py``'s ``LayerManifestCapture``). Reach
+for ``visualize_partitioning`` directly when you already have a specific
+snapshot in hand, as TIDL's own ``partition()`` step naturally produces.
 """
 
 import json
@@ -33,8 +51,7 @@ from typing import Dict, List, Optional
 
 from tvm import relax
 from tvm.ir import IRModule
-
-from .tidl import _extract_composite_calls
+from tvm.relax.backend.tidl.tidl import _extract_composite_calls
 
 
 def parse_layer_profile(
@@ -170,8 +187,31 @@ def _get_dtype_str(sinfo) -> str:
     return ""
 
 
-def _extract_graph(mod: IRModule, profile_data: Optional[Dict[str, int]] = None) -> dict:
-    """Walk the main function and extract nodes + edges."""
+def _extract_graph(
+    mod: IRModule,
+    profile_data: Optional[Dict[str, int]] = None,
+    layer_manifest: Optional[List[Dict[str, str]]] = None,
+) -> dict:
+    """Walk the main function and extract nodes + edges.
+
+    layer_manifest : list of {"name": ..., "backend": ...}, optional
+        Authoritative backend tag per op name, as written to layers.json by
+        EmitC7xLayerManifest (see ti_c7x_layer_manifest.py) during a real
+        compile. Takes priority over the Codegen-attr/name-prefix heuristics
+        below on a per-name basis: since the manifest is built from the full,
+        real compile while the module handed to this function is typically
+        an earlier snapshot (dataflow still var-to-var, meaningful edges),
+        the two won't always cover identical op sets -- e.g. a handful of
+        early-snapshot ops (like custom-PrimFunc reshapes) get eliminated by
+        a later pass and never make it into the manifest. Falls back to the
+        heuristic for any op the manifest doesn't mention, and works exactly
+        as before (heuristic-only) when no manifest is supplied at all.
+    """
+    manifest_lookup = (
+        {str(entry["name"]): str(entry["backend"]) for entry in layer_manifest}
+        if layer_manifest
+        else None
+    )
     main_fn = mod["main"]
     nodes = []
     edges = []
@@ -211,6 +251,7 @@ def _extract_graph(mod: IRModule, profile_data: Optional[Dict[str, int]] = None)
             shape=_get_shape_str(p.struct_info),
             dtype=_get_dtype_str(p.struct_info),
             tidl=False,
+            mma=False,
             group="input",
             composites=[],
             source="",
@@ -236,9 +277,31 @@ def _extract_graph(mod: IRModule, profile_data: Optional[Dict[str, int]] = None)
                 if span and hasattr(span, "source_name"):
                     source = span.source_name.name
 
-                if isinstance(val.op, relax.GlobalVar):
-                    gv_name = val.op.name_hint
-                    called_fn = mod.functions.get(val.op)
+                # Before CallTIRRewrite runs (dataflow_lower_passes), every
+                # lowered op is still wrapped as the relax.call_tir
+                # intrinsic -- Call(op=relax.call_tir, args=[gvar, Tuple(real
+                # args), ...]) -- rather than a direct Call(gvar, real_args).
+                # Unwrap it here so the classification/edge logic below
+                # (which needs the actual callee + its real arguments) works
+                # identically either way. This is also *why* the graph
+                # snapshot passed to this function should come from before
+                # CallTIRRewrite in the first place: once it runs, each
+                # call's own bound var stops carrying the dataflow value at
+                # all (the value moves to a relax.vm.alloc_tensor buffer var
+                # passed by reference as a trailing arg instead), which no
+                # amount of unwrapping here can recover -- see
+                # LayerManifestCapture in dsp_utils.py for where the
+                # topology-correct snapshot is actually captured.
+                effective_op = val.op
+                call_args = val.args
+                if hasattr(val.op, "name") and val.op.name == "relax.call_tir":
+                    effective_op = val.args[0]
+                    tir_args = val.args[1]
+                    call_args = tir_args.fields if isinstance(tir_args, relax.Tuple) else []
+
+                if isinstance(effective_op, relax.GlobalVar):
+                    gv_name = effective_op.name_hint
+                    called_fn = mod.functions.get(effective_op)
                     if (
                         called_fn
                         and isinstance(called_fn, relax.Function)
@@ -265,10 +328,24 @@ def _extract_graph(mod: IRModule, profile_data: Optional[Dict[str, int]] = None)
                                      "source": csource}
                                 )
                     op_name = gv_name
-                elif hasattr(val.op, "name"):
-                    op_name = str(val.op.name).replace("relax.", "")
+                elif hasattr(effective_op, "name"):
+                    op_name = str(effective_op.name).replace("relax.", "")
                 else:
-                    op_name = type(val.op).__name__
+                    op_name = type(effective_op).__name__
+
+                # Prefer the compile-time manifest's authoritative tag by
+                # name (self-tagged by each MMALIB fusion pass at creation
+                # time via primfunc_attrs={"c7x_offload_backend": "mmalib"},
+                # not inferred) when it covers this op. Fall back to the
+                # name-prefix heuristic for anything the manifest doesn't
+                # mention (e.g. this snapshot has ops a later pass still
+                # eliminates before the manifest gets built — see this
+                # function's docstring) or when no manifest was supplied.
+                manifest_backend = manifest_lookup.get(op_name) if manifest_lookup else None
+                if manifest_backend is not None:
+                    is_mmalib = manifest_backend == "mmalib"
+                else:
+                    is_mmalib = op_name.startswith("mmalib_")
 
                 # Match profiling data: profile keys are __tvm_ffi_<name>
                 cycles = 0
@@ -276,20 +353,28 @@ def _extract_graph(mod: IRModule, profile_data: Optional[Dict[str, int]] = None)
                     ffi_name = f"__tvm_ffi_{op_name}"
                     cycles = profile_data.get(ffi_name, 0)
 
+                if is_tidl:
+                    group = "tidl"
+                elif is_mmalib:
+                    group = "mmalib"
+                else:
+                    group = "tvm"
+
                 nid = add_node(
                     label=bvar.name_hint,
                     op=op_name,
                     shape=shape,
                     dtype=_get_dtype_str(bvar.struct_info),
                     tidl=is_tidl,
-                    group="tidl" if is_tidl else "tvm",
+                    mma=is_mmalib,
+                    group=group,
                     composites=composites,
                     source=source,
                     cycles=cycles,
                 )
                 var_nodes.append((bvar, nid))
 
-                for arg in val.args:
+                for arg in call_args:
                     if isinstance(arg, relax.Var):
                         # Check if arg is a tracked multi-field Tuple binding
                         field_nids = find_tuple_fields(arg)
@@ -344,6 +429,7 @@ def _extract_graph(mod: IRModule, profile_data: Optional[Dict[str, int]] = None)
                     shape=shape,
                     dtype=_get_dtype_str(bvar.struct_info),
                     tidl=False,
+                    mma=False,
                     group="const",
                     composites=[],
                     source="",
@@ -372,6 +458,7 @@ def _extract_graph(mod: IRModule, profile_data: Optional[Dict[str, int]] = None)
                 shape=out_shape,
                 dtype=_get_dtype_str(ret_expr.struct_info),
                 tidl=False,
+                mma=False,
                 group="output",
                 composites=[],
                 source="",
@@ -431,6 +518,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .tag { display: inline-block; padding: 2px 8px; border-radius: 10px;
          font-size: 11px; font-weight: 600; }
   .tag-tidl { background: #FDEAEA; color: #DE0000; }
+  .tag-mmalib { background: #FEF0E0; color: #F57C00; }
   .tag-tvm { background: #E6F2F4; color: #117788; }
   /* --- Profile tab --- */
   #tab-profile { padding: 24px; width: 100%; height: calc(100vh - 40px);
@@ -461,6 +549,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .bar-cell { width: 30%; }
   .bar { height: 18px; border-radius: 3px; min-width: 2px; }
   .bar-tidl { background: #DE0000; }
+  .bar-mmalib { background: #F57C00; }
   .bar-tvm { background: #117788; }
   .bar-kernel { background: #1565C0; }
   .bar-dma { background: #FFB300; }
@@ -491,8 +580,11 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
         <div class="legend-color" style="background:#DE0000"></div>
         TIDL subgraph (MMA accelerator, int8)</div>
       <div class="legend-item">
+        <div class="legend-color" style="background:#F57C00"></div>
+        MMALIB op (MMA direct call, int8/int16)</div>
+      <div class="legend-item">
         <div class="legend-color" style="background:#117788"></div>
-        TVM generated C (C7x scalar, float32)</div>
+        TVM generated C (C7x scalar/vector kernel)</div>
       <div class="legend-item">
         <div class="legend-color" style="background:#BDBDBD"></div>
         Input / Constant</div>
@@ -501,7 +593,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <table>
         <tr><td>TIDL subgraphs</td><td id="s-tidl">-</td></tr>
         <tr><td>TIDL layers (inside subgraphs)</td><td id="s-layers">-</td></tr>
-        <tr><td>TVM ops (outside TIDL)</td><td id="s-tvm">-</td></tr>
+        <tr><td>MMALIB ops</td><td id="s-mmalib">-</td></tr>
+        <tr><td>TVM ops (outside TIDL/MMALIB)</td><td id="s-tvm">-</td></tr>
         __EXTRA_STATS__
       </table>
     </div>
@@ -567,7 +660,7 @@ const PI = __PROFILE_DATA_INIT__;
 const T = __TIDL_TRACES__;
 const TI = __TIDL_TRACES_INIT__;
 /* --- Graph tab --- */
-const colors = {tidl:'#DE0000', tvm:'#117788', input:'#BDBDBD', 'const':'#BDBDBD', output:'#BDBDBD'};
+const colors = {tidl:'#DE0000', mmalib:'#F57C00', tvm:'#117788', input:'#BDBDBD', 'const':'#BDBDBD', output:'#BDBDBD'};
 const visNodes = G.nodes.map(n => ({
   id: n.id,
   label: (function() {
@@ -577,18 +670,38 @@ const visNodes = G.nodes.map(n => ({
     if (n.cycles > 0) l += '\n' + (n.cycles/1e6).toFixed(1) + ' ms';
     return l;
   })(),
-  color: {background: colors[n.group]||'#999', border: n.tidl ? '#AA0000' : '#0D5C6A',
-          highlight: {background: n.tidl ? '#FF3333' : '#4ABED4'}},
+  color: {background: colors[n.group]||'#999',
+          border: n.tidl ? '#AA0000' : (n.mma ? '#B25400' : '#0D5C6A'),
+          highlight: {background: n.tidl ? '#FF3333' : (n.mma ? '#FFA733' : '#4ABED4')}},
   shape: n.tidl ? 'box' : 'ellipse',
   font: {color: (n.group==='input'||n.group==='const'||n.group==='output') ? '#333' : '#fff',
          size: n.tidl ? 18 : 12, bold: n.tidl},
-  borderWidth: n.tidl ? 3 : 1,
+  borderWidth: n.tidl ? 3 : (n.mma ? 2 : 1),
   size: n.tidl ? 50 : 20,
   widthConstraint: n.tidl ? {minimum: 280} : undefined,
   margin: n.tidl ? {top:20, bottom:20, left:20, right:20} : undefined,
   _d: n,
 }));
-const visEdges = G.edges.map(e => ({from:e.from, to:e.to, arrows:'to', color:'#aaa', width:1.5}));
+const visEdges = G.edges.map(e => {
+  // Long-range skip connections (e.g. FPN/PAN backbone->neck laterals) drawn
+  // as a straight line in the hierarchical layout cut through the dense
+  // middle of the graph, passing visually *behind* every unrelated node at
+  // the levels in between (vis-network draws nodes on top of edges) -- the
+  // line reads as disconnected fragments with the arrowhead often hidden
+  // under whichever node it lands near. Curving these instead routes them
+  // out to the side, away from the straight vertical column most short
+  // edges occupy. id gap is a cheap proxy for hierarchy-level distance
+  // (ids are assigned in main's binding order, so a small gap almost always
+  // means adjacent ops); short edges stay straight since they don't have
+  // this problem.
+  var isLongSkip = Math.abs(e.to - e.from) > 10;
+  return {
+    from: e.from, to: e.to, arrows: 'to', color: '#aaa', width: 1.5,
+    smooth: isLongSkip
+      ? {enabled: true, type: 'cubicBezier', forceDirection: 'vertical', roundness: 0.6}
+      : false,
+  };
+});
 const net = new vis.Network(document.getElementById('graph'), {
   nodes: new vis.DataSet(visNodes), edges: new vis.DataSet(visEdges)
 }, {
@@ -599,10 +712,12 @@ const net = new vis.Network(document.getElementById('graph'), {
                 keyboard:{enabled:true, bindToWindow:false},
                 navigationButtons:true},
 });
-const tidl = G.nodes.filter(n=>n.tidl), tvmN = G.nodes.filter(n=>n.group==='tvm');
+const tidl = G.nodes.filter(n=>n.tidl), mmalibN = G.nodes.filter(n=>n.mma),
+      tvmN = G.nodes.filter(n=>n.group==='tvm');
 const totalCycles = G.nodes.reduce((s,n)=>s+n.cycles, 0);
 document.getElementById('s-tidl').textContent = tidl.length;
 document.getElementById('s-layers').textContent = tidl.reduce((s,n)=>s+n.composites.length,0);
+document.getElementById('s-mmalib').textContent = mmalibN.length;
 document.getElementById('s-tvm').textContent = tvmN.length;
 net.on('click', p => {
   if (!p.nodes.length) return;
@@ -618,7 +733,9 @@ net.on('click', p => {
   else { dr.style.display = 'none'; }
   document.getElementById('d-exec').innerHTML = d.tidl
     ? '<span class="tag tag-tidl">TIDL MMA int8</span>'
-    : '<span class="tag tag-tvm">TVM C7x float32</span>';
+    : d.mma
+    ? '<span class="tag tag-mmalib">MMALIB MMA int8/int16</span>'
+    : '<span class="tag tag-tvm">TVM C7x</span>';
   const cr = document.getElementById('d-cycles-row');
   if (d.cycles > 0) {
     cr.style.display = 'flex';
@@ -739,7 +856,8 @@ if (P && Object.keys(P).length > 0) {
       var pct = (e.cycles/pTotal*100).toFixed(1);
       var barW = maxC>0 ? (e.cycles/maxC*100).toFixed(1) : '0';
       var isTidl = e.name.indexOf('tidl_subgraph') >= 0;
-      var cls = isTidl ? 'bar-tidl' : 'bar-tvm';
+      var isMmalib = e.name.indexOf('mmalib_') >= 0;
+      var cls = isTidl ? 'bar-tidl' : (isMmalib ? 'bar-mmalib' : 'bar-tvm');
       var row = '<tr><td class="num">'+e.idx+'</td>' +
         '<td class="name">'+e.name+'</td>' +
         '<td class="num">'+e.cycles.toLocaleString()+'</td>' +
@@ -864,6 +982,7 @@ def visualize_partitioning(
     profile_data_init: Optional[Dict[str, int]] = None,
     tidl_traces: Optional[List[Dict]] = None,
     tidl_traces_init: Optional[List[Dict]] = None,
+    layer_manifest: Optional[List[Dict[str, str]]] = None,
 ) -> str:
     """Generate an interactive HTML visualization of a partitioned module.
 
@@ -892,13 +1011,21 @@ def visualize_partitioning(
     tidl_traces_init : list of dict, optional
         TIDL traces from the init (first) iteration, for comparison.
         Same format as ``tidl_traces``.
+    layer_manifest : list of dict, optional
+        Ordered ``{"name": ..., "backend": ...}`` records loaded from a
+        ``layers.json`` written by a real compile (see
+        ``dsp_utils.compile_for_dsp`` / ``ti_c7x_layer_manifest.py``).
+        When given, takes priority over the name-prefix/``Codegen``-attr
+        heuristics in ``_extract_graph`` for any op it names — see that
+        function's docstring for why the manifest and this module's op set
+        can still differ on a handful of names.
 
     Returns
     -------
     str
         Path to the generated HTML file.
     """
-    graph_data = _extract_graph(mod, profile_data)
+    graph_data = _extract_graph(mod, profile_data, layer_manifest)
 
     extra_html = ""
     if extra_stats:
@@ -931,3 +1058,100 @@ def visualize_partitioning(
         f.write(html)
 
     return output_path
+
+
+def visualize_compile(
+    mod: IRModule,
+    target,
+    output_path: str,
+    title: str = "C7x Offload Visualization",
+    dsp_stdout: str = "",
+    extra_stats: Optional[Dict[str, str]] = None,
+) -> str:
+    """Compile ``mod`` for ``target`` far enough to visualize it, then
+    generate the HTML report. The one-call entry point for c7x/MMALIB
+    visualization -- prefer this over calling ``visualize_partitioning``
+    directly unless you already have a specific module snapshot in hand
+    (e.g. from ``TIDLOffloadCompiler.partition()``).
+
+    Hides mechanics a caller shouldn't need to know: applying the real
+    compile pipeline once (Relax-level passes only -- no ``relax.build``/
+    native codegen, so this is cheap) with a ``LayerManifestCapture``
+    instrument attached, so the resulting graph has correct TIDL/MMALIB/TVM
+    classification, connected edges, and PyTorch source spans. See
+    ``LayerManifestCapture``'s docstring in ``ti_c7x_layer_manifest.py`` for
+    exactly why the pipeline has to be applied and observed at that specific
+    point rather than just handing ``mod``/``target`` to
+    ``visualize_partitioning`` directly.
+
+    Parameters
+    ----------
+    mod : IRModule
+        The Relax module *before* compilation (e.g. straight from
+        ``from_exported_program``) -- not the result of ``relax.build()``.
+        This function re-applies the compile pipeline itself; pass the
+        original module, not something already lowered.
+    target : str or tvm.target.Target
+        The same target used (or that will be used) for the real compile,
+        e.g. ``"c_static -mcpu=c7x -mmalib=1"``. c7x-only: the manifest this
+        depends on (``EmitC7xLayerManifest``) only runs for c7x targets, so
+        a non-c7x target still produces a graph (falling back to
+        ``_extract_graph``'s plain heuristics) but with no cycle-count
+        correlation support.
+    output_path : str
+        Path to write the HTML file.
+    title : str
+        Page title.
+    dsp_stdout : str, optional
+        Captured DSP stdout containing ``-profile-layers`` output (e.g.
+        ``dsp_results.get("c7x_dload_stdout", "")`` from
+        ``dsp_utils.compile_and_run_dsp``). When non-empty, parses and
+        overlays real per-layer cycle counts. Omit for a structural-only
+        visualization -- no DSP run required.
+    extra_stats : dict, optional
+        Forwarded to ``visualize_partitioning``.
+
+    Returns
+    -------
+    str
+        Path to the generated HTML file (same as output_path).
+
+    Example
+    -------
+    ::
+
+        from tvm.contrib.c7x.visualize import visualize_compile
+
+        visualize_compile(
+            mod, "c_static -mcpu=c7x -mmalib=1", "/tmp/graph.html",
+            title="yolov8n MMALIB Offload",
+            dsp_stdout=dsp_results.get("c7x_dload_stdout", ""),
+        )
+    """
+    import tvm
+    from tvm.relax.backend.cpu_generic.pipeline import get_default_pipeline
+    from tvm.relax.transform.ti_c7x_layer_manifest import LayerManifestCapture
+
+    if isinstance(target, str):
+        target = tvm.target.Target(target)
+
+    capture = LayerManifestCapture()
+    with target:
+        with tvm.transform.PassContext(opt_level=3, instruments=[capture]):
+            get_default_pipeline(target)(mod)
+
+    # Non-c7x targets never run EmitC7xLayerManifest/ScheduleC7xDMATiling,
+    # so snapshot_mod stays None -- fall back to the original module rather
+    # than crash; visualize_partitioning degrades gracefully to heuristics.
+    vis_mod = capture.snapshot_mod if capture.snapshot_mod is not None else mod
+
+    profile_data = parse_layer_profile(dsp_stdout) if dsp_stdout else None
+
+    return visualize_partitioning(
+        vis_mod,
+        output_path,
+        title=title,
+        profile_data=profile_data,
+        layer_manifest=capture.layers,
+        extra_stats=extra_stats,
+    )

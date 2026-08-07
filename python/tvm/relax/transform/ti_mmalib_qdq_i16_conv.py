@@ -57,6 +57,7 @@ from .ti_mmalib_legalize import (
     _float_to_scale_shift,
     _resolve_constant_tensor,
 )
+from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_qdq_fusion import _MMALIBQDQLowerer as _I8Lowerer
 
 logger = logging.getLogger(__name__)
@@ -473,6 +474,7 @@ class _MMALIB_QDQI16Conv2dLowerer(PyExprMutator):
             scale_relax,
             shift_relax,
             primfunc_name_hint="mmalib_conv2d_i16",
+            primfunc_attrs={"c7x_offload_backend": "mmalib"},
         )
 
         if has_relu:
@@ -491,7 +493,7 @@ class _MMALIB_QDQI16Conv2dLowerer(PyExprMutator):
             " +bias" if has_bias else "",
             " +relu" if has_relu else "",
         )
-        return result
+        return propagate_span(result, roles["conv_call"])
 
 
 # =========================================================================

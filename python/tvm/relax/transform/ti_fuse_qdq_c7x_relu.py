@@ -51,6 +51,7 @@ from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 from tvm.relax.transform.ti_c7x_composite_inline import inline_declined_composite
 from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
+from tvm.relax.transform.ti_c7x_span_utils import find_composite_span, propagate_span
 
 logger = logging.getLogger(__name__)
 
@@ -321,7 +322,7 @@ class _ReluLowerer(PyExprMutator):
         self.count += 1
         self.touched = True
         logger.debug("Fused c7x_int8_relu: n=%d clip_lo=%d", n_v, _clip_lo)
-        return result
+        return propagate_span(result, find_composite_span(func))
 
     def _lower_clamp(self, call, func):
         param_to_arg = dict(zip(func.params, call.args))
@@ -407,7 +408,7 @@ class _ReluLowerer(PyExprMutator):
             "(float [%.4g, %.4g] scale=%.4g)",
             n_v, _clip_lo, _clip_hi, a_min_float, a_max_float, d_scale_val,
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
     def _lower_reqclamp(self, call, func):
         """Lower non-transparent dq→clip→q to c7x_int8_requantize_clamp."""
@@ -495,7 +496,7 @@ class _ReluLowerer(PyExprMutator):
             "clip_lo=%d clip_hi=%d (float [%.4g, %.4g])",
             n_v, _combined_scale, _clip_lo, _clip_hi, a_min_float, a_max_float,
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
 
 # =========================================================================

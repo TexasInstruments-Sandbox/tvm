@@ -225,7 +225,7 @@ mmu_armv8_r12.userExecute       = false;
 
 /**
  * Region 13: DDR C7x_1 Cacheable Heap (0x102000000 -> 0x882000000) - 352MB
- * Extended from 224 MB to include c7x_2 space (J722S has one C7x core).
+ * Extended from 224 MB to include c7x_2 space (c7x_2 not used by TVM).
  * Covers the DDR_C7X_1_LOCAL_HEAP linker region (256 MB at 0x108000000).
  */
 mmu_armv8_r13.$name             = "DDR_C7X_1_LOCAL_HEAP";
@@ -239,7 +239,7 @@ mmu_armv8_r13.userExecute       = false;
 
 /**
  * Region 14: Unused (was DDR C7x_2 Non-Cacheable)
- * J722S has a single C7x core; c7x_2 regions are not needed.
+ * c7x_2 not used by TVM; c7x_2 regions are not needed.
  * Map a small dummy region to satisfy SysConfig's 16-region requirement.
  */
 mmu_armv8_r14.$name             = "DDR_C7X_2_UNUSED";

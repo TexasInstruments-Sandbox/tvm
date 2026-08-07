@@ -311,7 +311,7 @@ def main():
 
     # Generate visualization if requested
     if args.visualize:
-        from tvm.relax.backend.tidl.visualize import (
+        from tvm.contrib.c7x.visualize import (
             parse_layer_profile,
             visualize_partitioning,
         )
