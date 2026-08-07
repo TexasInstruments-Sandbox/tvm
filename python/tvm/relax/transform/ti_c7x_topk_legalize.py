@@ -39,6 +39,8 @@ from tvm import te, tir
 from tvm.relax.block_builder import BlockBuilder
 from tvm.relax.expr import Call, Expr
 
+from .ti_c7x_span_utils import propagate_span
+
 
 def _te_c7x_topk(data: te.Tensor, k: int, dtype: str) -> list:
     """TE-level topk over the innermost axis, calling the c7x_topk kernel.
@@ -98,4 +100,4 @@ def c7x_topk_legalize(bb: BlockBuilder, call: Call) -> Expr:
             f"c7x_topk_legalize only supports float32 input; got dtype={sinfo.dtype!r}."
         )
 
-    return bb.call_te(_te_c7x_topk, data, int(attrs.k), str(attrs.dtype))
+    return propagate_span(bb.call_te(_te_c7x_topk, data, int(attrs.k), str(attrs.dtype)), call)

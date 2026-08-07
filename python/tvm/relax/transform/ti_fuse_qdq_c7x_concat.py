@@ -67,6 +67,8 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, is_tuple, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import find_composite_span, propagate_span
+
 logger = logging.getLogger(__name__)
 
 _COMPOSITE_PREFIX = "c7x_concat."
@@ -375,7 +377,7 @@ class _ConcatLowerer(PyExprMutator):
             HW_v,
             s_out_v,
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
     def _lower_concat_sigmoid(self, call, func):
         """Lower concat_sigmoid composite to c7x_int8_concat_sigmoid.
@@ -546,7 +548,7 @@ class _ConcatLowerer(PyExprMutator):
             n3_v,
             C_v,
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
 
 # =========================================================================

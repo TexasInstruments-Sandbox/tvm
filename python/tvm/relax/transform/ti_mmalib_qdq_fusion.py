@@ -45,6 +45,7 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_legalize import (
     _check_conv2d_mmalib_constraints,
     _float_to_scale_shift,
@@ -513,7 +514,7 @@ class _MMALIBQDQLowerer(PyExprMutator):
             " +bias" if has_bias else "",
             " +relu" if has_relu else "",
         )
-        return result
+        return propagate_span(result, roles["conv_call"])
 
     def _emit_conv2d(
         self,
@@ -593,6 +594,7 @@ class _MMALIBQDQLowerer(PyExprMutator):
             scale_relax,
             shift_relax,
             primfunc_name_hint=name_hint,
+            primfunc_attrs={"c7x_offload_backend": "mmalib"},
         )
 
     @staticmethod
@@ -619,6 +621,7 @@ class _MMALIBQDQLowerer(PyExprMutator):
                     continue
                 if val.op.name == "relax.nn.conv2d":
                     roles["conv_attrs"] = val.attrs
+                    roles["conv_call"] = val
                     conv2d_data_var = val.args[0]
                     conv2d_weight_var = val.args[1]
                     break

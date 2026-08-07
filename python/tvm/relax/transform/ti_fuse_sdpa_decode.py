@@ -24,6 +24,8 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import find_composite_span, propagate_span
+
 logger = logging.getLogger(__name__)
 
 COMPOSITE_NAME = "c7x.sdpa_decode"
@@ -227,9 +229,12 @@ class _SDPADecodeLowerer(PyExprMutator):
                 fcompute, name="sdpa_decode", dtype="float32",
             )
 
-        sdpa_out = bb.call_te(
-            _te_sdpa, q_sq, k_sq, v_sq, m_sq,
-            primfunc_name_hint="sdpa_decode",
+        sdpa_out = propagate_span(
+            bb.call_te(
+                _te_sdpa, q_sq, k_sq, v_sq, m_sq,
+                primfunc_name_hint="sdpa_decode",
+            ),
+            find_composite_span(func),
         )
 
         # Reshape to original attention_bias output shape

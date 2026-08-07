@@ -40,6 +40,8 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import find_composite_span, propagate_span
+
 logger = logging.getLogger(__name__)
 
 _COMPOSITE_NAME = "tidl_norm.layer_norm"
@@ -210,7 +212,7 @@ class _LayerNormLowerer(PyExprMutator):
             "Fused c7x_int8_layer_norm: outer=%d norm=%d eps=%.2e",
             outer_size_v, norm_size_v, eps_val,
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
 
 # =========================================================================

@@ -33,6 +33,7 @@ import numpy as np
 import tvm
 from tvm import relax
 from tvm.contrib import tar
+from tvm.relax.transform.ti_c7x_layer_manifest import LayerManifestCapture
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
@@ -478,6 +479,14 @@ def compile_for_dsp(
     This function compiles a TVM IRModule using the c_static backend and exports
     the generated files (lib0.c, devc.c, weights.bin) to the output directory.
 
+    For c7x targets, also writes layers.json: an ordered manifest of main's
+    top-level compute-kernel calls with their offload backend (tidl/mmalib/
+    tvm), captured as a side effect of this same compile via a PassInstrument
+    observing EmitC7xLayerManifest (see ti_c7x_layer_manifest.py) — no
+    separate pipeline run. Consumed by tvm.contrib.c7x.visualize to
+    correlate the DSP's -profile-layers cycle counts with each layer's
+    backend without re-deriving anything from a name pattern.
+
     Args:
         mod: TVM IRModule to compile (should have parameters bound)
         target_string: Target specification (default: "c_static -mcpu=c66x")
@@ -488,6 +497,7 @@ def compile_for_dsp(
 
     Returns:
         Path to directory containing lib0.c, devc.c, weights.bin
+        (and layers.json, for c7x targets)
     """
     logger.info(f"Compiling for DSP with target: {target_string}")
 
@@ -509,10 +519,13 @@ def compile_for_dsp(
     from tvm.ir.instrument import PassTimingInstrument
 
     timing_inst = PassTimingInstrument()
+    manifest_capture = LayerManifestCapture()
     t_build = time.perf_counter()
     logger.debug("Building Relax module...")
     with target:
-        with tvm.transform.PassContext(opt_level=3, instruments=[timing_inst]):
+        with tvm.transform.PassContext(
+            opt_level=3, instruments=[timing_inst, manifest_capture]
+        ):
             executable = relax.build(
                 mod,
                 target,
@@ -529,6 +542,16 @@ def compile_for_dsp(
     print(f"    [timing] relax.build: {t_build:.1f}s")
     if pass_timing:
         print("    [passes]\n" + pass_timing)
+
+    if manifest_capture.layers is not None:
+        layers_path = output_dir / "layers.json"
+        layers = [
+            {"name": str(layer["name"]), "backend": str(layer["backend"])}
+            for layer in manifest_capture.layers
+        ]
+        with open(layers_path, "w") as f:
+            json.dump(layers, f, indent=2)
+        logger.info(f"Wrote layer manifest: {layers_path} ({len(layers)} layers)")
 
     t_export = time.perf_counter()
     tar_path = output_dir / "model_library.tar"

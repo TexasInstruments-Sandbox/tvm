@@ -44,6 +44,7 @@ from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor
 from .ti_mmalib_qdq_dwconv import (
     _check_dwconv2d_geometry,
@@ -329,6 +330,7 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
             scale_relax,
             shift_relax,
             primfunc_name_hint="mmalib_dwconv2d_i16",
+            primfunc_attrs={"c7x_offload_backend": "mmalib"},
         )
 
         if has_relu:
@@ -346,7 +348,7 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
             " +bias" if has_bias else "",
             " +relu" if has_relu else "",
         )
-        return result
+        return propagate_span(result, roles["conv_call"])
 
 
 # =========================================================================

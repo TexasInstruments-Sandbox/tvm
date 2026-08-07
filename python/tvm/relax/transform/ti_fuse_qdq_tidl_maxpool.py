@@ -54,6 +54,8 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import find_composite_span, propagate_span
+
 logger = logging.getLogger(__name__)
 
 _COMPOSITE_NAME = "tidl_pool.max_pool2d"
@@ -234,7 +236,7 @@ class _MaxPoolLowerer(PyExprMutator):
             pH_v,
             pW_v,
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
 
 # =========================================================================

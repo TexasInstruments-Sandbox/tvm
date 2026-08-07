@@ -43,6 +43,7 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor
 
 logger = logging.getLogger(__name__)
@@ -486,6 +487,7 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
             scale_relax,
             shift_relax,
             primfunc_name_hint="mmalib_dwconv2d",
+            primfunc_attrs={"c7x_offload_backend": "mmalib"},
         )
 
         if has_relu:
@@ -502,7 +504,7 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
             " +bias" if has_bias else "",
             " +relu" if has_relu else "",
         )
-        return result
+        return propagate_span(result, roles["conv_call"])
 
     @staticmethod
     def _extract_roles(func, has_bias):
@@ -522,6 +524,7 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
                     continue
                 if val.op.name == "relax.nn.conv2d":
                     roles["conv_attrs"] = val.attrs
+                    roles["conv_call"] = val
                     conv2d_data_var = val.args[0]
                     conv2d_weight_var = val.args[1]
                     break

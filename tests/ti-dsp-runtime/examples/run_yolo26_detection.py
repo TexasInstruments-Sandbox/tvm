@@ -1,28 +1,23 @@
 #!/usr/bin/env python3
 """
-YOLO26 object detection on real images, on the BeagleY-AI C7x DSP.
+YOLO26 object detection on real images, running on the C7x/MMA (BeagleY-AI).
 
 This is the host-side driver: it quantizes and compiles YOLO26n, sends it to
 the board, and runs it on the real JPEGs in ``tests/cstatic/test_images/``
-using the Python offload API documented in ``MODEL_API.md`` /
-``tvm.contrib.c7x`` -- ``C7xVirtualMachine`` -- rather than the SSH/CLI test
-harness that ``quantized/test_quantized_yolo.py`` uses for automated
-comparisons. That inference call itself only happens on the *board*
-(``C7xVirtualMachine`` talks to the DSP over rpmsg, so it only works
-on-device) -- see ``yolo26_board_runner.py``, which this script deploys and
-runs there over SSH.
+using the Python offload API.
+Also see ``yolo26_board_runner.py``, which this script deploys and
+runs on the board over SSH.
 
 Pipeline (all numbered steps below happen on the dev host except step 6):
 
-  1. Quantize YOLO26n (PT2E int8, reusing quantized/model_utils.py -- this
-     already has the fixes YOLO26's NMS-free "one2one" head needs).
+  1. Quantize YOLO26n (PT2E int8, reusing quantized/model_utils.py)
   2. Compile it for the C7x DSP with MMALIB offload (c_static backend).
   3. Build a DLOAD module (lib0.out) with weights embedded in it.
   4. Load + preprocess the real test images (resize to the network's input
      size, matching how the model was calibrated -- no letterbox).
   5. Deploy lib0.out + preprocessed inputs + the board runner to the board.
   6. Run inference on the board (yolo26_board_runner.py, using
-     C7xVirtualMachine -- the actual point of this example).
+     C7xVirtualMachine).
   7. Retrieve the raw detections and turn them into pixel coordinates on
      the original image.
   8. Draw the surviving (above --conf-threshold) boxes and save + print them.
@@ -36,6 +31,8 @@ Usage (run from tests/ti-dsp-runtime/ -- yolo26n.pt is cached there):
     python examples/run_yolo26_detection.py --board j722s-evm
     python examples/run_yolo26_detection.py --compile-only  # just produce lib0.out
     python examples/run_yolo26_detection.py --inference-only  # reuse it, skip recompiling
+    python examples/run_yolo26_detection.py --visualize yolo26n_mmalib.html
+    python examples/run_yolo26_detection.py --profile-layers --visualize yolo26n_mmalib.html
 
 Prerequisites: firmware + libc7x_arm_runtime.so already deployed on the
 board (see src/runtime/ti_dsp/firmware/c7x/arm/README.md, "./build.sh
@@ -92,7 +89,9 @@ _BOX_COLORS = [
 ]
 
 
-def compile_yolo26_for_board(board: str, build_dir: Path) -> Path:
+def compile_yolo26_for_board(
+    board: str, build_dir: Path, profile_layers: bool = False
+) -> Path:
     """Quantize + compile YOLO26n, build a DLOAD module, return its path.
 
     Steps 1-3 of the module docstring's pipeline. Reuses
@@ -106,6 +105,10 @@ def compile_yolo26_for_board(board: str, build_dir: Path) -> Path:
     every file this produces has a fixed name (lib0.c, weights.bin, lib0.out,
     ...), so re-running just overwrites it in place -- handy for --compile-only,
     where inspecting/reusing a known, stable path is the point.
+
+    profile_layers bakes in per-layer DSP cycle counting (see
+    deploy_and_run_on_board's docstring for how that text gets back to the
+    host once the compiled module actually runs on the board).
     """
     set_current_board(board)
     build_dir.mkdir(parents=True, exist_ok=True)
@@ -119,7 +122,10 @@ def compile_yolo26_for_board(board: str, build_dir: Path) -> Path:
     # support), and this script only ever targets c7x_dload, so it's always
     # on, not a CLI flag. -mmalib=1 offloads conv2d/matmul to the C7x MMA
     # accelerator (required for YOLO -- see quantized/README.md).
-    target_string = get_target_string("c7x_dload", use_cpp_api=True) + " -mmalib=1"
+    target_string = (
+        get_target_string("c7x_dload", profile_layers=profile_layers, use_cpp_api=True)
+        + " -mmalib=1"
+    )
     generated_dir = compile_for_dsp(mod, target_string=target_string, output_dir=build_dir)
 
     print("[3/3] Building DLOAD module (weights embedded)...")
@@ -158,7 +164,7 @@ def deploy_and_run_on_board(
     module_path: Path,
     input_paths: list,
     remote_dir: str,
-) -> Path:
+) -> tuple:
     """scp everything the board needs, run inference there, scp results back.
 
     This is the host<->board handoff: C7xVirtualMachine (used inside
@@ -167,13 +173,26 @@ def deploy_and_run_on_board(
     dsp-tests/test_c7x_vm_dsp.py's _run_c7x_vm_on_board() helper, generalized
     for real image inputs/outputs instead of one fixed-shape test tensor.
 
-    Returns the local directory containing the retrieved output_<name>.npy
-    files.
+    Returns (outputs_dir, dsp_profile_output):
+
+    - outputs_dir: local directory containing the retrieved output_<name>.npy
+      files.
+    - dsp_profile_output: combined per-layer DSP cycle profile text (one
+      "===== TVM Layer Profile =====" block per image run), or "" if the
+      module wasn't compiled with -profile-layers. This isn't fetched over
+      scp -- when the loaded module has a TVMPrintLayerProfile symbol, the
+      firmware calls it after every inference (see compute_service.c) and
+      libc7x_arm_runtime.so's c7x_client_infer() fwrites its output straight
+      to the calling process's stderr (see c7x_compute_client.cpp), which is
+      exactly what yolo26_board_runner.py calls under the hood. ssh forwards
+      the remote process's stderr back to our local subprocess.run() call
+      below, so it just falls out of the normal SSH round-trip -- no special
+      plumbing needed on the board side.
     """
     host = get_board_hostname(board)
     remote = f"root@{host}"
 
-    def ssh(cmd: str) -> None:
+    def ssh(cmd: str) -> subprocess.CompletedProcess:
         result = subprocess.run(
             ["ssh", "-o", "ConnectTimeout=10", remote, cmd],
             capture_output=True, text=True, timeout=300, check=False,
@@ -185,6 +204,7 @@ def deploy_and_run_on_board(
             )
         if result.stdout:
             print(result.stdout, end="")
+        return result
 
     def scp_to(*local_paths) -> None:
         subprocess.run(
@@ -203,15 +223,18 @@ def deploy_and_run_on_board(
     scp_to(module_path, _BOARD_RUNNER_PY, _C7X_RUNTIME_PY, *input_paths)
 
     print("[5/5] Running inference on the board (C7xVirtualMachine.run_nocopy)...")
-    ssh(
+    infer_result = ssh(
         f"cd {remote_dir} && python3 yolo26_board_runner.py "
         f"--module {module_path.name} --input-dir ."
     )
+    dsp_profile_output = infer_result.stderr or ""
+    if dsp_profile_output:
+        print(dsp_profile_output)
 
     local_outputs = module_path.parent / "outputs"
     local_outputs.mkdir(exist_ok=True)
     scp_from("output_*.npy", local_outputs)
-    return local_outputs
+    return local_outputs, dsp_profile_output
 
 
 def postprocess_and_draw(
@@ -264,6 +287,37 @@ def postprocess_and_draw(
     return detections
 
 
+def generate_visualization(args: argparse.Namespace, dsp_stdout: str = "") -> None:
+    """Render args.visualize's MMALIB offload HTML graph.
+
+    Rebuilds the model independently rather than threading mod out of
+    compile_yolo26_for_board -- mirrors quantized/test_quantized_yolo.py's
+    own --visualize handling, which is likewise a self-contained rebuild.
+
+    dsp_stdout, when given, is the per-layer profile text captured from a
+    real board run (see deploy_and_run_on_board) and overlays cycle counts
+    on the graph. Omit it (e.g. under --compile-only, which never talks to
+    the board) for a structural-only graph.
+    """
+    from tvm.contrib.c7x.visualize import visualize_compile
+
+    print("Generating MMALIB offload visualization...")
+    set_current_board(args.board)
+    vis_mod, _, _ = create_quantized_yolo_model(MODEL_NAME, version="v26")
+    target_string = (
+        get_target_string("c7x_dload", profile_layers=args.profile_layers, use_cpp_api=True)
+        + " -mmalib=1"
+    )
+    visualize_compile(
+        vis_mod,
+        target_string,
+        args.visualize,
+        title=f"{MODEL_NAME} MMALIB Offload",
+        dsp_stdout=dsp_stdout,
+    )
+    print(f"  Visualization: {args.visualize}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -284,6 +338,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--remote-dir", default="/tmp/yolo26_example",
         help="Working directory on the board (default: /tmp/yolo26_example)",
+    )
+    parser.add_argument(
+        "--profile-layers",
+        action="store_true",
+        help="Compile with per-layer DSP cycle profiling (-profile-layers) and "
+        "print the results after each image runs; combine with --visualize to "
+        "overlay the cycle counts on the graph instead of a structural-only one",
+    )
+    parser.add_argument(
+        "--visualize",
+        default=None,
+        metavar="FILE",
+        help="Generate interactive HTML visualization of MMALIB offload (e.g. yolo26n_mmalib.html)",
     )
     parser.add_argument(
         "--build-dir", type=Path, default=_THIS_DIR / "build",
@@ -325,9 +392,15 @@ def main() -> int:
             return 1
         print(f"--inference-only: reusing compiled module: {module_path}")
     else:
-        module_path = compile_yolo26_for_board(args.board, args.build_dir)
+        module_path = compile_yolo26_for_board(
+            args.board, args.build_dir, profile_layers=args.profile_layers
+        )
         if args.compile_only:
             print(f"\n--compile-only: stopping after build.\nDLOAD module: {module_path}")
+            if args.visualize:
+                # No board run happened -- structural-only graph (see
+                # generate_visualization's docstring).
+                generate_visualization(args)
             return 0
 
     from ultralytics import YOLO  # type: ignore[attr-defined]  # noqa: PLC0415
@@ -346,7 +419,9 @@ def main() -> int:
         input_paths.append(input_path)
         original_images[tag] = original_image
 
-    outputs_dir = deploy_and_run_on_board(args.board, module_path, input_paths, args.remote_dir)
+    outputs_dir, dsp_profile_output = deploy_and_run_on_board(
+        args.board, module_path, input_paths, args.remote_dir
+    )
 
     print("\n" + "=" * 60)
     for name in image_names:
@@ -370,6 +445,9 @@ def main() -> int:
         original_images[tag].save(out_path)
         print(f"  saved -> {out_path}")
     print("=" * 60)
+
+    if args.visualize:
+        generate_visualization(args, dsp_stdout=dsp_profile_output)
 
     return 0
 

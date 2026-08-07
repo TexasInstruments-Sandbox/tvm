@@ -50,6 +50,8 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import find_composite_span, propagate_span
+
 logger = logging.getLogger(__name__)
 
 _COMPOSITE_PREFIX = "c7x_pool."
@@ -197,35 +199,42 @@ class _AvgPoolLowerer(PyExprMutator):
         N_v, C_v, H_in_v, W_in_v = in_shape
         _, _, H_out_v, W_out_v = out_shape
 
+        composite_span = find_composite_span(func)
         if composite_name == "c7x_pool.global_avg":
-            return self._lower_global(
-                x_arg,
-                out_shape,
-                N_v,
-                C_v,
-                H_in_v,
-                W_in_v,
-                d_zp_val,
-                d_scale_val,
-                o_zp_val,
-                o_scale_val,
+            return propagate_span(
+                self._lower_global(
+                    x_arg,
+                    out_shape,
+                    N_v,
+                    C_v,
+                    H_in_v,
+                    W_in_v,
+                    d_zp_val,
+                    d_scale_val,
+                    o_zp_val,
+                    o_scale_val,
+                ),
+                composite_span,
             )
         else:
-            return self._lower_spatial(
-                x_arg,
-                out_shape,
-                pool_call,
-                N_v,
-                C_v,
-                H_in_v,
-                W_in_v,
-                H_out_v,
-                W_out_v,
-                composite_name,
-                d_zp_val,
-                d_scale_val,
-                o_zp_val,
-                o_scale_val,
+            return propagate_span(
+                self._lower_spatial(
+                    x_arg,
+                    out_shape,
+                    pool_call,
+                    N_v,
+                    C_v,
+                    H_in_v,
+                    W_in_v,
+                    H_out_v,
+                    W_out_v,
+                    composite_name,
+                    d_zp_val,
+                    d_scale_val,
+                    o_zp_val,
+                    o_scale_val,
+                ),
+                composite_span,
             )
 
     def _lower_global(self, x_arg, out_shape, N, C, H, W, d_zp, d_scale, o_zp, o_scale):

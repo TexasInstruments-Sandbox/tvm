@@ -156,7 +156,7 @@ per-step commands.
 |-----------|----------|-------------|
 | DSP Runtime Library | `src/runtime/ti_dsp/` | C++14 Model API with static memory pools, zero-copy NDArrays, cross-platform (host/C7x). [README](src/runtime/ti_dsp/README.md) |
 | C7x Firmware | `src/runtime/ti_dsp/firmware/c7x/` | FreeRTOS compute service: RPMessage (TI's Arm↔DSP IPC framework), DLOAD dynamic module loader, UDMA (TI's Navigator Subsystem DMA engine, via the C7x's local DRU) transfers, shared-memory printf. [README](src/runtime/ti_dsp/firmware/c7x/README.md) · [Design](src/runtime/ti_dsp/firmware/c7x/design_doc.md) |
-| C7x Arm Runtime | `src/runtime/ti_dsp/firmware/c7x/arm/` | Arm-side shared library (`libc7x_arm_runtime.so`) and C++ `c7x::Module` API; Python `C7xVirtualMachine` wrapper. [README](src/runtime/ti_dsp/firmware/c7x/arm/README.md) |
+| C7x Arm Runtime | `src/runtime/ti_dsp/firmware/c7x/arm/` | Arm-side shared library (`libc7x_arm_runtime.so`) backing the C++ `c7x::Module` / Python `C7xVirtualMachine` inference API. [API reference](python/tvm/contrib/c7x/README.md) · [build/deploy](src/runtime/ti_dsp/firmware/c7x/arm/README.md) |
 | MMALIB Wrappers | `src/runtime/ti_dsp/mmalib/` | C wrappers for 8 MMALIB kernels (conv2d/depthwise-conv2d/matmul/matmul_bias x int8/int16), linked into the C7x firmware and exported via DLOAD. [README](src/runtime/ti_dsp/mmalib/README.md) |
 | DLOAD Infrastructure | `src/runtime/ti_dsp/dynmod/` | CMake build for C7x relocatable ELF modules (linker scripts, symbol exports) |
 | Deployment Scripts | `src/runtime/ti_dsp/scripts/` | `run_on_c75x.sh` (J722S) DSP debug/load script via JTAG. [README](src/runtime/ti_dsp/scripts/README.md) |
@@ -349,9 +349,10 @@ auto vm = c7x::Module::Load("lib0.out");
 auto out = vm.Run(&input_dl_tensor);
 ```
 
-See the [Arm Runtime README](src/runtime/ti_dsp/firmware/c7x/arm/README.md)
-for the full Python/C++ API reference, zero-copy input/output modes, and
-design rationale.
+See the [C7x Inference API reference](python/tvm/contrib/c7x/README.md) for
+the full Python/C++ API, zero-copy input/output modes, and memory lifetime
+rules. See the [Arm Runtime README](src/runtime/ti_dsp/firmware/c7x/arm/README.md)
+for building/deploying `libc7x_arm_runtime.so` and its internal design.
 
 See [firmware README](src/runtime/ti_dsp/firmware/c7x/README.md) for
 deployment, troubleshooting, and recovery procedures.
@@ -418,6 +419,7 @@ Per-component READMEs, referenced throughout this document:
 - [C Static Backend](src/target/c_static/README.md)
 - [DSP Runtime Library](src/runtime/ti_dsp/README.md)
 - [C7x Firmware](src/runtime/ti_dsp/firmware/c7x/README.md) ([Design](src/runtime/ti_dsp/firmware/c7x/design_doc.md))
+- [C7x Inference API](python/tvm/contrib/c7x/README.md)
 - [C7x Arm Runtime](src/runtime/ti_dsp/firmware/c7x/arm/README.md)
 - [MMALIB Offloading](src/runtime/ti_dsp/mmalib/README.md)
 - [Deployment Scripts](src/runtime/ti_dsp/scripts/README.md)

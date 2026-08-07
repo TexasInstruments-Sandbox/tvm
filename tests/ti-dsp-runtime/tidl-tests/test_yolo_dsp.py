@@ -657,7 +657,7 @@ def main():
     # --visualize: partition + HTML (no hardware, no .so needed for partition)
     if args.visualize:
         from tvm.relax.backend.tidl import TIDLOffloadCompiler
-        from tvm.relax.backend.tidl.visualize import visualize_partitioning
+        from tvm.contrib.c7x.visualize import visualize_partitioning
 
         model_name = args.model or "yolov5n"
         version = next(v for n, v in YOLO_MODELS if n == model_name)

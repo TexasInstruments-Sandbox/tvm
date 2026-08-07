@@ -48,6 +48,7 @@ from tvm import IRModule, relax, te, tir
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
+from tvm.relax.transform.ti_c7x_span_utils import find_composite_span, propagate_span
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +298,7 @@ class _DequantizeMatmulFuser(PyExprMutator):
             " (bias)" if has_bias else "",
             " [extern]" if used_extern else "",
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
     def _rewrite_extern(self, call, act, w_int8, w_scale):
         """Emit call_extern to c7x_dequantize_vecmatmul for C7x."""

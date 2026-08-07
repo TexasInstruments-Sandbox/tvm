@@ -62,6 +62,7 @@ from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_constants import MMA_SIZE_I16
 
 logger = logging.getLogger(__name__)
@@ -254,14 +255,18 @@ class _MMALIBInt16FCMutator(PyExprMutator):
                 dtype="int16",
             )
 
-        out_i16 = self.builder_.call_te(
-            te_mmalib_bias_i16,
-            x_i16,
-            relax.Constant(np.ascontiguousarray(w_i16_NK)),
-            relax.Constant(bias_i64),
-            relax.Constant(scale_i8),
-            relax.Constant(shift_per_ch),
-            primfunc_name_hint="mmalib_i16_fc",
+        out_i16 = propagate_span(
+            self.builder_.call_te(
+                te_mmalib_bias_i16,
+                x_i16,
+                relax.Constant(np.ascontiguousarray(w_i16_NK)),
+                relax.Constant(bias_i64),
+                relax.Constant(scale_i8),
+                relax.Constant(shift_per_ch),
+                primfunc_name_hint="mmalib_i16_fc",
+                primfunc_attrs={"c7x_offload_backend": "mmalib"},
+            ),
+            call,
         )
 
         # 3. Dequantize: out_float = cast(out_i16) * (2^shift[n]) * x_scale * w_scale[n]

@@ -1,8 +1,9 @@
 # TVM DSP C++14 Model API Design
 
-**Document Version:** 1.0
-**Date:** 2026-01-23
-**Status:** Implementation In Progress
+**Document Version:** 1.1
+**Date:** 2026-08-09
+**Status:** Implemented
+**Scope:** Internal test/dev-harness infrastructure
 
 ---
 
@@ -11,6 +12,18 @@
 This document describes the C++14 Model API for the TVM DSP Runtime. The API
 provides a clean, RAII-based interface for running TVM-generated models on
 TI DSP processors (C66x, C7x) and PC host emulation.
+
+**This is internal test infrastructure, not a production deployment API.**
+Its only consumer is the test-harness entry point
+`tests/ti-dsp-runtime/dsp-cpp/main_dsp.cpp`, built by `dsp_utils.py` for the
+host-emulation and hardware DSP runs across `tests/ti-dsp-runtime/`. The
+deployed `c7x_compute` firmware (`src/runtime/ti_dsp/firmware/c7x/dsp/`) does
+**not** use this `Model` class — it resolves the generated `cg_main_dsp`
+symbol directly via DLOAD symbol lookup and calls lower-level runtime
+primitives itself. If you're looking for the user-facing inference API that
+the firmware actually serves over IPC, see
+[`python/tvm/contrib/c7x/README.md`](../../../python/tvm/contrib/c7x/README.md)
+(`C7xVirtualMachine` / `c7x::Module`) instead.
 
 ### Design Goals
 
@@ -67,6 +80,7 @@ struct NDArray {
   static NDArray Float16(void* data, int64_t* shape, int32_t ndim);
   static NDArray Int32(int32_t* data, int64_t* shape, int32_t ndim);
   static NDArray Int8(int8_t* data, int64_t* shape, int32_t ndim);
+  static NDArray UInt8(uint8_t* data, int64_t* shape, int32_t ndim);
 };
 
 }}  // namespace tvm::dsp
@@ -153,17 +167,48 @@ class Model {
   //----------------------------------------------------------
 
   /*!
-   * \brief Run inference on input tensor
+   * \brief Run inference on input tensor(s), returning the first output
    *
-   * \param input Pointer to input NDArray (caller retains ownership)
-   * \param output Output pointer - set to output NDArray on success
+   * \param inputs Pointer to array of input NDArrays (caller retains ownership)
+   * \param num_inputs Number of input tensors
+   * \param output Output pointer - set to the first output NDArray on success
    * \return ModelError::kSuccess on success, error code on failure
+   *
+   * For multi-output models this returns only the first output; use
+   * InferMulti() to get all of them. A single-input overload
+   * `Infer(NDArray* input, NDArray** output)` is also available.
    *
    * Memory ownership:
    * - Input: Caller owns, Model borrows during Infer()
-   * - Output: Model owns, valid until next Infer() or ~Model()
+   * - Output: Model owns, valid until next Infer()/InferMulti() or ~Model()
    */
+  ModelError Infer(NDArray* inputs, int num_inputs, NDArray** output);
   ModelError Infer(NDArray* input, NDArray** output);
+
+  /*!
+   * \brief Run inference on input tensor(s), returning all outputs
+   *
+   * \param inputs Pointer to array of input NDArrays (caller retains ownership)
+   * \param num_inputs Number of input tensors
+   * \param outputs Array of output NDArray pointers (caller-allocated, max
+   *                kMaxOutputs entries)
+   * \param num_outputs Set to the number of outputs on success
+   * \return ModelError::kSuccess on success, error code on failure
+   *
+   * A single-input overload
+   * `InferMulti(NDArray* input, NDArray** outputs, int* num_outputs)` is
+   * also available. Outputs are valid until the next Infer()/InferMulti()
+   * call or ~Model().
+   */
+  ModelError InferMulti(NDArray* inputs, int num_inputs, NDArray** outputs,
+                        int* num_outputs);
+  ModelError InferMulti(NDArray* input, NDArray** outputs, int* num_outputs);
+
+  /*!
+   * \brief Get the number of outputs from the last inference
+   * \return Number of output tensors (1 for single output, N for multi-output)
+   */
+  int OutputCount() const;
 
   //----------------------------------------------------------
   // Diagnostics
@@ -171,7 +216,7 @@ class Model {
 
   /*!
    * \brief Get cycle count from last inference
-   * \return CPU cycles, or 0 if Infer() never called
+   * \return CPU cycles, or 0 if Infer()/InferMulti() never called
    */
   uint64_t LastInferenceCycles() const;
 
@@ -222,14 +267,22 @@ class Model {
 |------|--------------|----------|----------|
 | Input NDArray struct | Caller | Caller | Caller controls |
 | Input data buffer | Caller | Caller | Caller controls |
-| Output NDArray struct | Model | Model destructor | Until next Infer() or ~Model() |
-| Output data buffer | Model | Model destructor | Until next Infer() or ~Model() |
+| Output NDArray struct(s) | Model | Model destructor | Until next Infer()/InferMulti() or ~Model() |
+| Output data buffer(s) | Model | Model destructor | Until next Infer()/InferMulti() or ~Model() |
 | Constants | Model | Model destructor | Model lifetime |
 
 **Key Points:**
 - Caller provides input buffer (can be stack, static, or hardware buffer)
-- Model provides output pointer to internal register file
-- Output is invalidated by next Infer() call - copy if persistence needed
+- Model provides output pointers into an internal, fixed-size output view
+  array (`kMaxOutputs` = 128, sized for KV-cache models such as SmolLM,
+  which returns logits plus 60 KV-cache scatter outputs)
+- Outputs are invalidated by the next Infer()/InferMulti() call - copy if
+  persistence needed
+- Multi-output models: `Infer()` returns only the first output for
+  convenience; `InferMulti()` returns all of them via `OutputCount()` /
+  the `outputs` array
+- Multi-input models: up to `kMaxInputs` (128) tensors per call, for the
+  same KV-cache reason
 - All cleanup is automatic via RAII
 
 ---
@@ -275,6 +328,39 @@ int main() {
 
   return 0;
 }  // Automatic cleanup
+```
+
+### Multi-Output Inference
+
+For models with more than one output (e.g. detection heads, KV-cache
+models), use `InferMulti()` to get all of them:
+
+```cpp
+#include "model.h"
+
+int main() {
+  using namespace tvm::dsp;
+
+  Model model;
+  if (model.Load(weights_data, weights_size) != ModelError::kSuccess) {
+    return 1;
+  }
+
+  auto input = NDArray::Float32(input_buffer, input_shape, 3);
+
+  NDArray* outputs[128];  // kMaxOutputs
+  int num_outputs = 0;
+  if (model.InferMulti(&input, outputs, &num_outputs) != ModelError::kSuccess) {
+    return 1;
+  }
+
+  for (int i = 0; i < num_outputs; i++) {
+    printf("Output[%d]: shape[0]=%lld\n", i,
+           (long long)outputs[i]->shape[0]);
+  }
+
+  return 0;
+}
 ```
 
 ### Embedded System (No File I/O)
@@ -440,6 +526,7 @@ model.Infer(&input, &output);
 |------|-------------|
 | `include/model.h` | Public API: Model class, NDArray struct, ModelError enum |
 | `cpp/model.cpp` | Model class implementation |
+| `tests/ti-dsp-runtime/dsp-cpp/main_dsp.cpp` | Sole consumer: test-harness DSP entry point |
 
 ---
 

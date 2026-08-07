@@ -41,6 +41,8 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import find_composite_span, propagate_span
+
 logger = logging.getLogger(__name__)
 
 _COMPOSITE_PREFIX = "tidl_act."
@@ -358,7 +360,7 @@ class _ActivationLowerer(PyExprMutator):
             return self._lower_dfl_softmax(call, func)
         return self._lower_single_input(call, func, name)
 
-    def _lower_silu_f32out(self, call, call_sinfo, x_arg, d_scale_val, d_zp_val):
+    def _lower_silu_f32out(self, call, call_sinfo, x_arg, d_scale_val, d_zp_val, span):
         """Lower a silu_f32out composite to c7x_int8_silu_f32out.
 
         No trailing quantize, so no is_tuple_out companion-dequantize case to
@@ -404,7 +406,7 @@ class _ActivationLowerer(PyExprMutator):
         logger.debug(
             "Fused %s: n=%d d_zp=%d d_scale=%.6g", extern_name, n_elem, d_zp_v, d_scale_v
         )
-        return result
+        return propagate_span(result, span)
 
     def _lower_single_input(self, call, func, composite_name):
         """Lower single-input activation composites (gelu/silu/hardsigmoid/hardswish/
@@ -441,9 +443,12 @@ class _ActivationLowerer(PyExprMutator):
             return super().visit_call_(call)
 
         call_sinfo = call.struct_info
+        composite_span = find_composite_span(func)
 
         if is_f32out:
-            return self._lower_silu_f32out(call, call_sinfo, x_arg, d_scale_val, d_zp_val)
+            return self._lower_silu_f32out(
+                call, call_sinfo, x_arg, d_scale_val, d_zp_val, composite_span
+            )
 
         # Determine output shape.  For hardswish layers whose float32 intermediate
         # is shared with an SE-block multiply, FuseOpsByPattern creates a
@@ -502,7 +507,10 @@ class _ActivationLowerer(PyExprMutator):
 
             return te.extern(output_shape, [x_t], fcompute, name="tidl_act_out", dtype="int8")
 
-        int8_result = self.builder_.call_te(te_activation, x_arg, primfunc_name_hint=extern_name)
+        int8_result = propagate_span(
+            self.builder_.call_te(te_activation, x_arg, primfunc_name_hint=extern_name),
+            composite_span,
+        )
         self.count += 1
 
         if is_tuple_out:
@@ -638,7 +646,7 @@ class _ActivationLowerer(PyExprMutator):
             C_v,
             H_W_v,
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
     def _lower_dfl_softmax(self, call, func):
         """Lower a dfl_softmax composite to c7x_int8_dfl_softmax.
@@ -734,7 +742,7 @@ class _ActivationLowerer(PyExprMutator):
         logger.debug(
             "Fused c7x_int8_dfl_softmax: B=%d A=%d K=%d N=%d", B_v, A_v, K_v, N_v
         )
-        return result
+        return propagate_span(result, find_composite_span(func))
 
 
 # =========================================================================
