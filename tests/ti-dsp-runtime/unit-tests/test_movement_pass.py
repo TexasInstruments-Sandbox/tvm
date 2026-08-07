@@ -27,6 +27,7 @@ confirms the pass correctly declines to fuse rather than mishandling it.
 
 import re
 
+import numpy as np
 import pytest
 
 import tvm
@@ -131,6 +132,54 @@ class TestReshapeRescale:
         new_mod = _run_pass(mod)
         text = new_mod.script()
         assert "c7x_int8_rescale" not in text
+
+    def test_constant_tensor_input_declines_and_still_compiles(self):
+        """Regression guard for the yolov5n crash on Jenkins build 230
+        (relax-c7x-build-validate, Quantized MMALIB c7x_dload stage): when
+        x is itself a literal relax.Constant tensor -- a real, already-
+        supported match per _check_single_input's isinstance(x, relax.
+        Constant) branch, not merely reachable from constants -- the
+        ConstReachability guard declines to fuse. Before the inline-on-
+        decline fix, the un-consumed Composite/Primitive function (which
+        embeds that Constant tensor directly, since FuseOpsByPattern here
+        uses bind_constants=False) crashed relax.transform.FuseTIR
+        downstream with "Relax.Constant is not supported in primitive
+        functions" -- reproduced directly against this exact scenario
+        before writing this test, not assumed. A scalar embedded constant
+        (e.g. the scale/zp) is NOT enough to reproduce this: LegalizeOps
+        bakes scalars into TIR literals, so only a tensor-shaped Constant
+        survives to reach FuseTIR. Confirms both the decline AND that the
+        module still compiles all the way through LegalizeOps -> FoldConstant
+        -> FuseOps -> FuseTIR."""
+        const_x = relax.const(np.arange(16, dtype="int8").reshape(1, 4, 2, 2))
+        bb = relax.BlockBuilder()
+        with bb.function("main", [], attrs={"num_input": 0}):
+            with bb.dataflow():
+                dq = bb.emit(
+                    relax.op.dequantize(
+                        const_x, relax.const(0.03, "float32"), relax.const(0, "int8")
+                    )
+                )
+                reshaped = bb.emit(relax.op.reshape(dq, (16,)))
+                q = bb.emit(
+                    relax.op.quantize(
+                        reshaped,
+                        relax.const(0.05, "float32"),
+                        relax.const(-1, "int8"),
+                        out_dtype="int8",
+                    )
+                )
+                out = bb.emit_output(q)
+            bb.emit_func_output(out)
+        mod = bb.finalize()
+
+        new_mod = _run_pass(mod)
+        assert "c7x_int8_rescale" not in new_mod.script()
+
+        new_mod = relax.transform.LegalizeOps()(new_mod)
+        new_mod = relax.transform.FoldConstant()(new_mod)
+        new_mod = relax.transform.FuseOps()(new_mod)
+        relax.transform.FuseTIR()(new_mod)  # must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -351,3 +400,57 @@ class TestFPNUpsampleConcat:
         new_mod = _run_pass(mod)
         text = new_mod.script()
         assert "c7x_int8_fpn_upsample_concat" not in text
+
+    def test_constant_tensor_branch_declines_and_still_compiles(self):
+        """Same regression guard as TestReshapeRescale's version above, for
+        the FPN upsample-concat pattern: branch 2's data operand is itself a
+        literal relax.Constant tensor. See that test's docstring for the
+        full crash-mode explanation (Jenkins build 230, yolov5n)."""
+        C1, C2, H, W = 8, 4, 4, 4
+        const_x2 = relax.const(
+            np.arange(C2 * 2 * H * 2 * W, dtype="int8").reshape(1, C2, 2 * H, 2 * W)
+        )
+        bb = relax.BlockBuilder()
+        x1 = relax.Var("x1", TensorStructInfo((1, C1, H, W), "int8"))
+        with bb.function("main", [x1], attrs={"num_input": 1}):
+            with bb.dataflow():
+                dq1 = bb.emit(
+                    relax.op.dequantize(x1, relax.const(0.03, "float32"), relax.const(0, "int8"))
+                )
+                sig1 = bb.emit(relax.op.sigmoid(dq1))
+                mul1 = bb.emit(relax.op.multiply(dq1, sig1))
+                resized = bb.emit(
+                    relax.op.image.resize2d(
+                        mul1,
+                        (2 * H, 2 * W),
+                        layout="NCHW",
+                        method="nearest_neighbor",
+                        coordinate_transformation_mode="half_pixel",
+                        rounding_method="round",
+                    )
+                )
+                dq2 = bb.emit(
+                    relax.op.dequantize(
+                        const_x2, relax.const(0.04, "float32"), relax.const(0, "int8")
+                    )
+                )
+                cat = bb.emit(relax.op.concat([resized, dq2], axis=1))
+                q = bb.emit(
+                    relax.op.quantize(
+                        cat,
+                        relax.const(0.05, "float32"),
+                        relax.const(0, "int8"),
+                        out_dtype="int8",
+                    )
+                )
+                out = bb.emit_output(q)
+            bb.emit_func_output(out)
+        mod = bb.finalize()
+
+        new_mod = _run_pass(mod)
+        assert "c7x_int8_fpn_upsample_concat" not in new_mod.script()
+
+        new_mod = relax.transform.LegalizeOps()(new_mod)
+        new_mod = relax.transform.FoldConstant()(new_mod)
+        new_mod = relax.transform.FuseOps()(new_mod)
+        relax.transform.FuseTIR()(new_mod)  # must not raise

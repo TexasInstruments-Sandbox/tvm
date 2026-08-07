@@ -79,6 +79,7 @@ from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, is_tuple, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
+from tvm.relax.transform.ti_c7x_composite_inline import inline_declined_composite
 from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
 
 logger = logging.getLogger(__name__)
@@ -219,7 +220,19 @@ class _MovementLowerer(PyExprMutator):
     def __init__(self, mod: IRModule):
         super().__init__(mod)
         self.count = 0
+        self.touched = False
         self._const_reach = ConstReachability(mod)
+
+    def _decline(self, call, func):
+        """Undo a declined match: inline the composite's own body back into
+        the caller. Also marks the module as touched so the now-orphaned
+        composite function is actually deleted by _run()'s
+        DeadCodeElimination() -- FuseTIR fuses every Primitive-tagged
+        function still in the module regardless of whether anything calls
+        it, so an un-deleted orphan is just as dangerous as an un-inlined
+        call; see ti_c7x_composite_inline.py."""
+        self.touched = True
+        return inline_declined_composite(self.builder_, call, func)
 
     def visit_call_(self, call):
         if not isinstance(call.op, relax.GlobalVar):
@@ -262,21 +275,23 @@ class _MovementLowerer(PyExprMutator):
                 o_zp_val = int(z.data.numpy())
 
         if x_arg is None or o_scale_val is None:
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         # A compile-time-constant x_arg (e.g. Swin's relative-position-bias
         # table: a constant table gathered by a constant index) would later
         # be evaluated eagerly by FoldConstant via a host LLVM JIT, which
         # can't resolve this call_extern's C7x-only symbol and segfaults
-        # instead of raising -- see ti_c7x_const_reachability.py. Leave the
-        # un-lowered composite call in place; ordinary LegalizeOps/
-        # FoldConstant will handle it safely via generic ops.
+        # instead of raising -- see ti_c7x_const_reachability.py. Inline the
+        # composite's own body back into the caller rather than leaving the
+        # call in place: FuseTIR fuses every Primitive-tagged function still
+        # in the module regardless of whether anything calls it, so merely
+        # declining isn't enough -- see ti_c7x_composite_inline.py.
         if self._const_reach.is_const(x_arg):
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         call_sinfo = call.struct_info
         if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
-            return super().visit_call_(call)
+            return self._decline(call, func)
         output_shape = [int(s) for s in call_sinfo.shape]
         n_elem = 1
         for s in output_shape:
@@ -308,6 +323,7 @@ class _MovementLowerer(PyExprMutator):
 
         result = self.builder_.call_te(te_rescale, x_arg, primfunc_name_hint="c7x_int8_rescale")
         self.count += 1
+        self.touched = True
         logger.debug(
             "Fused c7x_int8_rescale (reshape): n=%d d_zp=%d d_scale=%.6g o_zp=%d o_scale=%.6g",
             n_elem,
@@ -360,9 +376,9 @@ class _MovementLowerer(PyExprMutator):
                 o_zp_val = int(z.data.numpy())
 
         if resize_call is None or concat_fields is None or o_scale_val is None:
-            return super().visit_call_(call)
+            return self._decline(call, func)
         if len(dq_entries) != 2:
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         # Validate resize2d is the exact 2x nearest/half_pixel/round case
         # this kernel implements -- anything else falls through unchanged.
@@ -373,28 +389,28 @@ class _MovementLowerer(PyExprMutator):
             or str(rattrs.rounding_method) != "round"
             or str(rattrs.layout) != "NCHW"
         ):
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         in_shape = resize_call.args[0].struct_info.shape
         out_shape = resize_call.struct_info.shape
         if in_shape is None or out_shape is None or len(in_shape) != 4 or len(out_shape) != 4:
-            return super().visit_call_(call)
+            return self._decline(call, func)
         in_shape = [int(s) for s in in_shape]
         out_shape = [int(s) for s in out_shape]
         if out_shape[0] != in_shape[0] or out_shape[1] != in_shape[1]:
-            return super().visit_call_(call)
+            return self._decline(call, func)
         if out_shape[2] != 2 * in_shape[2] or out_shape[3] != 2 * in_shape[3]:
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         # Trace resize2d's input (a multiply/SiLU output var) back to the
         # dequantize that feeds it -- that dequantize's entry is branch 1.
         mul_var = resize_call.args[0]
         mul_call = bindings_by_var.get(mul_var)
         if not isinstance(mul_call, relax.Call) or not isinstance(mul_call.args[0], relax.Var):
-            return super().visit_call_(call)
+            return self._decline(call, func)
         dq1_var = mul_call.args[0]
         if dq1_var not in dq_entries:
-            return super().visit_call_(call)
+            return self._decline(call, func)
         branch1_arg, s1_v, z1_v = dq_entries[dq1_var]
         (dq2_var,) = [v for v in dq_entries if v != dq1_var]
         branch2_arg, s2_v, z2_v = dq_entries[dq2_var]
@@ -403,21 +419,24 @@ class _MovementLowerer(PyExprMutator):
         # compile-time-constant branch would make this call_tir
         # all-constant, and the pipeline's later FoldConstant pass would
         # segfault trying to JIT-fold the unresolvable DSP-only extern
-        # symbol. Decline and let the un-lowered composite fall through to
-        # generic ops instead.
+        # symbol. Inline the composite's own body back into the caller
+        # rather than leaving the call in place: FuseTIR fuses every
+        # Primitive-tagged function still in the module regardless of
+        # whether anything calls it, so merely declining isn't enough --
+        # see ti_c7x_composite_inline.py.
         if self._const_reach.is_const(branch1_arg) or self._const_reach.is_const(branch2_arg):
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         # The kernel always places branch 1 (the resize2d branch) first in
         # the output channel order -- only the canonical tuple order
         # (resize2d branch first) is supported; see _PATTERN_REGISTRY's
         # comment on why no commuted variant is registered.
         if len(concat_fields) != 2 or concat_fields[0] != resize_out_var:
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         N, C1, H, W = in_shape
         if N != 1:
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         # Branch 2's channel count MUST come from branch 2's own tensor, not
         # from out_shape (the resize2d output): resize2d preserves channels,
@@ -429,7 +448,7 @@ class _MovementLowerer(PyExprMutator):
         # (2H, 2W) spatial size.
         b2_sinfo = getattr(branch2_arg, "struct_info", None)
         if not isinstance(b2_sinfo, relax.TensorStructInfo) or not b2_sinfo.shape:
-            return super().visit_call_(call)
+            return self._decline(call, func)
         b2_shape = [int(s) for s in b2_sinfo.shape]
         if (
             len(b2_shape) != 4
@@ -437,7 +456,7 @@ class _MovementLowerer(PyExprMutator):
             or b2_shape[2] != 2 * H
             or b2_shape[3] != 2 * W
         ):
-            return super().visit_call_(call)
+            return self._decline(call, func)
         C2 = b2_shape[1]
 
         call_sinfo = call.struct_info
@@ -461,35 +480,35 @@ class _MovementLowerer(PyExprMutator):
                 None,
             )
             if int8_idx is None:
-                return super().visit_call_(call)
+                return self._decline(call, func)
             int8_sinfo = call_sinfo.fields[int8_idx]
             float_idx = 1 - int8_idx if len(call_sinfo.fields) == 2 else None
             if float_idx is None:
-                return super().visit_call_(call)
+                return self._decline(call, func)
             float_sinfo = call_sinfo.fields[float_idx]
             if not isinstance(float_sinfo, relax.TensorStructInfo) or not float_sinfo.shape:
-                return super().visit_call_(call)
+                return self._decline(call, func)
             float_shape = [int(s) for s in float_sinfo.shape]
             # The shared value is branch 1's SiLU output *before* resize2d:
             # must match [1, C1, H, W] exactly, not just be some float32
             # tensor -- otherwise this isn't the situation we know how to
             # reconstruct and we should decline rather than guess.
             if float_shape != [1, C1, H, W]:
-                return super().visit_call_(call)
+                return self._decline(call, func)
             if not int8_sinfo.shape:
-                return super().visit_call_(call)
+                return self._decline(call, func)
             output_shape = [int(s) for s in int8_sinfo.shape]
         elif not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
-            return super().visit_call_(call)
+            return self._decline(call, func)
         else:
             output_shape = [int(s) for s in call_sinfo.shape]
         if len(output_shape) != 4:
-            return super().visit_call_(call)
+            return self._decline(call, func)
         # The concat output must be exactly C1 + C2 channels; if the branch
         # decomposition doesn't add up, decline rather than emit a kernel
         # call that would over-read/over-write either buffer.
         if output_shape[1] != C1 + C2:
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         o_scale_v = float(o_scale_val)
         o_zp_v = int(o_zp_val)  # type: ignore[arg-type]
@@ -588,6 +607,7 @@ class _MovementLowerer(PyExprMutator):
             )
 
         self.count += 1
+        self.touched = True
         logger.debug(
             "Fused FPN upsample-concat: C1=%d C2=%d H=%d W=%d -> H2=%d W2=%d tuple_out=%s",
             C1,
@@ -630,7 +650,7 @@ class FuseQDQToC7xMovement:
                 func = lowerer.visit_expr(func)
                 lowerer.builder_.update_func(gv, func)
         mod = lowerer.builder_.get()
-        if lowerer.count > 0:
+        if lowerer.touched:
             mod = relax.transform.DeadCodeElimination()(mod)
             # Flatten any Var->Var chains left by chaining multiple call_te
             # emissions inside one composite lowering (silu -> resize2d ->

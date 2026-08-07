@@ -49,6 +49,7 @@ from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
+from tvm.relax.transform.ti_c7x_composite_inline import inline_declined_composite
 from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
 
 logger = logging.getLogger(__name__)
@@ -215,7 +216,19 @@ class _ReluLowerer(PyExprMutator):
     def __init__(self, mod: IRModule):
         super().__init__(mod)
         self.count = 0
+        self.touched = False
         self._const_reach = ConstReachability(mod)
+
+    def _decline(self, call, func):
+        """Undo a declined match: inline the composite's own body back into
+        the caller. Also marks the module as touched so the now-orphaned
+        composite function is actually deleted by transform_module()'s
+        DeadCodeElimination() -- FuseTIR fuses every Primitive-tagged
+        function still in the module regardless of whether anything calls
+        it, so an un-deleted orphan is just as dangerous as an un-inlined
+        call; see ti_c7x_composite_inline.py."""
+        self.touched = True
+        return inline_declined_composite(self.builder_, call, func)
 
     def visit_call_(self, call):
         if not isinstance(call.op, relax.GlobalVar):
@@ -258,21 +271,24 @@ class _ReluLowerer(PyExprMutator):
                     x_sinfo = binding.var.struct_info
 
         if x_arg is None or d_zp_val is None or x_sinfo is None:
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         # A compile-time-constant x (e.g. Swin V2's continuous-relative-
         # position-bias MLP, fed only by a fixed coordinate buffer) would
         # later be evaluated eagerly by FoldConstant via a host LLVM JIT,
         # which can't resolve this call_extern's C7x-only symbol and
         # segfaults instead of raising -- see ti_c7x_const_reachability.py.
-        # Leave the un-lowered composite call in place; ordinary
-        # LegalizeOps/FoldConstant will handle it safely.
+        # Inline the composite's own body back into the caller rather than
+        # leaving the call in place: FuseTIR fuses every Primitive-tagged
+        # function still in the module regardless of whether anything calls
+        # it, so merely declining isn't enough -- see
+        # ti_c7x_composite_inline.py.
         if self._const_reach.is_const(x_arg):
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         call_sinfo = call.struct_info
         if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         out_shape = [int(s) for s in call_sinfo.shape]
         n_v = 1
@@ -303,6 +319,7 @@ class _ReluLowerer(PyExprMutator):
 
         result = self.builder_.call_te(te_relu, x_arg, primfunc_name_hint="c7x_int8_relu")
         self.count += 1
+        self.touched = True
         logger.debug("Fused c7x_int8_relu: n=%d clip_lo=%d", n_v, _clip_lo)
         return result
 
@@ -336,16 +353,18 @@ class _ReluLowerer(PyExprMutator):
                 a_max_float = _get_scalar_float(hi)
 
         if any(v is None for v in [x_arg, d_scale_val, d_zp_val, a_min_float, a_max_float]):
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         # See the matching guard in _lower: a compile-time-constant x would
         # otherwise crash FoldConstant later (ti_c7x_const_reachability.py).
+        # Inline the composite's own body back into the caller rather than
+        # leaving the call in place -- see ti_c7x_composite_inline.py.
         if self._const_reach.is_const(x_arg):
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         call_sinfo = call.struct_info
         if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         out_shape = [int(s) for s in call_sinfo.shape]
         n_v = 1
@@ -382,6 +401,7 @@ class _ReluLowerer(PyExprMutator):
 
         result = self.builder_.call_te(te_clamp, x_arg, primfunc_name_hint="c7x_int8_clamp")
         self.count += 1
+        self.touched = True
         logger.debug(
             "Fused c7x_int8_clamp: n=%d clip_lo=%d clip_hi=%d "
             "(float [%.4g, %.4g] scale=%.4g)",
@@ -421,16 +441,18 @@ class _ReluLowerer(PyExprMutator):
                 o_scale_val = float(s.data.numpy())
 
         if any(v is None for v in [x_arg, d_scale_val, o_scale_val, a_min_float, a_max_float]):
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         # See the matching guard in _lower: a compile-time-constant x would
         # otherwise crash FoldConstant later (ti_c7x_const_reachability.py).
+        # Inline the composite's own body back into the caller rather than
+        # leaving the call in place -- see ti_c7x_composite_inline.py.
         if self._const_reach.is_const(x_arg):
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         call_sinfo = call.struct_info
         if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
-            return super().visit_call_(call)
+            return self._decline(call, func)
 
         out_shape = [int(s) for s in call_sinfo.shape]
         n_v = 1
@@ -467,6 +489,7 @@ class _ReluLowerer(PyExprMutator):
             te_reqclamp, x_arg, primfunc_name_hint="c7x_int8_requantize_clamp"
         )
         self.count += 1
+        self.touched = True
         logger.debug(
             "Fused c7x_int8_requantize_clamp: n=%d combined_scale=%.4g "
             "clip_lo=%d clip_hi=%d (float [%.4g, %.4g])",
@@ -512,6 +535,7 @@ class FuseQDQToC7xRelu:
 
         if lowerer.count > 0:
             logger.info("FuseQDQToC7xRelu: fused %d relu/clamp ops", lowerer.count)
+        if lowerer.touched:
             mod = relax.transform.DeadCodeElimination()(mod)
 
         return mod
