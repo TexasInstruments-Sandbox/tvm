@@ -27,7 +27,7 @@ Usage (run from tests/ti-dsp-runtime/ -- yolo26n.pt is cached there):
     cd tests/ti-dsp-runtime
     export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
     python examples/run_yolo26_detection.py
-    python examples/run_yolo26_detection.py --image dog.jpg --conf-threshold 0.1
+    python examples/run_yolo26_detection.py --image beagle.jpg --conf-threshold 0.1
     python examples/run_yolo26_detection.py --board j722s-evm
     python examples/run_yolo26_detection.py --compile-only  # just produce lib0.out
     python examples/run_yolo26_detection.py --inference-only  # reuse it, skip recompiling
@@ -78,9 +78,8 @@ from od_yolo import Detection, load_image  # pyright: ignore[reportMissingImport
 
 MODEL_NAME = "yolo26n"
 
-# All three sample images ship in tests/cstatic/test_images/; --image narrows
-# this down to just one.
-ALL_IMAGES = ["dog.jpg", "bird_0.jpg", "YellowLabradorLooking_new.jpg"]
+# All three sample images ship in tests/cstatic/test_images/
+ALL_IMAGES = ["beagle.jpg", "bird_0.jpg", "car.jpg"]
 
 # A few visually distinct colors, cycled by class id, purely for readability
 # when drawing boxes -- not meaningful beyond that.

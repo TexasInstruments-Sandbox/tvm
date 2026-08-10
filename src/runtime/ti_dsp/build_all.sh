@@ -28,7 +28,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export TVM_HOME="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-source "$SCRIPT_DIR/board_build_dir.sh"
 
 TVM_BOARD=""
 TVM_DDR=""
@@ -84,22 +83,6 @@ if [ "$BUILD_WHEELS" -eq 0 ]; then
 fi
 
 echo "=== Wheels ==="
-# packaging/ti_dsp/build_wheel.sh predates --board support and hardcodes
-# unsuffixed build/ directory names (build/, firmware/c7x/dsp/build/,
-# firmware/c7x/arm/build/). Bridge via symlinks -- computed by calling
-# the SAME resolve_board_build_dir() the actual builds above used, not
-# a re-derived copy, so this can't drift from what really got built.
-resolve_board_build_dir
-RT_SUFFIX="$BUILD_SUFFIX"           # runtime/arm dirs (no tidl/mmalib)
-[ "$TVM_BOARD" = "beagley-ai" ] && { TVM_TIDL=OFF; TVM_MMALIB=ON; }
-resolve_board_build_dir
-FW_SUFFIX="$BUILD_SUFFIX"           # firmware dir (includes tidl/mmalib)
-
-ln -sfn "$TVM_BUILD_DIR" build
-ln -sfn "build-c7x${RT_SUFFIX}" src/runtime/ti_dsp/build-c7x
-ln -sfn "build${FW_SUFFIX}" src/runtime/ti_dsp/firmware/c7x/dsp/build
-ln -sfn "build${RT_SUFFIX}" src/runtime/ti_dsp/firmware/c7x/arm/build
-
 # `build` (for `python -m build`) lives in a venv baked into the image
 # at /opt/venv-build -- not created here in the mounted repo, so there's
 # no leftover-venv state to clean up between runs and no risk of it
@@ -108,12 +91,18 @@ ln -sfn "build${RT_SUFFIX}" src/runtime/ti_dsp/firmware/c7x/arm/build
 export VIRTUAL_ENV=/opt/venv-build
 export PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# build_wheel.sh's own --tidl mirrors firmware/c7x/dsp/build.sh's: the x86
-# wheel bundles a TIDL .so by default, which beagley-ai never builds.
+# build_wheel.sh resolves the DSP runtime/firmware/ARM-client paths it
+# packages via its own --board/--ddr/--mmalib (mirroring board_build_dir.sh,
+# the same file the builds above used) -- pass through the same board this
+# script just built for, or it silently defaults to j722s-evm/8gb and looks
+# for artifacts in the wrong build-<board>-<ddr>[-tidl-*-mmalib-*] directory.
+# `build/libtvm.so` is the one path it still expects unsuffixed.
+ln -sfn "$TVM_BUILD_DIR" build
+BOARD_WHEEL_ARGS=(--board "$TVM_BOARD" "${DDR_ARGS[@]}")
 WHEEL_TIDL_ARGS=()
-[ "$TVM_BOARD" = "beagley-ai" ] && WHEEL_TIDL_ARGS=(--tidl OFF)
+[ "$TVM_BOARD" = "beagley-ai" ] && WHEEL_TIDL_ARGS=(--tidl OFF --mmalib ON)
 
-bash packaging/ti_dsp/build_wheel.sh --target x86 "${WHEEL_TIDL_ARGS[@]}"
-bash packaging/ti_dsp/build_wheel.sh --target arm64
+bash packaging/ti_dsp/build_wheel.sh --target x86 "${BOARD_WHEEL_ARGS[@]}" "${WHEEL_TIDL_ARGS[@]}"
+bash packaging/ti_dsp/build_wheel.sh --target arm64 "${BOARD_WHEEL_ARGS[@]}" "${WHEEL_TIDL_ARGS[@]}"
 
 echo "Done. Wheels in packaging/ti_dsp/staging-{x86,arm64}/dist/"

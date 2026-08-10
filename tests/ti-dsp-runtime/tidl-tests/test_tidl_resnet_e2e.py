@@ -50,16 +50,22 @@ RELAX_SO_PATH = os.path.join(
 TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
 
 
+# Pinned explicitly (not globbed) so unrelated additions to the shared
+# test_images/ directory can't silently shift TIDL's INT8 calibration
+# statistics for this classification test.
+_CALIBRATION_IMAGE_NAMES = ("YellowLabradorLooking_new.jpg", "bird_0.jpg", "dog.jpg")
+
+
 def _load_calibration_images_resnet(size: int = 224):
-    """Load test images for TIDL INT8 calibration with ImageNet normalization."""
+    """Load pinned test images for TIDL INT8 calibration with ImageNet normalization."""
     try:
         from PIL import Image  # noqa: PLC0415
     except ImportError:
         return None
 
     images = []
-    for p in sorted(_TEST_IMAGES_DIR.glob("*.jpg")):
-        img = Image.open(p).convert("RGB").resize((size, size))
+    for name in _CALIBRATION_IMAGE_NAMES:
+        img = Image.open(_TEST_IMAGES_DIR / name).convert("RGB").resize((size, size))
         arr = np.array(img).astype(np.float32) / 255.0  # HWC [0,1]
         arr = arr.transpose(2, 0, 1)  # CHW
         arr = (arr - _IMAGENET_MEAN) / _IMAGENET_STD  # ImageNet normalize
