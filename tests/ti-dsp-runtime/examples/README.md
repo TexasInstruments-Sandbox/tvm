@@ -80,3 +80,54 @@ prints a `===== TVM Layer Profile =====` block after each image runs on the
 board. Combine with `--visualize` to overlay those cycle counts on the
 offload graph instead of a structural-only one. Requires a real board run,
 so it does not combine with `--compile-only`.
+
+## ResNet-18 Classification (C++ API)
+
+### Description
+
+`run_resnet18_classification.py` + `resnet18_board_runner.cpp` classify a
+real JPEG from `tests/cstatic/test_images/` on a BeagleY-AI (or AM67A)
+board, using the C++ offload API (`c7x::Module`) -- the C++ counterpart to
+the YOLO26 example above.
+
+Same two-machine split as YOLO26, but with a different division of labor:
+
+- `run_resnet18_classification.py` runs on the **dev host** -- quantizes
+  and compiles ResNet-18 (calibrated on the real input image, not random
+  noise, so the result is a plausible label rather than just internally
+  consistent), preprocesses the image, and cross-compiles
+  `resnet18_board_runner.cpp` for aarch64 with a single `g++` invocation
+  (no CMake target).
+- `resnet18_board_runner.cpp` runs **on the board** -- unlike the Python
+  board runner, it also does the postprocessing itself (argmax + ImageNet
+  label lookup) and prints the human-readable top-5 result directly; no
+  output tensor is shipped back to the host.
+
+`resnet18_board_runner.cpp` is built on
+[`common/c7x_infer.h`](common/c7x_infer.h), a small header-only library
+shared by every C++ example: it hides the `c7x::Module`/`DLTensor`
+boilerplate and provides raw-tensor-file input and CLI dtype parsing.
+A future C++ example (e.g. object detection) would `#include` the same
+header and do its own task-specific decoding, rather than duplicating it
+-- see the header's own comments for what is and isn't in scope for it.
+
+### Prerequisites
+
+Same as YOLO26 above (firmware + `libc7x_arm_runtime.so` deployed,
+`TI_CGT_C7000_PATH`, passwordless SSH), plus an `aarch64-linux-gnu-g++`
+cross-compiler on the dev host -- the same one
+`src/runtime/ti_dsp/firmware/c7x/arm/build.sh` itself uses to build
+`libc7x_arm_runtime.so`. No `numpy` or Python is needed on the board for
+this example, since `resnet18_board_runner` is a native binary.
+
+### Running
+
+```bash
+cd tests/ti-dsp-runtime
+export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+python examples/run_resnet18_classification.py
+```
+
+Run with `--help` for the full option list (image selection, board target,
+`--compile-only`/`--inference-only`, build directory). Prints the top-5
+ImageNet predictions for the chosen image.

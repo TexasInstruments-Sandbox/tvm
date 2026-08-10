@@ -195,9 +195,9 @@ breakdown, test tiers (`quick`/`core`/nightly), and Jenkins commands.
 
 `docker/Dockerfile.ci_c7x` bakes in everything needed to build for
 BeagleY-AI -- the TI CGT C7000 compiler, TI SysConfig, PSDK RTOS, LLVM,
-the aarch64 cross-compiler, and `uv` -- so you can skip installing any
-of the Prerequisites below on the host. This is the fastest path from a
-clean checkout to a validated board; three commands:
+the aarch64 cross-compiler, and `uv` -- so none of that needs installing
+on the host directly. This is the fastest path from a clean checkout to
+a validated board; three commands:
 
 ```bash
 # 1. Build the image (behind a corporate proxy: pass it through as
@@ -239,10 +239,11 @@ testing, and how this wires into Jenkins.
 
 ### Compile and Run a Model
 
-For a full runnable example --
-quantize, compile, deploy, and run YOLO26 object detection end-to-end on
-a real BeagleY-AI/AM67A board via the Python API, with optional MMALIB
-offload visualization and per-layer cycle profiling -- see
+For full runnable examples of both offload APIs -- YOLO26 object
+detection via the Python API (with optional MMALIB offload visualization
+and per-layer cycle profiling), and ResNet-18 classification via the C++
+API -- quantizing, compiling, deploying, and running end-to-end on a real
+BeagleY-AI/AM67A board, see
 [`tests/ti-dsp-runtime/examples/README.md`](tests/ti-dsp-runtime/examples/README.md).
 See `tests/ti-dsp-runtime/dsp-cpp/dsp_utils.py` for the lower-level build
 and deploy pipeline used by all pytest tests.

@@ -85,7 +85,13 @@ if [ "${#X86_WHEELS[@]}" -eq 0 ]; then
     echo "  Build it first: bash src/runtime/ti_dsp/build_all.sh --board $TVM_BOARD --wheels" >&2
     exit 1
 fi
-uv pip install --force-reinstall --no-deps "${X86_WHEELS[0]}"
+# build_wheel.sh removes the whole staging dir before each build, so under
+# normal operation exactly one wheel matches; if more than one is present
+# (e.g. a stale leftover from a manually-copied or interrupted prior
+# build), pick the most recently built one rather than whichever sorts
+# first lexicographically.
+X86_WHEEL="$(ls -t "${X86_WHEELS[@]}" | head -1)"
+uv pip install --force-reinstall --no-deps "$X86_WHEEL"
 
 # docker/bash.sh injects PYTHONPATH=<repo>/python into any *ci*-named
 # image (see "Set TVM import path inside the docker image" there), which
@@ -144,6 +150,10 @@ if ! ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
 fi
 
 echo "=== [4/4] Quantized MMALIB model tests (board=$TVM_BOARD) ==="
+# Deliberately MMALIB-only, not both suites -- the plain (non-MMALIB)
+# c_static path is exercised by the native Jenkinsfile's own nightly run
+# instead; this Docker-based flow's job is validating the shipped wheel +
+# MMALIB offload against real hardware, not full test-suite duplication.
 mkdir -p "$TVM_HOME/results"
 ( cd "$TVM_HOME/tests/ti-dsp-runtime" && \
   pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
