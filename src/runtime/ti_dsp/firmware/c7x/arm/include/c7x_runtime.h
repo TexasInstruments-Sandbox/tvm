@@ -18,6 +18,10 @@
  *   auto out = vm.Run(inp);               // no staging memcpy
  *
  * Build: included in libc7x_arm_runtime.so (aarch64).
+ *
+ * Full API reference (this C++ API and its Python mirror, documented
+ * together since one is a direct translation of the other):
+ * python/tvm/contrib/c7x/README.md
  */
 
 #pragma once

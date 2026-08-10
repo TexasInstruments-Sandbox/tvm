@@ -91,8 +91,8 @@ _BOX_COLORS = [
 
 def compile_yolo26_for_board(
     board: str, build_dir: Path, profile_layers: bool = False
-) -> Path:
-    """Quantize + compile YOLO26n, build a DLOAD module, return its path.
+) -> tuple:
+    """Quantize + compile YOLO26n, build a DLOAD module.
 
     Steps 1-3 of the module docstring's pipeline. Reuses
     quantized/model_utils.py's create_quantized_yolo_model (already handles
@@ -109,6 +109,15 @@ def compile_yolo26_for_board(
     profile_layers bakes in per-layer DSP cycle counting (see
     deploy_and_run_on_board's docstring for how that text gets back to the
     host once the compiled module actually runs on the board).
+
+    Returns (module_path, mod): mod is the quantized-but-not-yet-lowered
+    Relax module, returned alongside the compiled artifact so callers that
+    also want --visualize's offload graph (generate_visualization) can
+    reuse it instead of re-quantizing from scratch -- compile_for_dsp()
+    below does not mutate the mod object it's given (TVM passes return new
+    IRModules rather than mutating in place), so the pre-pipeline module
+    returned here is exactly what a fresh create_quantized_yolo_model()
+    call would have produced anyway.
     """
     set_current_board(board)
     build_dir.mkdir(parents=True, exist_ok=True)
@@ -135,7 +144,7 @@ def compile_yolo26_for_board(
         build_dir=build_dir / "build",
         weights_file=weights_path if weights_path.exists() else None,
     )
-    return module_path
+    return module_path, mod
 
 
 def preprocess_image(image_path: Path) -> tuple:
@@ -287,12 +296,15 @@ def postprocess_and_draw(
     return detections
 
 
-def generate_visualization(args: argparse.Namespace, dsp_stdout: str = "") -> None:
+def generate_visualization(args: argparse.Namespace, mod=None, dsp_stdout: str = "") -> None:
     """Render args.visualize's MMALIB offload HTML graph.
 
-    Rebuilds the model independently rather than threading mod out of
-    compile_yolo26_for_board -- mirrors quantized/test_quantized_yolo.py's
-    own --visualize handling, which is likewise a self-contained rebuild.
+    Reuses the already-quantized mod from compile_yolo26_for_board when the
+    caller has one (the common case) instead of re-quantizing from scratch.
+    mod is only None under --inference-only, where this run never quantized
+    anything itself -- the only artifact available is the previously-built
+    lib0.out -- so a fresh create_quantized_yolo_model() call is the only
+    option there.
 
     dsp_stdout, when given, is the per-layer profile text captured from a
     real board run (see deploy_and_run_on_board) and overlays cycle counts
@@ -303,13 +315,14 @@ def generate_visualization(args: argparse.Namespace, dsp_stdout: str = "") -> No
 
     print("Generating MMALIB offload visualization...")
     set_current_board(args.board)
-    vis_mod, _, _ = create_quantized_yolo_model(MODEL_NAME, version="v26")
+    if mod is None:
+        mod, _, _ = create_quantized_yolo_model(MODEL_NAME, version="v26")
     target_string = (
         get_target_string("c7x_dload", profile_layers=args.profile_layers, use_cpp_api=True)
         + " -mmalib=1"
     )
     visualize_compile(
-        vis_mod,
+        mod,
         target_string,
         args.visualize,
         title=f"{MODEL_NAME} MMALIB Offload",
@@ -391,8 +404,11 @@ def main() -> int:
             )
             return 1
         print(f"--inference-only: reusing compiled module: {module_path}")
+        # No mod in memory this run -- generate_visualization() re-derives
+        # one itself (see its docstring) if --visualize is also passed.
+        mod = None
     else:
-        module_path = compile_yolo26_for_board(
+        module_path, mod = compile_yolo26_for_board(
             args.board, args.build_dir, profile_layers=args.profile_layers
         )
         if args.compile_only:
@@ -400,7 +416,7 @@ def main() -> int:
             if args.visualize:
                 # No board run happened -- structural-only graph (see
                 # generate_visualization's docstring).
-                generate_visualization(args)
+                generate_visualization(args, mod=mod)
             return 0
 
     from ultralytics import YOLO  # type: ignore[attr-defined]  # noqa: PLC0415
@@ -447,7 +463,7 @@ def main() -> int:
     print("=" * 60)
 
     if args.visualize:
-        generate_visualization(args, dsp_stdout=dsp_profile_output)
+        generate_visualization(args, mod=mod, dsp_stdout=dsp_profile_output)
 
     return 0
 

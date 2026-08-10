@@ -259,8 +259,15 @@ from tvm.relax.backend.tidl import C7xVirtualMachine
 ## Examples
 
 [`tests/ti-dsp-runtime/examples/`](../../../../tests/ti-dsp-runtime/examples/README.md)
-has a full runnable example (YOLO26 object detection on BeagleY-AI/AM67A)
-using the Python API — `run_yolo26_detection.py` compiles and deploys the
-model from the dev host, and `yolo26_board_runner.py` is the board-side
-script that actually calls `C7xVirtualMachine`. There is no C++ API example
-there yet.
+has full runnable examples for both APIs:
+
+- Python: YOLO26 object detection on BeagleY-AI/AM67A --
+  `run_yolo26_detection.py` compiles and deploys the model from the dev
+  host, and `yolo26_board_runner.py` is the board-side script that
+  actually calls `C7xVirtualMachine`.
+- C++: ResNet-18 classification -- `run_resnet18_classification.py`
+  compiles and cross-compiles from the dev host, and
+  `resnet18_board_runner.cpp` is the board-side program that calls
+  `c7x::Module` directly, built on the small shared
+  [`c7x_infer.h`](../../../../tests/ti-dsp-runtime/examples/common/c7x_infer.h)
+  helper library.
