@@ -66,6 +66,9 @@ _QUANTIZED_DIR = _THIS_DIR.parent / "quantized"
 _CSTATIC_DIR = _TVM_HOME / "tests" / "cstatic"
 _TEST_IMAGES_DIR = _CSTATIC_DIR / "test_images"
 _ARM_DIR = _TVM_HOME / "src" / "runtime" / "ti_dsp" / "firmware" / "c7x" / "arm"
+# Source-tree fallback for cross_compile_board_runner()'s -I flags, used only
+# when find_c7x_include_dir() returns None (i.e. no tvm-ti-c7x-inference
+# wheel install -- the normal case in this dev checkout).
 _ARM_INCLUDE_DIR = _ARM_DIR / "include"
 _DLPACK_INCLUDE_DIR = _TVM_HOME / "3rdparty" / "tvm-ffi" / "3rdparty" / "dlpack" / "include"
 _COMMON_DIR = _THIS_DIR / "common"
@@ -84,6 +87,8 @@ from dsp_utils import (  # pyright: ignore[reportMissingImports]
     set_current_board,
 )
 from model_utils import _pt2e_quantize  # pyright: ignore[reportMissingImports]
+
+from tvm.data.ti_dsp.paths import find_c7x_include_dir
 
 INPUT_SHAPE = (1, 3, 224, 224)
 
@@ -168,6 +173,11 @@ def cross_compile_board_runner(board: str, build_dir: Path) -> Path:
     libc7x_arm_runtime.so (built by arm/build.sh) -- no CMake target, no
     build-system integration, demonstrating that c7x_runtime.h really only
     needs a header, DLPack, and the .so to link against.
+
+    Resolves the header via find_c7x_include_dir() -- the same lookup a
+    tvm-ti-c7x-inference wheel install would use -- and only falls back to
+    the source-tree paths (arm/include + dlpack/include, no longer merged
+    into one dir) when that returns None, as it does in this dev checkout.
     """
     so_dir = arm_build_dir(board)
     so_path = so_dir / "libc7x_arm_runtime.so"
@@ -177,15 +187,23 @@ def cross_compile_board_runner(board: str, build_dir: Path) -> Path:
             f"  cd src/runtime/ti_dsp/firmware/c7x/arm && ./build.sh --board {board}"
         )
 
+    bundled_include = find_c7x_include_dir()
+    include_dirs = [bundled_include] if bundled_include else [_ARM_INCLUDE_DIR, _DLPACK_INCLUDE_DIR]
+
     out_path = build_dir / "resnet18_board_runner"
     cmd = [
-        "aarch64-linux-gnu-g++", "-std=c++14", "-O2",
-        "-I", str(_ARM_INCLUDE_DIR),
-        "-I", str(_COMMON_DIR),
-        "-I", str(_DLPACK_INCLUDE_DIR),
+        "aarch64-linux-gnu-g++",
+        "-std=c++14",
+        "-O2",
+        *[flag for inc in include_dirs for flag in ("-I", str(inc))],
+        "-I",
+        str(_COMMON_DIR),
         str(_BOARD_RUNNER_CPP),
-        "-L", str(so_dir), "-lc7x_arm_runtime",
-        "-o", str(out_path),
+        "-L",
+        str(so_dir),
+        "-lc7x_arm_runtime",
+        "-o",
+        str(out_path),
     ]
     subprocess.run(cmd, check=True)
     return out_path
@@ -212,7 +230,10 @@ def deploy_and_run_on_board(
     def ssh(cmd: str) -> subprocess.CompletedProcess:
         result = subprocess.run(
             ["ssh", "-o", "ConnectTimeout=10", remote, cmd],
-            capture_output=True, text=True, timeout=300, check=False,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(
@@ -224,7 +245,8 @@ def deploy_and_run_on_board(
     def scp_to(*local_paths) -> None:
         subprocess.run(
             ["scp", "-q", *[str(p) for p in local_paths], f"{remote}:{remote_dir}/"],
-            check=True, timeout=180,
+            check=True,
+            timeout=180,
         )
 
     print(f"[4/5] Deploying to {remote}:{remote_dir} ...")
@@ -246,15 +268,20 @@ def parse_args() -> argparse.Namespace:
     )
     add_board_arg(parser)
     parser.add_argument(
-        "--image", choices=ALL_IMAGES, default=DEFAULT_IMAGE,
+        "--image",
+        choices=ALL_IMAGES,
+        default=DEFAULT_IMAGE,
         help=f"Test image to classify (default: {DEFAULT_IMAGE})",
     )
     parser.add_argument(
-        "--remote-dir", default="/tmp/resnet18_example",
+        "--remote-dir",
+        default="/tmp/resnet18_example",
         help="Working directory on the board (default: /tmp/resnet18_example)",
     )
     parser.add_argument(
-        "--build-dir", type=Path, default=_THIS_DIR / "build-resnet18",
+        "--build-dir",
+        type=Path,
+        default=_THIS_DIR / "build-resnet18",
         help="Directory for compiled artifacts, including lib0.out (default: "
         "examples/build-resnet18/) -- reused as-is on repeat runs, not a "
         "tempdir. Deliberately distinct from run_yolo26_detection.py's own "
@@ -267,12 +294,14 @@ def parse_args() -> argparse.Namespace:
     )
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
-        "--compile-only", action="store_true",
+        "--compile-only",
+        action="store_true",
         help="Stop after building the DLOAD module (lib0.out) -- skip deploying to "
         "and running on the board. Useful for iterating on compilation.",
     )
     mode_group.add_argument(
-        "--inference-only", action="store_true",
+        "--inference-only",
+        action="store_true",
         help="Skip quantization/compilation -- reuse the lib0.out already built at "
         "--build-dir (e.g. from a prior --compile-only run) and go straight to "
         "cross-compiling/deploying/running.",

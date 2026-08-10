@@ -267,6 +267,17 @@ PYEOF
         cp "$ARM_SO/libc7x_arm_runtime.so" "$DATA/firmware/libc7x_arm_runtime.so"
     fi
 
+    # Public header for the C++ API (c7x::Module in c7x_runtime.h), plus its
+    # only dependency (DLPack), so a C++ consumer can build against the wheel
+    # with a single -I flag without checking out the TVM source tree.
+    echo ">>> Staging C++ API header ..."
+    mkdir -p "$DATA/include/dlpack"
+    cp "$DSP_RT/firmware/c7x/arm/include/c7x_runtime.h" "$DATA/include/"
+    DLPACK="$TVM_HOME/3rdparty/tvm-ffi/3rdparty/dlpack/include/dlpack"
+    if [ -d "$DLPACK" ]; then
+        cp "$DLPACK"/*.h "$DATA/include/dlpack/"
+    fi
+
     # --- pyproject.toml + version ---
     cp "$SCRIPT_DIR/pyproject_arm64.toml" "$STAGING/pyproject.toml"
     FULL_VERSION="$(get_version).post${DSP_BUILD_NUM}"

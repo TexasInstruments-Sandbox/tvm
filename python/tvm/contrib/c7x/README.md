@@ -113,7 +113,9 @@ or `create_input()`.
 
 **Header:**
 [`c7x_runtime.h`](../../../../src/runtime/ti_dsp/firmware/c7x/arm/include/c7x_runtime.h)
-(installed to `/usr/local/include/` by `./build.sh deploy`)
+— not deployed to `/usr/local/include/` by `./build.sh deploy`; resolve it
+from the `tvm-ti-c7x-inference` wheel or the source tree instead, see
+[Build and Deploy](#build-and-deploy)
 
 No TVM runtime dependency — only DLPack is required, so this header can be
 used from any C++ application on the board.
@@ -230,6 +232,29 @@ cd src/runtime/ti_dsp/firmware/c7x/arm
 
 See that directory's README for the full `--board`/`--ddr` matrix, native
 on-target builds, and the standalone C++ test binary.
+
+**Wheel install (no scp/ldconfig required):** `pip install tvm-ti-c7x-inference`
+on the board unpacks `libc7x_arm_runtime.so`, `c7x_runtime.h`, and this
+Python module into site-packages. Resolve their paths at build time instead
+of assuming a system install:
+
+```bash
+python3 -c "from tvm.data.ti_dsp.paths import find_c7x_include_dir; \
+    print(find_c7x_include_dir())"
+python3 -c "from tvm.data.ti_dsp.paths import find_c7x_arm_runtime_so; \
+    print(find_c7x_arm_runtime_so())"
+```
+
+`ctypes.CDLL()` (used by the Python API) loads the `.so` by absolute path,
+so no `ldconfig` step is needed either way. A C++ build should pass the
+include dir as `-I` and either link against the resolved `.so` path
+directly or `dlopen()` it at runtime. `find_c7x_include_dir()` returns
+`None` outside a wheel install (e.g. in a source checkout, where the
+header and DLPack live in two separate source-tree directories instead
+of one merged `include/`) — callers should fall back to those paths in
+that case, as
+[`examples/run_resnet18_classification.py`](../../../../tests/ti-dsp-runtime/examples/run_resnet18_classification.py)
+does.
 
 ---
 

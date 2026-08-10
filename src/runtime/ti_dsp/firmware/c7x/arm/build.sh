@@ -92,7 +92,10 @@ case "$SUBCOMMAND" in
         echo "Deploying to ${TARGET_HOST}..."
         scp "${BUILD_DIR}/c7x_compute" "${TARGET_HOST}:/usr/local/bin/"
         scp "${BUILD_DIR}/libc7x_arm_runtime.so" "${TARGET_HOST}:/usr/local/lib/"
-        scp "${SCRIPT_DIR}/include/c7x_runtime.h" "${TARGET_HOST}:/usr/local/include/"
+        # c7x_runtime.h is intentionally not deployed to /usr/local/include —
+        # C++ consumers resolve it from the tvm-ti-c7x-inference wheel
+        # (tvm.data.ti_dsp.paths.find_c7x_include_dir()) or the source tree
+        # instead. See python/tvm/contrib/c7x/README.md.
         # Deploy test binary if it was built
         if [ -f "${BUILD_DIR}/test_c7x_runtime" ]; then
             scp "${BUILD_DIR}/test_c7x_runtime" "${TARGET_HOST}:/usr/local/bin/"
@@ -109,7 +112,6 @@ case "$SUBCOMMAND" in
         echo "Deployed to ${TARGET_HOST}:"
         echo "  /usr/local/bin/c7x_compute"
         echo "  /usr/local/lib/libc7x_arm_runtime.so"
-        echo "  /usr/local/include/c7x_runtime.h"
         ;;
     *)
         echo "Cross-compiling for ARM64 (board=$BOARD ddr=$DDR)..."
@@ -133,7 +135,6 @@ case "$SUBCOMMAND" in
         echo "Or copy manually:"
         echo "  scp ${BUILD_DIR}/c7x_compute ${TARGET_HOST}:/usr/local/bin/"
         echo "  scp ${BUILD_DIR}/libc7x_arm_runtime.so ${TARGET_HOST}:/usr/local/lib/"
-        echo "  scp ${SCRIPT_DIR}/include/c7x_runtime.h ${TARGET_HOST}:/usr/local/include/"
         echo "  ssh ${TARGET_HOST} ldconfig"
         ;;
 esac

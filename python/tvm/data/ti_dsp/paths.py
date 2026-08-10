@@ -37,6 +37,20 @@ def find_c7x_arm_runtime_so() -> Optional[str]:
     return None
 
 
+def find_c7x_include_dir() -> Optional[Path]:
+    """Find the include directory for the C7x C++ API.
+
+    Contains c7x_runtime.h and its DLPack dependency. Unlike
+    find_c7x_arm_runtime_so(), this is architecture-independent (headers
+    are text) so it is returned regardless of host arch. Suitable for
+    passing to a C++ compiler as -I.
+    """
+    bundled = _DATA_DIR / "include"
+    if (bundled / "c7x_runtime.h").exists():
+        return bundled
+    return None
+
+
 def find_tidl_relax_so() -> Optional[str]:
     """Find tidl_model_import_relax.so in the bundled package."""
     bundled = _DATA_DIR / "tidl" / "tidl_model_import_relax.so"
