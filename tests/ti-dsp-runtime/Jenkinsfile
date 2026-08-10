@@ -247,7 +247,9 @@ pipeline {
                             uv pip install "numpy==2.5.1" pytest pytest-isolate scipy psutil ml_dtypes build pandas tqdm seaborn transformers
                             uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --extra-index-url https://download.pytorch.org/whl/cpu
                             uv pip install "torchao==0.16.0" --extra-index-url https://download.pytorch.org/whl/cpu
-                            uv pip install ultralytics
+                            # Pinned: see setup_test_env.sh -- 8.4.115's export path
+                            # breaks yolov5n/yolov8n/yolov8s/yolo26n codegen; 8.4.14 doesn't.
+                            uv pip install "ultralytics==8.4.14"
                             uv pip install -e 3rdparty/tvm-ffi
                         '''
                     }

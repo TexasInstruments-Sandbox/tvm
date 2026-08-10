@@ -57,5 +57,8 @@ export PATH="${VIRTUAL_ENV}/bin:${PATH}"
 uv pip install "numpy==2.5.1" pytest pytest-isolate scipy psutil ml_dtypes build pandas tqdm seaborn transformers
 uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --extra-index-url https://download.pytorch.org/whl/cpu
 uv pip install "torchao==0.16.0" --extra-index-url https://download.pytorch.org/whl/cpu
-uv pip install ultralytics
+# Pinned: 8.4.115's export path emits a relax.cumsum VMTIRCodeGen can't
+# lower for yolov8n/yolov8s/yolo26n (and a bare Relax.Constant-in-primfunc
+# for yolov5n) -- 8.4.14 doesn't hit either. Re-verify before bumping.
+uv pip install "ultralytics==8.4.14"
 uv pip install -e 3rdparty/tvm-ffi

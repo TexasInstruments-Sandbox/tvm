@@ -62,7 +62,7 @@ esac
 resolve_board_build_dir
 FW_SUFFIX="$BUILD_SUFFIX"
 
-echo "=== [1/4] Python test environment ==="
+echo "=== [1/5] Python test environment ==="
 # $HOME inside a docker/bash.sh container is the repo mount point, not the
 # host's real home -- default TORCH_HOME to a repo-relative path so a
 # containerized caller just needs to bind-mount the host's real torch
@@ -118,7 +118,7 @@ reboot_and_wait() {
 }
 
 if [ "$SKIP_DEPLOY" -eq 0 ]; then
-    echo "=== [2/4] Deploy firmware + ARM client (board=$TVM_BOARD) ==="
+    echo "=== [2/5] Deploy firmware + ARM client (board=$TVM_BOARD) ==="
     reboot_and_wait
     ( cd "$TVM_HOME/src/runtime/ti_dsp/firmware/c7x" && \
       ./deploy-c7x.sh --board "$TVM_BOARD" "dsp/build${FW_SUFFIX}/c7x_compute.out" )
@@ -129,10 +129,10 @@ if [ "$SKIP_DEPLOY" -eq 0 ]; then
     # stopping remoteproc mid-vdev-negotiation (see deploy-c7x.sh).
     reboot_and_wait
 else
-    echo "=== [2/4] Deploy firmware + ARM client -- skipped (--skip-deploy) ==="
+    echo "=== [2/5] Deploy firmware + ARM client -- skipped (--skip-deploy) ==="
 fi
 
-echo "=== [3/4] Board health check ==="
+echo "=== [3/5] Board health check ==="
 if ! ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
         "root@${BOARD_TARGET_HOST}" "/usr/local/bin/c7x_compute status"; then
     echo "Board unresponsive -- attempting stop/start recovery"
@@ -149,7 +149,7 @@ if ! ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
     fi
 fi
 
-echo "=== [4/4] Quantized MMALIB model tests (board=$TVM_BOARD) ==="
+echo "=== [4/5] Quantized MMALIB model tests (board=$TVM_BOARD) ==="
 # Deliberately MMALIB-only, not both suites -- the plain (non-MMALIB)
 # c_static path is exercised by the native Jenkinsfile's own nightly run
 # instead; this Docker-based flow's job is validating the shipped wheel +
@@ -163,3 +163,18 @@ mkdir -p "$TVM_HOME/results"
       --isolate \
       -v \
       --junit-xml="$TVM_HOME/results/quantized_mmalib_dload.xml" )
+
+echo "=== [5/5] Standalone example smoke tests (board=$TVM_BOARD) ==="
+# tests/ti-dsp-runtime/examples/ -- hand-run demos of the public offload
+# APIs (Python C7xVirtualMachine, C++ c7x::Module) that aren't otherwise
+# covered by any pytest suite. Reuses the firmware/ARM client this script
+# already deployed above. Full defaults (no --image): YOLO26 runs all 3
+# bundled test images, ResNet-18 its 1 default image.
+( cd "$TVM_HOME/tests/ti-dsp-runtime" && \
+  python examples/run_yolo26_detection.py \
+      --board "$TVM_BOARD" \
+      2>&1 | tee "$TVM_HOME/results/example_yolo26.log" )
+( cd "$TVM_HOME/tests/ti-dsp-runtime" && \
+  python examples/run_resnet18_classification.py \
+      --board "$TVM_BOARD" \
+      2>&1 | tee "$TVM_HOME/results/example_resnet18.log" )

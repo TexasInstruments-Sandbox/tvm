@@ -125,7 +125,11 @@ and fusion pipeline.
 Compilation happens on an x86 dev host; the resulting module is copied
 to the AM67A board and loaded into a long-running firmware process via
 DLOAD (TI's dynamic loader), avoiding a firmware rebuild or DSP
-restart per model:
+restart per model. On the board, application code drives inference
+through the Python (`C7xVirtualMachine`) or C++ (`c7x::Module`) API --
+both talk to the `c7x_compute` firmware service over the board's local
+rpmsg IPC channel, so these calls must run on the board itself, not
+the dev host:
 
 ```
  Dev Host (x86 Linux)                    AM67A / J722S Board
@@ -138,26 +142,30 @@ restart per model:
         |
  cl7x + lnk7x --dynamic=lib
         v
- lib0.out (relocatable C7x ELF)  --scp-->  c7x_compute load lib0.out
+ lib0.out (relocatable C7x ELF)  --scp-->   Python: C7xVirtualMachine("lib0.out")
+                                            C++:    c7x::Module::Load("lib0.out")
                                                   |
                                             DLOAD: parse ELF, resolve
                                             61 symbols, relocate into DDR
                                                   v
-                                            c7x_compute infer <handle>
+                                            Python: vm["main"](inp)
+                                                    (or vm.run_nocopy(inp))
+                                            C++:    vm.Run(&input)
                                             (cg_main_dsp() on device)
                                                   v
-                                            c7x_compute unload <handle>
+                                            Python: vm.close() (or `with` exit)
+                                            C++:    vm.Close() (or destructor)
 ```
 
-`c7x_compute load`/`infer`/`unload` above are the on-device compute
-service's own operations -- the Python (`C7xVirtualMachine`) and C++
-(`c7x::Module`) APIs both drive them the same way over IPC; the
-`c7x_compute` CLI binary is a thin wrapper around the same calls, meant
-for manual testing rather than application use. See the
+Both APIs are a thin, IPC-backed wrapper around the same load/infer/
+unload operations the `c7x_compute` CLI binary exposes -- that CLI is
+meant for manual testing and board health checks (`c7x_compute ping`/
+`status`), not application use. See the
 [C7x Inference API reference](python/tvm/contrib/c7x/README.md) for
-both APIs, and
+the full API (zero-copy inputs/outputs, cycle counts, lifetime rules),
+and
 [`tests/ti-dsp-runtime/examples/`](tests/ti-dsp-runtime/examples/README.md)
-for a full compile -> deploy -> run walkthrough.
+for full compile -> deploy -> run walkthroughs of both.
 
 ## Components
 
