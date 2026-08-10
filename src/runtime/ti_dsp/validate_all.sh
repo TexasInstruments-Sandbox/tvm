@@ -9,8 +9,11 @@
 # build_all.sh -- but nothing here is docker-specific, it runs the same way
 # directly on a host with the TI toolchain/SDKs already on PATH/env,
 # matching this project's own Build instructions. Assumes build_all.sh
-# --board <same board> already ran against this same checkout: this script
-# only deploys and tests, it doesn't build.
+# --board <same board> --wheels already ran against this same checkout:
+# this script only deploys and tests, it doesn't build. Tests run against
+# the packaged tvm-ti-c7x-compile wheel (the artifact actually shipped to
+# users), installed from packaging/ti_dsp/staging-x86/dist/ -- not the
+# source tree via PYTHONPATH.
 #
 # Usage:
 #   src/runtime/ti_dsp/validate_all.sh --board <j722s-evm|beagley-ai>
@@ -29,9 +32,6 @@ source "$SCRIPT_DIR/board_build_dir.sh"
 TVM_BOARD=""
 TVM_DDR=""
 SKIP_DEPLOY=0
-# Must match build_all.sh's own TVM_BUILD_DIR -- this script assumes that
-# script already built into it.
-TVM_BUILD_DIR="build-ci-c7x"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -72,10 +72,27 @@ export VENV_DIR=.venv-ci-c7x
 cd "$TVM_HOME"
 source tests/ti-dsp-runtime/setup_test_env.sh
 
-# TVM core builds into build-ci-c7x/ (build_all.sh), not the plain build/
-# name python/tvm/libinfo.py's default search assumes.
-export TVM_LIBRARY_PATH="$TVM_HOME/$TVM_BUILD_DIR"
-export PYTHONPATH="$TVM_HOME/python${PYTHONPATH:+:$PYTHONPATH}"
+# Install the packaged wheel -- the artifact actually shipped to users --
+# rather than pointing PYTHONPATH at the source tree, so this validates
+# what ships, not just what's on disk in this checkout. Same wheel and
+# same --force-reinstall --no-deps flags as tests/ti-dsp-runtime/Jenkinsfile's
+# own "Build & Install Wheels" stage.
+shopt -s nullglob
+X86_WHEELS=("$TVM_HOME"/packaging/ti_dsp/staging-x86/dist/tvm_ti_c7x_compile-*.whl)
+shopt -u nullglob
+if [ "${#X86_WHEELS[@]}" -eq 0 ]; then
+    echo "ERROR: x86 wheel not found under packaging/ti_dsp/staging-x86/dist/" >&2
+    echo "  Build it first: bash src/runtime/ti_dsp/build_all.sh --board $TVM_BOARD --wheels" >&2
+    exit 1
+fi
+uv pip install --force-reinstall --no-deps "${X86_WHEELS[0]}"
+
+# docker/bash.sh injects PYTHONPATH=<repo>/python into any *ci*-named
+# image (see "Set TVM import path inside the docker image" there), which
+# takes precedence over the venv's site-packages and silently shadows the
+# wheel just installed above with the source tree. Clear it so `import
+# tvm` actually resolves to the wheel.
+unset PYTHONPATH
 
 wait_for_ssh() {
     local tries=12
@@ -126,28 +143,8 @@ if ! ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
     fi
 fi
 
-echo "=== [4/4] Quantized model tests (board=$TVM_BOARD) ==="
+echo "=== [4/4] Quantized MMALIB model tests (board=$TVM_BOARD) ==="
 mkdir -p "$TVM_HOME/results"
-# InceptionV3/ResNeXt101 excluded from the non-mmalib run only: without
-# MMALIB's grouped-conv path they fall back to the plain scalar c_static
-# path, which fails on real c7x_dload hardware. See the equivalent
-# Jenkinsfile stages (Quantized c7x_dload / Quantized MMALIB c7x_dload).
-#
-# Both suites always run, and to completion, even if one has test
-# failures -- unlike the Jenkinsfile's two separate sequential stages
-# (where a failure in the first skips the second), a failure here is
-# surfaced via the script's own exit code at the end so both JUnit XMLs
-# are always available for debugging.
-set +e
-( cd "$TVM_HOME/tests/ti-dsp-runtime" && \
-  pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
-      --dsp-mode=c7x_dload \
-      --board "$TVM_BOARD" \
-      --ignore=quantized/test_quantized_inception_v3.py \
-      --ignore=quantized/test_quantized_resnext101.py \
-      -v \
-      --junit-xml="$TVM_HOME/results/quantized_dload.xml" )
-RC_PLAIN=$?
 ( cd "$TVM_HOME/tests/ti-dsp-runtime" && \
   pytest -p no:tvm.testing.plugin --rootdir=. quantized/ \
       --dsp-mode=c7x_dload \
@@ -156,10 +153,3 @@ RC_PLAIN=$?
       --isolate \
       -v \
       --junit-xml="$TVM_HOME/results/quantized_mmalib_dload.xml" )
-RC_MMALIB=$?
-set -e
-
-echo "Done. (plain rc=$RC_PLAIN, mmalib rc=$RC_MMALIB)"
-if [ "$RC_PLAIN" -ne 0 ] || [ "$RC_MMALIB" -ne 0 ]; then
-    exit 1
-fi
