@@ -19,6 +19,16 @@
 #   bash packaging/ti_dsp/build_wheel.sh                       # x86 compile wheel
 #   bash packaging/ti_dsp/build_wheel.sh --target arm64         # aarch64 inference wheel
 #   bash packaging/ti_dsp/build_wheel.sh --tidl OFF              # x86 wheel, no TIDL
+#   bash packaging/ti_dsp/build_wheel.sh --target arm64 \
+#        --board beagley-ai --tidl OFF --mmalib ON              # beagley-ai inference wheel
+#
+# --board/--ddr (default: j722s-evm/8gb, same as the underlying build
+# scripts) select which board's pre-built artifacts get packaged -- see
+# board_build_dir.sh for the build-dir naming this mirrors. beagley-ai
+# firmware is always built --tidl OFF --mmalib ON (see
+# firmware/c7x/dsp/build.sh), so pass the same two flags here too when
+# packaging for that board, or the DSP firmware check_file below looks in
+# the wrong build-<board>-<ddr>[-tidl-*-mmalib-*] dir.
 #
 # Environment variables:
 #   TVM_HOME           - TVM repo root (default: script's grandparent dir)
@@ -38,10 +48,16 @@ DSP_RT="$TVM_HOME/src/runtime/ti_dsp"
 # --- Parse arguments ---
 TARGET="x86"
 TIDL="ON"
+TVM_BOARD=""
+TVM_DDR=""
+TVM_MMALIB=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --target) TARGET="$2"; shift 2 ;;
         --tidl) TIDL="$2"; shift 2 ;;
+        --board) TVM_BOARD="$2"; shift 2 ;;
+        --ddr) TVM_DDR="$2"; shift 2 ;;
+        --mmalib) TVM_MMALIB="$2"; shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -55,6 +71,25 @@ if [[ "$TIDL" != "ON" && "$TIDL" != "OFF" ]]; then
     echo "ERROR: --tidl must be ON or OFF (got: $TIDL)"
     exit 1
 fi
+
+if [[ -n "$TVM_BOARD" && "$TVM_BOARD" != "j722s-evm" && "$TVM_BOARD" != "beagley-ai" ]]; then
+    echo "ERROR: --board must be j722s-evm or beagley-ai (got: $TVM_BOARD)"
+    exit 1
+fi
+
+# Board/ddr -> build-dir suffix, shared with build_runtime.sh and the
+# firmware/c7x/{dsp,arm} build scripts so this always agrees on where a
+# given board's artifacts live. RUNTIME_SUFFIX (board+ddr only) matches
+# the DSP runtime lib and ARM client build dirs; FW_SUFFIX additionally
+# folds in --tidl/mmalib, matching the DSP firmware build dir -- the two
+# differ whenever --tidl is OFF.
+source "$DSP_RT/board_build_dir.sh"
+resolve_board_build_dir
+RUNTIME_SUFFIX="$BUILD_SUFFIX"
+BOARD_DDR_DESC="board=$BOARD ddr=$DDR"
+TVM_TIDL="$TIDL"
+resolve_board_build_dir
+FW_SUFFIX="$BUILD_SUFFIX"
 
 # Use separate staging dirs so both can coexist
 STAGING="$SCRIPT_DIR/staging-${TARGET}"
@@ -84,19 +119,20 @@ build_x86() {
     echo "  TVM_HOME:      $TVM_HOME"
     echo "  DSP_BUILD_NUM: $DSP_BUILD_NUM"
     echo "  TIDL:          $TIDL"
+    echo "  $BOARD_DDR_DESC"
     echo ""
 
     # --- Validate ---
     check_file "$TVM_HOME/build/libtvm.so" \
         "Build TVM first: cd build && cmake -G Ninja .. && ninja"
-    check_file "$DSP_RT/build-c7x-host/libtvm_dsp_runtime_c7x_host.a" \
-        "Build DSP runtime: bash build_runtime.sh c7x_host"
-    check_file "$DSP_RT/build-c7x/libtvm_dsp_runtime_c7x.a" \
-        "Build DSP runtime: bash build_runtime.sh c7x"
-    check_file "$DSP_RT/firmware/c7x/dsp/build/c7x_compute.out" \
-        "Build firmware: cd firmware/c7x/dsp && ./build.sh"
-    check_file "$DSP_RT/firmware/c7x/arm/build/c7x_compute" \
-        "Build ARM client: cd firmware/c7x/arm && ./build.sh"
+    check_file "$DSP_RT/build-c7x-host${RUNTIME_SUFFIX}/libtvm_dsp_runtime_c7x_host.a" \
+        "Build DSP runtime: bash build_runtime.sh c7x_host --board $BOARD --ddr $DDR"
+    check_file "$DSP_RT/build-c7x${RUNTIME_SUFFIX}/libtvm_dsp_runtime_c7x.a" \
+        "Build DSP runtime: bash build_runtime.sh c7x --board $BOARD --ddr $DDR"
+    check_file "$DSP_RT/firmware/c7x/dsp/build${FW_SUFFIX}/c7x_compute.out" \
+        "Build firmware: cd firmware/c7x/dsp && ./build.sh --board $BOARD --ddr $DDR --tidl $TIDL"
+    check_file "$DSP_RT/firmware/c7x/arm/build${RUNTIME_SUFFIX}/c7x_compute" \
+        "Build ARM client: cd firmware/c7x/arm && ./build.sh --board $BOARD --ddr $DDR"
 
     TIDL_SO=""
     if [ "$TIDL" = "ON" ]; then
@@ -141,14 +177,14 @@ build_x86() {
     touch "$DATA/__init__.py"
 
     # DSP runtime libraries
-    cp "$DSP_RT/build-c7x-host/libtvm_dsp_runtime_c7x_host.a" "$DATA/lib/"
-    cp "$DSP_RT/build-c7x/libtvm_dsp_runtime_c7x.a" "$DATA/lib/"
+    cp "$DSP_RT/build-c7x-host${RUNTIME_SUFFIX}/libtvm_dsp_runtime_c7x_host.a" "$DATA/lib/"
+    cp "$DSP_RT/build-c7x${RUNTIME_SUFFIX}/libtvm_dsp_runtime_c7x.a" "$DATA/lib/"
 
     # Firmware
-    cp "$DSP_RT/firmware/c7x/dsp/build/c7x_compute.out" "$DATA/firmware/"
-    cp "$DSP_RT/firmware/c7x/arm/build/c7x_compute" "$DATA/firmware/"
+    cp "$DSP_RT/firmware/c7x/dsp/build${FW_SUFFIX}/c7x_compute.out" "$DATA/firmware/"
+    cp "$DSP_RT/firmware/c7x/arm/build${RUNTIME_SUFFIX}/c7x_compute" "$DATA/firmware/"
     chmod +x "$DATA/firmware/c7x_compute"
-    ARM_SO="$DSP_RT/firmware/c7x/arm/build"
+    ARM_SO="$DSP_RT/firmware/c7x/arm/build${RUNTIME_SUFFIX}"
     if [ -f "$ARM_SO/libc7x_arm_runtime.so.1" ]; then
         cp "$ARM_SO/libc7x_arm_runtime.so.1" "$DATA/firmware/libc7x_arm_runtime.so.1"
         cp "$ARM_SO/libc7x_arm_runtime.so.1" "$DATA/firmware/libc7x_arm_runtime.so"
@@ -220,13 +256,14 @@ build_arm64() {
     echo "=== tvm-ti-c7x-inference wheel (aarch64) ==="
     echo "  TVM_HOME:      $TVM_HOME"
     echo "  DSP_BUILD_NUM: $DSP_BUILD_NUM"
+    echo "  $BOARD_DDR_DESC"
     echo ""
 
     # --- Validate ---
-    check_file "$DSP_RT/firmware/c7x/dsp/build/c7x_compute.out" \
-        "Build firmware: cd firmware/c7x/dsp && ./build.sh"
-    check_file "$DSP_RT/firmware/c7x/arm/build/c7x_compute" \
-        "Build ARM client: cd firmware/c7x/arm && ./build.sh"
+    check_file "$DSP_RT/firmware/c7x/dsp/build${FW_SUFFIX}/c7x_compute.out" \
+        "Build firmware: cd firmware/c7x/dsp && ./build.sh --board $BOARD --ddr $DDR --tidl $TIDL"
+    check_file "$DSP_RT/firmware/c7x/arm/build${RUNTIME_SUFFIX}/c7x_compute" \
+        "Build ARM client: cd firmware/c7x/arm && ./build.sh --board $BOARD --ddr $DDR"
 
     # --- Clean ---
     rm -rf "$STAGING"
@@ -255,11 +292,11 @@ PYEOF
     DATA="$STAGING/tvm/data/ti_dsp"
     mkdir -p "$DATA/firmware"
 
-    cp "$DSP_RT/firmware/c7x/dsp/build/c7x_compute.out" "$DATA/firmware/"
-    cp "$DSP_RT/firmware/c7x/arm/build/c7x_compute" "$DATA/firmware/"
+    cp "$DSP_RT/firmware/c7x/dsp/build${FW_SUFFIX}/c7x_compute.out" "$DATA/firmware/"
+    cp "$DSP_RT/firmware/c7x/arm/build${RUNTIME_SUFFIX}/c7x_compute" "$DATA/firmware/"
     chmod +x "$DATA/firmware/c7x_compute"
 
-    ARM_SO="$DSP_RT/firmware/c7x/arm/build"
+    ARM_SO="$DSP_RT/firmware/c7x/arm/build${RUNTIME_SUFFIX}"
     if [ -f "$ARM_SO/libc7x_arm_runtime.so.1" ]; then
         cp "$ARM_SO/libc7x_arm_runtime.so.1" "$DATA/firmware/libc7x_arm_runtime.so.1"
         cp "$ARM_SO/libc7x_arm_runtime.so.1" "$DATA/firmware/libc7x_arm_runtime.so"
