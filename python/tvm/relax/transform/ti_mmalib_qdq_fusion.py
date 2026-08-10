@@ -499,6 +499,12 @@ class _MMALIBQDQLowerer(PyExprMutator):
                 groups=groups,
             )
 
+        # Attach the span to the conv2d call itself, before any relu clip
+        # wraps it -- otherwise propagate_span would attach it to the
+        # trailing clip node instead (result gets reassigned below), so the
+        # visualizer's source lookup on the MMALIB conv2d node it actually
+        # highlights would come up empty.
+        result = propagate_span(result, roles["conv_call"])
         if has_relu:
             result = relax.op.clip(result, relax.PrimValue(0), relax.PrimValue(127))
 
@@ -514,7 +520,7 @@ class _MMALIBQDQLowerer(PyExprMutator):
             " +bias" if has_bias else "",
             " +relu" if has_relu else "",
         )
-        return propagate_span(result, roles["conv_call"])
+        return result
 
     def _emit_conv2d(
         self,

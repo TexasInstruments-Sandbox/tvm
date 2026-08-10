@@ -41,8 +41,8 @@ from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 
 from .legalize_ops.linear_algebra import _matmul
-from .ti_c7x_span_utils import propagate_span
 from .legalize_ops.nn import _nn_conv2d
+from .ti_c7x_span_utils import propagate_span
 
 # =======================================================================
 # Int16 matmul legalization

@@ -469,7 +469,7 @@ Generate an interactive HTML page showing which ops are offloaded
 to TIDL vs executed as TVM C code, with optional per-layer profiling:
 
 ```python
-from tvm.relax.backend.tidl.visualize import (
+from tvm.contrib.c7x.visualize import (
     visualize_partitioning,
     parse_layer_profile,
 )

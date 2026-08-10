@@ -52,12 +52,12 @@ from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_legalize import (
     _check_conv2d_mmalib_constraints,
     _float_to_scale_shift,
     _resolve_constant_tensor,
 )
-from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_qdq_fusion import _MMALIBQDQLowerer as _I8Lowerer
 
 logger = logging.getLogger(__name__)
@@ -477,6 +477,12 @@ class _MMALIB_QDQI16Conv2dLowerer(PyExprMutator):
             primfunc_attrs={"c7x_offload_backend": "mmalib"},
         )
 
+        # Attach the span to the conv2d call itself, before any relu clip
+        # wraps it -- otherwise propagate_span would attach it to the
+        # trailing clip node instead (result gets reassigned below), so the
+        # visualizer's source lookup on the MMALIB conv2d node it actually
+        # highlights would come up empty.
+        result = propagate_span(result, roles["conv_call"])
         if has_relu:
             # Clip to int16 range rather than int8 range
             result = relax.op.clip(result, relax.PrimValue(-32768), relax.PrimValue(32767))
@@ -493,7 +499,7 @@ class _MMALIB_QDQI16Conv2dLowerer(PyExprMutator):
             " +bias" if has_bias else "",
             " +relu" if has_relu else "",
         )
-        return propagate_span(result, roles["conv_call"])
+        return result
 
 
 # =========================================================================

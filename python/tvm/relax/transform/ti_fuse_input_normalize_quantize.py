@@ -77,7 +77,6 @@ from tvm.relax.dpl.pattern import is_op, is_tuple, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import find_composite_span, propagate_span
-
 from .ti_fuse_input_quantize import (
     is_per_tensor_scalar_constant,
     is_raw_float32_input,

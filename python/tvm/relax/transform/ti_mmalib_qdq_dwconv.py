@@ -490,6 +490,12 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
             primfunc_attrs={"c7x_offload_backend": "mmalib"},
         )
 
+        # Attach the span to the conv2d call itself, before any relu clip
+        # wraps it -- otherwise propagate_span would attach it to the
+        # trailing clip node instead (result gets reassigned below), so the
+        # visualizer's source lookup on the MMALIB conv2d node it actually
+        # highlights would come up empty.
+        result = propagate_span(result, roles["conv_call"])
         if has_relu:
             result = relax.op.clip(result, relax.PrimValue(0), relax.PrimValue(127))
 
@@ -504,7 +510,7 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
             " +bias" if has_bias else "",
             " +relu" if has_relu else "",
         )
-        return propagate_span(result, roles["conv_call"])
+        return result
 
     @staticmethod
     def _extract_roles(func, has_bias):
