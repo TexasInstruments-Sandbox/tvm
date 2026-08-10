@@ -404,6 +404,25 @@ def main() -> int:
             )
             return 1
         print(f"--inference-only: reusing compiled module: {module_path}")
+        if args.profile_layers:
+            # -profile-layers is a compile-time codegen flag baked into
+            # lib0.out; --inference-only skips compilation entirely, so it
+            # has no effect on the module reused here. Only emitted when
+            # profile_layers=True (see src/target/c_static/
+            # codegen_c_static_dsp.cc); check the generated source left
+            # over from whatever compile produced this module, so the
+            # warning fires only when there's an actual mismatch.
+            lib0_c = args.build_dir / "lib0.c"
+            has_profiling = lib0_c.exists() and "TVMPrintLayerProfile" in lib0_c.read_text()
+            if not has_profiling:
+                print(
+                    "WARNING: --profile-layers has no effect under --inference-only -- "
+                    f"the reused module at {module_path} was not compiled with "
+                    "-profile-layers, so no per-layer cycle counts will be printed. "
+                    "Recompile without --inference-only (optionally with --compile-only) "
+                    "and --profile-layers together first.",
+                    file=sys.stderr,
+                )
         # No mod in memory this run -- generate_visualization() re-derives
         # one itself (see its docstring) if --visualize is also passed.
         mod = None

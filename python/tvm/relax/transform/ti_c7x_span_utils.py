@@ -75,8 +75,8 @@ def find_composite_span(func: relax.Function):
     return None
 
 
-def propagate_span(new_call: relax.Call, *source_exprs) -> relax.Call:
-    """Return new_call rebuilt with the first available span among source_exprs.
+def propagate_span(new_call: relax.Call, source_expr) -> relax.Call:
+    """Return new_call rebuilt with source_expr's span, if it has one.
 
     Parameters
     ----------
@@ -84,29 +84,27 @@ def propagate_span(new_call: relax.Call, *source_exprs) -> relax.Call:
         The freshly constructed replacement call (typically the not-yet-
         emitted return value of ``BlockBuilder.call_te`` or a legalized op),
         which has no span of its own yet.
-    source_exprs : Expr or Span or None
-        Candidates to take a span from, in priority order -- normally the
-        single most-representative matched op first (e.g. the central
-        ``conv``/``pool``/``relu`` node a QDQ pattern matched around), with
-        any others as fallback. Each may be an Expr (its ``.span`` is used)
-        or a ``Span`` directly (e.g. from ``find_composite_span``, used
-        as-is). The first one that resolves to an actual span wins; passing
-        extra candidates that turn out to be spanless is harmless.
+    source_expr : Expr or Span or None
+        The matched op to take a span from -- normally the single most-
+        representative op a QDQ pattern matched around (e.g. the central
+        ``conv``/``pool``/``relu`` node). May be an Expr (its ``.span`` is
+        used) or a ``Span`` directly (e.g. from ``find_composite_span``,
+        used as-is). May be ``None`` or spanless, in which case new_call is
+        returned unchanged.
 
     Returns
     -------
     relax.Call
-        new_call unchanged if none of source_exprs has a span, otherwise a
-        new Call with every field copied from new_call except ``span``.
+        new_call unchanged if source_expr has no span, otherwise a new Call
+        with every field copied from new_call except ``span``.
     """
-    for expr in source_exprs:
-        span = expr.span if hasattr(expr, "span") else expr
-        if span is not None:
-            return relax.Call(
-                new_call.op,
-                new_call.args,
-                new_call.attrs,
-                new_call.sinfo_args,
-                span=span,
-            )
-    return new_call
+    span = source_expr.span if hasattr(source_expr, "span") else source_expr
+    if span is None:
+        return new_call
+    return relax.Call(
+        new_call.op,
+        new_call.args,
+        new_call.attrs,
+        new_call.sinfo_args,
+        span=span,
+    )

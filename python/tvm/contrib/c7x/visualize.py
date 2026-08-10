@@ -52,6 +52,8 @@ from typing import Dict, List, Optional
 from tvm import relax
 from tvm.ir import IRModule
 from tvm.relax.backend.tidl.tidl import _extract_composite_calls
+from tvm.relax.transform.ti_c7x_layer_manifest import _classify_backend
+from tvm.relax.transform.ti_c7x_span_utils import find_composite_span
 
 
 def parse_layer_profile(
@@ -271,6 +273,7 @@ def _extract_graph(
                 op_name = ""
                 composites = []
                 source = ""
+                backend = "tvm"
 
                 # Extract source span (PyTorch module path)
                 span = getattr(val, "span", None)
@@ -297,7 +300,12 @@ def _extract_graph(
                 if hasattr(val.op, "name") and val.op.name == "relax.call_tir":
                     effective_op = val.args[0]
                     tir_args = val.args[1]
-                    call_args = tir_args.fields if isinstance(tir_args, relax.Tuple) else []
+                    # tir_args is normally a literal Tuple at this snapshot
+                    # point; if it's ever a Var instead (bound elsewhere),
+                    # fall back to the outer call's own args rather than []
+                    # -- silently dropping every inbound edge for this node
+                    # would misrepresent the graph's dataflow topology.
+                    call_args = tir_args.fields if isinstance(tir_args, relax.Tuple) else val.args
 
                 if isinstance(effective_op, relax.GlobalVar):
                     gv_name = effective_op.name_hint
@@ -307,8 +315,8 @@ def _extract_graph(
                         and isinstance(called_fn, relax.Function)
                         and called_fn.attrs
                     ):
-                        codegen = str(called_fn.attrs.get("Codegen", ""))
-                        if codegen == "tidl":
+                        backend = _classify_backend(called_fn)
+                        if backend == "tidl":
                             is_tidl = True
                             comps = _extract_composite_calls(called_fn)
                             for cf, orig_call, cv in comps:
@@ -316,13 +324,18 @@ def _extract_graph(
                                 cshape = _get_shape_str(cv.struct_info)
                                 # Extract source from inside the composite
                                 # function body (the partitioner preserves
-                                # spans on inner ops but not the outer call)
-                                csource = ""
-                                for blk in cf.body.blocks:
-                                    for inner_b in blk.bindings:
-                                        s = getattr(inner_b.value, "span", None)
-                                        if s and hasattr(s, "source_name"):
-                                            csource = s.source_name.name
+                                # spans on inner ops but not the outer call).
+                                # Reuses find_composite_span so this picks
+                                # the first meaningful (non-dequantize/
+                                # quantize) span, same as every legalization
+                                # pass does, instead of whichever binding
+                                # happens to be structurally last.
+                                cspan = find_composite_span(cf)
+                                csource = (
+                                    cspan.source_name.name
+                                    if cspan and hasattr(cspan, "source_name")
+                                    else ""
+                                )
                                 composites.append(
                                     {"name": cname, "shape": cshape,
                                      "source": csource}
@@ -336,14 +349,21 @@ def _extract_graph(
                 # Prefer the compile-time manifest's authoritative tag by
                 # name (self-tagged by each MMALIB fusion pass at creation
                 # time via primfunc_attrs={"c7x_offload_backend": "mmalib"},
-                # not inferred) when it covers this op. Fall back to the
-                # name-prefix heuristic for anything the manifest doesn't
-                # mention (e.g. this snapshot has ops a later pass still
-                # eliminates before the manifest gets built — see this
-                # function's docstring) or when no manifest was supplied.
+                # not inferred) when it covers this op -- the manifest comes
+                # from a later pipeline snapshot and can cover ops this
+                # earlier snapshot doesn't carry the tag for anymore (e.g. a
+                # later pass eliminates them before the manifest gets
+                # built -- see this function's docstring). Otherwise fall
+                # back to a direct read of that same attr via
+                # _classify_backend above (mirrors how the TIDL branch just
+                # classified itself the same way, rather than a second,
+                # independently-maintained mechanism), and finally the
+                # name-prefix heuristic for anything neither covers.
                 manifest_backend = manifest_lookup.get(op_name) if manifest_lookup else None
                 if manifest_backend is not None:
                     is_mmalib = manifest_backend == "mmalib"
+                elif backend == "mmalib":
+                    is_mmalib = True
                 else:
                     is_mmalib = op_name.startswith("mmalib_")
 
