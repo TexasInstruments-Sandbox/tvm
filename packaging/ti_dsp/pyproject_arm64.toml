@@ -1,8 +1,9 @@
 # tvm-ti-c7x-inference: Minimal inference runtime for AM67A (aarch64).
 #
-# Lightweight wheel for on-board C7x DSP inference. Contains only the
-# C7xVirtualMachine Python class, libc7x_arm_runtime.so, ARM client,
-# and DSP firmware. No libtvm.so or compilation dependencies.
+# Lightweight wheel for on-board C7x DSP inference. Contains the
+# C7xVirtualMachine Python class, libc7x_arm_runtime.so + c7x_runtime.h
+# (C++ API), the c7x_compute ARM CLI (diagnostics), and DSP firmware.
+# No libtvm.so or compilation dependencies.
 # Use: build_wheel.sh --target arm64
 
 [build-system]

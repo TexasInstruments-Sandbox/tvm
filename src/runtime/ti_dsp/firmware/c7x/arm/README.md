@@ -25,8 +25,10 @@ cd src/runtime/ti_dsp/firmware/c7x/arm
 # Installs:
 #   /usr/local/lib/libc7x_arm_runtime.so
 #   /usr/local/bin/c7x_compute
-#   /usr/local/include/c7x_runtime.h
 #   /usr/local/bin/test_c7x_runtime  (if built)
+# c7x_runtime.h is not deployed here -- C++ consumers get it from the
+# tvm-ti-c7x-inference wheel or the source tree; see
+# python/tvm/contrib/c7x/README.md.
 
 # Native build (run on the AM67A itself):
 ./build.sh --board j722s-evm native
