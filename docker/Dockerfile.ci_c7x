@@ -58,7 +58,12 @@ RUN bash /install/ubuntu_setup_tz.sh
 # (run at container runtime by tests/ti-dsp-runtime/setup_test_env.sh) --
 # that package builds a Cython/CMake extension module and needs
 # Development.Module/Development.SABIModule, which CMake's FindPython can
-# only see with the actual dev headers/libs installed.
+# only see with the actual dev headers/libs installed. libgl1/libglib2.0-0
+# are added on top for the same reason: `uv pip install ultralytics` (also
+# run at container runtime by setup_test_env.sh) pulls in opencv-python,
+# whose `import cv2` needs libGL.so.1/libglib -- without them, every YOLO
+# quantized test fails at import time with "ImportError: libGL.so.1:
+# cannot open shared object file", regardless of DSP mode.
 RUN apt-get install -y --no-install-recommends \
     adduser \
     apt-transport-https \
@@ -69,6 +74,8 @@ RUN apt-get install -y --no-install-recommends \
     git \
     graphviz \
     libcurl4-openssl-dev \
+    libgl1 \
+    libglib2.0-0 \
     libopenblas-dev \
     libssl-dev \
     libtinfo-dev \

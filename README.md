@@ -9,6 +9,19 @@ Relax graph-level IR through C code generation, a minimal embedded
 runtime, remoteproc firmware for the AM67A, and comprehensive
 pytest-based test infrastructure.
 
+**New here? Jump to [Quick Start](#quick-start).**
+
+## Contents
+
+- [License](#license)
+- [Supported Targets](#supported-targets)
+- [Architecture](#architecture)
+- [Components](#components)
+- [Quick Start](#quick-start)
+- [MMALIB Offloading](#mmalib-offloading)
+- [Documentation](#documentation)
+- [About Apache TVM (upstream)](#about-apache-tvm-upstream)
+
 ## License
 
 TVM is licensed under the [Apache-2.0](LICENSE) license. For the full
@@ -136,8 +149,15 @@ restart per model:
                                             c7x_compute unload <handle>
 ```
 
-See [C7x Hardware Deployment](#c7x-hardware-deployment) below for the
-per-step commands.
+`c7x_compute load`/`infer`/`unload` above are the on-device compute
+service's own operations -- the Python (`C7xVirtualMachine`) and C++
+(`c7x::Module`) APIs both drive them the same way over IPC; the
+`c7x_compute` CLI binary is a thin wrapper around the same calls, meant
+for manual testing rather than application use. See the
+[C7x Inference API reference](python/tvm/contrib/c7x/README.md) for
+both APIs, and
+[`tests/ti-dsp-runtime/examples/`](tests/ti-dsp-runtime/examples/README.md)
+for a full compile -> deploy -> run walkthrough.
 
 ## Components
 
@@ -171,44 +191,34 @@ breakdown, test tiers (`quick`/`core`/nightly), and Jenkins commands.
 
 ## Quick Start
 
-### Docker (self-contained build environment)
+### Docker (recommended -- self-contained build environment)
 
 `docker/Dockerfile.ci_c7x` bakes in everything needed to build for
 BeagleY-AI -- the TI CGT C7000 compiler, TI SysConfig, PSDK RTOS, LLVM,
 the aarch64 cross-compiler, and `uv` -- so you can skip installing any
-of the Prerequisites below on the host:
+of the Prerequisites below on the host. This is the fastest path from a
+clean checkout to a validated board; three commands:
 
 ```bash
-# Build the image (behind a corporate proxy: pass it through as shown;
-# otherwise drop the --build-arg lines)
+# 1. Build the image (behind a corporate proxy: pass it through as
+#    shown; otherwise drop the --build-arg lines)
 docker build -t tvm.ci_c7x:latest \
   --build-arg http_proxy=$http_proxy \
   --build-arg https_proxy=$https_proxy \
   -f docker/Dockerfile.ci_c7x docker/
 
-# Build TVM + DSP runtime + firmware + ARM client for BeagleY-AI
-docker/bash.sh tvm.ci_c7x -- \
-    bash src/runtime/ti_dsp/build_all.sh --board beagley-ai
-
-# ...and the x86/arm64 packaging wheels too
+# 2. Build TVM + DSP runtime + firmware + ARM client + packaging
+#    wheels for BeagleY-AI
 docker/bash.sh tvm.ci_c7x -- \
     bash src/runtime/ti_dsp/build_all.sh --board beagley-ai --wheels
-```
 
-`docker/bash.sh` bind-mounts this repo into the container and runs as
-your host user, so build output lands in the same working tree you
-already have checked out, owned by you -- nothing is copied into or
-built inside the image itself. Scoped to BeagleY-AI only today.
-
-Hardware validation -- deploy firmware and run the quantized-model test
-suite on a real BeagleY-AI board -- works the same way, via
-`src/runtime/ti_dsp/validate_all.sh`. It needs two things beyond a
-plain build: SSH access to the board, and the proxy passed again as
-`--env` (the `--build-arg`s above only reach `docker build`; this
-script's `uv pip install` runs at container *runtime*, fetching from
-PyPI/download.pytorch.org):
-
-```bash
+# 3. Deploy firmware and hardware-validate on a real BeagleY-AI board.
+#    Installs and tests against the wheel built in step 2 (not a
+#    PYTHONPATH into this checkout) inside a .venv-ci-c7x venv at the
+#    repo root. Needs SSH access to the board, cached torchvision
+#    weights, and (behind a proxy) --env http_proxy/https_proxy again --
+#    this script's pip installs happen at container *runtime*, unlike
+#    step 1's --build-arg.
 docker/bash.sh --net=host \
     -v ~/.ssh:$(pwd)/.ssh:ro \
     -v ~/.cache/torch:$(pwd)/.cache/torch:ro \
@@ -217,141 +227,27 @@ docker/bash.sh --net=host \
     bash src/runtime/ti_dsp/validate_all.sh --board beagley-ai
 ```
 
-`docker/bash.sh` sets the container's `$HOME` to wherever the repo gets
-mounted, so the `-v ~/.ssh:...` mount above has to land at that same
-path -- `$(pwd)/.ssh` when running this by hand, or `/workspace/.ssh`
-under Jenkins (see `tests/ti-dsp-runtime/Jenkinsfile.docker`). It's
-just your existing SSH config/key already trusted by the board, not a
-new credential -- but `--board beagley-ai` always connects to the
-literal hostname `beagley-ai` (never an IP), so your `~/.ssh/config`
-needs a `Host beagley-ai` entry (or equivalent DNS/hosts-file entry)
-pointing at wherever the board actually is; this is the same
-board-name-to-host convention `deploy-c7x.sh` and the pytest suite
-already use, not something specific to Docker. `~/.cache/torch` is the
-pre-cached torchvision weights the test suite needs -- mount it in if
-your build environment can't reach download.pytorch.org directly.
+`docker/bash.sh` bind-mounts this repo into the container and runs as
+your host user, so all output -- builds, wheels, the `.venv-ci-c7x` test
+venv -- lands in this same working tree, owned by you; nothing is
+copied into or built inside the image itself. Scoped to BeagleY-AI only
+today.
 
-`tests/ti-dsp-runtime/Jenkinsfile.docker` wires this whole flow --
-image build, `build_all.sh`, `validate_all.sh` -- into a Jenkins
-pipeline, so the node itself only needs Docker, none of the
-Prerequisites below. It's a separate, manual-trigger-only job from
-`tests/ti-dsp-runtime/Jenkinsfile`'s native (non-Docker) nightly
-pipeline -- the two must never run concurrently against the same
-physical board.
-
-### Prerequisites
-
-```bash
-# TVM build
-mkdir -p build && cp cmake/config.cmake build/
-# Enable in build/config.cmake: BUILD_STATIC_RUNTIME=ON
-cd build && cmake -G Ninja .. && ninja && cd ..
-
-# Python
-export TVM_HOME=$(pwd)
-export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
-uv pip install -e python/
-
-# TI C7x compiler (required for all DSP tests)
-# Download from https://www.ti.com/tool/C7000-CGT
-export TI_CGT_C7000_PATH=<path to>/ti-cgt-c7000_5.0.1.LTS
-```
-
-### Build DSP Runtime
-
-```bash
-cd src/runtime/ti_dsp
-bash build_runtime.sh c7x_host   # Host emulation (no hardware needed)
-bash build_runtime.sh c7x        # C7x cross-compilation (J722S/AM67A)
-```
-
-### Run Tests
-
-```bash
-cd tests/ti-dsp-runtime
-
-# Quick smoke test — host emulation, no hardware (~20s)
-pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_host -v
-
-# Quick smoke test — AM67A hardware (~5min)
-pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_dload -v
-
-# Full regression — host emulation (73 tests, ~5min)
-pytest --rootdir=. dsp-tests/ --dsp-mode=c7x_host -v
-
-# Full regression — AM67A hardware (73 tests, ~2-3h)
-# NEVER run in background or concurrent sessions (single DSP core)
-pytest --rootdir=. dsp-tests/ --dsp-mode=c7x_dload -v
-```
+See [`docker/README_c7x.md`](docker/README_c7x.md) for the SSH/torch
+cache mount details, why `PYTHONPATH` gets explicitly unset before
+testing, and how this wires into Jenkins.
 
 ### Compile and Run a Model
 
-```python
-import torch
-import tvm
-from tvm import relax
-from tvm.relax.frontend.torch import from_exported_program
+For a full runnable example --
+quantize, compile, deploy, and run YOLO26 object detection end-to-end on
+a real BeagleY-AI/AM67A board via the Python API, with optional MMALIB
+offload visualization and per-layer cycle profiling -- see
+[`tests/ti-dsp-runtime/examples/README.md`](tests/ti-dsp-runtime/examples/README.md).
+See `tests/ti-dsp-runtime/dsp-cpp/dsp_utils.py` for the lower-level build
+and deploy pipeline used by all pytest tests.
 
-# 1. Export PyTorch model
-model = torch.hub.load("pytorch/vision", "resnet18", weights="DEFAULT")
-ep = torch.export.export(model.eval(), (torch.randn(1, 3, 224, 224),))
-
-# 2. Import to Relax
-mod = from_exported_program(ep, keep_params_as_input=True)
-
-# 3. Compile for C7x DSP
-target = "c_static -mcpu=c7x"
-with tvm.transform.PassContext(opt_level=3):
-    lib = relax.build(mod, target=target)
-
-# 4. Export C code + weights
-lib.export_library("/tmp/model/lib0.c")
-# Compile with TI cl7x, link with DSP runtime, deploy via DLOAD
-```
-
-See `tests/ti-dsp-runtime/dsp-cpp/dsp_utils.py` for the full build and
-deploy pipeline used by all pytest tests.
-
-## C7x Hardware Deployment
-
-The J722S/AM67A deployment uses [remoteproc](https://docs.kernel.org/staging/remoteproc.html)
-(the Linux kernel framework for booting and controlling co-processor
-firmware) together with DLOAD, a custom runtime ELF loader that lets
-the firmware load and run new compiled models without a firmware
-rebuild. The workflow is:
-
-1. **Build firmware** (once): `src/runtime/ti_dsp/firmware/c7x/dsp/build.sh`
-   -- requires TI's MCU+ SDK (part of the Processor SDK RTOS for J722S)
-   and MMALIB, installed separately from TI and pointed to via
-   `PSDK_INSTALL_PATH`/`MCU_PLUS_SDK_PATH` and `MMALIB_PATH`. Neither SDK
-   is bundled with this repo.
-2. **Deploy firmware**: `./deploy-c7x.sh dsp/build/c7x_compute.out`
-3. **Build host CLI**: `src/runtime/ti_dsp/firmware/c7x/arm/build.sh deploy`
-4. **Compile model**: TVM generates `lib0.c` + `weights.bin`
-5. **Build DLOAD module**: CMake with dynmod linker scripts produces `lib0.out`
-6. **Run on DSP** — CLI or Python/C++ API:
-
-```bash
-# CLI
-c7x_compute run lib0.out --input in.bin --output out.bin
-```
-
-```python
-# Python (VirtualMachine-compatible)
-from tvm.contrib.c7x import C7xVirtualMachine
-vm = C7xVirtualMachine("lib0.out")
-out = vm["main"](tvm.nd.array(data))
-```
-
-```cpp
-// C++
-auto vm = c7x::Module::Load("lib0.out");
-auto out = vm.Run(&input_dl_tensor);
-```
-
-See the [C7x Inference API reference](python/tvm/contrib/c7x/README.md) for
-the full Python/C++ API, zero-copy input/output modes, and memory lifetime
-rules. See the [Arm Runtime README](src/runtime/ti_dsp/firmware/c7x/arm/README.md)
+See the [Arm Runtime README](src/runtime/ti_dsp/firmware/c7x/arm/README.md)
 for building/deploying `libc7x_arm_runtime.so` and its internal design.
 
 See [firmware README](src/runtime/ti_dsp/firmware/c7x/README.md) for
@@ -403,15 +299,6 @@ full QDQ fusion pipeline, supported-op constraints, per-model
 performance, and the firmware/codegen build flags that scope
 BeagleY-AI to MMALIB alone.
 
-## Environment Variables
-
-| Variable | Required for | Default |
-|----------|-------------|---------|
-| `TI_CGT_C7000_PATH` | All C7x tests | none (tests fail without it) -- install [C7000-CGT](https://www.ti.com/tool/C7000-CGT) |
-| `TVM_HOME` | Python imports | none |
-| `PYTHONPATH` | TVM Python module | none |
-| `DSP_KEEP_TEMP` | Debug: preserve build artifacts | unset (cleanup on) |
-
 ## Documentation
 
 Per-component READMEs, referenced throughout this document:
@@ -421,6 +308,7 @@ Per-component READMEs, referenced throughout this document:
 - [C7x Firmware](src/runtime/ti_dsp/firmware/c7x/README.md) ([Design](src/runtime/ti_dsp/firmware/c7x/design_doc.md))
 - [C7x Inference API](python/tvm/contrib/c7x/README.md)
 - [C7x Arm Runtime](src/runtime/ti_dsp/firmware/c7x/arm/README.md)
+- [Examples](tests/ti-dsp-runtime/examples/README.md)
 - [MMALIB Offloading](src/runtime/ti_dsp/mmalib/README.md)
 - [Deployment Scripts](src/runtime/ti_dsp/scripts/README.md)
 - [Test Suite](tests/ti-dsp-runtime/README.md)
