@@ -61,18 +61,21 @@ DDR_ARGS=()
 FW_TIDL_ARGS=()
 [ "$TVM_BOARD" = "beagley-ai" ] && FW_TIDL_ARGS=(--tidl OFF --mmalib ON)
 
-echo "=== [1/4] TVM core ==="
+echo "=== [1/5] Apply vendored patches ==="
+bash patches/apply.sh
+
+echo "=== [2/5] TVM core ==="
 mkdir -p "$TVM_BUILD_DIR"
 cp cmake/config.cmake "$TVM_BUILD_DIR/"
 ( cd "$TVM_BUILD_DIR" && cmake -G Ninja .. && ninja )
 
-echo "=== [2/4] DSP runtime (c7x_host) ==="
+echo "=== [3/5] DSP runtime (c7x_host) ==="
 ( cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host )
 
-echo "=== [3/4] DSP runtime (c7x, board=$TVM_BOARD) ==="
+echo "=== [4/5] DSP runtime (c7x, board=$TVM_BOARD) ==="
 ( cd src/runtime/ti_dsp && bash build_runtime.sh c7x --board "$TVM_BOARD" "${DDR_ARGS[@]}" )
 
-echo "=== [4/4] Firmware + ARM client (board=$TVM_BOARD) ==="
+echo "=== [5/5] Firmware + ARM client (board=$TVM_BOARD) ==="
 ( cd src/runtime/ti_dsp/firmware/c7x/dsp && \
   ./build.sh --board "$TVM_BOARD" "${DDR_ARGS[@]}" "${FW_TIDL_ARGS[@]}" )
 ( cd src/runtime/ti_dsp/firmware/c7x/arm && ./build.sh --board "$TVM_BOARD" )

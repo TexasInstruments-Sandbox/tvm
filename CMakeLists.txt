@@ -569,6 +569,20 @@ if(USE_IOS_RPC)
   add_subdirectory("apps/ios_rpc")
 endif()
 
+# tvm-ffi needs a small local patch upstream doesn't carry (see
+# patches/apply.sh) -- applied here too so a bare cmake/ninja build picks
+# it up even without going through build_all.sh or the Jenkins pipeline.
+execute_process(
+  COMMAND bash ${CMAKE_SOURCE_DIR}/patches/apply.sh
+  RESULT_VARIABLE TVM_PATCH_APPLY_RESULT
+  OUTPUT_VARIABLE TVM_PATCH_APPLY_OUTPUT
+  ERROR_VARIABLE TVM_PATCH_APPLY_OUTPUT
+)
+if(NOT TVM_PATCH_APPLY_RESULT EQUAL 0)
+  message(FATAL_ERROR "patches/apply.sh failed:\n${TVM_PATCH_APPLY_OUTPUT}")
+endif()
+message(STATUS "${TVM_PATCH_APPLY_OUTPUT}")
+
 add_subdirectory(3rdparty/tvm-ffi)
 
 if(TVM_DEBUG_WITH_ABI_CHANGE)
