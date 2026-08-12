@@ -1,7 +1,7 @@
-# TVM for TI C7x DSP
+# TVM for TI C7™ NPU
 
 This is a fork of [Apache TVM](https://github.com/apache/tvm) that adds
-a compiler backend and runtime for Texas Instruments' C7x DSP -- a
+a compiler backend and runtime for Texas Instruments' C7™ NPU -- a
 floating-point vector DSP core that combines traditional DSP
 capability, vector processing, and a deep learning accelerator, paired
 with Arm cores in TI's AM67A/J722S SoCs. Covers the full pipeline from
@@ -328,7 +328,7 @@ Per-component READMEs, referenced throughout this document:
 
 This repository is forked from [Apache TVM](https://github.com/apache/tvm).
 The sections below describe upstream Apache TVM in general -- they are
-not specific to this fork's C7x DSP backend. In particular, the
+not specific to this fork's C7™ NPU backend. In particular, the
 "Getting Started" link below is upstream's generic tutorial, not this
 fork's Quick Start (see above for that).
 

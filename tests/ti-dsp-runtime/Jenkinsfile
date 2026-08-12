@@ -250,6 +250,12 @@ pipeline {
                             # Pinned: see setup_test_env.sh -- 8.4.115's export path
                             # breaks yolov5n/yolov8n/yolov8s/yolo26n codegen; 8.4.14 doesn't.
                             uv pip install "ultralytics==8.4.14"
+                            # tvm-ffi's checkout tracks public apache/tvm-ffi, which lacks
+                            # the c_static device mapping -- apply the vendored patch
+                            # (patches/tvm-ffi-c_static-device.patch, run via
+                            # patches/apply.sh) before installing it, or c_static targets
+                            # fail at tvm.device("c_static") with an unrecognized device.
+                            bash patches/apply.sh
                             uv pip install -e 3rdparty/tvm-ffi
                         '''
                     }
