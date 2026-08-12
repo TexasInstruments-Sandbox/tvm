@@ -66,11 +66,9 @@ from tvm.topi.utils import get_const_tuple
 
 from ..common import (
     autopad,
-    #Begin TI
     gru_cell,
     lstm_cell,
     rnn_cell,
-    #End TI
     unbind,
 )
 
@@ -540,7 +538,6 @@ class MatMul(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         return relax.op.matmul(inputs[0], inputs[1])
 
-#Begin TI
 class Inverse(OnnxOpConverter):
     """Converts an ONNX Inverse node into an equivalent Relax expression.
 
@@ -637,9 +634,7 @@ class Inverse(OnnxOpConverter):
         row1 = relax.op.concat([c_inv, d_inv], axis=axis_1)
 
         return relax.op.concat([row0, row1], axis=axis_0)
-#End TI
 
-#Begin TI
 class QLinearMatMul(OnnxOpConverter):
     """Converts ONNX QLinearMatMul node into quantized matrix multiplication.
 
@@ -690,7 +685,6 @@ class QLinearMatMul(OnnxOpConverter):
         result = relax.op.quantize(result_scaled, y_scale, y_zp, -1, y_dtype)
 
         return result
-#End TI
 class MatMulInteger16(OnnxOpConverter):
     """Converts an ONNX MatMulInteger16 node into an equivalent Relax expression."""
 
@@ -719,7 +713,6 @@ class MatMulInteger16(OnnxOpConverter):
             relax.op.astype(b, out_dtype),
         )
 
-#Begin TI
 class QLinearConv(OnnxOpConverter):
     """Operator converter for QLinearConv."""
 
@@ -846,7 +839,6 @@ class QLinearConv(OnnxOpConverter):
         # Quantize: divide by y_scale, round, add zero-point, and clamp
         result = relax.op.quantize(dequantized, y_scale, y_zero_point, -1, out_dtype)
         return result
-#End TI
 
 def _to_numpy(x):
     if tvm.ir.is_prim_expr(x):
@@ -900,7 +892,6 @@ class BinaryBase(OnnxOpConverter):
             if all([isinstance(inp, tvm.ir.GenericConst) for inp in inputs]):
                 return relax.const(output, output.dtype)  # pylint: disable=not-callable
 
-        #Begin TI
         lhs, rhs = inputs[0], inputs[1]
         lhs_dtype = lhs.struct_info.dtype if hasattr(lhs, 'struct_info') else None
         rhs_dtype = rhs.struct_info.dtype if hasattr(rhs, 'struct_info') else None
@@ -976,7 +967,6 @@ class BinaryBase(OnnxOpConverter):
                 rhs = relax.op.astype(rhs, target_dtype)
 
         return cls.relax_op(lhs, rhs)
-        #End TI
 
 class Add(BinaryBase):
     """Converts an onnx Add node into an equivalent Relax expression."""
@@ -1472,7 +1462,6 @@ class Hardmax(OnnxOpConverter):
         axis = attr.get("axis", -1)
         return cls._hardmax_impl(bb, inputs[0], axis)
 
-# Begin TI
 class ReverseSequence(OnnxOpConverter):
     """Convert an onnx ReverseSequence node into an equivalent Relax expression."""
 
@@ -1485,7 +1474,6 @@ class ReverseSequence(OnnxOpConverter):
         return bb.emit_te(
             topi.reverse_sequence, data, seq_lengths, seq_axis=seq_axis, batch_axis=batch_axis
         )
-# End TI
 
 class Transpose(OnnxOpConverter):
     """Converts an onnx Transpose node into an equivalent Relax expression."""
@@ -1720,7 +1708,6 @@ class Cast(OnnxOpConverter):
 
         return relax.op.astype(inputs[0], to_type)
 
-#Begin TI
 class CastLike(OnnxOpConverter):
     """Convert an onnx CastLike node into an equivalent Relax expression."""
 
@@ -1827,7 +1814,6 @@ class CastLike(OnnxOpConverter):
             data[mask] = _np.nan
 
         return data
-#End TI
 
 class CastLike(OnnxOpConverter):
     """Convert an onnx CastLike node into an equivalent Relax expression."""
@@ -2604,7 +2590,6 @@ class BiasGelu(OnnxOpConverter):
         inp = relax.op.add(inputs[0], inputs[1])
         return relax.op.nn.gelu(inp)
 
-#Begin TI
 class Celu(OnnxOpConverter):
     """Converts an ONNX Celu node into an equivalent Relax expression.
     
@@ -2632,7 +2617,6 @@ class Celu(OnnxOpConverter):
         result = relax.op.where(condition, x, negative_branch)
         
         return result
-#End TI
 
 class Shrink(OnnxOpConverter):
     """Converts an onnx Shrink node into an equivalent Relax expression.
@@ -2815,7 +2799,6 @@ class ConvTranspose(OnnxOpConverter):
 
         return conv_out
 
-#Begin TI
 class GridSample(OnnxOpConverter):
     """Converts an onnx GridSample node into an equivalent Relax expression."""
 
@@ -2832,9 +2815,7 @@ class GridSample(OnnxOpConverter):
         align_corners = attr.get("align_corners", 0) != 0
 
         return bb.emit(relax.op.image.grid_sample(data=data, grid=grid, method=method, layout="NCHW", padding_mode=padding_mode, align_corners=align_corners))
-#End TI
 
-#Begin TI
 class ConvInteger(OnnxOpConverter):
     """Converts an onnx ConvInteger node into an equivalent Relax expression.
 
@@ -2917,7 +2898,6 @@ class ConvInteger(OnnxOpConverter):
         )
 
         return conv_out
-#End TI
 
 class Erf(OnnxOpConverter):
     """Converts an onnx Erf node into an equivalent Relax expression."""
@@ -5431,10 +5411,8 @@ class ReduceMax(OnnxOpConverter):
     def _impl_v11(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.max(data, axes, keepdims)
 
@@ -5471,10 +5449,8 @@ class ReduceMin(OnnxOpConverter):
     def _impl_v11(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.min(data, axes, keepdims)
 
@@ -5511,10 +5487,8 @@ class ReduceSum(OnnxOpConverter):
     def _impl_v11(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sum(data, axes, keepdims)
 
@@ -5551,10 +5525,8 @@ class ReduceMean(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.mean(data, axes, keepdims)
 
@@ -5591,10 +5563,8 @@ class ReduceProd(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.prod(data, axes, keepdims)
 
@@ -5631,10 +5601,8 @@ class ReduceLogSumExp(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         x = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         max_x = relax.op.max(x, axes, True)
         exp_x = relax.op.exp(relax.op.subtract(x, max_x))
@@ -5686,10 +5654,8 @@ class ReduceLogSum(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.log(relax.op.sum(data, axes, keepdims))
 
@@ -5726,10 +5692,8 @@ class ReduceSumSquare(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sum(relax.op.multiply(data, data), axes, keepdims)
 
@@ -5766,10 +5730,8 @@ class ReduceL1(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sum(relax.op.abs(data), axes, keepdims)
 
@@ -5806,10 +5768,8 @@ class ReduceL2(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sqrt(relax.op.sum(relax.op.multiply(data, data), axes, keepdims))
 
@@ -6141,7 +6101,6 @@ class Upsample(OnnxOpConverter):
     @classmethod
     def _impl_v9(cls, bb, inputs, attr, params):
         scales = attr.get("scales")
-        #Begin TI
         # Check for scales as tensor input (for compatibility with torch.export models)
         if scales is None:
             if len(inputs) > 1:
@@ -6151,7 +6110,6 @@ class Upsample(OnnxOpConverter):
             if scales is None:
                 raise ValueError("Upsample requires 'scales' attribute or input")
         assert len(scales) == 4, f"Upsample scales must have 4 elements, got {len(scales)}"
-        #End TI
         assert scales[0] == scales[1] == 1
 
         inp_shape = [int(x) for x in inputs[0].ty.shape]
@@ -6567,7 +6525,6 @@ class NonMaxSuppression(OnnxOpConverter):
 
         return selected_indices
 
-#Begin TI
 class DFT(OnnxOpConverter):
     """Converts an onnx DFT node into an equivalent Relax expression."""
 
@@ -6718,7 +6675,6 @@ class DFT(OnnxOpConverter):
         shape_val = shape[axis].value if isinstance(shape[axis], tir.IntImm) else shape[axis]
         new_dim = shape_val // 2 + 1
         return cls._crop_axis(tensor, axis, new_dim)
-#End TI
 
 
 class AllClassNMS(OnnxOpConverter):
@@ -6814,7 +6770,6 @@ class AllClassNMS(OnnxOpConverter):
 
         return nms_out
 
-#Begin TI
 class RNN(OnnxOpConverter):
     """Converts an onnx RNN node into equivalent Relax expression"""
 
@@ -7000,7 +6955,6 @@ class RNN(OnnxOpConverter):
     def _impl_v14(cls, bb, inputs, attr, params):
         layout = attr.get("layout", 0)
         return cls._impl_common(inputs, attr, layout)
-#End TI
 
 class GridSample(OnnxOpConverter):
     """Converts an onnx GridSample node into an equivalent Relax expression."""
@@ -7115,7 +7069,6 @@ class MatMulInteger(OnnxOpConverter):
 
 
 
-#Begin TI
 class LSTM(RNN):
     """Converts an onnx LSTM node into equivalent relax expression"""
 
@@ -7295,10 +7248,8 @@ class LSTM(RNN):
         layout = attr.get("layout", 0)
         return cls._impl_common(inputs, attr, layout)
 
-#End TI
 
 
-#Begin TI
 class GRU(RNN):
     """Converts an ONNX GRU node into equivalent Relax expression"""
 
@@ -7431,7 +7382,6 @@ class GRU(RNN):
     def _impl_v14(cls, bb, inputs, attr, params):
         layout = attr.get("layout", 0)
         return cls._impl_common(inputs, attr, layout)
-#End TI
 
 def _get_convert_map():
     return {
@@ -7615,9 +7565,7 @@ def _get_convert_map():
         "DynamicQuantizeLinear": DynamicQuantizeLinear,
         "ReverseSequence": ReverseSequence,
         # RNN operators
-        #Begin TI
         "RNN": RNN,
-        #End TI
         "LSTM": LSTM,
         "GRU": GRU,
     }

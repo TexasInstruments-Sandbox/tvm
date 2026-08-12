@@ -127,7 +127,6 @@ def autopad(
         # edge mode - replicate border values
         return bb.emit_te(topi.nn.replicate_pad, data, pad[:, 0].tolist(), pad[:, 1].tolist())
 
-#Begin TI
 def unbind(data, axis=0):
     """Unbind operation removes a tensor dimension and returns a list of all slices along a given dimension, with specified axis removed"""
     shape = data.struct_info.shape
@@ -201,9 +200,7 @@ def rnn_cell(input_seqs, hidden_state, w_inp, w_hid, b_inp=None, b_hid=None, bac
         outputs_list = list(reversed(outputs_list))
 
     return outputs_list, hidden_state
-#End TI
 
-#Begin TI
 def lstm_cell(input_seqs, hidden_state, cell_state, w_inp, w_hid, b_inp=None, b_hid=None,
               backwards=False, f_act=None, g_act=None, h_act=None, p_i=None, p_f=None, p_o=None, sequence_lens=None, input_dtype=None, hidden_shape=None, clip=None, input_forget=0):
     """LSTM cell implementation for Relax."""
@@ -307,9 +304,7 @@ def lstm_cell(input_seqs, hidden_state, cell_state, w_inp, w_hid, b_inp=None, b_
         outputs_list = list(reversed(outputs_list))
 
     return outputs_list, hidden_state, cell_state
-#End TI
 
-#Begin TI
 def gru_cell(
     input_seqs,
     hidden_state,
@@ -430,4 +425,3 @@ def gru_cell(
         outputs_list = list(reversed(outputs_list))
 
     return outputs_list, hidden_state
-#End TI
