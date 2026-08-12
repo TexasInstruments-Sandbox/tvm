@@ -69,8 +69,8 @@ mkdir -p "$TVM_BUILD_DIR"
 cp cmake/config.cmake "$TVM_BUILD_DIR/"
 ( cd "$TVM_BUILD_DIR" && cmake -G Ninja .. && ninja )
 
-echo "=== [3/5] DSP runtime (c7x_host) ==="
-( cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host )
+echo "=== [3/5] DSP runtime (c7x_host, board=$TVM_BOARD) ==="
+( cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host --board "$TVM_BOARD" "${DDR_ARGS[@]}" )
 
 echo "=== [4/5] DSP runtime (c7x, board=$TVM_BOARD) ==="
 ( cd src/runtime/ti_dsp && bash build_runtime.sh c7x --board "$TVM_BOARD" "${DDR_ARGS[@]}" )
