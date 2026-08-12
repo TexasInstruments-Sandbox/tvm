@@ -14,7 +14,6 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-#Begin TI
 """ROI Align operator"""
 from tvm import te, tir
 from tvm.topi.utils import get_const_tuple
@@ -148,4 +147,3 @@ def roi_align(data, rois, pooled_size, spatial_scale, sample_ratio, mode, spatia
     return te.compute(
         (num_roi, channel, pooled_size_h, pooled_size_w), _sample, tag="pool,roi_align"
     )
-#End TI

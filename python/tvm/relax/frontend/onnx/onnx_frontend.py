@@ -52,11 +52,9 @@ from tvm.topi.utils import get_const_tuple
 
 from ..common import (
     autopad,
-    #Begin TI
     gru_cell,
     lstm_cell,
     rnn_cell,
-    #End TI
     unbind,
 )
 
@@ -322,7 +320,6 @@ class MatMul(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         return relax.op.matmul(inputs[0], inputs[1])
 
-#Begin TI
 class Inverse(OnnxOpConverter):
     """Converts an ONNX Inverse node into an equivalent Relax expression.
 
@@ -419,9 +416,7 @@ class Inverse(OnnxOpConverter):
         row1 = relax.op.concat([c_inv, d_inv], axis=axis_1)
 
         return relax.op.concat([row0, row1], axis=axis_0)
-#End TI
 
-#Begin TI
 class QLinearMatMul(OnnxOpConverter):
     """Converts ONNX QLinearMatMul node into quantized matrix multiplication.
 
@@ -472,8 +467,6 @@ class QLinearMatMul(OnnxOpConverter):
         result = relax.op.quantize(result_scaled, y_scale, y_zp, -1, y_dtype)
 
         return result
-#End TI
-#Begin TI
 class MatMulInteger(OnnxOpConverter):
     """Converts ONNX MatMulInteger node into integer matrix multiplication.
 
@@ -518,9 +511,7 @@ class MatMulInteger(OnnxOpConverter):
 
         # MatMulInteger output is int32
         return relax.op.matmul(a_sub, b_sub)
-#End TI
 
-#Begin TI
 class QLinearConv(OnnxOpConverter):
     """Operator converter for QLinearConv."""
 
@@ -647,7 +638,6 @@ class QLinearConv(OnnxOpConverter):
         # Quantize: divide by y_scale, round, add zero-point, and clamp
         result = relax.op.quantize(dequantized, y_scale, y_zero_point, -1, out_dtype)
         return result
-#End TI
 
 def _to_numpy(x):
     if isinstance(x, relax.PrimValue):
@@ -684,7 +674,6 @@ class BinaryBase(OnnxOpConverter):
             if any([isinstance(inp, relax.PrimValue) for inp in inputs]):
                 return relax.PrimValue(output.item())  # pylint: disable=not-callable
 
-        #Begin TI
         lhs, rhs = inputs[0], inputs[1]
         lhs_dtype = lhs.struct_info.dtype if hasattr(lhs, 'struct_info') else None
         rhs_dtype = rhs.struct_info.dtype if hasattr(rhs, 'struct_info') else None
@@ -760,7 +749,6 @@ class BinaryBase(OnnxOpConverter):
                 rhs = relax.op.astype(rhs, target_dtype)
 
         return cls.relax_op(lhs, rhs)
-        #End TI
 
 class Add(BinaryBase):
     """Converts an onnx Add node into an equivalent Relax expression."""
@@ -1048,7 +1036,6 @@ class Hardmax(OnnxOpConverter):
         one_hot = relax.op.one_hot(argmax, on_value, off_value, axis_len, axis)
         return one_hot
 
-# Begin TI
 class ReverseSequence(OnnxOpConverter):
     """Convert an onnx ReverseSequence node into an equivalent Relax expression."""
 
@@ -1061,7 +1048,6 @@ class ReverseSequence(OnnxOpConverter):
         return bb.emit_te(
             topi.reverse_sequence, data, seq_lengths, seq_axis=seq_axis, batch_axis=batch_axis
         )
-# End TI
 
 class Transpose(OnnxOpConverter):
     """Converts an onnx Transpose node into an equivalent Relax expression."""
@@ -1202,7 +1188,6 @@ class Cast(OnnxOpConverter):
             return relax.PrimValue(inputs[0].value.astype(to_type))
         return relax.op.astype(inputs[0], to_type)
 
-#Begin TI
 class CastLike(OnnxOpConverter):
     """Convert an onnx CastLike node into an equivalent Relax expression."""
 
@@ -1309,7 +1294,6 @@ class CastLike(OnnxOpConverter):
             data[mask] = _np.nan
 
         return data
-#End TI
 
 class Gather(OnnxOpConverter):
     """Convert an onnx Gather node into an equivalent Relax expression."""
@@ -1663,7 +1647,6 @@ class PRelu(OnnxOpConverter):
 
         ndim = len(x_shape)
         s_ndim = len(slope_shape)
-        #Begin TI
         # Helper to check if a dim is concrete 1.
         def is_one(dim):
             try:
@@ -1680,13 +1663,10 @@ class PRelu(OnnxOpConverter):
 
         if all(is_one(ss) for ss in slope_shape) or s_ndim == 1:
             slope = relax.op.reshape(slope, relax.ShapeExpr([slope_shape[0]]))
-        #End TI
             return relax.op.nn.prelu(x, slope, ndim - 1)
 
         if s_ndim == ndim:
-            #Begin TI
             non_one_axes = [i for i, ss in enumerate(slope_shape) if not is_one(ss)]
-            #End TI
 
             # Must have only ONE non-broadcast axis
             if len(non_one_axes) != 1:
@@ -1694,19 +1674,15 @@ class PRelu(OnnxOpConverter):
                     f"Invalid PRelu slope shape (multiple non-broadcast dims): {slope_shape}"
                 )
             axis = non_one_axes[0]
-            #Begin TI
             slope = relax.op.reshape(slope, relax.ShapeExpr([slope_shape[axis]]))
-            #End TI
             return relax.op.nn.prelu(x, slope, axis)
 
-        #Begin TI
         # Handle case where slope has fewer dims but all trailing dims are 1 (e.g., [C, 1, 1]).
         # Assuming NHWC layout
         # TODO: Analyze impacts on other layouts
         if s_ndim > 1 and all_ones_from(slope_shape, 1):
             slope = relax.op.reshape(slope, relax.ShapeExpr([slope_shape[0]]))
             return relax.op.nn.prelu(x, slope, 1)
-        #End TI
 
         raise ValueError(f"Unsupported PRelu slope shape: {slope_shape}")
 
@@ -1796,7 +1772,6 @@ class BiasGelu(OnnxOpConverter):
         inp = relax.op.add(inputs[0], inputs[1])
         return relax.op.nn.gelu(inp)
 
-#Begin TI
 class Celu(OnnxOpConverter):
     """Converts an ONNX Celu node into an equivalent Relax expression.
     
@@ -1824,7 +1799,6 @@ class Celu(OnnxOpConverter):
         result = relax.op.where(condition, x, negative_branch)
         
         return result
-#End TI
 
 class Shrink(OnnxOpConverter):
     """Converts an onnx Shrink node into an equivalent Relax expression.
@@ -1957,7 +1931,6 @@ class ConvTranspose(OnnxOpConverter):
 
         return conv_out
 
-#Begin TI
 class GridSample(OnnxOpConverter):
     """Converts an onnx GridSample node into an equivalent Relax expression."""
 
@@ -1974,9 +1947,7 @@ class GridSample(OnnxOpConverter):
         align_corners = attr.get("align_corners", 0) != 0
 
         return bb.emit(relax.op.image.grid_sample(data=data, grid=grid, method=method, layout="NCHW", padding_mode=padding_mode, align_corners=align_corners))
-#End TI
 
-#Begin TI
 class ConvInteger(OnnxOpConverter):
     """Converts an onnx ConvInteger node into an equivalent Relax expression.
 
@@ -2059,9 +2030,7 @@ class ConvInteger(OnnxOpConverter):
         )
 
         return conv_out
-#End TI
 
-#Begin TI
 class RoiAlign(OnnxOpConverter):
     """Converts an onnx RoiAlign node into an equivalent Relax expression."""
 
@@ -2155,7 +2124,6 @@ class RoiAlign(OnnxOpConverter):
             spatial_offset,
         )
         return result
-#End TI
 
 class Erf(OnnxOpConverter):
     """Converts an onnx Erf node into an equivalent Relax expression."""
@@ -3033,7 +3001,6 @@ class Resize(OnnxOpConverter):
         ndims = len(x.struct_info.shape)
         assert ndims in (3, 4, 5), "Only resize1d/resize2d/resize3d are supported."
 
-        #Begin TI
         # Normalize empty arrays to None.
         def is_empty(val):
             if val is None:
@@ -3066,7 +3033,6 @@ class Resize(OnnxOpConverter):
                 "Resize: Only one of 'scales' or 'sizes' can be provided. "
                 "Both are non-empty, which violates ONNX specification."
             )
-        #End TI
 
         # Define relax implementation.
         if roi is not None:
@@ -3571,10 +3537,8 @@ class ReduceMax(OnnxOpConverter):
     def _impl_v11(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.max(data, axes, keepdims)
 
@@ -3609,10 +3573,8 @@ class ReduceMin(OnnxOpConverter):
     def _impl_v11(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.min(data, axes, keepdims)
 
@@ -3647,10 +3609,8 @@ class ReduceSum(OnnxOpConverter):
     def _impl_v11(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sum(data, axes, keepdims)
 
@@ -3685,10 +3645,8 @@ class ReduceMean(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.mean(data, axes, keepdims)
 
@@ -3723,10 +3681,8 @@ class ReduceProd(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.prod(data, axes, keepdims)
 
@@ -3761,10 +3717,8 @@ class ReduceLogSumExp(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         x = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         max_x = relax.op.max(x, axes, True)
         exp_x = relax.op.exp(relax.op.subtract(x, max_x))
@@ -3814,10 +3768,8 @@ class ReduceLogSum(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.log(relax.op.sum(data, axes, keepdims))
 
@@ -3852,10 +3804,8 @@ class ReduceSumSquare(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sum(relax.op.multiply(data, data), axes, keepdims)
 
@@ -3890,10 +3840,8 @@ class ReduceL1(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sum(relax.op.abs(data), axes, keepdims)
 
@@ -3928,10 +3876,8 @@ class ReduceL2(OnnxOpConverter):
     def _impl_v13(cls, bb, inputs, attr, params):
         data = inputs[0]
         axes = attr.get("axes", None)
-        #Begin TI
         if isinstance(axes, tuple):
             axes = list(axes)
-        #End TI
         keepdims = attr.get("keepdims", 1)
         return relax.op.sqrt(relax.op.sum(relax.op.multiply(data, data), axes, keepdims))
 
@@ -4235,7 +4181,6 @@ class Upsample(OnnxOpConverter):
     @classmethod
     def _impl_v9(cls, bb, inputs, attr, params):
         scales = attr.get("scales")
-        #Begin TI
         # Check for scales as tensor input (for compatibility with torch.export models)
         if scales is None:
             if len(inputs) > 1:
@@ -4245,7 +4190,6 @@ class Upsample(OnnxOpConverter):
             if scales is None:
                 raise ValueError("Upsample requires 'scales' attribute or input")
         assert len(scales) == 4, f"Upsample scales must have 4 elements, got {len(scales)}"
-        #End TI
         assert scales[0] == scales[1] == 1
 
         inp_shape = [int(x) for x in inputs[0].struct_info.shape]
@@ -4596,7 +4540,6 @@ class NonMaxSuppression(OnnxOpConverter):
 
         return selected_indices
 
-#Begin TI
 class DFT(OnnxOpConverter):
     """Converts an onnx DFT node into an equivalent Relax expression."""
 
@@ -4747,7 +4690,6 @@ class DFT(OnnxOpConverter):
         shape_val = shape[axis].value if isinstance(shape[axis], tir.IntImm) else shape[axis]
         new_dim = shape_val // 2 + 1
         return cls._crop_axis(tensor, axis, new_dim)
-#End TI
 
 
 class AllClassNMS(OnnxOpConverter):
@@ -4836,7 +4778,6 @@ class AllClassNMS(OnnxOpConverter):
 
         return nms_out
 
-#Begin TI
 class RNN(OnnxOpConverter):
     """Converts an onnx RNN node into equivalent Relax expression"""
 
@@ -5022,9 +4963,7 @@ class RNN(OnnxOpConverter):
     def _impl_v14(cls, bb, inputs, attr, params):
         layout = attr.get("layout", 0)
         return cls._impl_common(inputs, attr, layout)
-#End TI
 
-#Begin TI
 class LSTM(RNN):
     """Converts an onnx LSTM node into equivalent relax expression"""
 
@@ -5204,9 +5143,7 @@ class LSTM(RNN):
         layout = attr.get("layout", 0)
         return cls._impl_common(inputs, attr, layout)
 
-#End TI
 
-#Begin TI
 class QuantizeLinear(OnnxOpConverter):
     """Converts an onnx QuantizeLinear node to equivalent relax expression"""
 
@@ -5382,9 +5319,7 @@ class DequantizeLinear(OnnxOpConverter):
         if zp is None:
             zp = relax.const(0, dtype=data.struct_info.dtype)
         return relax.op.dequantize(data, scale, zp, axis)
-#End TI
 
-#Begin TI
 class DynamicQuantizeLinear(OnnxOpConverter):
     """Converts an onnx DynamicQuantizeLinear node to equivalent relax expression"""
 
@@ -5410,9 +5345,7 @@ class DynamicQuantizeLinear(OnnxOpConverter):
         quantized = relax.op.quantize(data, scale, relax.op.astype(zp, "int32"), 0, "uint8")
 
         return relax.expr.Tuple([quantized, scale, zp])
-#End TI
 
-#Begin TI
 class GRU(RNN):
     """Converts an ONNX GRU node into equivalent Relax expression"""
 
@@ -5545,7 +5478,6 @@ class GRU(RNN):
     def _impl_v14(cls, bb, inputs, attr, params):
         layout = attr.get("layout", 0)
         return cls._impl_common(inputs, attr, layout)
-#End TI
 
 def _get_convert_map():
     return {
@@ -5722,9 +5654,7 @@ def _get_convert_map():
         "SequenceAt": SequenceAt,
         "ReverseSequence": ReverseSequence,
         # RNN operators
-        #Begin TI
         "RNN": RNN,
-        #End TI
         "QuantizeLinear": QuantizeLinear,
         "DequantizeLinear": DequantizeLinear,
         "DynamicQuantizeLinear": DynamicQuantizeLinear,
