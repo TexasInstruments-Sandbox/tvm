@@ -61,13 +61,21 @@ DDR_ARGS=()
 FW_TIDL_ARGS=()
 [ "$TVM_BOARD" = "beagley-ai" ] && FW_TIDL_ARGS=(--tidl OFF --mmalib ON)
 
+# Speeds up repeat TVM core builds (e.g. the GitHub Actions wheel-build
+# workflow, which persists CCACHE_DIR across runs) wherever ccache
+# happens to be installed; a no-op everywhere else, including Jenkins.
+CCACHE_ARGS=()
+if command -v ccache >/dev/null 2>&1; then
+    CCACHE_ARGS=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+fi
+
 echo "=== [1/5] Apply vendored patches ==="
 bash patches/apply.sh
 
 echo "=== [2/5] TVM core ==="
 mkdir -p "$TVM_BUILD_DIR"
 cp cmake/config.cmake "$TVM_BUILD_DIR/"
-( cd "$TVM_BUILD_DIR" && cmake -G Ninja .. && ninja )
+( cd "$TVM_BUILD_DIR" && cmake -G Ninja "${CCACHE_ARGS[@]}" .. && ninja )
 
 echo "=== [3/5] DSP runtime (c7x_host, board=$TVM_BOARD) ==="
 ( cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host --board "$TVM_BOARD" "${DDR_ARGS[@]}" )

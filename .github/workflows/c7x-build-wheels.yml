@@ -1,0 +1,64 @@
+name: C7x Build Wheels (BeagleY-AI)
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  check-new-commits:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Check for an existing successful run on this commit
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COUNT=$(gh api "repos/${{ github.repository }}/actions/workflows/c7x-build-wheels.yml/runs?head_sha=${{ github.sha }}&status=success" --jq '.total_count')
+          echo "Successful runs already on ${{ github.sha }}: $COUNT"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-wheels:
+    needs: check-new-commits
+    if: always() && (github.event_name != 'schedule' || needs.check-new-commits.outputs.should_run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Build ci_c7x image (public base)
+        run: |
+          docker build -t tvm.ci_c7x:latest \
+            --build-arg BASE_IMAGE=ubuntu:24.04 \
+            -f docker/Dockerfile.ci_c7x docker/
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-c7x-wheels-${{ github.sha }}
+          restore-keys: |
+            ccache-c7x-wheels-
+
+      - name: Build TVM + wheels
+        run: |
+          docker/bash.sh --env CCACHE_DIR=${{ github.workspace }}/.ccache \
+            tvm.ci_c7x:latest -- \
+            bash src/runtime/ti_dsp/build_all.sh --board beagley-ai --wheels
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: c7x-wheels
+          path: |
+            packaging/ti_dsp/staging-x86/dist/*.whl
+            packaging/ti_dsp/staging-arm64/dist/*.whl
+          if-no-files-found: error

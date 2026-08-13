@@ -16,9 +16,12 @@
 # under the License.
 
 # CI docker CPU env
-# Docker Hub is blocked on the TI network; pull ubuntu:24.04 through TI's
-# Artifactory mirror instead.
-FROM artifactory.itg.ti.com/docker-public/ubuntu:24.04
+# Docker Hub is blocked on the TI network, so the default here is TI's
+# internal Artifactory mirror. GitHub-hosted runners can't reach that
+# internal host, so the GitHub Actions workflow overrides this to a
+# public Docker Hub image instead.
+ARG BASE_IMAGE=artifactory.itg.ti.com/docker-public/ubuntu:24.04
+FROM ${BASE_IMAGE}
 
 # Corporate proxy, passed in via --build-arg (the TI network has no direct
 # internet access from inside a docker build). Declaring these as ARGs puts
@@ -63,11 +66,16 @@ RUN bash /install/ubuntu_setup_tz.sh
 # run at container runtime by setup_test_env.sh) pulls in opencv-python,
 # whose `import cv2` needs libGL.so.1/libglib -- without them, every YOLO
 # quantized test fails at import time with "ImportError: libGL.so.1:
-# cannot open shared object file", regardless of DSP mode.
+# cannot open shared object file", regardless of DSP mode. ccache is
+# added on top for the GitHub Actions wheel-build workflow: build_all.sh
+# passes -DCMAKE_C(XX)_COMPILER_LAUNCHER=ccache to the TVM core cmake
+# configure whenever a ccache binary is on PATH, and that workflow
+# persists CCACHE_DIR across runs via actions/cache.
 RUN apt-get install -y --no-install-recommends \
     adduser \
     apt-transport-https \
     ca-certificates \
+    ccache \
     curl \
     g++ \
     gdb \

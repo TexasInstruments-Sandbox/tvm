@@ -17,6 +17,7 @@ build-*/
 !.github/actions/build-*/
 !.github/actions/build-*/action.yml
 .venv-ci-c7x/
+.ccache/
 develop-eggs/
 dist/
 downloads/
