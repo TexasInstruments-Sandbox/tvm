@@ -4,9 +4,9 @@ This is a fork of [Apache TVM](https://github.com/apache/tvm) that adds
 a compiler backend and runtime for Texas Instruments' C7™ NPU -- a
 floating-point vector DSP core that combines traditional DSP
 capability, vector processing, and a deep learning accelerator, paired
-with Arm cores in TI's AM67A/J722S SoCs. Covers the full pipeline from
-Relax graph-level IR through C code generation, a minimal embedded
-runtime, remoteproc firmware for the AM67A, and comprehensive
+with Arm cores in TI's AM67A/J722S SoCs. It covers the full pipeline
+from Relax graph-level IR through C code generation, a minimal
+embedded runtime, remoteproc firmware for the AM67A, and comprehensive
 pytest-based test infrastructure.
 
 **New here? Jump to [Quick Start](#quick-start).**
@@ -103,13 +103,11 @@ hardware.
                                     |
                 +---------------------------------------+
                 |             C7x Hardware              |
-                |      (Dynamic load, MMA               |
-                |        coprocessor via MMALIB)        |
                 +---------------------------------------+
 ```
 
 **Note:** the `c_static` backend generates self-contained C/C++ code
-that compiles with any toolchain.  The "static" means no shared library
+that compiles with any toolchain. The "static" means no shared library
 dependencies at runtime -- it does NOT mean static shapes.
 
 **Quantization is optional:** an unquantized float32 model goes through
@@ -220,13 +218,10 @@ docker build -t tvm.ci_c7x:latest \
 docker/bash.sh tvm.ci_c7x -- \
     bash src/runtime/ti_dsp/build_all.sh --board beagley-ai --wheels
 
-# 3. Deploy firmware and hardware-validate on a real BeagleY-AI board.
-#    Installs and tests against the wheel built in step 2 (not a
-#    PYTHONPATH into this checkout) inside a .venv-ci-c7x venv at the
-#    repo root. Needs SSH access to the board, cached torchvision
-#    weights, and (behind a proxy) --env http_proxy/https_proxy again --
-#    this script's pip installs happen at container *runtime*, unlike
-#    step 1's --build-arg.
+# 3. Deploy firmware and hardware-validate on a real BeagleY-AI board,
+#    installing and testing the wheel from step 2 (not this checkout).
+#    Needs SSH access to the board and cached torchvision weights; see
+#    docker/README_c7x.md for mount/proxy details.
 docker/bash.sh --net=host \
     -v ~/.ssh:$(pwd)/.ssh:ro \
     -v ~/.cache/torch:$(pwd)/.cache/torch:ro \
@@ -273,7 +268,7 @@ with quantization scale/shift/bias folded in at compile time:
 target = "c_static -mcpu=c7x -mmalib=1"
 ```
 
-A single 64ch 56×56 int8 conv2d layer takes ~45M cycles as scalar C7x
+A single 64ch 56×56 int8 conv2d layer takes ~45M cycles as C7x
 code; the same layer takes ~1.67M cycles via the MMA coprocessor (27x),
 dropping to ~477K cycles (96x) when input data is staged into L2 SRAM
 via DMA before the MMA call.
