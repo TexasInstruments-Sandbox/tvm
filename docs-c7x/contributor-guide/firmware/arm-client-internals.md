@@ -1,0 +1,76 @@
+# ARM Host Client Internals
+
+Internal design of the ARM-side IPC client (`libc7x_arm_runtime.so`) that
+backs the `C7xVirtualMachine` (Python) / `c7x::Module` (C++) APIs -- see
+[Python / C++ API Reference](../../user-guide/python-api.md) for the public API
+surface, and [Deploying Firmware](../../user-guide/deploying-firmware.md)
+for build/deploy instructions.
+
+## Component layout
+
+```
+python/tvm/contrib/c7x/
+├── __init__.py             — exports C7xVirtualMachine
+└── c7x_runtime.py          — Python ctypes wrapper
+
+src/runtime/ti_dsp/firmware/c7x/arm/
+├── CMakeLists.txt          — builds libc7x_arm_runtime.so + c7x_compute CLI + test binary
+├── build.sh                — cross-compile + deploy script
+├── include/
+│   └── c7x_runtime.h       — C++ c7x::Module API (DLPack-only dependency)
+└── src/
+    ├── c7x_runtime.cc      — c7x::Module implementation
+    ├── c7x_compute_client.cpp  — IPC client (rpmsg, staging/result DDR)
+    └── c7x_compute_cli.cpp — CLI executable (links libc7x_arm_runtime.so)
+```
+
+`libc7x_arm_runtime.so` contains `c7x_compute_client`, `rpmsg_wrapper`, and
+`c7x_runtime`.  The CLI binary (`c7x_compute`) links this library unchanged.
+
+## Zero-copy strategy
+
+| Path | Mechanism |
+|------|-----------|
+| **Output** | `c7x_client_infer()` returns `data` pointers directly into the mmap'd `result_buf` (shared DDR).  `vm["main"]()` does one `np.copy()` for safety.  `run_nocopy()` skips the copy and returns numpy views of `result_buf`. |
+| **Input (standard)** | `c7x_compute_client` copies the user buffer into `staging_buf` via `memcpy`. |
+| **Input (zero-copy)** | `create_input()` / `CreateInput()` allocates a tensor **inside** `staging_buf`.  On the next `Run()`, the client detects that the input pointer is already within `[staging_buf, staging_buf + staging_size)` and skips the `memcpy`. |
+
+## Staging buffer layout
+
+```
+staging_buf (mmap'd shared DDR, C7X_STAGING_SIZE bytes)
+┌──────────────────────────┬──────────────────────────────┐
+│   ELF image (lib0.out)   │  create_input() allocations  │
+│   [0 .. elf_size)        │  [elf_size .. staging_size)  │
+└──────────────────────────┴──────────────────────────────┘
+```
+
+`c7x_client_get_input_data_offset()` returns `elf_size` after `dyn_load`,
+preventing `create_input()` from overlapping the loaded ELF.
+
+## ctypes struct (`_C7xTensorDesc`)
+
+Python-side struct matching `c7x_tensor_desc_t` in `c7x_compute_client.h`:
+
+```
+Offset  Field        Type      Bytes
+0       data         void*     8
+8       data_size    size_t    8
+16      ndim         int32     4
+20      dtype_code   int32     4   (DLPack: 0=Int 1=UInt 2=Float)
+24      dtype_bits   int32     4
+28      _pad         int32     4   (alignment)
+32      shape[6]     int64[6]  48
+Total                          80
+```
+
+Validated at import time: `assert ctypes.sizeof(_C7xTensorDesc) == 80`.
+
+## Output lifetime
+
+- `vm["main"]()`: outputs are copied to new memory before return — safe to
+  hold across multiple inference calls.
+- `run_nocopy()`: outputs are numpy views of `result_buf` — valid only until
+  the next `run_nocopy()` call (next inference overwrites the buffer).
+- C++ `OutputTensor.dl.data`: valid until the next `Module::Run()` or
+  `Module::Close()`.

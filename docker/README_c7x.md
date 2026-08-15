@@ -1,7 +1,7 @@
 # C7x / BeagleY-AI Docker Build + Hardware Validation
 
-Detailed reference for the Docker flow introduced in the root
-[README](../README.md#docker-recommended----self-contained-build-environment).
+Detailed reference for the Docker flow introduced in
+[Getting Started](../docs-c7x/user-guide/getting-started.md#docker-recommended----self-contained-build-environment).
 Read that first for the three commands that build the image, build the
 stack, and validate on hardware -- this file covers the "why" and the
 edge cases behind them.

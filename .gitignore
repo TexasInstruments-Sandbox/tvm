@@ -294,5 +294,8 @@ packaging/ti_dsp/staging-arm64/
 packaging/ti_dsp/staging-x86/
 packaging/ti_dsp/staging/
 
+# Generated MkDocs build output (docs-c7x/ is the source)
+/site/
+
 # Internal-only project instructions, not for external distribution
 CLAUDE.md
