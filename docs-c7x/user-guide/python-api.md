@@ -17,8 +17,13 @@ run inference.
 **Prerequisites:**
 - `c7x_compute` firmware already running on the DSP (check with
   `c7x_compute ping` on the board)
-- `libc7x_arm_runtime.so` installed on the board — see
-  [Build and Deploy](#build-and-deploy) below
+- `libc7x_arm_runtime.so` installed on the board — see [Getting
+  Started](getting-started.md) for the wheel-based build+deploy flow, or
+  [Deploying Firmware](deploying-firmware.md) for the native
+  cross-compile/scp flow. [Locating Library and Header
+  Paths](#locating-library-and-header-paths) below covers resolving where
+  either flow put the `.so`/header, for building your own application
+  against these APIs.
 
 ---
 
@@ -94,8 +99,12 @@ C7xVirtualMachine(module_path, so_path="libc7x_arm_runtime.so")
 ```
 
 - `module_path`: path to `lib0.out` (the TVM c_static dynmod)
-- `so_path`: name or path of `libc7x_arm_runtime.so`; if a bare name, resolved
-  via `ctypes.util.find_library` and `LD_LIBRARY_PATH`
+- `so_path`: name or path of `libc7x_arm_runtime.so`. A bare name (the
+  default) first checks the wheel's own bundled copy
+  (`tvm.data.ti_dsp.paths.find_c7x_arm_runtime_so()`), then falls back to
+  `ctypes.util.find_library` + `LD_LIBRARY_PATH` -- so a `tvm-ti-c7x-inference`
+  wheel install needs no override at all; only a native/source-tree deploy
+  does (or pass an explicit absolute path to skip the lookup).
 
 Connection to the DSP is established lazily on the first call to `vm["main"]`
 or `create_input()`.
@@ -109,7 +118,7 @@ or `create_input()`.
 in the source tree)
 — not deployed to `/usr/local/include/` by `./build.sh deploy`; resolve it
 from the `tvm-ti-c7x-inference` wheel or the source tree instead, see
-[Build and Deploy](#build-and-deploy)
+[Locating Library and Header Paths](#locating-library-and-header-paths)
 
 No TVM runtime dependency — only DLPack is required, so this header can be
 used from any C++ application on the board.
@@ -212,26 +221,24 @@ yourself (e.g. `memcpy(my_buf, out.dl.data, out.dl.data_size)` in C++, or use
 
 ---
 
-## Build and Deploy
+## Locating Library and Header Paths
 
-`libc7x_arm_runtime.so` (used by both APIs above) is cross-compiled and
-deployed from `src/runtime/ti_dsp/firmware/c7x/arm/`:
+`libc7x_arm_runtime.so` and `c7x_runtime.h` (used by both APIs above) are
+built and deployed to the board by [Getting Started](getting-started.md)'s
+wheel-based flow, or natively by [Deploying Firmware](deploying-firmware.md)
+(`arm/build.sh deploy`, i.e. cross-compile + scp + `ldconfig`) -- see
+[Deploying Firmware -- Testing](deploying-firmware.md#testing) for how to
+confirm either deploy actually works before building against it. This
+section is only about resolving *where those files ended up* afterwards,
+for building your own application against the API -- not about the
+build/deploy step itself.
 
-```bash
-cd src/runtime/ti_dsp/firmware/c7x/arm
-./build.sh --board j722s-evm          # cross-compile for aarch64
-./build.sh --board j722s-evm deploy   # scp + ldconfig on the target board
-```
-
-See [Deploying Firmware](deploying-firmware.md) for the full `--board`/
-`--ddr` matrix and native on-target builds, and
-[Verifying Your Deployment](verifying-deployment.md) for the standalone
-C++ test binary.
-
-**Wheel install (no scp/ldconfig required):** `pip install tvm-ti-c7x-inference`
-on the board unpacks `libc7x_arm_runtime.so`, `c7x_runtime.h`, and this
-Python module into site-packages. Resolve their paths at build time instead
-of assuming a system install:
+**Wheel install:** `pip install tvm-ti-c7x-inference` on the board unpacks
+`libc7x_arm_runtime.so`, `c7x_runtime.h`, and this Python module into
+site-packages. The Python API's `so_path` already resolves this
+automatically (see Constructor above); a C++ build, or anything linking
+against the `.so` directly, has to resolve both paths itself instead of
+assuming a system install:
 
 ```bash
 python3 -c "from tvm.data.ti_dsp.paths import find_c7x_include_dir; \

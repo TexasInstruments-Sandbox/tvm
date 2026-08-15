@@ -54,7 +54,8 @@ hardware.
 
 - **User Guide**: [Getting Started](user-guide/getting-started.md),
   [Deploying Firmware](user-guide/deploying-firmware.md),
-  [Verifying Your Deployment](user-guide/verifying-deployment.md),
+  [Quantization](user-guide/quantization.md),
+  [Compilation](user-guide/compilation.md),
   [Examples](user-guide/examples.md),
   [Python / C++ API Reference](user-guide/python-api.md)
 - **Contributor Guide**: [Architecture Overview](contributor-guide/architecture-overview.md)
