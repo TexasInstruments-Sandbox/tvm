@@ -286,6 +286,7 @@ PYEOF
     touch "$STAGING/tvm/data/__init__.py"
     cp "$TVM_HOME/python/tvm/data/ti_dsp/__init__.py" "$STAGING/tvm/data/ti_dsp/"
     cp "$TVM_HOME/python/tvm/data/ti_dsp/paths.py" "$STAGING/tvm/data/ti_dsp/"
+    cp "$TVM_HOME/python/tvm/data/ti_dsp/deploy.py" "$STAGING/tvm/data/ti_dsp/"
 
     # --- Firmware and ARM runtime ---
     echo ">>> Staging firmware artifacts ..."
