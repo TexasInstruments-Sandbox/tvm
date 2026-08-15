@@ -1,0 +1,58 @@
+site_name: TVM for TI C7™ NPU
+docs_dir: docs-c7x
+use_directory_urls: false
+
+theme:
+  name: material
+  logo: img/ti_logo.png
+  favicon: img/favicon.ico
+  palette:
+    - scheme: default
+      primary: custom
+      accent: custom
+  font:
+    text: Open Sans
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - search.suggest
+    - content.code.copy
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - User Guide:
+    - Getting Started: user-guide/getting-started.md
+    - Deploying Firmware: user-guide/deploying-firmware.md
+    - Verifying Your Deployment: user-guide/verifying-deployment.md
+    - Examples (YOLO26 & ResNet-18): user-guide/examples.md
+    - Python / C++ API Reference: user-guide/python-api.md
+  - Contributor Guide:
+    - Architecture Overview: contributor-guide/architecture-overview.md
+    - Backend:
+      - C Static Backend: contributor-guide/backend/c-static.md
+      - MMALIB Integration: contributor-guide/backend/mmalib-integration.md
+    - DSP Runtime:
+      - Runtime Internals: contributor-guide/dsp-runtime/internals.md
+      - C7x Memory Map Reference: contributor-guide/dsp-runtime/memory-map.md
+    - Firmware:
+      - Firmware Architecture: contributor-guide/firmware/architecture.md
+      - Firmware Design Deep-Dive: contributor-guide/firmware/design-deep-dive.md
+      - ARM Host Client Internals: contributor-guide/firmware/arm-client-internals.md
+    - Hardware Debug Scripts: contributor-guide/hardware-debug.md
+    - Testing:
+      - Overview: contributor-guide/testing/overview.md
+      - C Static Suite: contributor-guide/testing/c-static-suite.md
+      - DSP Suite: contributor-guide/testing/dsp-suite.md
+      - DSP C++ Harness: contributor-guide/testing/dsp-cpp-harness.md
+      - MMALIB Suite: contributor-guide/testing/mmalib-suite.md
+      - PT2E Quantizer Suite: contributor-guide/testing/pt2e-suite.md
+      - Quantized Model Sweep: contributor-guide/testing/quantized-sweep.md
+      - Dynamic Shape Limitations: contributor-guide/testing/dynamic-shape-limits.md

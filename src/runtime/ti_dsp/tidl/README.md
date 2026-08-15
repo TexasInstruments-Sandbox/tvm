@@ -9,7 +9,7 @@ provides TIDL algo libraries and shared resources (UDMA, memory pools).
 | File | Purpose |
 |------|---------|
 | `tidl_api.c` / `.h` | `init/process/free_tidl_subgraph` — IALG lifecycle |
-| `tidl_api_mem.c` / `.h` | `appMemAlloc/appMemFree` via `tvm_dsp_alloc` (128 MB DDR heap) |
+| `tidl_api_mem.c` / `.h` | `appMemAlloc/appMemFree` via `tvm_dsp_alloc` (352 MiB DDR heap) |
 | `ti_mem_manager.c` / `.h` | Bump allocator for L1/L2/L3 SRAM pools |
 | `tidl_host_stubs.c` | x86 stubs for firmware-provided symbols, `c7x_host` (`HOST_EMULATION`) builds only |
 
@@ -113,14 +113,14 @@ includes headers from c7x-mma-tidl source (not PSDK).
 | L1 DARAM | firmware | C7x L1 SRAM | Yes |
 | L2 SRAM | firmware | C7x L2 SRAM | Yes |
 | L3 (aux L2) | 240 KB | `MSMCSIZE_KB=240` | Yes |
-| DDR heap | 128 MB | `tvm_dsp_alloc` | N/A |
+| DDR heap | 352 MiB | `tvm_dsp_alloc` | N/A |
 
 J722S has no MSMC SRAM.  L3 pool uses auxiliary L2.
 
 ## Known Issues
 
 1. **RTS heap too small**: `appMemAlloc` must use `tvm_dsp_alloc`
-   (128 MB DDR), not the RTS heap (128 KB).
+   (352 MiB DDR), not the RTS heap (128 KB).
 
 2. **traceWriteLevel must be 0**: Non-zero requires a non-NULL
    `TIDLWriteBinToFile` callback.

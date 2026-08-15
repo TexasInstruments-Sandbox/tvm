@@ -1,8 +1,14 @@
 # SmolLM-135M on C7x DSP
 
-See the full design documents (TI-internal only):
-- `smollm_overview.md` — standalone inference pipeline and model overview
-- `smollm_kv_cache.md` — KV cache chat design, IPC protocol, and session details
+[SmolLM-135M-Instruct](https://huggingface.co/HuggingFaceTB/SmolLM-135M-Instruct)
+is a LLaMA-style causal language model (135M parameters, 30 transformer
+layers, grouped-query attention, 49,152-token vocabulary). Weights and
+tokenizer are stored locally at `tests/ti-dsp-runtime/SmolLM/model/`
+(downloaded from HuggingFace — see Quick Start below).
+
+Float32 weights are ~621 MB, which exceeds the AM67A DLOAD DDR budget
+(c7x_host only). INT8 weight-only quantization brings this to ~162 MB,
+which fits on hardware (`c7x_dload`) and is the mode used below.
 
 ## Status
 
@@ -10,7 +16,7 @@ See the full design documents (TI-internal only):
 |---------|----------|-----------|
 | Float32 (~621 MB weights) | PASS (max diff 0.21) | ELF too large |
 | INT8 weight-only (~333 MB weights) | PASS (max diff 0.19) | PASS (max diff 0.19, --fp_reassoc=off) |
-| INT8 KV cache chat | PASS | PASS (~1.8 s/token on AM67A) |
+| INT8 KV cache chat | PASS | PASS (~0.39 s/token, 2.52 tok/s on AM67A) |
 
 ## Quick Start
 
@@ -49,17 +55,17 @@ ssh root@am67a python3 /opt/smollm/smollm_board.py --model-dir /opt/smollm
 ## Chat on AM67A
 
 `smollm_board.py` runs entirely on the ARM Cortex-A53 (no TVM or PyTorch
-required on the board).  It uses a persistent DSP session so the 333 MB
-ELF is loaded once (~35 s) and subsequent decode steps each take ~1.8 s.
+required on the board).  It uses a persistent DSP session so the ELF is
+loaded once (~35 s) and subsequent decode steps each take ~0.39 s.
 
 ### Performance
 
 | Phase | Time |
 |-------|------|
-| Prefill (one-shot load+infer) | ~40 s |
+| Prefill (session + KV-resident) | ~12 s |
 | Session ELF load (one-time) | ~35 s |
-| Decode per token | ~1.8 s |
-| 15-token response (end-to-end) | ~95 s |
+| Decode per token | ~0.39 s (2.52 tok/s) |
+| 50-token conversation (end-to-end) | ~66 s |
 
 ### KV Cache and Context Limit
 
