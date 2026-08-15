@@ -62,18 +62,10 @@ ex = relax.build(mod, target=target)
 
 ### Target Attributes Reference
 
-| Attribute | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `mcpu` | String | `generic` | Target CPU: `c66x`, `c7x` |
-| `use-cpp-api` | Bool | `true` | Use C++ API for VM operations (bypass FFI) |
-| `skip-runtime-checks` | Bool | `true` | Skip tensor shape/type validation |
-| `profile-layers` | Bool | `false` | Enable per-layer cycle profiling |
-| `debug-alloc` | Bool | `false` | Enable diagnostic allocation tracing |
-| `constants-byte-alignment` | Int | `64` (DSP) | Byte alignment for constant arrays |
-| `l1d-cache-size` | Int | `32768` | L1D cache size in bytes (32KB) |
-| `l2-sram-size` | Int | `1310720` | L2 SRAM size in bytes (1.25MB, J722S C7x) |
-| `vector-width` | Int | `128` | SIMD vector width in bits |
-| `mmalib` | Bool | `false` | Use MMALIB kernels for eligible matmul/conv2d ops (requires `mcpu=c7x`) |
+See [Compilation -- Target Attributes
+Reference](../../user-guide/compilation.md#target-attributes-reference)
+for the full attribute table (including `tidl-kernels`/`tidl-runtime`,
+not reproduced here).
 
 ### TI DSP Runtime
 

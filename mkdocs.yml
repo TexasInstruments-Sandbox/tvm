@@ -24,14 +24,19 @@ extra_css:
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 
 nav:
   - Home: index.md
   - User Guide:
     - Getting Started: user-guide/getting-started.md
     - Deploying Firmware: user-guide/deploying-firmware.md
-    - Verifying Your Deployment: user-guide/verifying-deployment.md
+    - Quantization: user-guide/quantization.md
+    - Compilation: user-guide/compilation.md
     - Examples (YOLO26 & ResNet-18): user-guide/examples.md
     - Python / C++ API Reference: user-guide/python-api.md
   - Contributor Guide:
@@ -52,6 +57,7 @@ nav:
       - C Static Suite: contributor-guide/testing/c-static-suite.md
       - DSP Suite: contributor-guide/testing/dsp-suite.md
       - DSP C++ Harness: contributor-guide/testing/dsp-cpp-harness.md
+      - Verifying Your Deployment: contributor-guide/testing/verifying-deployment.md
       - MMALIB Suite: contributor-guide/testing/mmalib-suite.md
       - PT2E Quantizer Suite: contributor-guide/testing/pt2e-suite.md
       - Quantized Model Sweep: contributor-guide/testing/quantized-sweep.md

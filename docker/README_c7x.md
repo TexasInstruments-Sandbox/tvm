@@ -60,11 +60,31 @@ only deploys and tests, it doesn't build. It:
    packaged artifact. Same wheel and same `--force-reinstall --no-deps`
    flags as `tests/ti-dsp-runtime/Jenkinsfile`'s own native (non-Docker)
    "Build & Install Wheels" stage.
-3. Reboots the board, deploys firmware + the ARM client, health-checks
-   `c7x_compute status` (with stop/start/reboot recovery on failure),
-   then runs the quantized-model test suite with `--mmalib --isolate`
-   against real `c7x_dload` hardware, writing
+3. Reboots the board, then deploys to it. For `--board beagley-ai`
+   this scp's the arm64 `tvm_ti_c7x_inference` wheel (built alongside
+   the x86 one in step above) to the board, installs it there with
+   `python3 -m pip install --force-reinstall --no-deps` (bootstrapping
+   `python3-pip` via `apt-get` first if missing -- a stock BeagleY-AI
+   image has neither `pip` nor `ensurepip`; the same proxy vars as
+   below get forwarded for that `apt-get`), then runs the wheel's
+   bundled `python3 -m tvm.data.ti_dsp.deploy` helper. That helper
+   copies the wheel's bundled firmware image, ARM CLI binary, and
+   runtime library to the same system paths (`/usr/local/bin/c7x_compute`,
+   `/usr/local/lib/libc7x_arm_runtime.so`, `/lib/firmware/j722s-c71_0-fw`)
+   the old scp-based deploy always used, so nothing downstream needs to
+   know which path produced them. j722s-evm/am67a still deploys via
+   the original scp flow (`deploy-c7x.sh` + `arm/build.sh deploy`).
+   Reboots again so remoteproc autostart picks up the new firmware,
+   then health-checks `c7x_compute status` (with stop/start/reboot
+   recovery on failure), then runs the quantized-model test suite with
+   `--mmalib --isolate` against real `c7x_dload` hardware, writing
    `results/quantized_mmalib_dload.xml`.
+
+`--x86-wheel <path>` / `--arm64-wheel <path>` each accept an exact
+`.whl` file or a directory to glob, so a wheel pair you didn't build
+in this checkout -- e.g. extracted from a `c7x-build-wheels.yml`
+GitHub Actions artifact -- can be deployed and validated the same way,
+without running `build_all.sh` first.
 
 ## Requirements beyond the plain build
 
@@ -82,11 +102,17 @@ only deploys and tests, it doesn't build. It:
 - **Torch cache**: `~/.cache/torch` should hold the pre-cached
   torchvision weights the quantized-model suite needs -- mount it in if
   your build environment can't reach `download.pytorch.org` directly.
-- **Proxy, twice**: the `--build-arg` on `docker build` only reaches
-  that build step. `build_all.sh`/`validate_all.sh`'s own `uv pip
-  install` calls run at container *runtime* (fetching from PyPI /
-  download.pytorch.org), so the proxy has to be passed again as
-  `--env` on the `docker/bash.sh` invocations that run them.
+- **Proxy, twice (three times for beagley-ai)**: the `--build-arg` on
+  `docker build` only reaches that build step. `build_all.sh`/
+  `validate_all.sh`'s own `uv pip install` calls run at container
+  *runtime* (fetching from PyPI / download.pytorch.org), so the proxy
+  has to be passed again as `--env` on the `docker/bash.sh`
+  invocations that run them. For `--board beagley-ai`,
+  `validate_all.sh` forwards that same container-side `http_proxy`/
+  `https_proxy` a third time, over ssh, so the board's own `apt-get
+  install python3-pip` (see above) can reach Ubuntu's mirrors -- no
+  separate variable to set, it reuses whatever `--env` already put in
+  the container.
 
 ## Jenkins
 

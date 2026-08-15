@@ -28,8 +28,8 @@ DLOAD internals.
     and `trace` are useful for manually checking a deployment; the rest
     exist to support the automated test script
     (`test/test_dynmod.sh` -- see
-    [Verifying Your Deployment](verifying-deployment.md)) and the pytest
-    suite.
+    [Verifying Your Deployment](../contributor-guide/testing/verifying-deployment.md))
+    and the pytest suite.
 
 ## Building the DSP Firmware
 
@@ -60,7 +60,8 @@ reachable under a different name.
 Requires `gcc-aarch64-linux-gnu` and `g++-aarch64-linux-gnu` packages
 (on Ubuntu/Debian: `apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu`).
 
-See [Verifying Your Deployment](verifying-deployment.md) for the
+See [Verifying Your
+Deployment](../contributor-guide/testing/verifying-deployment.md) for the
 standalone C++ test binary that exercises this API end-to-end against
 live DSP firmware.
 
@@ -155,7 +156,8 @@ c7x_client_close(client);
 
 ## Testing
 
-See [Verifying Your Deployment](verifying-deployment.md) for the
+See [Verifying Your
+Deployment](../contributor-guide/testing/verifying-deployment.md) for the
 firmware's own hardware test suite (`test/test_dynmod.sh`), and
 [DSP Test Suite](../contributor-guide/testing/dsp-suite.md) for the
 pytest-based suite that automates the full TVM compilation, C7x ELF

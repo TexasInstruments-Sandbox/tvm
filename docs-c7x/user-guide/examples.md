@@ -3,6 +3,22 @@
 Standalone scripts for running models on BeagleY-AI. Located at
 `tests/ti-dsp-runtime/examples/`.
 
+The two examples illustrate the two offload APIs: YOLO26 detection uses
+the Python API (`tvm.contrib.c7x.C7xVirtualMachine`), and ResNet-18
+classification uses the C++ API (`c7x::Module`). See [Python / C++ API
+Reference](python-api.md) for the APIs themselves. Both quantize their
+model (PT2E int8) before compiling for MMALIB offload -- see
+[Quantization](quantization.md) for that step and
+[Compilation](compilation.md) for how the compiled model gets built into
+what each script actually deploys.
+
+!!! note "Already run by `validate_all.sh`"
+    Both examples below run automatically as the last step of
+    [Getting Started](getting-started.md)'s three-command flow --
+    `build_all.sh --wheels` then `validate_all.sh` builds the wheels,
+    deploys firmware, and runs both scripts end to end against real
+    hardware. This page is for running either script by hand.
+
 ## YOLO26 Object Detection
 
 ### Description
@@ -25,11 +41,14 @@ Two files because the work is inherently split across two machines:
 
 ### Prerequisites
 
-- Firmware and `libc7x_arm_runtime.so` already deployed on the target board
-  — see [Deploying Firmware](deploying-firmware.md) (`./build.sh deploy`).
-  Same prerequisite `quantized/test_quantized_yolo.py`'s
+- Firmware, `libc7x_arm_runtime.so`, and the `tvm-ti-c7x-compile` wheel this
+  script imports `tvm` from -- see [Getting Started](getting-started.md) for
+  the `build_all.sh --wheels` + `validate_all.sh` flow that builds and
+  deploys both. Same prerequisite `quantized/test_quantized_yolo.py`'s
   `--dsp-mode=c7x_dload` runs already have.
-- `TI_CGT_C7000_PATH` set (compiling for C7x).
+- `TI_CGT_C7000_PATH` set (compiling for C7x) -- already baked into
+  `docker/Dockerfile.ci_c7x`, so this only needs setting explicitly when
+  running outside that image.
 - Passwordless SSH as `root` to the board.
 - `numpy` in the board's system Python 3 (`yolo26_board_runner.py` needs it;
   it is not preinstalled on a stock BeagleY-AI image). Install with
@@ -38,10 +57,28 @@ Two files because the work is inherently split across two machines:
 
 ### Running
 
+Recommended, inside the same `ci_c7x` container [Getting
+Started](getting-started.md) builds and deploys with -- this assumes
+`build_all.sh --wheels` and at least one `validate_all.sh --board
+beagley-ai` already ran against this checkout, which is what creates
+`.venv-ci-c7x` with the `tvm-ti-c7x-compile` wheel installed:
+
+```bash
+docker/bash.sh --net=host -v ~/.ssh:$(pwd)/.ssh:ro tvm.ci_c7x -- bash -c '
+    source .venv-ci-c7x/bin/activate
+    unset PYTHONPATH
+    cd tests/ti-dsp-runtime
+    python examples/run_yolo26_detection.py --board beagley-ai
+'
+```
+
+Outside Docker (e.g. a host without Docker at all), set
+`TI_CGT_C7000_PATH` explicitly and run against the source tree:
+
 ```bash
 cd tests/ti-dsp-runtime
 export TI_CGT_C7000_PATH=<path to>/ti-cgt-c7000_5.0.1.LTS
-python examples/run_yolo26_detection.py
+python examples/run_yolo26_detection.py --board beagley-ai
 ```
 
 Run with `--help` for the full option list (image selection, confidence
@@ -112,19 +149,37 @@ isn't in scope for it.
 
 ### Prerequisites
 
-Same as YOLO26 above (firmware + `libc7x_arm_runtime.so` deployed,
-`TI_CGT_C7000_PATH`, passwordless SSH), plus an `aarch64-linux-gnu-g++`
-cross-compiler on the dev host -- the same one
+Same as YOLO26 above (firmware, `libc7x_arm_runtime.so`, and the
+`tvm-ti-c7x-compile` wheel deployed via `build_all.sh --wheels` +
+`validate_all.sh`; `TI_CGT_C7000_PATH`; passwordless SSH), plus an
+`aarch64-linux-gnu-g++` cross-compiler on the dev host -- the same one
 `src/runtime/ti_dsp/firmware/c7x/arm/build.sh` itself uses to build
-`libc7x_arm_runtime.so`. No `numpy` or Python is needed on the board for
+`libc7x_arm_runtime.so`, and also already baked into
+`docker/Dockerfile.ci_c7x`. No `numpy` or Python is needed on the board for
 this example, since `resnet18_board_runner` is a native binary.
 
 ### Running
 
+Recommended, inside the same `ci_c7x` container [Getting
+Started](getting-started.md) builds and deploys with (see the YOLO26
+Running section above for what this assumes about `.venv-ci-c7x`):
+
+```bash
+docker/bash.sh --net=host -v ~/.ssh:$(pwd)/.ssh:ro tvm.ci_c7x -- bash -c '
+    source .venv-ci-c7x/bin/activate
+    unset PYTHONPATH
+    cd tests/ti-dsp-runtime
+    python examples/run_resnet18_classification.py --board beagley-ai
+'
+```
+
+Outside Docker, set `TI_CGT_C7000_PATH` explicitly and run against the
+source tree:
+
 ```bash
 cd tests/ti-dsp-runtime
 export TI_CGT_C7000_PATH=<path to>/ti-cgt-c7000_5.0.1.LTS
-python examples/run_resnet18_classification.py
+python examples/run_resnet18_classification.py --board beagley-ai
 ```
 
 Run with `--help` for the full option list (image selection, board target,
