@@ -18,10 +18,18 @@
 # Usage:
 #   src/runtime/ti_dsp/validate_all.sh --board <j722s-evm|beagley-ai>
 #       [--ddr <4gb|8gb>] [--skip-deploy]
+#       [--x86-wheel <path>] [--arm64-wheel <path>]
 #
 # --skip-deploy assumes the board already has the firmware/ARM client this
 # checkout just built (e.g. a prior invocation already deployed it) -- the
 # board health check and quantized test run still happen.
+#
+# --x86-wheel/--arm64-wheel each accept either an exact .whl file or a
+# directory to glob (same discovery rule as the default
+# packaging/ti_dsp/staging-{x86,arm64}/dist/ lookup) -- this is what lets a
+# wheel pair built elsewhere (e.g. a c7x-build-wheels.yml GitHub Actions
+# artifact) be validated against real hardware without a local build_all.sh
+# run first.
 
 set -euo pipefail
 
@@ -32,6 +40,8 @@ source "$SCRIPT_DIR/board_build_dir.sh"
 TVM_BOARD=""
 TVM_DDR=""
 SKIP_DEPLOY=0
+X86_WHEEL_OVERRIDE=""
+ARM64_WHEEL_OVERRIDE=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -40,7 +50,11 @@ while [ $# -gt 0 ]; do
         --ddr) TVM_DDR="$2"; shift 2 ;;
         --ddr=*) TVM_DDR="${1#*=}"; shift ;;
         --skip-deploy) SKIP_DEPLOY=1; shift ;;
-        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+        --x86-wheel) X86_WHEEL_OVERRIDE="$2"; shift 2 ;;
+        --x86-wheel=*) X86_WHEEL_OVERRIDE="${1#*=}"; shift ;;
+        --arm64-wheel) ARM64_WHEEL_OVERRIDE="$2"; shift 2 ;;
+        --arm64-wheel=*) ARM64_WHEEL_OVERRIDE="${1#*=}"; shift ;;
+        -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -62,6 +76,31 @@ esac
 resolve_board_build_dir
 FW_SUFFIX="$BUILD_SUFFIX"
 
+# Resolves to a single wheel path: an explicit override (either an exact
+# .whl file or a directory to glob) if given, else $default_dir. Picking
+# the newest match (`ls -t | head -1`) handles both the normal case
+# (exactly one wheel, since build_wheel.sh clears its staging dir before
+# each build) and a stale leftover from an interrupted/manually-copied
+# prior build.
+resolve_wheel() {
+    local override="$1" glob_pattern="$2" default_dir="$3" label="$4"
+    local dir="${override:-$default_dir}"
+    if [ -n "$override" ] && [ -f "$override" ]; then
+        echo "$override"
+        return 0
+    fi
+    shopt -s nullglob
+    local matches=("$dir"/$glob_pattern)
+    shopt -u nullglob
+    if [ "${#matches[@]}" -eq 0 ]; then
+        echo "ERROR: no $label wheel found under $dir" >&2
+        echo "  Build it first: bash src/runtime/ti_dsp/build_all.sh --board $TVM_BOARD --wheels" >&2
+        echo "  Or pass an explicit --$label-wheel <path-to-.whl-or-dir>" >&2
+        exit 1
+    fi
+    ls -t "${matches[@]}" | head -1
+}
+
 echo "=== [1/5] Python test environment ==="
 # $HOME inside a docker/bash.sh container is the repo mount point, not the
 # host's real home -- default TORCH_HOME to a repo-relative path so a
@@ -77,20 +116,8 @@ source tests/ti-dsp-runtime/setup_test_env.sh
 # what ships, not just what's on disk in this checkout. Same wheel and
 # same --force-reinstall --no-deps flags as tests/ti-dsp-runtime/Jenkinsfile's
 # own "Build & Install Wheels" stage.
-shopt -s nullglob
-X86_WHEELS=("$TVM_HOME"/packaging/ti_dsp/staging-x86/dist/tvm_ti_c7x_compile-*.whl)
-shopt -u nullglob
-if [ "${#X86_WHEELS[@]}" -eq 0 ]; then
-    echo "ERROR: x86 wheel not found under packaging/ti_dsp/staging-x86/dist/" >&2
-    echo "  Build it first: bash src/runtime/ti_dsp/build_all.sh --board $TVM_BOARD --wheels" >&2
-    exit 1
-fi
-# build_wheel.sh removes the whole staging dir before each build, so under
-# normal operation exactly one wheel matches; if more than one is present
-# (e.g. a stale leftover from a manually-copied or interrupted prior
-# build), pick the most recently built one rather than whichever sorts
-# first lexicographically.
-X86_WHEEL="$(ls -t "${X86_WHEELS[@]}" | head -1)"
+X86_WHEEL="$(resolve_wheel "$X86_WHEEL_OVERRIDE" "tvm_ti_c7x_compile-*.whl" \
+    "$TVM_HOME/packaging/ti_dsp/staging-x86/dist" "x86")"
 uv pip install --force-reinstall --no-deps "$X86_WHEEL"
 
 # docker/bash.sh injects PYTHONPATH=<repo>/python into any *ci*-named
@@ -120,10 +147,55 @@ reboot_and_wait() {
 if [ "$SKIP_DEPLOY" -eq 0 ]; then
     echo "=== [2/5] Deploy firmware + ARM client (board=$TVM_BOARD) ==="
     reboot_and_wait
-    ( cd "$TVM_HOME/src/runtime/ti_dsp/firmware/c7x" && \
-      ./deploy-c7x.sh --board "$TVM_BOARD" "dsp/build${FW_SUFFIX}/c7x_compute.out" )
-    ( cd "$TVM_HOME/src/runtime/ti_dsp/firmware/c7x/arm" && \
-      ./build.sh --board "$TVM_BOARD" deploy )
+    if [ "$TVM_BOARD" = "beagley-ai" ]; then
+        # BeagleY-AI deploys from the packaged arm64 inference wheel rather
+        # than scp'ing raw build output: tvm.data.ti_dsp.deploy (bundled in
+        # the wheel) copies the same firmware/CLI/runtime-lib files to the
+        # same system paths deploy-c7x.sh/arm/build.sh's `deploy` subcommand
+        # have always used, so nothing downstream (health check, quantized
+        # tests) needs to know which path produced them. This is also what
+        # lets --arm64-wheel point at a GitHub-Actions-built artifact instead
+        # of a local build.
+        ARM64_WHEEL="$(resolve_wheel "$ARM64_WHEEL_OVERRIDE" "tvm_ti_c7x_inference-*.whl" \
+            "$TVM_HOME/packaging/ti_dsp/staging-arm64/dist" "arm64")"
+        REMOTE_WHEEL="/tmp/$(basename "$ARM64_WHEEL")"
+        scp -o ConnectTimeout=10 "$ARM64_WHEEL" "root@${BOARD_TARGET_HOST}:${REMOTE_WHEEL}"
+        # One ssh session so `python3` resolves identically for the install
+        # and the deploy helper. A stock BeagleY-AI image has no pip at all
+        # (no python3-pip, no ensurepip) -- install it via apt on demand,
+        # forwarding the proxy vars the same way docker/README_c7x.md
+        # already documents for the numpy prerequisite. Once pip exists,
+        # probe for --break-system-packages support statically (grep on
+        # `pip --help`) rather than guessing or retrying after a failed
+        # install: this board's pip enforces PEP 668
+        # externally-managed-environment restrictions, and this way there's
+        # no double-install either way.
+        ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "root@${BOARD_TARGET_HOST}" \
+            bash -s -- "$REMOTE_WHEEL" "${http_proxy:-}" "${https_proxy:-}" <<'REMOTE_EOF'
+set -e
+remote_wheel="$1"
+export http_proxy="$2"
+export https_proxy="$3"
+if ! python3 -m pip --version >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq python3-pip
+fi
+break_flag=""
+python3 -m pip install --help 2>/dev/null | grep -q -- --break-system-packages && \
+    break_flag="--break-system-packages"
+# $break_flag is deliberately unquoted: empty must vanish via word
+# splitting, not be passed to pip as a literal empty-string argument.
+python3 -m pip install --quiet --force-reinstall --no-deps $break_flag "$remote_wheel"
+python3 -m tvm.data.ti_dsp.deploy
+rm -f "$remote_wheel"
+REMOTE_EOF
+    else
+        ( cd "$TVM_HOME/src/runtime/ti_dsp/firmware/c7x" && \
+          ./deploy-c7x.sh --board "$TVM_BOARD" "dsp/build${FW_SUFFIX}/c7x_compute.out" )
+        ( cd "$TVM_HOME/src/runtime/ti_dsp/firmware/c7x/arm" && \
+          ./build.sh --board "$TVM_BOARD" deploy )
+    fi
     # Reboot so remoteproc autostart loads the newly-copied firmware --
     # copying while the board is running avoids the EBUSY error from
     # stopping remoteproc mid-vdev-negotiation (see deploy-c7x.sh).

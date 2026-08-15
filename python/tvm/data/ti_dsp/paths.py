@@ -37,6 +37,21 @@ def find_c7x_arm_runtime_so() -> Optional[str]:
     return None
 
 
+def find_c7x_compute_binary() -> Optional[str]:
+    """Find the c7x_compute ARM CLI binary in the bundled package.
+
+    Returns None on x86 hosts because the bundled binary is an aarch64
+    ELF executable that cannot be exec'd there (same gating as
+    find_c7x_arm_runtime_so()).
+    """
+    if not _IS_AARCH64:
+        return None
+    bundled = _DATA_DIR / "firmware" / "c7x_compute"
+    if bundled.exists():
+        return str(bundled)
+    return None
+
+
 def find_c7x_include_dir() -> Optional[Path]:
     """Find the include directory for the C7x C++ API.
 
