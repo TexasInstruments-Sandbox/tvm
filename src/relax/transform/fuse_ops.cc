@@ -38,7 +38,10 @@
 #include <tvm/tir/expr_functor.h>
 #include <tvm/tir/function.h>
 
+#include <algorithm>
 #include <optional>
+#include <utility>
+#include <vector>
 
 #include "../../support/arena.h"
 #include "../analysis/graph_partitioner.h"
@@ -489,9 +492,29 @@ class FunctionCreator : public ExprMutator {
     // parameters with the parameters of its fields that are accessed in the
     // function.
     std::unordered_map<const ExprNode*, std::unordered_map<int, Var>> tuple_get_item_remap;
-    for (auto& [tuple_arg, item_indices] : partially_used_tuple_params_) {
+    // Splice the highest parameter index first. Each replacement below erases
+    // one params_/arguments_ entry and inserts item_indices.size() in its
+    // place, shifting every later position, so a param_idx recorded before this
+    // loop goes stale as soon as a lower index is spliced. Descending order
+    // confines each shift to positions already processed. The order also has to
+    // be deterministic: partially_used_tuple_params_ is keyed on raw ExprNode*,
+    // so iterating it directly follows pointer-hash (address) order, which
+    // varies between runs of the same binary on the same input -- that made a
+    // stale index corrupt the arguments_/params_ correspondence only
+    // intermittently, leaving a relax.Constant unmapped inside a tuple and
+    // tripping FuseTIR's "Relax.Constant is not supported in primitive
+    // functions" in roughly half of runs.
+    std::vector<std::pair<int, const ExprNode*>> ordered_tuple_params;
+    ordered_tuple_params.reserve(partially_used_tuple_params_.size());
+    for (const auto& [tuple_arg, item_indices] : partially_used_tuple_params_) {
       ICHECK(!item_indices.empty());
-      int param_idx = tuple_param_idx_[tuple_arg];
+      ordered_tuple_params.emplace_back(tuple_param_idx_[tuple_arg], tuple_arg);
+    }
+    std::sort(ordered_tuple_params.begin(), ordered_tuple_params.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.first > rhs.first; });
+
+    for (const auto& [param_idx, tuple_arg] : ordered_tuple_params) {
+      const std::vector<int>& item_indices = partially_used_tuple_params_[tuple_arg];
       Var param = params_[param_idx];
       ffi::String param_name = params_[param_idx]->name_hint();
       TupleStructInfo param_sinfo = Downcast<TupleStructInfo>(tuple_arg->struct_info_);
@@ -620,13 +643,16 @@ class FunctionCreator : public ExprMutator {
         Var param(std::move(name), GetStructInfo(expr));
         arguments_.push_back(expr);
         params_.push_back(param);
-      }
 
-      // Mark the tuple parameter is partially referenced in the beginning.
-      // We will remove it from the mapping once we find it is fully referenced.
-      if (param_sinfo->IsInstance<TupleStructInfoNode>()) {
-        partially_used_tuple_params_[expr.get()] = {};
-        tuple_param_idx_[expr.get()] = static_cast<int>(arguments_.size()) - 1;
+        // Mark the tuple parameter is partially referenced in the beginning.
+        // We will remove it from the mapping once we find it is fully referenced.
+        // Only recorded when an argument was actually pushed just above: an
+        // inlinable-constant tuple pushes nothing, so `arguments_.size() - 1`
+        // would index an unrelated earlier argument.
+        if (param_sinfo->IsInstance<TupleStructInfoNode>()) {
+          partially_used_tuple_params_[expr.get()] = {};
+          tuple_param_idx_[expr.get()] = static_cast<int>(arguments_.size()) - 1;
+        }
       }
     }
   }

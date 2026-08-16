@@ -1421,5 +1421,83 @@ def test_concat():
     check(mod, [("x.concat", pat_clip)], Expected2)
 
 
+def test_multiple_partially_used_tuple_params():
+    """Several partially-used tuple params in one group must all survive.
+
+    FunctionCreator::CreateFunction replaces each partially-used tuple
+    parameter with one parameter per accessed field, splicing params_ and
+    arguments_ at an index recorded while the bindings were collected. A splice
+    that inserts more entries than it erases shifts every later position, so
+    the indices still pending go stale unless the highest index is handled
+    first. partially_used_tuple_params_ is keyed on raw ExprNode*, so iterating
+    it directly follows address order and the stale-index case only shows up in
+    some runs of the same binary on the same input -- roughly 2 in 10 here
+    before the fix, which clobbered a field parameter and produced either an
+    undefined Var, a leftover relax.Constant inside a tuple (FuseTIR: "Relax.
+    Constant is not supported in primitive functions"), or a FuseTIR buffer
+    count mismatch.
+
+    Four tuples each contributing two accessed fields, so every splice grows
+    params_ by one and any wrong ordering corrupts the result.
+    """
+    const = relax.const(np.arange(8, dtype="float32").reshape(1, 2, 2, 2))
+    n_tuples = 4
+
+    bb = relax.BlockBuilder()
+    params = [
+        relax.Var(f"x{i}", R.Tensor((1, 6, 2, 2), "float32")) for i in range(n_tuples)
+    ]
+    with bb.function("main", params, attrs={"num_input": n_tuples}):
+        with bb.dataflow():
+            gets = []
+            for p in params:
+                split = bb.emit(relax.op.split(p, 3, axis=1))
+                # Two of the three fields -- partially used, and a two-field
+                # splice is what makes the pending indices shift.
+                gets.append(bb.emit(relax.TupleGetItem(split, 0)))
+                gets.append(bb.emit(relax.TupleGetItem(split, 1)))
+            acc = bb.emit(relax.op.add(gets[0], gets[1]))
+            for g in gets[2:]:
+                acc = bb.emit(relax.op.add(acc, g))
+            out = bb.emit_output(bb.emit(relax.op.multiply(acc, const)))
+        bb.emit_func_output(out)
+    mod = bb.finalize()
+
+    pat = is_op("relax.add")(
+        is_tuple_get_item(wildcard(), 0), is_tuple_get_item(wildcard(), 1)
+    )
+    for i in range(2 * n_tuples - 2):
+        pat = is_op("relax.add")(pat, is_tuple_get_item(wildcard(), i % 2))
+    pat = is_op("relax.multiply")(pat, wildcard())
+
+    fused = relax.transform.FuseOpsByPattern(
+        [("tuple.multi", pat, {}, None)], bind_constants=False
+    )(mod)
+
+    composite = next(
+        f
+        for _, f in fused.functions_items()
+        if isinstance(f, relax.Function) and "Composite" in (f.attrs or {})
+    )
+    # One parameter per accessed field, plus the lifted constant. A stale index
+    # erases one of the field parameters instead of the tuple it belongs to.
+    assert len(composite.params) == 2 * n_tuples + 1
+
+    # No relax.Constant may survive inside the body: FuseTIR rejects them.
+    constants = []
+    relax.analysis.post_order_visit(
+        composite.body, lambda e: constants.append(e) if isinstance(e, relax.Constant) else None
+    )
+    assert not constants
+
+    assert relax.analysis.well_formed(fused)
+
+    # The whole downstream chain must still lower.
+    lowered = relax.transform.LegalizeOps()(fused)
+    lowered = relax.transform.FoldConstant()(lowered)
+    lowered = relax.transform.FuseOps()(lowered)
+    relax.transform.FuseTIR()(lowered)
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
