@@ -2,27 +2,31 @@
 
 Exercises the shared helper directly: build a small Composite(+Primitive)
 function via BlockBuilder whose data operand is a genuine tensor-shaped
-relax.Constant embedded directly in the body (the exact FuseOpsByPattern(
-bind_constants=False) shape a real fusion pattern produces when its matched
-tensor operand happens to already be a compile-time constant -- see
-_check_single_input in ti_fuse_qdq_c7x_movement.py, which explicitly allows
-this), then call it from main. A throwaway mutator declines the match (the
-same thing FuseQDQToC7xMovement/FuseQDQToC7xRelu's _lower_* methods do on a
-decline path) and calls the helper instead of leaving the call in place.
+relax.Constant embedded directly in the body, then call it from main. A
+throwaway mutator declines the match (the same thing FuseQDQToC7xMovement/
+FuseQDQToC7xRelu's _lower_* methods do on a decline path) and calls the helper
+instead of leaving the call in place.
 
-Note: a *scalar* embedded Constant (e.g. a quantization scale/zero-point) is
-NOT enough to reproduce the crash -- LegalizeOps bakes scalar operands
-directly into the generated TIR as literals, so no relax.Constant survives
-to reach FuseTIR. Only a tensor-shaped Constant (passed through as an actual
-call_tir buffer argument) reproduces it; confirmed empirically before writing
-this test, not assumed.
+Scope caveat -- this module is hand-built, NOT what the passes produce.
+FuseOpsByPattern(bind_constants=False) sets lift_constant_=true, so it lifts
+matched Constants to composite *parameters*; the composite body it emits holds
+no relax.Constant (measured on the dq-reshape-q and concat-tuple-field shapes
+alike). This test therefore validates that the helper correctly inlines and
+substitutes a body containing an embedded Constant, and that such a body would
+indeed crash FuseTIR if one ever reached it -- it does not demonstrate that any
+pass on this tree emits one.
+
+A *scalar* embedded Constant (e.g. a quantization scale/zero-point) would not
+be enough even then: LegalizeOps bakes scalar operands into the generated TIR
+as literals, so no relax.Constant survives to reach FuseTIR. Only a
+tensor-shaped Constant (passed through as an actual call_tir buffer argument)
+does.
 
 Confirms the leftover Composite/Primitive function is actually removable via
 DeadCodeElimination, and that the real pipeline's own
 LegalizeOps -> FoldConstant -> FuseOps -> FuseTIR sequence (see
 legalize_passes in python/tvm/relax/backend/cpu_generic/pipeline.py) then
-succeeds -- reproducing end-to-end the "Relax.Constant is not supported in
-primitive functions" crash this helper exists to avoid.
+succeeds.
 """
 
 import numpy as np

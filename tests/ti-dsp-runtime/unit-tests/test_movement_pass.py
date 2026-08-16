@@ -134,23 +134,23 @@ class TestReshapeRescale:
         assert "c7x_int8_rescale" not in text
 
     def test_constant_tensor_input_declines_and_still_compiles(self):
-        """Regression guard for the yolov5n crash on Jenkins build 230
-        (relax-c7x-build-validate, Quantized MMALIB c7x_dload stage): when
-        x is itself a literal relax.Constant tensor -- a real, already-
-        supported match per _check_single_input's isinstance(x, relax.
-        Constant) branch, not merely reachable from constants -- the
-        ConstReachability guard declines to fuse. Before the inline-on-
-        decline fix, the un-consumed Composite/Primitive function (which
-        embeds that Constant tensor directly, since FuseOpsByPattern here
-        uses bind_constants=False) crashed relax.transform.FuseTIR
-        downstream with "Relax.Constant is not supported in primitive
-        functions" -- reproduced directly against this exact scenario
-        before writing this test, not assumed. A scalar embedded constant
-        (e.g. the scale/zp) is NOT enough to reproduce this: LegalizeOps
-        bakes scalars into TIR literals, so only a tensor-shaped Constant
-        survives to reach FuseTIR. Confirms both the decline AND that the
-        module still compiles all the way through LegalizeOps -> FoldConstant
-        -> FuseOps -> FuseTIR."""
+        """When x is itself a literal relax.Constant tensor -- a real,
+        already-supported match per _check_single_input's isinstance(x,
+        relax.Constant) branch, not merely reachable from constants -- the
+        ConstReachability guard declines to fuse. Confirms both the decline
+        AND that the module still compiles all the way through LegalizeOps
+        -> FoldConstant -> FuseOps -> FuseTIR.
+
+        This exercises the _decline path (verified: one _decline hit,
+        composite c7x_movement.reshape, composite gone after the pass). It is
+        NOT a regression guard for the inline-on-decline fix: with
+        inline_declined_composite neutered so the decline leaves the
+        composite call in place, this module still compiles through FuseTIR
+        without raising. FuseOpsByPattern(bind_constants=False) lifts the
+        Constant to a composite parameter rather than embedding it in the
+        body, so the "Relax.Constant is not supported in primitive
+        functions" path is not reached here. Do not cite this test as
+        evidence that leaving a declined composite in place is unsafe."""
         const_x = relax.const(np.arange(16, dtype="int8").reshape(1, 4, 2, 2))
         bb = relax.BlockBuilder()
         with bb.function("main", [], attrs={"num_input": 0}):
@@ -402,10 +402,11 @@ class TestFPNUpsampleConcat:
         assert "c7x_int8_fpn_upsample_concat" not in text
 
     def test_constant_tensor_branch_declines_and_still_compiles(self):
-        """Same regression guard as TestReshapeRescale's version above, for
-        the FPN upsample-concat pattern: branch 2's data operand is itself a
-        literal relax.Constant tensor. See that test's docstring for the
-        full crash-mode explanation (Jenkins build 230, yolov5n)."""
+        """Same decline check as TestReshapeRescale's version above, for the
+        FPN upsample-concat pattern: branch 2's data operand is itself a
+        literal relax.Constant tensor. See that test's docstring, including
+        its caveat that this is a decline-path + still-compiles check, not a
+        regression guard for the inline-on-decline fix."""
         C1, C2, H, W = 8, 4, 4, 4
         const_x2 = relax.const(
             np.arange(C2 * 2 * H * 2 * W, dtype="int8").reshape(1, C2, 2 * H, 2 * W)

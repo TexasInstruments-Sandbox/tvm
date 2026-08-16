@@ -19,30 +19,52 @@
 
 The C7x QDQ-fusion passes (FuseQDQToC7xMovement, FuseQDQToC7xRelu, etc.) all
 call ``relax.transform.FuseOpsByPattern(patterns, bind_constants=False)``.
-With ``bind_constants=False``, the matched scale/zero-point ``relax.Constant``
-leaves are embedded directly inside the resulting Composite(+Primitive)-tagged
-function body rather than hoisted to call-site parameters.
+``bind_constants=False`` maps to ``lift_constant_=true`` in
+``src/relax/transform/fuse_ops.cc``, so matched ``relax.Constant`` leaves are
+lifted to *parameters* of the Composite(+Primitive)-tagged function and passed
+in at the call site; the composite body itself normally holds no
+``relax.Constant``. (Verified on the shapes these patterns produce, including a
+tensor Constant as the data operand and as a ``concat`` tuple field.)
 
 Every one of these passes' custom lowerers is expected to consume *every*
 matched composite call (replacing it with a call_te/call_extern), after which
 ``DeadCodeElimination`` removes the now-unreferenced composite function. That
 invariant matters: ``src/relax/transform/fuse_tir.cc``'s ``TIRFuseMutator``
 fuses *every* Primitive-tagged GlobalVar still present in the module,
-regardless of whether anything still calls it. A composite left un-consumed
-(or merely inlined-but-not-deleted) still gets visited by FuseTIR, which
-can't build a TIR PrimFunc from a function with an embedded ``relax.Constant``
--- it raises "Relax.Constant is not supported in primitive functions."
+regardless of whether anything still calls it. So a composite left un-consumed
+(or merely inlined-but-not-deleted) makes compilation depend on a function
+nothing calls -- it must legalize and fuse cleanly on its own, and FuseTIR
+fatals outright on any ``relax.Constant`` that does reach a primitive body
+("Relax.Constant is not supported in primitive functions"). A related
+already-observed failure mode for surviving composites is scalar scale/zp
+arriving as 0-d Buffer params rather than TIR literals -- see the comment at
+``fuse_dequantize_matmul.py``'s DeadCodeElimination call.
 
 When a lowerer declines a match (e.g. because an operand turns out to be
-compile-time-constant -- see ``ti_c7x_const_reachability.py``), it must not
-simply leave the composite call in place. ``inline_declined_composite``
-re-emits the composite's own body back into the caller, restoring exactly
-the ungrouped ops FuseOpsByPattern started from, so ordinary
-LegalizeOps/FuseOps/FuseTIR handle them (and their embedded constants) the
-normal way. The caller is still responsible for making sure
-``DeadCodeElimination`` actually runs afterward -- inlining only rewrites the
-call site; the now-orphaned composite function must still be deleted, or
-FuseTIR will visit it directly regardless of whether anything still calls it.
+compile-time-constant -- see ``ti_c7x_const_reachability.py``), leaving the
+composite call in place is therefore not obviously safe.
+``inline_declined_composite`` re-emits the composite's own body back into the
+caller, restoring exactly the ungrouped ops FuseOpsByPattern started from, so
+ordinary LegalizeOps/FuseOps/FuseTIR handle them the normal way and no
+orphaned Primitive function is left behind. The caller is still responsible
+for making sure ``DeadCodeElimination`` actually runs afterward -- inlining
+only rewrites the call site; the now-orphaned composite function must still be
+deleted, or FuseTIR will visit it directly regardless of whether anything
+still calls it.
+
+Note on scope: this helper is defense-in-depth for that invariant. No model on
+this tree has been shown to *require* it -- a declined composite left in place
+was measured to compile cleanly through LegalizeOps/FoldConstant/FuseOps/
+FuseTIR. The distinct, demonstrated hazard the decline branches themselves
+exist for is in ``be39717c39``: lowering an all-constant match makes
+FoldConstant host-JIT a C7x-only extern symbol and segfault.
+
+The intermittent "Relax.Constant is not supported in primitive functions" crash
+these passes were once suspected of causing came from somewhere else entirely:
+a stale parameter index when ``FunctionCreator::CreateFunction`` in
+``src/relax/transform/fuse_ops.cc`` spliced several partially-used tuple
+parameters. Do not reach for a decline-path change when that error reappears
+without first ruling that out.
 """
 
 from tvm import relax

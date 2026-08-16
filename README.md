@@ -6,7 +6,8 @@ with Arm cores in TI's AM67A/J722S SoCs.
 
 > **Not production-ready.** This is an active work-in-progress fork.
 
-Full documentation has moved to [`docs-c7x/`](docs-c7x/index.md):
+Full documentation is available in [`docs-c7x/`](docs-c7x/index.md) and
+published at <https://TexasInstruments-Sandbox.github.io/tvm/>:
 
 - [Getting Started](docs-c7x/user-guide/getting-started.md)
 - [Architecture Overview](docs-c7x/contributor-guide/architecture-overview.md)
