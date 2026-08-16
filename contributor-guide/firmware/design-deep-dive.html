@@ -1,0 +1,4107 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="architecture.html">
+      
+      
+        <link rel="next" href="arm-client-internals.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Firmware Design Deep-Dive - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#firmware-design-deep-dive" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Firmware Design Deep-Dive
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/compilation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/python-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/c-static.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/mmalib-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/memory-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C7x Memory Map Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="design-deep-dive.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#system-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="System Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#component-roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Component Roles
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#message-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Message Protocol
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Message Protocol">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#message-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Message Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#infer-message-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        INFER Message Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wire-format-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wire Format Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inference-flow-end-to-end-walk-through" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inference Flow — End-to-End Walk-Through
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Inference Flow — End-to-End Walk-Through">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-source-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Source Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-connection-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0: Connection Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 0: Connection Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arm-c7x_client_open" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM — c7x_client_open()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dsp-compute_service_init" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP — compute_service_init()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-load-elf-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Load ELF Module
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 1: Load ELF Module">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arm-c7x_client_dyn_load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM — c7x_client_dyn_load()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dsp-handle_dyn_load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP — handle_dyn_load()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-run-inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Run Inference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 2: Run Inference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arm-c7x_client_infer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM — c7x_client_infer()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dsp-handle_infer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP — handle_infer()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-unload-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Unload Module
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 3: Unload Module">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arm-c7x_client_dyn_unload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM — c7x_client_dyn_unload()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dsp-handle_dyn_unload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP — handle_dyn_unload()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-disconnect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Disconnect
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 4: Disconnect">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arm-c7x_client_close" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM — c7x_client_close()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complete-sequence-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Complete Sequence Diagram
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cli-one-liner-c7x_compute-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI One-Liner: c7x_compute run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Memory Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#physical-ddr-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physical DDR Layout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Physical DDR Layout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dsp-firmware-regions-reserved-by-device-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP Firmware Regions (reserved by device tree)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-compute-buffer-dma-heap-carveout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared Compute Buffer (DMA heap carveout)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extended-ddr-above-4-gb-mmu-translated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extended DDR (above 4 GB, MMU-translated)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l2-sram-c7x-local-not-ddr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2 SRAM (C7x-local, not DDR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#host-side-allocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host-Side Allocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-coherency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Coherency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mmu-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MMU Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory-budget-example-resnet-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Budget Example (ResNet-18)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory-address-map-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Address Map Summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dynamic-module-loading-dload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dynamic Module Loading (DLOAD)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dynamic Module Loading (DLOAD)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dload-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DLOAD Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supported-relocations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Relocations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#symbol-export-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Export Table
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#module-unload-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module Unload Lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#symbol-table-synchronization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Table Synchronization
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ipc-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        IPC Details
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="IPC Details">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rpmessage-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RPMessage Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initialization-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Initialization Sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clean-shutdown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clean Shutdown
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#device-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Device Discovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-memory-printf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared Memory Printf
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shared Memory Printf">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#buffer-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buffer Layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-design-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Design Decisions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-system-internals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build System Internals
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Build System Internals">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dsp-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP Firmware
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#host-application" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host Application
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-tvm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to TVM
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-organization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Organization
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="arm-client-internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM Host Client Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-debug.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Debug Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/c-static-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dsp-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dsp-cpp-harness.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP C++ Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/mmalib-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/pt2e-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/quantized-sweep.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dynamic-shape-limits.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Shape Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#system-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="System Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#component-roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Component Roles
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#message-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Message Protocol
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Message Protocol">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#message-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Message Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#infer-message-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        INFER Message Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wire-format-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wire Format Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inference-flow-end-to-end-walk-through" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inference Flow — End-to-End Walk-Through
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Inference Flow — End-to-End Walk-Through">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-source-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Source Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-connection-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0: Connection Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 0: Connection Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arm-c7x_client_open" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM — c7x_client_open()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dsp-compute_service_init" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP — compute_service_init()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-load-elf-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Load ELF Module
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 1: Load ELF Module">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arm-c7x_client_dyn_load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM — c7x_client_dyn_load()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dsp-handle_dyn_load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP — handle_dyn_load()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-run-inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Run Inference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 2: Run Inference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arm-c7x_client_infer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM — c7x_client_infer()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dsp-handle_infer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP — handle_infer()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-unload-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Unload Module
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 3: Unload Module">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arm-c7x_client_dyn_unload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM — c7x_client_dyn_unload()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dsp-handle_dyn_unload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP — handle_dyn_unload()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-disconnect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Disconnect
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 4: Disconnect">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#arm-c7x_client_close" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM — c7x_client_close()
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complete-sequence-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Complete Sequence Diagram
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cli-one-liner-c7x_compute-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI One-Liner: c7x_compute run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Memory Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#physical-ddr-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physical DDR Layout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Physical DDR Layout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dsp-firmware-regions-reserved-by-device-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP Firmware Regions (reserved by device tree)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-compute-buffer-dma-heap-carveout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared Compute Buffer (DMA heap carveout)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extended-ddr-above-4-gb-mmu-translated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extended DDR (above 4 GB, MMU-translated)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l2-sram-c7x-local-not-ddr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2 SRAM (C7x-local, not DDR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#host-side-allocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host-Side Allocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-coherency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Coherency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mmu-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MMU Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory-budget-example-resnet-18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Budget Example (ResNet-18)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory-address-map-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Address Map Summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dynamic-module-loading-dload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dynamic Module Loading (DLOAD)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dynamic Module Loading (DLOAD)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dload-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DLOAD Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supported-relocations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Relocations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#symbol-export-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Export Table
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#module-unload-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module Unload Lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#symbol-table-synchronization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Table Synchronization
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ipc-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        IPC Details
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="IPC Details">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rpmessage-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RPMessage Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initialization-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Initialization Sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clean-shutdown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clean Shutdown
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#device-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Device Discovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-memory-printf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared Memory Printf
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shared Memory Printf">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#buffer-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buffer Layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-design-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Design Decisions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-system-internals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build System Internals
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Build System Internals">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dsp-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSP Firmware
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#host-application" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host Application
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-tvm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to TVM
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-organization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Organization
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="firmware-design-deep-dive">Firmware Design Deep-Dive</h1>
+<h2 id="overview">Overview</h2>
+<p>The c7x-firmware is a host-DSP compute service for the TI AM67A (J722S)
+that enables Linux applications running on the ARM A53 to offload ML
+inference and data processing to the C7x DSP. It communicates over
+RPMessage IPC and transfers data through shared DDR memory allocated from
+a DMA heap carveout.</p>
+<p>The primary use case is running TVM-compiled neural network models on the
+C7x DSP. The TVM C static backend produces a relocatable C7x ELF module
+(<code>lib0.out</code>) with model weights embedded in a <code>.rodata.weights</code> section.
+The firmware's dynamic loader (DLOAD) loads this ELF at runtime, resolves
+symbols against the firmware's export table, and makes the model's entry
+point callable via an INFER command from the host.</p>
+<p>For build instructions, deployment, CLI usage, and troubleshooting, see
+<a href="../../user-guide/deploying-firmware.html">Deploying Firmware</a> and
+<a href="architecture.html">Firmware Architecture</a>.</p>
+<hr />
+<h2 id="system-architecture">System Architecture</h2>
+<div class="highlight"><pre><span></span><code>+------------------------------------------------------------------+
+|                    Linux/ARM (A53)                                |
+|  +------------------------------------------------------------+  |
+|  |  c7x_compute CLI / Library                                 |  |
+|  |  - Allocates shared DDR via /dev/dma_heap                  |  |
+|  |  - Sends commands via RPMessage (/dev/rpmsg*)              |  |
+|  |  - Discovers rpmsg_ctrl by device tree address             |  |
+|  +------------------------------------------------------------+  |
++------------------------------------------------------------------+
+                          |
+                ====================== RPMessage (virtio/rpmsg_char)
+                          |
++------------------------------------------------------------------+
+|                    C7x DSP (7e000000.dsp)                        |
+|  +------------------------------------------------------------+  |
+|  |  Compute Service (FreeRTOS)                                |  |
+|  |  - RPMessage endpoint 20 (&quot;rpmsg_chrdev&quot;)                  |  |
+|  |  - DLOAD dynamic loader for C7x ELF modules               |  |
+|  |  - TVM model manager for weights/constants                 |  |
+|  |  - INFER pipeline: resolve entry, call cg_main_dsp         |  |
+|  |  - Clean shutdown with remoteproc ACK                      |  |
+|  +------------------------------------------------------------+  |
++------------------------------------------------------------------+
+</code></pre></div>
+<h3 id="component-roles">Component Roles</h3>
+<p><strong>ARM Client / Library</strong> (<code>arm/</code>): User-space Linux C++14 application
+that allocates a 512 MB shared buffer from the DMA heap, maps it into
+user space, stages data (ELF binaries, input tensors) into the buffer,
+and sends IPC commands to the DSP over RPMessage. The library provides
+a C API (<code>c7x_compute_client.h</code> with <code>extern "C"</code> linkage) and the
+CLI wraps it for interactive use. Resource management uses RAII
+wrappers (<code>raii.h</code>) for file descriptors, mmap regions, and FILE
+handles.</p>
+<p><strong>Compute Service</strong> (<code>dsp/src/compute_service.c</code>): FreeRTOS task that
+blocks on <code>RPMessage_recv()</code>, dispatches messages by type, and sends
+responses. Handles PING, STATUS, DYN_LOAD, INFER, and DYN_UNLOAD
+commands. On DYN_UNLOAD, orchestrates TVM runtime cleanup
+(register file, model slot, constants) before freeing module memory.</p>
+<p><strong>Dynamic Loader</strong> (<code>dsp/src/dyn_loader.c</code> + <code>dsp/src/dload/</code>): Wraps
+TI's DLOAD library to load relocatable C7x ELF modules into DDR at
+runtime. Provides a symbol export table (61 symbols) so loaded modules
+can call firmware-provided functions (C library, TVM runtime, math).</p>
+<p><strong>TVM Model Manager</strong> (<code>dsp/src/tvm_model.c</code>): Manages model
+weights/constants that are either embedded in the ELF <code>.rodata.weights</code>
+section or loaded separately via the MODEL_LOAD command. Parses the
+TVM weights binary format and constructs DLTensor descriptors.</p>
+<p><strong>Shared Protocol</strong> (<code>common/c7x_compute_protocol.h</code>): Header shared
+between ARM and DSP defining all message structures, types, status
+codes, and memory layout constants.</p>
+<hr />
+<h2 id="message-protocol">Message Protocol</h2>
+<p>All communication uses a binary message protocol over RPMessage with a
+maximum message size of 512 bytes. Every message starts with a 16-byte
+header:</p>
+<div class="highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">c7x_msg_hdr</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">type</span><span class="p">;</span><span class="w">      </span><span class="c1">// Message type (C7X_MSG_*)</span>
+<span class="w">    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">seq</span><span class="p">;</span><span class="w">       </span><span class="c1">// Sequence number for correlation</span>
+<span class="w">    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">len</span><span class="p">;</span><span class="w">       </span><span class="c1">// Total message length including header</span>
+<span class="w">    </span><span class="kt">int32_t</span><span class="w">  </span><span class="n">status</span><span class="p">;</span><span class="w">    </span><span class="c1">// Response status (0 = success)</span>
+<span class="p">};</span>
+</code></pre></div>
+<p>Response types are <code>0x1000 | request_type</code>.</p>
+<h3 id="message-types">Message Types</h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Code</th>
+<th>Direction</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PING</td>
+<td>0x0001</td>
+<td>Host -&gt; DSP</td>
+<td>Connectivity test</td>
+</tr>
+<tr>
+<td>GET_STATUS</td>
+<td>0x0003</td>
+<td>Host -&gt; DSP</td>
+<td>Get service status</td>
+</tr>
+<tr>
+<td>DYN_LOAD</td>
+<td>0x0010</td>
+<td>Host -&gt; DSP</td>
+<td>Load ELF module</td>
+</tr>
+<tr>
+<td>DYN_UNLOAD</td>
+<td>0x0012</td>
+<td>Host -&gt; DSP</td>
+<td>Unload module</td>
+</tr>
+<tr>
+<td>MODEL_LOAD</td>
+<td>0x0020</td>
+<td>Host -&gt; DSP</td>
+<td>Load weights/constants</td>
+</tr>
+<tr>
+<td>INFER</td>
+<td>0x0021</td>
+<td>Host -&gt; DSP</td>
+<td>Run inference</td>
+</tr>
+<tr>
+<td>INFER_LARGE</td>
+<td>0x0023</td>
+<td>Host -&gt; DSP</td>
+<td>Run inference with &gt;4 inputs (descriptors in DDR)</td>
+</tr>
+<tr>
+<td>MODEL_UNLOAD</td>
+<td>0x0022</td>
+<td>Host -&gt; DSP</td>
+<td>Unload model weights</td>
+</tr>
+</tbody>
+</table>
+<h3 id="infer-message-structure">INFER Message Structure</h3>
+<p>The INFER message carries tensor descriptors inline (up to 4 inputs):</p>
+<div class="highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">c7x_msg_infer</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">c7x_msg_hdr</span><span class="w"> </span><span class="n">hdr</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">module_handle</span><span class="p">;</span><span class="w">     </span><span class="c1">// From DYN_LOAD response</span>
+<span class="w">    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">model_id</span><span class="p">;</span><span class="w">          </span><span class="c1">// From MODEL_LOAD response</span>
+<span class="w">    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">num_inputs</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">flags</span><span class="p">;</span>
+<span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">c7x_tensor_desc</span><span class="w"> </span><span class="n">inputs</span><span class="p">[</span><span class="mi">1</span><span class="p">];</span><span class="w"> </span><span class="c1">// Variable-length</span>
+<span class="p">};</span>
+</code></pre></div>
+<p>Each tensor descriptor (80 bytes) contains the DSP virtual address of
+the data in shared memory, data size, dtype, and shape (up to 6
+dimensions). The INFER response includes output tensor descriptors
+written by the DSP, cycle count, and <code>printf_size</code> indicating the
+number of bytes of printf output in the shared memory printf buffer.</p>
+<p>For &gt;4 inputs (e.g. KV-cache LLMs), descriptors are staged in DDR
+and <code>C7X_MSG_INFER_LARGE</code> is used instead — the message carries only
+<code>descs_addr</code> and <code>descs_size</code> pointers.</p>
+<h3 id="wire-format-examples">Wire Format Examples</h3>
+<p><strong>DYN_LOAD request</strong> (32 bytes):</p>
+<div class="highlight"><pre><span></span><code>Offset  Field           Value
+  0     type            0x00000010  (C7X_MSG_DYN_LOAD)
+  4     seq             &lt;n&gt;
+  8     len             32
+ 12     status          0
+ 16     elf_size        &lt;bytes&gt;
+ 20     flags           0
+ 24-31  reserved        0
+</code></pre></div>
+<p><strong>DYN_LOAD_RESP</strong> (32 bytes):</p>
+<div class="highlight"><pre><span></span><code>Offset  Field           Value
+  0     type            0x00001010  (C7X_MSG_DYN_LOAD_RESP)
+  4     seq             &lt;n&gt;  (matches request)
+  8     len             32
+ 12     status          0   (C7X_STATUS_SUCCESS)
+ 16     module_handle   1   (opaque integer)
+ 20     text_size       0
+ 24     data_size       0
+ 28     reserved        0
+</code></pre></div>
+<p><strong>INFER request</strong> (single input = 112 bytes):</p>
+<div class="highlight"><pre><span></span><code>Offset  Field               Value
+  0     type                0x00000021  (C7X_MSG_INFER)
+  4     seq                 &lt;n&gt;
+  8     len                 112
+ 12     status              0
+ 16     module_handle       1
+ 20     model_id            0  (0 = use embedded weights)
+ 24     num_inputs          1
+ 28     flags               0
+ 32     inputs[0].data_addr 0xC0000000 + elf_size   (DSP virtual)
+ 40     inputs[0].data_size &lt;bytes&gt;
+ 48     inputs[0].ndim      4
+ 52     inputs[0].dtype_code 2  (kDLFloat)
+ 56     inputs[0].dtype_bits 32
+ 60     inputs[0].reserved  0
+ 64     inputs[0].shape[0]  1
+ 72     inputs[0].shape[1]  3
+ 80     inputs[0].shape[2]  224
+ 88     inputs[0].shape[3]  224
+ 96-111 (remaining shape)   0
+</code></pre></div>
+<p><strong>INFER_RESP</strong> (single output = 152 bytes):</p>
+<div class="highlight"><pre><span></span><code>Offset  Field                   Value
+  0     type                    0x00001021  (C7X_MSG_INFER_RESP)
+  4     seq                     &lt;n&gt;  (matches request)
+  8     len                     152
+ 12     status                  0   (C7X_STATUS_SUCCESS)
+ 16     return_value            0   (cg_main_dsp return value)
+ 20     cycles                  &lt;64-bit TSC delta&gt;   (8 bytes)
+ 28     num_outputs             1
+ 32     printf_size             0   (or N if -profile-layers was set)
+ 36     descs_addr              0   (0 = inline; non-zero = out-of-band)
+ 44     descs_size              0
+ 48     reserved                0
+ 52     outputs[0].data_addr    0xDE000000  (C7X_RESULT_ADDR)
+ 60     outputs[0].data_size    &lt;bytes&gt;
+ 68     outputs[0].ndim         2
+ 72     outputs[0].dtype_code   2   (kDLFloat)
+ 76     outputs[0].dtype_bits   32
+ 80     outputs[0].reserved     0
+ 84     outputs[0].shape[0]     1
+ 92     outputs[0].shape[1]     1000
+ 96-151 (remaining shape)       0
+</code></pre></div>
+<hr />
+<h2 id="inference-flow-end-to-end-walk-through">Inference Flow — End-to-End Walk-Through</h2>
+<p>This section traces the exact code path for a single inference request —
+from the ARM Linux application calling into the host client library, through
+the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
+<h3 id="key-source-files">Key Source Files</h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Side</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>firmware/c7x/arm/include/c7x_compute_client.h</code></td>
+<td>ARM</td>
+<td>Public C API</td>
+</tr>
+<tr>
+<td><code>firmware/c7x/arm/src/c7x_compute_client.cpp</code></td>
+<td>ARM</td>
+<td>Client implementation</td>
+</tr>
+<tr>
+<td><code>firmware/c7x/arm/src/c7x_compute_cli.cpp</code></td>
+<td>ARM</td>
+<td><code>c7x_compute</code> CLI tool</td>
+</tr>
+<tr>
+<td><code>firmware/c7x/common/c7x_compute_protocol.h</code></td>
+<td>both</td>
+<td>Shared message structs</td>
+</tr>
+<tr>
+<td><code>firmware/c7x/dsp/src/compute_service.c</code></td>
+<td>DSP</td>
+<td>Service loop + handlers</td>
+</tr>
+<tr>
+<td><code>firmware/c7x/dsp/src/dyn_loader.c</code></td>
+<td>DSP</td>
+<td>DLOAD ELF loader</td>
+</tr>
+<tr>
+<td><code>firmware/c7x/dsp/src/tvm_model.c</code></td>
+<td>DSP</td>
+<td>Weights/constants manager</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="phase-0-connection-setup">Phase 0: Connection Setup</h3>
+<h4 id="arm-c7x_client_open">ARM — <code>c7x_client_open()</code></h4>
+<p><strong>Source:</strong> <code>firmware/c7x/arm/src/c7x_compute_client.cpp:148</code></p>
+<ol>
+<li><strong>Open RPMessage channel</strong> via <code>rpmsg_open(C7X_DEVICE_ADDR, C7X_SERVICE_ENDPOINT, C7X_SERVICE_NAME)</code>.</li>
+<li><code>C7X_DEVICE_ADDR = "7e000000.dsp"</code> — stable device-tree address.</li>
+<li>
+<p><code>C7X_SERVICE_ENDPOINT = 20</code> — the well-known endpoint announced by firmware.</p>
+</li>
+<li>
+<p><strong>Allocate shared DDR buffer</strong> from the DMA heap carveout:</p>
+</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="n">client</span><span class="o">-&gt;</span><span class="n">dma_heap_fd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">open</span><span class="p">(</span><span class="s">&quot;/dev/dma_heap/carveout_vision_apps_shared-memories&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span>
+<span class="n">ioctl</span><span class="p">(</span><span class="n">dma_heap_fd</span><span class="p">,</span><span class="w"> </span><span class="n">DMA_HEAP_IOCTL_ALLOC</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">heap_data</span><span class="p">);</span><span class="w">  </span><span class="c1">// heap_data.len = C7X_SHARED_SIZE</span>
+<span class="n">mapped</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mmap</span><span class="p">(</span><span class="nb">NULL</span><span class="p">,</span><span class="w"> </span><span class="n">C7X_SHARED_SIZE</span><span class="p">,</span><span class="w"> </span><span class="n">PROT_READ</span><span class="o">|</span><span class="n">PROT_WRITE</span><span class="p">,</span><span class="w"> </span><span class="n">MAP_SHARED</span><span class="p">,</span><span class="w"> </span><span class="n">dma_buf_fd</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="n">client</span><span class="o">-&gt;</span><span class="n">staging_buf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mapped</span><span class="p">;</span><span class="w">                           </span><span class="c1">// input side (offset 0)</span>
+<span class="n">client</span><span class="o">-&gt;</span><span class="n">result_buf</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">mapped</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">C7X_STAGING_SIZE</span><span class="p">;</span><span class="w">       </span><span class="c1">// output side (offset 480 MB)</span>
+</code></pre></div>
+<ol>
+<li><strong>Attach buffer to DSP</strong> via remoteproc ioctl — creates the DMA mapping
+   that makes the buffer visible to the C7x MMU:</li>
+</ol>
+<p><div class="highlight"><pre><span></span><code><span class="kt">int</span><span class="w"> </span><span class="n">idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">find_remoteproc_index</span><span class="p">(</span><span class="s">&quot;7e000000.dsp&quot;</span><span class="p">);</span>
+<span class="n">client</span><span class="o">-&gt;</span><span class="n">rproc_fd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">open</span><span class="p">(</span><span class="s">&quot;/dev/remoteproc0&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">O_RDONLY</span><span class="p">);</span><span class="w">  </span><span class="c1">// must stay open!</span>
+<span class="n">ioctl</span><span class="p">(</span><span class="n">rproc_fd</span><span class="p">,</span><span class="w"> </span><span class="n">RPROC_IOC_DMA_BUF_ATTACH</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">phys_data</span><span class="p">);</span>
+<span class="n">client</span><span class="o">-&gt;</span><span class="n">phys_addr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">phys_data</span><span class="p">.</span><span class="n">phys</span><span class="p">;</span><span class="w">  </span><span class="c1">// = C7X_SHARED_PHYS_BASE = 0x900000000</span>
+</code></pre></div>
+   The DSP sees this region at virtual address <code>0xC0000000</code> (static MMU mapping).</p>
+<h4 id="dsp-compute_service_init">DSP — <code>compute_service_init()</code></h4>
+<p><strong>Source:</strong> <code>firmware/c7x/dsp/src/compute_service.c:1159</code></p>
+<p>The firmware was already started via <code>remoteproc</code>. On boot it:</p>
+<ol>
+<li>Creates an RPMessage endpoint at <code>C7X_SERVICE_ENDPOINT = 20</code>.</li>
+<li>Announces <code>"rpmsg_chrdev"</code> to Linux — creates <code>/dev/rpmsg*</code> character device.</li>
+<li>Calls <code>dyn_loader_init()</code> to initialise the DLOAD ELF loader.</li>
+<li>Calls <code>tvm_model_init()</code> to initialise the weights/constants manager.</li>
+<li>Calls <code>shm_printf_init()</code> to redirect DSP <code>printf</code> to shared memory.</li>
+<li>Sets <code>gServiceRunning = 1</code> and enters <code>compute_service_run()</code>.</li>
+</ol>
+<p>See §IPC Details for RPMessage configuration parameters and shutdown sequence.</p>
+<hr />
+<h3 id="phase-1-load-elf-module">Phase 1: Load ELF Module</h3>
+<h4 id="arm-c7x_client_dyn_load">ARM — <code>c7x_client_dyn_load()</code></h4>
+<p><strong>Source:</strong> <code>firmware/c7x/arm/src/c7x_compute_client.cpp:435</code></p>
+<div class="highlight"><pre><span></span><code><span class="c1">// 1. Read ELF file into staging_buf (shared DDR, visible to DSP)</span>
+<span class="n">stage_file</span><span class="p">(</span><span class="n">client</span><span class="p">,</span><span class="w"> </span><span class="n">elf_file</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">file_size</span><span class="p">);</span>
+<span class="n">sync_input_to_device</span><span class="p">(</span><span class="n">client</span><span class="p">);</span><span class="w">   </span><span class="c1">// DMA_BUF_SYNC_END|SYNC_WRITE: flush ARM cache</span>
+
+<span class="c1">// 2. Build and send IPC message</span>
+<span class="k">struct</span><span class="w"> </span><span class="nc">c7x_msg_dyn_load</span><span class="w"> </span><span class="n">req</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="p">.</span><span class="n">hdr</span><span class="p">.</span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">C7X_MSG_DYN_LOAD</span><span class="p">,</span>
+<span class="w">    </span><span class="p">.</span><span class="n">hdr</span><span class="p">.</span><span class="n">seq</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="o">++</span><span class="n">client</span><span class="o">-&gt;</span><span class="n">seq</span><span class="p">,</span>
+<span class="w">    </span><span class="p">.</span><span class="n">hdr</span><span class="p">.</span><span class="n">len</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="n">req</span><span class="p">),</span>
+<span class="w">    </span><span class="p">.</span><span class="n">elf_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">file_size</span><span class="p">,</span>
+<span class="p">};</span>
+<span class="n">send_and_recv</span><span class="p">(</span><span class="n">client</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">req</span><span class="p">,</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="n">req</span><span class="p">),</span><span class="w"> </span><span class="o">&amp;</span><span class="n">resp</span><span class="p">,</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="n">resp</span><span class="p">));</span>
+
+<span class="c1">// 3. Preserve in-place rodata: inputs must be staged after the ELF</span>
+<span class="o">*</span><span class="n">handle_out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">module_handle</span><span class="p">;</span>
+<span class="n">client</span><span class="o">-&gt;</span><span class="n">input_data_offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">file_size</span><span class="p">;</span>
+</code></pre></div>
+<h4 id="dsp-handle_dyn_load">DSP — <code>handle_dyn_load()</code></h4>
+<p><strong>Source:</strong> <code>firmware/c7x/dsp/src/compute_service.c:143</code></p>
+<div class="highlight"><pre><span></span><code><span class="c1">// 1. Load ELF from staging buffer (phys 0x900000000 = DSP virt 0xC0000000)</span>
+<span class="n">dyn_loader_load</span><span class="p">(</span><span class="n">C7X_STAGING_ADDR</span><span class="p">,</span><span class="w"> </span><span class="n">req</span><span class="o">-&gt;</span><span class="n">elf_size</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">handle</span><span class="p">);</span>
+<span class="c1">//   DLOAD: parse ELF, allocate segments in DDR heap,</span>
+<span class="c1">//   apply C7x relocations, resolve 61 imported symbols.</span>
+<span class="c1">//   NOTE: .rodata segments are mapped IN-PLACE from staging_buf.</span>
+
+<span class="c1">// 2. Look up the TVM-generated entry point</span>
+<span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;cg_main_dsp&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">sym_addr</span><span class="p">);</span>
+<span class="n">g_cg_main_dsp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">cg_main_dsp_fn</span><span class="p">)(</span><span class="kt">uintptr_t</span><span class="p">)</span><span class="n">sym_addr</span><span class="p">;</span>
+
+<span class="c1">// 3. Check for embedded weights</span>
+<span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;_binary_weights_bin_start&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">ws_addr</span><span class="p">);</span>
+<span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;_binary_weights_bin_size&quot;</span><span class="p">,</span><span class="w">  </span><span class="o">&amp;</span><span class="n">wz_addr</span><span class="p">);</span>
+<span class="n">tvm_model_load_weights</span><span class="p">(</span><span class="n">ws_addr</span><span class="p">,</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="kt">uint32_t</span><span class="o">*</span><span class="p">)</span><span class="n">wz_addr</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">g_embedded_model_id</span><span class="p">);</span>
+
+<span class="c1">// 4. Save pool watermark for workspace reclaim after inference</span>
+<span class="n">tvm_dsp_save_infer_watermark</span><span class="p">();</span>
+
+<span class="n">send_response</span><span class="p">(</span><span class="n">C7X_MSG_DYN_LOAD_RESP</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span>
+</code></pre></div>
+<hr />
+<h3 id="phase-2-run-inference">Phase 2: Run Inference</h3>
+<h4 id="arm-c7x_client_infer">ARM — <code>c7x_client_infer()</code></h4>
+<p><strong>Source:</strong> <code>firmware/c7x/arm/src/c7x_compute_client.cpp:691</code></p>
+<p><strong>Step A — Stage input tensor data:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1">// Inputs go AFTER the ELF to avoid corrupting DLOAD&#39;d rodata</span>
+<span class="n">data_offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="o">-&gt;</span><span class="n">input_data_offset</span><span class="p">;</span>
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">num_inputs</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">memcpy</span><span class="p">(</span><span class="n">staging_buf</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">data_offset</span><span class="p">,</span><span class="w"> </span><span class="n">inputs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">inputs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data_size</span><span class="p">);</span>
+<span class="w">    </span><span class="n">data_offset</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">inputs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data_size</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="n">sync_input_to_device</span><span class="p">(</span><span class="n">client</span><span class="p">);</span><span class="w">   </span><span class="c1">// flush ARM cache → DDR</span>
+</code></pre></div>
+<p><strong>Step B — Build tensor descriptors with DSP virtual addresses:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="kt">uint64_t</span><span class="w"> </span><span class="n">cur_addr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">C7X_STAGING_ADDR</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">client</span><span class="o">-&gt;</span><span class="n">input_data_offset</span><span class="p">;</span>
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">num_inputs</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">desc_arr</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data_addr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cur_addr</span><span class="p">;</span><span class="w">   </span><span class="c1">// DSP sees this address</span>
+<span class="w">    </span><span class="n">desc_arr</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">inputs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data_size</span><span class="p">;</span>
+<span class="w">    </span><span class="c1">// ... ndim, dtype, shape</span>
+<span class="w">    </span><span class="n">cur_addr</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">inputs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data_size</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><strong>Step C — Send INFER (≤4 inputs inline) or INFER_LARGE (&gt;4 inputs in DDR):</strong></p>
+<div class="highlight"><pre><span></span><code><span class="n">req</span><span class="o">-&gt;</span><span class="n">hdr</span><span class="p">.</span><span class="n">type</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">C7X_MSG_INFER</span><span class="p">;</span>
+<span class="n">req</span><span class="o">-&gt;</span><span class="n">module_handle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">module_handle</span><span class="p">;</span>
+<span class="n">req</span><span class="o">-&gt;</span><span class="n">model_id</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">model_id</span><span class="p">;</span><span class="w">         </span><span class="c1">// 0 → use embedded weights</span>
+<span class="n">req</span><span class="o">-&gt;</span><span class="n">num_inputs</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">num_inputs</span><span class="p">;</span>
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">num_inputs</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span>
+<span class="w">    </span><span class="n">req</span><span class="o">-&gt;</span><span class="n">inputs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">desc_arr</span><span class="p">[</span><span class="n">i</span><span class="p">];</span>
+<span class="n">send_and_recv</span><span class="p">(</span><span class="n">client</span><span class="p">,</span><span class="w"> </span><span class="n">req</span><span class="p">,</span><span class="w"> </span><span class="n">req_size</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">,</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="n">resp_buf</span><span class="p">));</span>
+</code></pre></div>
+<p><strong>Steps D-F — Back from send_and_recv():</strong></p>
+<div class="highlight"><pre><span></span><code><span class="n">sync_output_from_device</span><span class="p">(</span><span class="n">client</span><span class="p">);</span><span class="w">   </span><span class="c1">// invalidate ARM cache (DMA_BUF_SYNC_READ)</span>
+
+<span class="c1">// Convert DSP virtual addresses → ARM userspace pointers</span>
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">resp</span><span class="o">-&gt;</span><span class="n">num_outputs</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">td_base</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data_addr</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">C7X_RESULT_ADDR</span><span class="p">;</span>
+<span class="w">    </span><span class="n">outputs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="o">*</span><span class="p">)</span><span class="n">client</span><span class="o">-&gt;</span><span class="n">result_buf</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">offset</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="c1">// Read DSP printf output (layer profiles, if -profile-layers was set)</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resp</span><span class="o">-&gt;</span><span class="n">printf_size</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span>
+<span class="w">    </span><span class="n">fwrite</span><span class="p">(</span><span class="n">printf_buf_ptr</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="o">-&gt;</span><span class="n">printf_size</span><span class="p">,</span><span class="w"> </span><span class="n">stderr</span><span class="p">);</span>
+
+<span class="o">*</span><span class="n">cycles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">resp</span><span class="o">-&gt;</span><span class="n">cycles</span><span class="p">;</span>
+</code></pre></div>
+<h4 id="dsp-handle_infer">DSP — <code>handle_infer()</code></h4>
+<p><strong>Source:</strong> <code>firmware/c7x/dsp/src/compute_service.c:616</code></p>
+<p><strong>Steps A-B — Validate, resolve entry point, resolve constants, cache-invalidate inputs:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">g_cg_main_dsp</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nb">NULL</span><span class="p">)</span>
+<span class="w">    </span><span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="n">module_handle</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;cg_main_dsp&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">sym_addr</span><span class="p">);</span>
+
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">eff_model_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">req</span><span class="o">-&gt;</span><span class="n">model_id</span><span class="p">;</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">eff_model_id</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">g_embedded_model_id</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span>
+<span class="w">    </span><span class="n">eff_model_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">g_embedded_model_id</span><span class="p">;</span>
+<span class="n">tvm_model_get_constants</span><span class="p">(</span><span class="n">eff_model_id</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">constants</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">num_constants</span><span class="p">);</span>
+
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">req</span><span class="o">-&gt;</span><span class="n">num_inputs</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">CacheP_inv</span><span class="p">((</span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="p">)(</span><span class="kt">uintptr_t</span><span class="p">)</span><span class="n">td</span><span class="o">-&gt;</span><span class="n">data_addr</span><span class="p">,</span><span class="w"> </span><span class="n">td</span><span class="o">-&gt;</span><span class="n">data_size</span><span class="p">,</span><span class="w"> </span><span class="n">CacheP_TYPE_ALL</span><span class="p">);</span>
+<span class="w">    </span><span class="c1">// Build zero-copy NDArray pointing into shared DDR</span>
+<span class="w">    </span><span class="n">ndarrays</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">void</span><span class="w"> </span><span class="o">*</span><span class="p">)(</span><span class="kt">uintptr_t</span><span class="p">)</span><span class="n">td</span><span class="o">-&gt;</span><span class="n">data_addr</span><span class="p">;</span>
+<span class="w">    </span><span class="n">anys</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">.</span><span class="n">type_index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">kTVMFFITensor</span><span class="p">,</span><span class="w"> </span><span class="p">.</span><span class="n">v_ptr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">&amp;</span><span class="n">ndarrays</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="p">};</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><strong>Step C — Call the TVM-generated entry point:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="n">shm_printf_reset</span><span class="p">();</span>
+<span class="n">start_cycles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__TSC</span><span class="p">;</span>
+
+<span class="n">ret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">g_cg_main_dsp</span><span class="p">(</span><span class="n">input_anys</span><span class="p">,</span><span class="w">    </span><span class="c1">// TVMFFIAny[] — input NDArrays</span>
+<span class="w">                    </span><span class="n">num_inputs</span><span class="p">,</span>
+<span class="w">                    </span><span class="n">constants</span><span class="p">,</span><span class="w">      </span><span class="c1">// TVMFFIAny[] — weight NDArrays</span>
+<span class="w">                    </span><span class="o">&amp;</span><span class="n">output_any</span><span class="p">);</span><span class="w">   </span><span class="c1">// TVMFFIAny * — output</span>
+
+<span class="n">end_cycles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__TSC</span><span class="p">;</span>
+<span class="n">resp</span><span class="o">-&gt;</span><span class="n">cycles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">end_cycles</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start_cycles</span><span class="p">;</span>
+</code></pre></div>
+<p><code>g_cg_main_dsp</code> is generated by <code>src/target/c_static/</code>. Its signature is:
+<div class="highlight"><pre><span></span><code><span class="kt">int</span><span class="w"> </span><span class="nf">cg_main_dsp</span><span class="p">(</span><span class="n">TVMFFIAny</span><span class="w"> </span><span class="o">*</span><span class="n">inputs</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">num_inputs</span><span class="p">,</span>
+<span class="w">                </span><span class="n">TVMFFIAny</span><span class="w"> </span><span class="o">*</span><span class="n">constants</span><span class="p">,</span><span class="w"> </span><span class="n">TVMFFIAny</span><span class="w"> </span><span class="o">*</span><span class="n">output</span><span class="p">);</span>
+</code></pre></div></p>
+<p><strong>Step D — Extract and stage output tensors:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="n">extract_infer_output</span><span class="p">(</span><span class="o">&amp;</span><span class="n">output_any</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">);</span>
+<span class="c1">// kTVMFFITensor (single): copy to result_buf + CacheP_wb</span>
+<span class="c1">// kTVMFFIArray  (multi):  pack consecutively + CacheP_wb</span>
+
+<span class="n">resp</span><span class="o">-&gt;</span><span class="n">printf_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">shm_printf_finish</span><span class="p">();</span>
+<span class="n">send_response</span><span class="p">(</span><span class="n">C7X_MSG_INFER_RESP</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span>
+</code></pre></div>
+<hr />
+<h3 id="phase-3-unload-module">Phase 3: Unload Module</h3>
+<h4 id="arm-c7x_client_dyn_unload">ARM — <code>c7x_client_dyn_unload()</code></h4>
+<p><strong>Source:</strong> <code>firmware/c7x/arm/src/c7x_compute_client.cpp:477</code></p>
+<div class="highlight"><pre><span></span><code><span class="n">req</span><span class="p">.</span><span class="n">hdr</span><span class="p">.</span><span class="n">type</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">C7X_MSG_DYN_UNLOAD</span><span class="p">;</span>
+<span class="n">req</span><span class="p">.</span><span class="n">module_handle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">handle</span><span class="p">;</span>
+<span class="n">send_and_recv</span><span class="p">(</span><span class="n">client</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">req</span><span class="p">,</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="n">req</span><span class="p">),</span><span class="w"> </span><span class="o">&amp;</span><span class="n">resp</span><span class="p">,</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="n">resp</span><span class="p">));</span>
+<span class="n">client</span><span class="o">-&gt;</span><span class="n">input_data_offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">   </span><span class="c1">// next DYN_LOAD can use full staging buffer</span>
+</code></pre></div>
+<h4 id="dsp-handle_dyn_unload">DSP — <code>handle_dyn_unload()</code></h4>
+<p>The DSP cleanup must follow a strict ordering — see §Dynamic Module Loading
+§Module Unload Lifecycle for the detailed rationale. The code sequence is:</p>
+<div class="highlight"><pre><span></span><code><span class="n">tidl_bridge_cleanup</span><span class="p">();</span><span class="w">                </span><span class="c1">// if the module has this symbol (TIDL): release DMA/IALG/MMA state first</span>
+<span class="n">TVMDSPRegFileCleanup</span><span class="p">();</span><span class="w">               </span><span class="c1">// drops refs to last inference outputs</span>
+<span class="n">tvm_model_unload</span><span class="p">(</span><span class="n">g_embedded_model_id</span><span class="p">);</span><span class="c1">// frees model slot before constants</span>
+<span class="n">TVMDSPConstantsCleanup</span><span class="p">();</span><span class="w">             </span><span class="c1">// frees constants memory pools</span>
+<span class="n">dyn_loader_unload</span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="n">module_handle</span><span class="p">);</span><span class="c1">// frees .text/.data/.bss/.rodata</span>
+<span class="n">tvm_dsp_reset_pools</span><span class="p">();</span><span class="w">                </span><span class="c1">// reclaim fragmented DDR heap</span>
+<span class="n">g_cg_main_dsp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span>
+</code></pre></div>
+<hr />
+<h3 id="phase-4-disconnect">Phase 4: Disconnect</h3>
+<h4 id="arm-c7x_client_close">ARM — <code>c7x_client_close()</code></h4>
+<p>RAII destructors clean up in reverse order:</p>
+<div class="highlight"><pre><span></span><code><span class="n">close</span><span class="p">(</span><span class="n">rproc_fd</span><span class="p">)</span><span class="w">    </span><span class="c1">// unregisters DMA buf attachment (DSP loses visibility)</span>
+<span class="n">close</span><span class="p">(</span><span class="n">dma_buf_fd</span><span class="p">)</span><span class="w">  </span><span class="c1">// releases dmabuf reference</span>
+<span class="n">munmap</span><span class="p">(</span><span class="n">shared_buf</span><span class="p">,</span><span class="w"> </span><span class="n">C7X_SHARED_SIZE</span><span class="p">)</span>
+<span class="n">close</span><span class="p">(</span><span class="n">dma_heap_fd</span><span class="p">)</span>
+<span class="n">close</span><span class="p">(</span><span class="n">rpmsg_fd</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h3 id="complete-sequence-diagram">Complete Sequence Diagram</h3>
+<div class="highlight"><pre><span></span><code> ARM Linux                 RPMessage IPC            C7x FreeRTOS
+ ─────────                 ─────────────            ────────────
+ c7x_client_open()
+   open RPMsg fd
+   alloc DMA heap buf (512 MB)
+   mmap shared DDR
+   ioctl RPROC_DMA_BUF_ATTACH
+                                                    compute_service_init()
+                                                      RPMessage_construct(ep=20)
+                                                      RPMessage_announce(&quot;rpmsg_chrdev&quot;)
+                                                      dyn_loader_init()
+                                                      tvm_model_init()
+                                                      shm_printf_init()
+                                                      → compute_service_run() loop
+
+ c7x_client_dyn_load(&quot;lib0.out&quot;)
+   fread ELF → staging_buf
+   DMA_BUF_SYNC_WRITE (flush)
+   ──── C7X_MSG_DYN_LOAD ──────────────────────────►
+                                                    handle_dyn_load()
+                                                      dyn_loader_load(C7X_STAGING_ADDR)
+                                                        parse ELF, alloc DDR segments
+                                                        apply C7x relocations
+                                                        resolve 61 symbols
+                                                      query_symbol(&quot;cg_main_dsp&quot;)
+                                                      tvm_model_load_weights()
+                                                      tvm_dsp_save_infer_watermark()
+   ◄─── C7X_MSG_DYN_LOAD_RESP ─────────────────────
+   handle=1, input_data_offset=elf_size
+
+ c7x_client_infer(handle=1, model_id=0, ...)
+   memcpy inputs → staging_buf[elf_size..]
+   DMA_BUF_SYNC_WRITE (flush)
+   ──── C7X_MSG_INFER ─────────────────────────────►
+        inputs[0].data_addr = 0xC0000000 + elf_size
+                                                    handle_infer()
+                                                      resolve g_cg_main_dsp
+                                                      get_constants(model_id)
+                                                      CacheP_inv(input regions)
+                                                      shm_printf_reset()
+                                                      start_cycles = __TSC
+                                                      g_cg_main_dsp(inputs, N,
+                                                                     constants,
+                                                                     &amp;output_any)
+                                                        ← TVM kernels execute ──►
+                                                      end_cycles = __TSC
+                                                      extract_infer_output()
+                                                        CacheP_wb(output data)
+                                                      shm_printf_finish()
+   ◄─── C7X_MSG_INFER_RESP ────────────────────────
+        cycles=N, num_outputs=1
+        outputs[0].data_addr = 0xDE000000
+   DMA_BUF_SYNC_READ (invalidate)
+   outputs[0].data = result_buf + offset
+
+ c7x_client_dyn_unload(handle=1)
+   ──── C7X_MSG_DYN_UNLOAD ────────────────────────►
+                                                    handle_dyn_unload()
+                                                      tidl_bridge_cleanup() (if present)
+                                                      TVMDSPRegFileCleanup()
+                                                      tvm_model_unload()
+                                                      TVMDSPConstantsCleanup()
+                                                      dyn_loader_unload()
+                                                      tvm_dsp_reset_pools()
+   ◄─── C7X_MSG_DYN_UNLOAD_RESP ───────────────────
+   input_data_offset = 0
+
+ c7x_client_close()
+   close(rproc_fd)  ← unmaps DMA buf from DSP
+   munmap(shared_buf)
+</code></pre></div>
+<hr />
+<h3 id="cli-one-liner-c7x_compute-run">CLI One-Liner: <code>c7x_compute run</code></h3>
+<p>The <code>c7x_compute run</code> command wraps the full load → infer → unload sequence:</p>
+<div class="highlight"><pre><span></span><code>c7x_compute<span class="w"> </span>run<span class="w"> </span>lib0.out<span class="w"> </span>--input<span class="w"> </span>input.bin<span class="w"> </span>--output<span class="w"> </span>output.bin<span class="w"> </span><span class="se">\</span>
+<span class="w">                </span>--shape<span class="w"> </span><span class="m">1</span>,3,224,224<span class="w"> </span>--dtype<span class="w"> </span>float32
+</code></pre></div>
+<p>Internally calls: <code>c7x_client_open</code> → <code>dyn_load</code> → <code>infer</code> → <code>dyn_unload</code> →
+<code>close</code>, then writes all output tensors to the output file.</p>
+<p>Output (stdout, parseable by Python):
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="s2">&quot;ok&quot;</span><span class="p">,</span><span class="nt">&quot;cycles&quot;</span><span class="p">:</span><span class="mi">12345678</span><span class="p">,</span><span class="nt">&quot;num_outputs&quot;</span><span class="p">:</span><span class="mi">1</span><span class="p">,</span><span class="nt">&quot;outputs&quot;</span><span class="p">:[</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">&quot;index&quot;</span><span class="p">:</span><span class="mi">0</span><span class="p">,</span><span class="nt">&quot;ndim&quot;</span><span class="p">:</span><span class="mi">2</span><span class="p">,</span><span class="nt">&quot;dtype_code&quot;</span><span class="p">:</span><span class="mi">2</span><span class="p">,</span><span class="nt">&quot;dtype_bits&quot;</span><span class="p">:</span><span class="mi">32</span><span class="p">,</span><span class="nt">&quot;data_size&quot;</span><span class="p">:</span><span class="mi">4000</span><span class="p">,</span><span class="nt">&quot;shape&quot;</span><span class="p">:[</span><span class="mi">1</span><span class="p">,</span><span class="mi">1000</span><span class="p">]}</span>
+<span class="p">]}</span>
+</code></pre></div></p>
+<hr />
+<h2 id="memory-architecture">Memory Architecture</h2>
+<h3 id="physical-ddr-layout">Physical DDR Layout</h3>
+<p>The AM67A has DDR starting at 0x80000000. All addresses below 4 GB are
+identity-mapped on the DSP unless otherwise noted.</p>
+<h4 id="dsp-firmware-regions-reserved-by-device-tree">DSP Firmware Regions (reserved by device tree)</h4>
+<table>
+<thead>
+<tr>
+<th>Region</th>
+<th>Physical/Virtual</th>
+<th>Size</th>
+<th>Cache</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IPC/DMA</td>
+<td>0xAD000000</td>
+<td>1 MB</td>
+<td>Non-cached (MAIR4)</td>
+<td>Linux IPC area</td>
+</tr>
+<tr>
+<td>Resource table</td>
+<td>0xAD100000</td>
+<td>1 KB</td>
+<td>Non-cached</td>
+<td>remoteproc resource table</td>
+</tr>
+<tr>
+<td>IPC trace</td>
+<td>0xAD100400</td>
+<td>~1023 KB</td>
+<td>Non-cached</td>
+<td>DebugP_log trace buffer (<code>trace0</code>)</td>
+</tr>
+<tr>
+<td>Boot code</td>
+<td>0xAD200000</td>
+<td>1 KB</td>
+<td>Cached (MAIR7)</td>
+<td>C7x boot vector</td>
+</tr>
+<tr>
+<td>Vectors</td>
+<td>0xAD400000</td>
+<td>16 KB</td>
+<td>Cached</td>
+<td>Interrupt vectors</td>
+</tr>
+<tr>
+<td>Secure vectors</td>
+<td>0xAD600000</td>
+<td>16 KB</td>
+<td>Cached</td>
+<td>Secure interrupt vectors</td>
+</tr>
+<tr>
+<td>Code/Data</td>
+<td>0xAD604000</td>
+<td>~34 MB</td>
+<td>Cached (MAIR7)</td>
+<td>Firmware <code>.text</code>, <code>.data</code>, <code>.bss</code></td>
+</tr>
+<tr>
+<td>IPC VRing</td>
+<td>0xAF800000</td>
+<td>8 MB</td>
+<td>Non-cached (MAIR4)</td>
+<td>RPMessage virtio rings</td>
+</tr>
+</tbody>
+</table>
+<h4 id="shared-compute-buffer-dma-heap-carveout">Shared Compute Buffer (DMA heap carveout)</h4>
+<table>
+<thead>
+<tr>
+<th>Region</th>
+<th>DSP Virtual</th>
+<th>Physical</th>
+<th>Size</th>
+<th>Cache</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Staging buffer</td>
+<td>0xC0000000</td>
+<td>0x900000000</td>
+<td>468 MB</td>
+<td>Cached (MAIR7)</td>
+<td>ELF modules + input tensors</td>
+</tr>
+<tr>
+<td>KV cache region</td>
+<td>0xDD400000</td>
+<td>0x91D400000</td>
+<td>12 MB</td>
+<td>Cached (MAIR7)</td>
+<td>Persistent KV cache across inferences, when <code>C7X_INFER_FLAG_KV_RESIDENT</code> is set</td>
+</tr>
+<tr>
+<td>Result buffer</td>
+<td>0xDE000000</td>
+<td>0x91E000000</td>
+<td>32 MB</td>
+<td>Cached (MAIR7)</td>
+<td>Inference output tensors</td>
+</tr>
+<tr>
+<td>Printf buffer</td>
+<td>0xDFFF0000</td>
+<td>0x91FFF0000</td>
+<td>64 KB</td>
+<td>Cached (MAIR7)</td>
+<td>DSP printf output (last 64 KB of result buffer)</td>
+</tr>
+</tbody>
+</table>
+<p>This 512 MB region is the <code>vision_apps_shared-memories</code> DMA heap carveout,
+exclusively for host-DSP communication. The host allocates it via
+<code>/dev/dma_heap/carveout_vision_apps_shared-memories</code>, and the DSP MMU maps
+it at 0xC0000000 with write-back cached attributes (MAIR7, Outer Shareable).</p>
+<p>(Confirmed current split against <code>common/c7x_compute_protocol.h</code>'s
+<code>C7X_STAGING_SIZE</code>/<code>C7X_KV_SIZE</code>/<code>C7X_RESULT_SIZE</code> defines: 468 + 12 + 32
+= 512 MB. The KV cache region was added after this document's original
+468 MB/8 MB staging/output split -- if you see "504 MB"/"8 MB" elsewhere,
+that's the pre-KV-cache split and is stale.)</p>
+<h4 id="extended-ddr-above-4-gb-mmu-translated">Extended DDR (above 4 GB, MMU-translated)</h4>
+<table>
+<thead>
+<tr>
+<th>Region</th>
+<th>DSP Virtual</th>
+<th>Physical</th>
+<th>Size</th>
+<th>Cache</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Non-cacheable heap</td>
+<td>0x100000000</td>
+<td>0x880000000</td>
+<td>32 MB</td>
+<td>Non-cached (MAIR4)</td>
+<td>DMA-accessible allocations</td>
+</tr>
+<tr>
+<td>TVM DDR heap</td>
+<td>0x102000000</td>
+<td>0x882000000</td>
+<td>352 MiB</td>
+<td>Cached (MAIR7)</td>
+<td>DLOAD segments + TVM workspace</td>
+</tr>
+</tbody>
+</table>
+<p>The TVM DDR heap is where DLOAD allocates code and data segments for loaded
+modules, and where the TVM runtime allocates workspace tensors during inference.</p>
+<h4 id="l2-sram-c7x-local-not-ddr">L2 SRAM (C7x-local, not DDR)</h4>
+<table>
+<thead>
+<tr>
+<th>Region</th>
+<th>Address</th>
+<th>Size</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L2 main</td>
+<td>0x7E000000</td>
+<td>2 MB</td>
+<td>Runtime stack, FreeRTOS heap</td>
+</tr>
+<tr>
+<td>L2 aux</td>
+<td>0x7F000000</td>
+<td>240 KB</td>
+<td>Fast scratch memory</td>
+</tr>
+<tr>
+<td>L1 alias</td>
+<td>0x7F03C000</td>
+<td>16 KB</td>
+<td>L1 cache as SRAM</td>
+</tr>
+</tbody>
+</table>
+<h3 id="host-side-allocation">Host-Side Allocation</h3>
+<p>The host allocates the shared buffer at runtime from the DMA heap:</p>
+<div class="highlight"><pre><span></span><code>1. open(&quot;/dev/dma_heap/carveout_vision_apps_shared-memories&quot;)
+2. ioctl(fd, DMA_HEAP_IOCTL_ALLOC, {len=512MB}) -&gt; dma_buf_fd
+3. mmap(NULL, 512MB, PROT_READ|PROT_WRITE, MAP_SHARED, dma_buf_fd, 0) -&gt; userspace ptr
+4. ioctl(rproc_fd, RPROC_IOC_DMA_BUF_ATTACH) -&gt; physical address (0x900000000)
+</code></pre></div>
+<p>The <code>rproc_fd</code> <strong>must remain open</strong> for the lifetime of the client — closing it
+destroys the DMA attachment and makes the shared buffer invisible to the DSP.</p>
+<h3 id="cache-coherency">Cache Coherency</h3>
+<p>All cached shared regions use MAIR7 (Write-Back Read/Write-Allocate) with
+Outer Shareable for hardware cache coherency between ARM and DSP. The host
+still performs explicit DMA_BUF_SYNC ioctls:
+- Before DSP reads: <code>DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE</code> (flush ARM cache)
+- Before host reads: <code>DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ</code> (invalidate ARM cache)</p>
+<h3 id="mmu-configuration">MMU Configuration</h3>
+<p>Defined in <code>dsp/configs/c75ss0.syscfg</code> (16 regions). Key MAIR attribute indices:</p>
+<table>
+<thead>
+<tr>
+<th>MAIR</th>
+<th>Encoding</th>
+<th>Meaning</th>
+<th>Used For</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MAIR0</td>
+<td>0x00</td>
+<td>Device-nGnRnE (strongly ordered)</td>
+<td>Peripherals, CLEC, DRU, L2SRAM</td>
+</tr>
+<tr>
+<td>MAIR4</td>
+<td>0x29</td>
+<td>Normal non-cacheable</td>
+<td>IPC VRing, DMA buffers</td>
+</tr>
+<tr>
+<td>MAIR7</td>
+<td>0x3D</td>
+<td>Write-Back Read/Write-Allocate</td>
+<td>Code, data, shared buffer, TVM heap</td>
+</tr>
+</tbody>
+</table>
+<p>All cached regions (MAIR7) use Outer Shareable for hardware cache coherency.</p>
+<h3 id="memory-budget-example-resnet-18">Memory Budget Example (ResNet-18)</h3>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>Size</th>
+<th>Pool</th>
+<th>Limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>lib0.out ELF (code + 46 MB weights)</td>
+<td>~47 MB</td>
+<td>Staging buffer</td>
+<td>468 MB</td>
+</tr>
+<tr>
+<td>DLOAD segments (relocated code+data)</td>
+<td>~47 MB</td>
+<td>TVM DDR heap</td>
+<td>352 MiB</td>
+</tr>
+<tr>
+<td>Inference workspace (intermediate tensors)</td>
+<td>~10-20 MB</td>
+<td>TVM DDR heap</td>
+<td>~305 MiB remaining</td>
+</tr>
+<tr>
+<td>Input tensor (1,3,224,224 float32)</td>
+<td>0.6 MB</td>
+<td>Staging buffer</td>
+<td>468 MB</td>
+</tr>
+<tr>
+<td>Output tensor (1,1000 float32)</td>
+<td>4 KB</td>
+<td>Result buffer</td>
+<td>32 MB</td>
+</tr>
+</tbody>
+</table>
+<h3 id="memory-address-map-summary">Memory Address Map Summary</h3>
+<div class="highlight"><pre><span></span><code>Physical (ARM)           DSP Virtual         Content
+─────────────────────    ─────────────────   ────────────────────────────────
+0x900000000              0xC0000000          staging_buf base (468 MB)
+  + 0 .. elf_size          ..                ELF bytes (DLOAD in-place rodata)
+  + elf_size ..            ..                inference input tensors
+0x91D400000              0xDD400000          KV cache region base (12 MB, when
+                                              C7X_INFER_FLAG_KV_RESIDENT)
+0x91E000000              0xDE000000          result_buf base (32 MB)
+  + 0 ..                   ..                inference output tensors
+  + result_size - 64KB     0xDFFF0000        printf buffer (last 64 KB of result)
+0x882000000              0x102000000         TVM DDR heap (352 MiB)
+  + 0 ..                   ..                DLOAD code/data segments
+  + segment_end ..         ..                TVM workspace tensors
+</code></pre></div>
+<hr />
+<h2 id="dynamic-module-loading-dload">Dynamic Module Loading (DLOAD)</h2>
+<p>The firmware embeds TI's DLOAD dynamic linker, which loads standard C7x ELF
+relocatable objects at runtime. This is the mechanism by which TVM-compiled
+models are deployed without reflashing firmware.</p>
+<h3 id="dload-integration">DLOAD Integration</h3>
+<p>The <code>dyn_loader.c</code> module provides:
+- <strong>DLIF callbacks</strong>: Firmware-side implementations of the DLOAD loader interface
+  (<code>DLIF_allocate</code>, <code>DLIF_copy</code>, <code>DLIF_read</code>, etc.) that allocate from the TVM
+  DDR heap via <code>tvm_dsp_alloc</code>
+- <strong>Symbol export table</strong>: 61 symbols (C library, TVM runtime, VM builtins, math)
+  made available to loaded modules at relocation time
+- <strong>Load/unload API</strong>: <code>dyn_loader_load()</code> takes an ELF from the shared input
+  buffer; <code>dyn_loader_unload()</code> frees all segments</p>
+<h3 id="supported-relocations">Supported Relocations</h3>
+<p>DLOAD handles 22 C7x-specific relocation types (defined in
+<code>dload/C70_DLOAD_REL/c70_reloc.c</code>), covering all relocations produced by the
+TI CGT C7000 compiler for position-dependent code with external symbol references.</p>
+<h3 id="symbol-export-table">Symbol Export Table</h3>
+<p>The export table in <code>dyn_loader.c</code> provides these categories to loaded modules:</p>
+<ul>
+<li><strong>C library</strong>: <code>printf</code> (redirected to <code>shm_printf</code>), <code>memcpy</code>, <code>memset</code>,
+  <code>malloc</code>, <code>free</code>, <code>calloc</code>, <code>__c7xabi_cmpd</code>, etc.</li>
+<li><strong>TVM runtime</strong>: <code>TVMBackendAllocWorkspace</code>, <code>TVMBackendFreeWorkspace</code>,
+  <code>TVMFuncCall</code>, <code>TVMArgs_Create</code>, etc.</li>
+<li><strong>VM builtins (packed)</strong>: <code>vm_builtin_*</code> functions using TVMArgs</li>
+<li><strong>VM builtins (direct C++ API)</strong>: <code>tvm_dsp_*</code> direct-call variants for the
+  C7x C++ API backend</li>
+<li><strong>Math</strong>: <code>expf</code>, <code>logf</code>, <code>sqrtf</code>, <code>powf</code>, <code>floorf</code>, <code>fmaxf</code>, etc.</li>
+</ul>
+<h3 id="module-unload-lifecycle">Module Unload Lifecycle</h3>
+<p>When the host sends DYN_UNLOAD, <code>handle_dyn_unload()</code> must clean up TVM runtime
+state <strong>before</strong> calling <code>dyn_loader_unload()</code>. This ordering is critical because
+the loaded module's <code>.bss</code> section contains the static register file used by
+<code>cg_main_dsp</code>, and <code>dyn_loader_unload()</code> frees all ELF segments including <code>.bss</code>.</p>
+<p>The cleanup sequence (see §Inference Flow §Phase 3 for the annotated code):</p>
+<ol>
+<li>
+<p><strong><code>tidl_bridge_cleanup()</code></strong> (if the loaded module exports this symbol) —
+   frees TIDL subgraph instances so TIDL can release DMA channels, IALG
+   memory, and MMA state before the module's code/data sections are freed.
+   Looked up via <code>dyn_loader_query_symbol()</code>; a no-op when the module has no
+   TIDL subgraphs (e.g. MMALIB-only builds).</p>
+</li>
+<li>
+<p><strong><code>TVMDSPRegFileCleanup()</code></strong> — Iterates the static register file (in the
+   module's <code>.bss</code>), decrements reference counts on heap-allocated NDArray/storage
+   objects from the last inference, and calls their deleters to free TVM DDR heap
+   memory.</p>
+</li>
+<li>
+<p><strong><code>tvm_model_unload(model_id)</code></strong> — Frees the model slot in the <code>g_models[]</code>
+   table (up to <code>MAX_MODELS=4</code>). Must happen before constants cleanup because
+   <code>TVMDSPConstantsCleanup()</code> resets the constants subsystem state that the model
+   slot references.</p>
+</li>
+<li>
+<p><strong><code>TVMDSPConstantsCleanup()</code></strong> — Frees all constants memory pools allocated
+   by <code>TVMDSPLoadConstants()</code> during the INFER setup phase, and resets the
+   constants subsystem (<code>g_initialized = 0</code>).</p>
+</li>
+<li>
+<p><strong><code>dyn_loader_unload(handle)</code></strong> — Calls <code>tracked_free_all()</code> to free all ELF
+   segments (<code>.text</code>, <code>.data</code>, <code>.bss</code>, <code>.rodata.weights</code>) from the TVM DDR heap.</p>
+</li>
+<li>
+<p><strong>Clear state</strong> — Reset <code>g_loaded_module_handle</code>, <code>g_cg_main_dsp</code>, and
+   <code>g_embedded_model_id</code> to zero.</p>
+</li>
+</ol>
+<p>If steps 2-4 are skipped or performed after step 5: the register file memory is
+already freed (use-after-free), model slots leak preventing new models from loading
+after 4 iterations, and constants memory pools leak reducing available TVM DDR heap.
+Skipping step 1 on a module with TIDL subgraphs leaks DMA channels and IALG memory
+instead.</p>
+<h3 id="symbol-table-synchronization">Symbol Table Synchronization</h3>
+<p>When building TVM-compiled modules as DLOAD-loadable ELFs, the module's linker
+script must import matching symbol names so that DLOAD can resolve them at load
+time. See <code>src/runtime/ti_dsp/dynmod/</code> for the linker script templates.</p>
+<hr />
+<h2 id="ipc-details">IPC Details</h2>
+<h3 id="rpmessage-configuration">RPMessage Configuration</h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Service Name</td>
+<td>"rpmsg_chrdev" (announced)</td>
+</tr>
+<tr>
+<td>Endpoint</td>
+<td>20</td>
+</tr>
+<tr>
+<td>Max Message Size</td>
+<td>512 bytes</td>
+</tr>
+<tr>
+<td>VRing Location</td>
+<td>0xAF800000</td>
+</tr>
+</tbody>
+</table>
+<h3 id="initialization-sequence">Initialization Sequence</h3>
+<p>See §Inference Flow §Phase 0 for the annotated <code>compute_service_init()</code>
+walk-through. The key steps are:</p>
+<ol>
+<li><code>RPMessage_waitForLinuxReady()</code> — polls resource table until Linux initializes
+   virtio vrings</li>
+<li><code>IpcNotify_registerClient(IPC_NOTIFY_CLIENT_ID_RP_MBOX, ...)</code> — register
+   shutdown callback</li>
+<li><code>RPMessage_construct()</code> — create endpoint 20</li>
+<li><code>RPMessage_announce("rpmsg_chrdev")</code> — announce service to Linux</li>
+<li><code>compute_service_run()</code> — blocking message loop</li>
+</ol>
+<h3 id="clean-shutdown">Clean Shutdown</h3>
+<ol>
+<li>Linux sends <code>IPC_NOTIFY_RP_MBOX_SHUTDOWN</code> via mailbox</li>
+<li>ISR callback calls <code>compute_service_stop()</code> which calls <code>RPMessage_unblock</code></li>
+<li>Service loop exits, sends <code>IPC_NOTIFY_RP_MBOX_SHUTDOWN_ACK</code> from task context</li>
+<li>Tears down RPMessage endpoint and drivers</li>
+<li>Disables interrupts and halts with <code>IDLE</code> instruction</li>
+</ol>
+<p>The ACK must be sent before <code>RPMessage_destruct()</code> because that disrupts the
+virtio transport needed for the mailbox ACK to reach the kernel.</p>
+<h3 id="device-discovery">Device Discovery</h3>
+<p>Both the deploy script and host library discover hardware dynamically by matching
+the device tree address <code>7e000000.dsp</code> in sysfs. The host scans
+<code>/sys/class/rpmsg/rpmsg_ctrlN/device</code> paths for a symlink resolving to this
+address. This approach is robust across reboots where remoteproc/rpmsg indices
+may change.</p>
+<hr />
+<h2 id="shared-memory-printf">Shared Memory Printf</h2>
+<p>The DSP's <code>printf</code> output is redirected to a 64 KB region at the end of the
+output buffer in shared DDR. This replaces the previous approach of writing to
+the DebugP trace buffer (<code>trace0</code>), which was limited to ~2 KB and could not hold
+profile output for models with many layers (e.g. CLISTA-DoA produces ~12 KB of
+profile data for 156 layers).</p>
+<h3 id="architecture">Architecture</h3>
+<p>The <code>shm_printf</code> module (<code>dsp/src/shm_printf.c</code>) uses the TI C7000 compiler's
+<code>add_device()</code> RTS mechanism (Section 7.2.4 of the C7000 Compiler User's Guide)
+to register a custom I/O device named "shmout" that writes to shared memory.
+At init time, <code>freopen()</code> redirects stdout through this device, so all standard
+output functions (<code>printf</code>, <code>fprintf(stdout, ...)</code>, <code>fputs</code>, <code>puts</code>) write to the
+shared buffer.</p>
+<p>Two output paths coexist:</p>
+<ol>
+<li>
+<p><strong>Direct path</strong> (<code>shm_printf</code>): The DLOAD symbol alias maps the loaded module's
+   <code>printf</code> calls directly to <code>shm_printf()</code>, which does <code>vsnprintf</code> into the
+   buffer. Fast path, avoids FILE* overhead.</p>
+</li>
+<li>
+<p><strong>Device driver path</strong> (<code>SHM_write</code>): The <code>add_device</code> write callback handles
+   any output going through the stdio FILE* machinery (e.g. <code>fprintf(stdout, ...)</code>
+   from runtime code).</p>
+</li>
+</ol>
+<h3 id="buffer-layout">Buffer Layout</h3>
+<p>The printf buffer occupies the last 64 KB of the result buffer
+(<code>C7X_PRINTF_BUF_ADDR</code> = result buffer end - 64 KB):</p>
+<div class="highlight"><pre><span></span><code>Offset  Size    Field
+0       4       magic (0x50524E54 = &quot;PRNT&quot;)
+4       4       wr_index (bytes written since last reset)
+8       4       buf_size (usable text area = 64K - 16)
+12      4       reserved
+16      ...     text data
+</code></pre></div>
+<h3 id="data-flow">Data Flow</h3>
+<p>No RPMsg is sent per printf call. The flow during inference is:</p>
+<ol>
+<li><strong>Before inference</strong>: <code>shm_printf_reset()</code> sets <code>wr_index = 0</code></li>
+<li><strong>During inference</strong>: DSP <code>printf</code> writes directly to SHM buffer via <code>memcpy</code></li>
+<li><strong>After inference</strong>: <code>shm_printf_finish()</code> calls <code>CacheP_wb()</code>, returns byte count</li>
+<li><strong>INFER response</strong>: <code>resp-&gt;printf_size</code> carries the byte count in the single RPMsg</li>
+<li><strong>Host reads</strong>: After <code>sync_output_from_device()</code>, host reads <code>printf_size</code> bytes
+   from <code>result_buf + printf_offset</code></li>
+</ol>
+<p>Buffer overflow is handled by silent truncation — excess data beyond the 64 KB
+text area is dropped without error.</p>
+<hr />
+<h2 id="key-design-decisions">Key Design Decisions</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Separate staging/result halves of shared DDR</td>
+<td>Avoids cache coherency races: ARM only writes to staging; DSP only writes to result</td>
+</tr>
+<tr>
+<td><code>input_data_offset = elf_size</code> after DYN_LOAD</td>
+<td>DLOAD maps <code>.rodata</code> in-place from staging; writing inputs at offset 0 would corrupt embedded weights</td>
+</tr>
+<tr>
+<td><code>rproc_fd</code> held open for lifetime of <code>c7x_client</code></td>
+<td>Closing <code>rproc_fd</code> destroys the DMA attachment, making the buffer invisible to the DSP</td>
+</tr>
+<tr>
+<td>61 imported symbols resolved at DLOAD time</td>
+<td>Eliminates per-call FFI overhead; <code>cg_main_dsp</code> calls TVM runtime functions via direct function pointer</td>
+</tr>
+<tr>
+<td><code>__TSC</code> (64-bit hardware TSC) for cycle counting</td>
+<td>Available on C7x without kernel support; avoids FreeRTOS tick resolution limits; won't wrap at ~4.3s like a 32-bit counter</td>
+</tr>
+<tr>
+<td>Explicit <code>DMA_BUF_SYNC</code> ioctls despite MAIR7 Outer Shareable</td>
+<td>ARM and DSP have separate cache hierarchies; explicit sync is required for correct coherency — hardware coherency at MAIR7 is between ARM cores, not between ARM and DSP</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="build-system-internals">Build System Internals</h2>
+<h3 id="dsp-firmware">DSP Firmware</h3>
+<p>CMake-based cross-compilation using the TI CGT C7000 toolchain. The toolchain
+file (<code>cmake/toolchain-c7000.cmake</code>) sets paths to the MCU+ SDK, CGT compiler,
+and SysConfig tool. The linker script (<code>configs/linker_c75_freertos.cmd</code>) defines
+all memory sections including the DLOAD code/data placement.</p>
+<p>SDK Dependencies:
+- TI MCU+ SDK 11_00_00_06
+- TI CGT C7000 5.0.1 LTS
+- TI SysConfig 1.26.0</p>
+<p>Output: <code>dsp/build/c7x_compute.out</code> (~6.9 MB)</p>
+<h3 id="host-application">Host Application</h3>
+<p>C++14 CMake build with <code>aarch64-linux-gnu-g++</code> cross-compilation. Links against
+pthread. Uses RAII wrappers (<code>UniqueFd</code>, <code>MmapRegion</code>, <code>UniqueFile</code>) for automatic
+resource cleanup. The build produces a single <code>c7x_compute</code> binary that serves as
+both CLI tool and library test harness. The public C API header
+(<code>c7x_compute_client.h</code>) has <code>extern "C"</code> guards and is usable from C code.</p>
+<p>Dependencies:
+- <code>gcc-aarch64-linux-gnu</code> and <code>g++-aarch64-linux-gnu</code></p>
+<p>Output: <code>arm/build/c7x_compute</code></p>
+<hr />
+<h2 id="relationship-to-tvm">Relationship to TVM</h2>
+<p>This firmware is the runtime target for TVM's C static backend when compiling
+for C7x DSP. The workflow is:</p>
+<ol>
+<li><strong>TVM compilation</strong> (on development host): Compile a neural network model
+   using the TVM C static backend, producing <code>lib0.c</code> and <code>weights.bin</code></li>
+<li><strong>C7x ELF build</strong>: Compile <code>lib0.c</code> with the TI CGT C7000 compiler into a
+   relocatable ELF (<code>lib0.out</code>) with weights embedded in <code>.rodata.weights</code></li>
+<li><strong>Deployment</strong>: Copy <code>lib0.out</code> to the AM67A target</li>
+<li><strong>Execution</strong>: Use the host CLI or library to load the ELF onto the DSP via
+   DLOAD, run inference, and retrieve results</li>
+</ol>
+<p>The DSP-side tests in <code>tests/ti-dsp-runtime/dsp-tests/</code> automate this full
+pipeline using pytest, including TVM compilation, C7x ELF building, firmware
+deployment, and inference verification.</p>
+<hr />
+<h2 id="file-organization">File Organization</h2>
+<div class="highlight"><pre><span></span><code>c7x-firmware/
++-- README.md                     # Usage and reference documentation
++-- design_doc.md                 # This file
++-- deploy-c7x.sh                # SSH-based firmware deployment to AM67A
++-- common/
+|   +-- c7x_compute_protocol.h    # Shared protocol definitions (ARM + DSP)
++-- dsp/
+|   +-- build.sh                  # DSP firmware build script
+|   +-- CMakeLists.txt
+|   +-- cmake/
+|   |   +-- toolchain-c7000.cmake # C7x cross-compilation toolchain
+|   +-- configs/
+|   |   +-- c75ss0.syscfg         # SysConfig (IPC, MMU, 16 regions)
+|   |   +-- linker_c75_freertos.cmd
+|   +-- src/
+|       +-- main.c                # FreeRTOS entry, IPC init, shutdown
+|       +-- compute_service.c     # RPMessage handler, message dispatch
+|       +-- compute_service.h
+|       +-- dyn_loader.c          # DLOAD wrapper, symbol table, DLIF callbacks
+|       +-- dyn_loader.h
+|       +-- tvm_model.c           # TVM model/constants manager
+|       +-- tvm_model.h
+|       +-- shm_printf.c          # SHM printf: add_device driver + stdout redirect
+|       +-- shm_printf.h
+|       +-- dload/                # TI DLOAD dynamic linker source
+|           +-- DLOAD/            #   ELF parser, segment loader
+|           +-- DLOAD_API/        #   Public API header
+|           +-- DLOAD_SYM/        #   Symbol table implementation
+|           +-- C70_DLOAD_DYN/    #   C7x dynamic linking
+|           +-- C70_DLOAD_REL/    #   C7x relocation handling
++-- arm/
+|   +-- build.sh                  # ARM client build and deploy script
+|   +-- CMakeLists.txt
+|   +-- include/
+|   |   +-- c7x_compute_client.h  # Client library API
+|   |   +-- c7x_runtime.h         # C++ Module/Function API (DLPack-based)
+|   +-- src/
+|   |   +-- raii.h                 # RAII wrappers (UniqueFd, MmapRegion, UniqueFile)
+|   |   +-- c7x_compute_client.cpp # Client library implementation (C++14)
+|   |   +-- c7x_runtime.cc         # c7x::Module C++ wrapper implementation
+|   |   +-- rpmsg_wrapper.cpp      # rpmsg_ctrl discovery + endpoint mgmt
+|   |   +-- rpmsg_wrapper.h
+|   |   +-- c7x_compute_cli.cpp    # CLI tool
+|   +-- test/
+|       +-- test_c7x_runtime.cpp   # C++ test binary for c7x::Module API
++-- test/
+    +-- test_dynmod.sh            # Automated hardware test suite (19 tests)
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

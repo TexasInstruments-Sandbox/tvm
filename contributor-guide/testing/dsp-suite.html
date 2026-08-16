@@ -1,0 +1,2494 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="c-static-suite.html">
+      
+      
+        <link rel="next" href="dsp-cpp-harness.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>DSP Suite - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#dsp-test-suite" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              DSP Suite
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/compilation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/python-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/c-static.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/mmalib-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/memory-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C7x Memory Map Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/design-deep-dive.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/arm-client-internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM Host Client Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-debug.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Debug Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="c-static-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="dsp-suite.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-descriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Descriptions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Tests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running Tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#via-pytest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Via pytest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-depth-tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test depth tiers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Test depth tiers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quick-tests-both-c66x-and-c7x-unless-noted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        quick tests (both c66x and c7x, unless noted)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#core-tests-added-beyond-quick-24-additional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        core tests added beyond quick (24 additional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c7x_only-tests-excluded-from-c66x-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        c7x_only tests (excluded from c66x stages)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jenkins-pipeline-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Jenkins pipeline commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#via-standalone-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Via standalone script
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#command-line-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command-line options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Components
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Key Components">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#conftestpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        conftest.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model_utilspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        model_utils.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dsp_utilspy-in-dsp-cpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dsp_utils.py (in ../dsp-cpp/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-new-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding New Tests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-output-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Output Support
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging-with-dsp_keep_temp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging with DSP_KEEP_TEMP
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="dsp-cpp-harness.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP C++ Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="mmalib-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="pt2e-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="quantized-sweep.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="dynamic-shape-limits.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Shape Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-descriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Descriptions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Tests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running Tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#via-pytest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Via pytest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-depth-tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test depth tiers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Test depth tiers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quick-tests-both-c66x-and-c7x-unless-noted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        quick tests (both c66x and c7x, unless noted)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#core-tests-added-beyond-quick-24-additional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        core tests added beyond quick (24 additional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c7x_only-tests-excluded-from-c66x-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        c7x_only tests (excluded from c66x stages)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jenkins-pipeline-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Jenkins pipeline commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#via-standalone-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Via standalone script
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#command-line-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command-line options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Components
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Key Components">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#conftestpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        conftest.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model_utilspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        model_utils.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dsp_utilspy-in-dsp-cpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dsp_utils.py (in ../dsp-cpp/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-new-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding New Tests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-output-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Output Support
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debugging-with-dsp_keep_temp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging with DSP_KEEP_TEMP
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="dsp-test-suite">DSP Test Suite</h1>
+<p>Pytest-based tests for running TVM-compiled models on TI DSP targets.
+Tests compile models with the <code>c_static</code> backend, build for the selected
+execution mode, run inference, and compare results against a PyTorch
+reference. Located at <code>tests/ti-dsp-runtime/dsp-tests/</code>.</p>
+<h2 id="directory-structure">Directory Structure</h2>
+<div class="highlight"><pre><span></span><code>dsp-tests/
+├── conftest.py                          # Pytest fixtures for DSP configuration
+├── model_utils.py                       # Shared model creation utilities
+├── test_c66x_pragmas_dsp.py             # C66x/C7x pragma generation tests
+├── test_c7x_vm_dsp.py                   # C7xVirtualMachine Python API
+├── test_classification_dsp.py           # TorchVision classification models
+├── test_clista_dsp.py                   # CLISTA-DoA radar model
+├── test_conv2d_cycle_breakdown.py       # Conv2D O2 vs O3 cycle breakdown benchmark
+├── test_conv2d_dsp.py                   # Conv2D model
+├── test_conv2d_stack_dsp.py             # Conv2D + BN + ReLU stack (4 layers)
+├── test_error_messages_dsp.py           # Compilation and error handling tests
+├── test_lenet_dsp.py                    # LeNet-5 MNIST classifier
+├── test_matmul_dsp.py                   # Matrix multiplication
+├── test_mlp_dsp.py                      # Multi-layer perceptron
+├── test_mmalib_oc_tile_consistency.py   # MMALIB conv2d_i8 OC-tiling consistency
+├── test_od_torchvision_dsp.py           # SSDLite320 object detection
+├── test_quantized_conv2d_stack_dsp.py   # INT8 quantized conv2d stack
+├── test_resnet_dsp.py                   # ResNet-18 image classifier
+├── test_rtmdet_dsp.py                   # Multi-output tuple handling
+└── test_segmentation_dsp.py             # TorchVision segmentation models
+</code></pre></div>
+<h2 id="test-descriptions">Test Descriptions</h2>
+<table>
+<thead>
+<tr>
+<th>Test File</th>
+<th>Description</th>
+<th>Model Type</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_c66x_pragmas_dsp.py</code></td>
+<td>C66x/C7x pragma generation and TI compiler directives</td>
+<td>TIR codegen</td>
+</tr>
+<tr>
+<td><code>test_c7x_vm_dsp.py</code></td>
+<td>C7xVirtualMachine Python API (struct layout, inference, context manager)</td>
+<td>VM API</td>
+</tr>
+<tr>
+<td><code>test_classification_dsp.py</code></td>
+<td>8 ImageNet classifiers (SqueezeNet to ResNet-34)</td>
+<td>Conv2D, various</td>
+</tr>
+<tr>
+<td><code>test_clista_dsp.py</code></td>
+<td>CLISTA-DoA radar signal processing</td>
+<td>Conv1D, Linear</td>
+</tr>
+<tr>
+<td><code>test_conv2d_cycle_breakdown.py</code></td>
+<td>Conv2D O2 vs O3 compiler cycle breakdown benchmark</td>
+<td>Conv2D, profiling</td>
+</tr>
+<tr>
+<td><code>test_conv2d_dsp.py</code></td>
+<td>Single 2D convolution</td>
+<td>Conv2D</td>
+</tr>
+<tr>
+<td><code>test_conv2d_stack_dsp.py</code></td>
+<td>4-layer conv2d + batch_norm + relu stack</td>
+<td>Conv2D, BN, ReLU</td>
+</tr>
+<tr>
+<td><code>test_error_messages_dsp.py</code></td>
+<td>Compilation validation and error handling</td>
+<td>TIR simple ops</td>
+</tr>
+<tr>
+<td><code>test_lenet_dsp.py</code></td>
+<td>LeNet-5 MNIST classifier</td>
+<td>Conv2D, Linear</td>
+</tr>
+<tr>
+<td><code>test_matmul_dsp.py</code></td>
+<td>Matrix multiplication</td>
+<td>Matmul</td>
+</tr>
+<tr>
+<td><code>test_mlp_dsp.py</code></td>
+<td>Multi-layer perceptron</td>
+<td>Linear, ReLU</td>
+</tr>
+<tr>
+<td><code>test_mmalib_oc_tile_consistency.py</code></td>
+<td>MMALIB <code>mmalib_conv2d_i8</code> output-channel tiling consistency</td>
+<td>Conv2D, MMALIB</td>
+</tr>
+<tr>
+<td><code>test_od_torchvision_dsp.py</code></td>
+<td>SSDLite320 MobileNetV3 object detection</td>
+<td>Conv2D, multi-output</td>
+</tr>
+<tr>
+<td><code>test_quantized_conv2d_stack_dsp.py</code></td>
+<td>INT8 quantized conv2d stack (PT2E QDQ)</td>
+<td>Conv2D, quantized</td>
+</tr>
+<tr>
+<td><code>test_resnet_dsp.py</code></td>
+<td>ResNet-18 image classifier</td>
+<td>Conv2D, BN, skip</td>
+</tr>
+<tr>
+<td><code>test_rtmdet_dsp.py</code></td>
+<td>Multi-output tuple handling validation</td>
+<td>Conv2D (2 outputs)</td>
+</tr>
+<tr>
+<td><code>test_segmentation_dsp.py</code></td>
+<td>LRASPP and DeepLabV3 MobileNetV3 segmentation</td>
+<td>Conv2D, multi-output</td>
+</tr>
+</tbody>
+</table>
+<h2 id="execution-modes">Execution Modes</h2>
+<p>All tests require <code>--dsp-mode</code> to select the execution target. There is
+no default.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>c66x_host</code></td>
+<td>C66x host emulation — builds with system gcc, runs on PC</td>
+</tr>
+<tr>
+<td><code>c66x</code></td>
+<td>C66x hardware — cross-compiles with TI C6000, runs on AWRL6844 via JTAG</td>
+</tr>
+<tr>
+<td><code>c7x_host</code></td>
+<td>C7x host emulation — builds with system g++ + TI Host Emu library</td>
+</tr>
+<tr>
+<td><code>c7x_dload</code></td>
+<td>C7x DLOAD — cross-compiles relocatable module, loads on AM67A via c7x_compute</td>
+</tr>
+</tbody>
+</table>
+<p>Not all modes are available for every test. Larger models that exceed
+C66x memory are restricted to <code>c66x_host</code> and <code>c7x_dload</code>.</p>
+<h2 id="running-tests">Running Tests</h2>
+<h3 id="via-pytest">Via pytest</h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># Set environment</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">TVM_HOME</span><span class="o">=</span>/path/to/tvm
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYTHONPATH</span><span class="o">=</span><span class="nv">$TVM_HOME</span>/python:<span class="nv">$PYTHONPATH</span>
+
+<span class="c1"># Run a test with C66x host emulation</span>
+pytest<span class="w"> </span>test_conv2d_dsp.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c66x_host
+
+<span class="c1"># Run on C66x hardware</span>
+pytest<span class="w"> </span>test_conv2d_dsp.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c66x
+
+<span class="c1"># Run with C7x host emulation</span>
+pytest<span class="w"> </span>test_conv2d_dsp.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host
+
+<span class="c1"># Run via C7x DLOAD on AM67A hardware</span>
+pytest<span class="w"> </span>test_conv2d_dsp.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload
+
+<span class="c1"># Run multiple tests</span>
+pytest<span class="w"> </span>test_conv2d_dsp.py<span class="w"> </span>test_mlp_dsp.py<span class="w"> </span>test_lenet_dsp.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c66x_host
+
+<span class="c1"># Run quick tests only — PR gate (~20s host, ~2 min board)</span>
+pytest<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>-m<span class="w"> </span>quick
+
+<span class="c1"># Run core tests — post-merge gate (~10 min host, ~25 min board)</span>
+pytest<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>-m<span class="w"> </span>core
+
+<span class="c1"># Run all tests valid for c66x — full no-hardware regression</span>
+pytest<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c66x_host<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not c7x_only&quot;</span>
+</code></pre></div>
+<h3 id="test-depth-tiers">Test depth tiers</h3>
+<p>Three markers control which tests run at each pipeline stage:</p>
+<table>
+<thead>
+<tr>
+<th>Marker</th>
+<th>Tests</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>quick</code></td>
+<td>37 tests</td>
+<td>PR gate — fast compile + run</td>
+</tr>
+<tr>
+<td><code>core</code></td>
+<td>61 tests</td>
+<td>Post-merge gate — all ops, classification, detection</td>
+</tr>
+<tr>
+<td><em>(none)</em></td>
+<td>73 tests</td>
+<td>Nightly full regression</td>
+</tr>
+</tbody>
+</table>
+<p><code>core</code> is a superset of <code>quick</code>, with the exception of the 2 unit
+tests in <code>test_mmalib_oc_tile_consistency.py</code>, which are <code>quick</code>-only.</p>
+<h4 id="quick-tests-both-c66x-and-c7x-unless-noted"><code>quick</code> tests (both c66x and c7x, unless noted)</h4>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Model</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_conv2d_dsp</code></td>
+<td>Single Conv2D</td>
+</tr>
+<tr>
+<td><code>test_conv2d_stack_dsp</code></td>
+<td>4-layer Conv2D + BN + ReLU</td>
+</tr>
+<tr>
+<td><code>test_clista_dsp</code></td>
+<td>CLISTA-DoA radar</td>
+</tr>
+<tr>
+<td><code>test_matmul_dsp</code></td>
+<td>Matrix multiplication</td>
+</tr>
+<tr>
+<td><code>test_mlp_dsp</code></td>
+<td>Multi-layer perceptron</td>
+</tr>
+<tr>
+<td><code>test_quantized_conv2d_stack_dsp</code></td>
+<td>INT8 quantized Conv2D stack</td>
+</tr>
+<tr>
+<td><code>test_mmalib_oc_tile_consistency</code></td>
+<td>MMALIB conv2d_i8 OC-tiling consistency</td>
+</tr>
+<tr>
+<td><code>test_c7x_vm_dsp</code> (all)</td>
+<td>c7x only</td>
+</tr>
+</tbody>
+</table>
+<h4 id="core-tests-added-beyond-quick-24-additional"><code>core</code> tests added beyond <code>quick</code> (24 additional)</h4>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Architecture</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_c66x_pragmas_dsp</code> (all)</td>
+<td>both</td>
+</tr>
+<tr>
+<td><code>test_error_messages_dsp</code> (all)</td>
+<td>both</td>
+</tr>
+<tr>
+<td><code>test_lenet_dsp</code></td>
+<td>both</td>
+</tr>
+<tr>
+<td><code>test_resnet_dsp</code></td>
+<td>both</td>
+</tr>
+<tr>
+<td><code>test_classification_dsp</code> (8 models)</td>
+<td>both</td>
+</tr>
+</tbody>
+</table>
+<h4 id="c7x_only-tests-excluded-from-c66x-stages"><code>c7x_only</code> tests (excluded from c66x stages)</h4>
+<p>Tests marked <code>c7x_only</code> use models too large for C66x memory or exercise
+c7x-specific features. Jenkins c66x stages filter with <code>-m "not c7x_only"</code>:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_c7x_vm_dsp.py</code></td>
+<td>C7xVirtualMachine API</td>
+</tr>
+<tr>
+<td><code>test_od_torchvision_dsp.py</code></td>
+<td>SSDLite320 (c7x_dload only)</td>
+</tr>
+<tr>
+<td><code>test_rtmdet_dsp.py</code></td>
+<td>RTMDet (c7x_dload only)</td>
+</tr>
+<tr>
+<td><code>test_segmentation_dsp.py</code></td>
+<td>LRASPP / DeepLabV3</td>
+</tr>
+<tr>
+<td><code>test_conv2d_cycle_breakdown.py</code></td>
+<td>Cycle profiling benchmark</td>
+</tr>
+</tbody>
+</table>
+<h3 id="jenkins-pipeline-commands">Jenkins pipeline commands</h3>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>tests/ti-dsp-runtime
+
+<span class="c1"># ── c66x host (no hardware) ──────────────────────────────────────────────</span>
+<span class="c1"># PR gate</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w">             </span>--dsp-mode<span class="o">=</span>c66x_host<span class="w"> </span>-v
+<span class="c1"># Full (no hardware)</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not c7x_only&quot;</span><span class="w">   </span>--dsp-mode<span class="o">=</span>c66x_host<span class="w"> </span>-v
+
+<span class="c1"># ── c7x host (no hardware, needs TI_CGT_C7000_PATH) ─────────────────────</span>
+<span class="c1"># PR gate</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w">             </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w">  </span>-v
+<span class="c1"># Post-merge</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/<span class="w"> </span>-m<span class="w"> </span>core<span class="w">              </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w">  </span>-v
+
+<span class="c1"># ── c7x board (AM67A, never run in background) ───────────────────────────</span>
+<span class="c1"># PR gate</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w">             </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>-v
+<span class="c1"># Post-merge</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/<span class="w"> </span>-m<span class="w"> </span>core<span class="w">              </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>-v
+<span class="c1"># Nightly</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/<span class="w">                      </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>-v
+</code></pre></div>
+<h3 id="via-standalone-script">Via standalone script</h3>
+<p>Each test file can also be run directly:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>test_conv2d_dsp.py<span class="w"> </span>--dsp-mode<span class="w"> </span>c66x_host
+python<span class="w"> </span>test_conv2d_dsp.py<span class="w"> </span>--dsp-mode<span class="w"> </span>c7x_dload<span class="w"> </span>-v
+python<span class="w"> </span>test_resnet_dsp.py<span class="w"> </span>--dsp-mode<span class="w"> </span>c7x_dload<span class="w"> </span>--profile-layers
+
+<span class="c1"># Save build artifacts for inspection</span>
+python<span class="w"> </span>test_clista_dsp.py<span class="w"> </span>--dsp-mode<span class="w"> </span>c66x_host<span class="w"> </span>--save-artifacts<span class="w"> </span>/tmp/artifacts
+</code></pre></div>
+<h3 id="command-line-options">Command-line options</h3>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--dsp-mode=MODE</code></td>
+<td>Execution mode (required): <code>c66x_host</code>, <code>c66x</code>, <code>c7x_host</code>, <code>c7x_dload</code></td>
+</tr>
+<tr>
+<td><code>--dsp-timeout=N</code></td>
+<td>Hardware execution timeout in ms (default: 60000)</td>
+</tr>
+<tr>
+<td><code>--dsp-verbose</code></td>
+<td>Enable verbose DSP logging</td>
+</tr>
+<tr>
+<td><code>--save-artifacts=DIR</code></td>
+<td>Copy build artifacts (lib0.c, weights.bin, devc.c) to DIR</td>
+</tr>
+<tr>
+<td><code>--profile</code></td>
+<td>Per-layer cycle counters + repeat=2 init/steady-state split (c7x_dload only)</td>
+</tr>
+<tr>
+<td><code>--profile-layers</code></td>
+<td>Deprecated alias for <code>--profile</code></td>
+</tr>
+<tr>
+<td><code>--use-cpp-api</code></td>
+<td>Enable direct VM builtin calls (bypass FFI dispatch)</td>
+</tr>
+<tr>
+<td><code>--mmalib</code></td>
+<td>Enable MMALIB acceleration for eligible conv2d/matmul ops</td>
+</tr>
+<tr>
+<td><code>--board-target=HOST</code></td>
+<td>AM67A hostname for remote <code>test_c7x_vm_dsp</code> tests via SSH</td>
+</tr>
+</tbody>
+</table>
+<h2 id="key-components">Key Components</h2>
+<h3 id="conftestpy"><code>conftest.py</code></h3>
+<p>Pytest fixtures and configuration:
+- <code>dsp_mode</code>: Execution mode from <code>--dsp-mode</code> option (required)
+- <code>dsp_timeout</code>: Timeout from <code>--dsp-timeout</code> option
+- <code>dsp_verbose</code>: Verbose flag from <code>--dsp-verbose</code> option
+- <code>save_artifacts</code>: Artifact directory from <code>--save-artifacts</code> option
+- <code>profile</code>: Profiling flag from <code>--profile</code> (or deprecated <code>--profile-layers</code>) option
+- <code>profile_layers</code>: Alias of <code>profile</code>, kept for backward compatibility
+- <code>use_cpp_api</code>: C++ API flag from <code>--use-cpp-api</code> option
+- <code>mmalib</code>: MMALIB acceleration flag from <code>--mmalib</code> option
+- <code>board_target</code>: AM67A hostname from <code>--board-target</code> option (for remote c7x_vm tests)
+- <code>dsp_config</code>: Combined configuration dictionary</p>
+<h3 id="model_utilspy"><code>model_utils.py</code></h3>
+<p>Shared model creation functions:
+- <code>torch_to_relax_with_params()</code>: Convert PyTorch model to TVM with bound parameters
+- <code>create_conv2d_model()</code>: Single Conv2D layer
+- <code>create_conv2d_stack_model()</code>: 4-layer conv2d + BN + ReLU stack
+- <code>create_mlp_model()</code>: Multi-layer perceptron
+- <code>create_matmul_model()</code>: Matrix multiplication
+- <code>create_clista_model()</code>: CLISTA-DoA radar model
+- <code>create_lenet_model()</code>: LeNet-5 CNN
+- <code>create_quantized_conv2d_stack_model()</code>: INT8 quantized conv2d stack</p>
+<h3 id="dsp_utilspy-in-dsp-cpp"><code>dsp_utils.py</code> (in <code>../dsp-cpp/</code>)</h3>
+<p>DSP compilation and execution utilities:
+- <code>get_target_string()</code>: Map mode to c_static target string
+- <code>assert_dsp_comparison()</code>: Assert DSP results match reference
+- <code>compile_and_run_dsp()</code>: End-to-end compile, build, and run
+- <code>compare_results()</code>: Compare DSP output against reference
+- <code>compile_for_dsp()</code>: Compile TVM module to C code
+- <code>build_dsp_host()</code>: Build for C66x host emulation
+- <code>build_dsp_c66x()</code>: Cross-compile for C66x hardware
+- <code>build_dsp_c7x_host()</code>: Build for C7x host emulation
+- <code>build_dsp_dynmod()</code>: Build DLOAD-compatible C7x relocatable module
+- <code>run_dsp_host()</code>: Run host emulation executable
+- <code>run_dsp_c66x()</code>: Run on C66x hardware via CCS
+- <code>run_dsp_dload()</code>: Run on AM67A via c7x_compute CLI</p>
+<h2 id="adding-new-tests">Adding New Tests</h2>
+<p>Use <code>get_target_string()</code> and <code>assert_dsp_comparison()</code> to avoid
+per-mode boilerplate:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">dsp_utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">compile_and_run_dsp</span><span class="p">,</span> <span class="n">compare_results</span><span class="p">,</span>
+    <span class="n">get_target_string</span><span class="p">,</span> <span class="n">assert_dsp_comparison</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">model_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_my_model</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">test_my_model</span><span class="p">(</span><span class="n">dsp_mode</span><span class="p">,</span> <span class="n">dsp_timeout</span><span class="p">,</span> <span class="n">use_cpp_api</span><span class="p">):</span>
+    <span class="n">tvm_mod</span><span class="p">,</span> <span class="n">torch_model</span><span class="p">,</span> <span class="n">input_data</span> <span class="o">=</span> <span class="n">create_my_model</span><span class="p">()</span>
+
+    <span class="c1"># PyTorch reference</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="n">torch_result</span> <span class="o">=</span> <span class="n">torch_model</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">input_data</span><span class="p">))</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+
+    <span class="c1"># Compile and run on DSP</span>
+    <span class="n">target_string</span> <span class="o">=</span> <span class="n">get_target_string</span><span class="p">(</span><span class="n">dsp_mode</span><span class="p">,</span> <span class="n">use_cpp_api</span><span class="o">=</span><span class="n">use_cpp_api</span><span class="p">)</span>
+    <span class="n">dsp_results</span> <span class="o">=</span> <span class="n">compile_and_run_dsp</span><span class="p">(</span>
+        <span class="n">mod</span><span class="o">=</span><span class="n">tvm_mod</span><span class="p">,</span>
+        <span class="n">input_data</span><span class="o">=</span><span class="n">input_data</span><span class="p">,</span>
+        <span class="n">target_string</span><span class="o">=</span><span class="n">target_string</span><span class="p">,</span>
+        <span class="n">execution_mode</span><span class="o">=</span><span class="n">dsp_mode</span><span class="p">,</span>
+        <span class="n">timeout_ms</span><span class="o">=</span><span class="n">dsp_timeout</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Compare and assert</span>
+    <span class="n">comparison</span> <span class="o">=</span> <span class="n">compare_results</span><span class="p">(</span><span class="n">dsp_results</span><span class="p">,</span> <span class="n">torch_result</span><span class="p">,</span> <span class="s2">&quot;PyTorch&quot;</span><span class="p">)</span>
+    <span class="n">assert_dsp_comparison</span><span class="p">(</span><span class="n">dsp_results</span><span class="p">,</span> <span class="n">comparison</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="multi-output-support">Multi-Output Support</h2>
+<p>The DSP runtime supports models that return multiple outputs (tuples).
+<code>test_rtmdet_dsp.py</code> validates this:</p>
+<ul>
+<li>Maximum 128 outputs supported (<code>Model::kMaxOutputs</code>, compile-time check)</li>
+<li><code>Model::InferMulti()</code> API returns all outputs</li>
+<li>Output tensors written to <code>output.bin</code> in order</li>
+</ul>
+<h2 id="debugging-with-dsp_keep_temp">Debugging with DSP_KEEP_TEMP</h2>
+<p>Set <code>DSP_KEEP_TEMP=1</code> to preserve the temporary workspace after each test.
+The workspace is named after the test and timestamped for easy correlation:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">DSP_KEEP_TEMP</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>pytest<span class="w"> </span>test_conv2d_dsp.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host
+ls<span class="w"> </span>/tmp/dsp_test_conv2d_dsp_20260505_154303/
+</code></pre></div>
+<p>Each workspace contains both the TVM-generated code and the native build
+artifacts in a single directory:</p>
+<div class="highlight"><pre><span></span><code>/tmp/dsp_test_conv2d_dsp_20260505_154303/
+├── lib0.c                  # TVM-generated C code
+├── devc.c                  # Device constants
+├── weights.bin             # Model weights
+├── model_library.tar       # Exported TVM library
+└── build-c7x_host/         # Native build (named after execution mode)
+    ├── cg_dsp              # Compiled executable
+    ├── cmake.log           # Build log
+    ├── input.bin           # Input tensors
+    └── output.bin          # Output tensors
+</code></pre></div>
+<p>The build subdirectory is named after the execution mode: <code>build-c7x_host</code>,
+<code>build-c7x_dload</code>, <code>build-c66x_host</code>, or <code>build-c66x</code>.</p>
+<h2 id="requirements">Requirements</h2>
+<ul>
+<li>TVM with c_static backend</li>
+<li>PyTorch and torchvision for model creation and reference inference</li>
+<li><strong>c66x_host</strong>: No additional requirements (system gcc)</li>
+<li><strong>c66x</strong>: AWRL6844 board with XDS110 debug probe, TI C6000 compiler
+  (<code>TI_CGT_C6000_PATH</code>)</li>
+<li><strong>c7x_host</strong>: TI C7000 CGT with Host Emulation library
+  (<code>TI_CGT_C7000_PATH</code>)</li>
+<li><strong>c7x_dload</strong>: AM67A (J722S) board at hostname <code>am67a</code>, TI C7000
+  compiler (<code>TI_CGT_C7000_PATH</code>), c7x_compute firmware deployed</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2435 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="internals.html">
+      
+      
+        <link rel="next" href="../firmware/architecture.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>C7x Memory Map Reference - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#c7x-memory-map-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              C7x Memory Map Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/compilation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/python-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/c-static.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/mmalib-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C7x Memory Map Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="memory-map.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C7x Memory Map Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#j722s-c7x-memory-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        J722S C7x Memory Layout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="J722S C7x Memory Layout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#code-in-ddr-mode-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code-in-DDR Mode (Default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l2-sram-regions-2mb-at-0x7e000000" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2 SRAM Regions (2MB at 0x7E000000)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ddr-regions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DDR Regions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tvm-runtime-memory-pools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TVM Runtime Memory Pools
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#important-memory-pool-separation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Important: Memory Pool Separation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-placement-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Section Placement Summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c7x-mmu-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C7x MMU Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="C7x MMU Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-mmu-is-needed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why MMU is Needed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mmu-register-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MMU Register Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mair-memory-attribute-indirection-register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MAIR (Memory Attribute Indirection Register)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#page-table-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Page Table Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory-regions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Regions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#block-descriptor-attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Block Descriptor Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shareability-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shareability Considerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mmu-source-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MMU Source Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/design-deep-dive.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/arm-client-internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM Host Client Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-debug.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Debug Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/c-static-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dsp-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dsp-cpp-harness.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP C++ Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/mmalib-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/pt2e-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/quantized-sweep.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dynamic-shape-limits.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Shape Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#j722s-c7x-memory-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        J722S C7x Memory Layout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="J722S C7x Memory Layout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#code-in-ddr-mode-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code-in-DDR Mode (Default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l2-sram-regions-2mb-at-0x7e000000" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2 SRAM Regions (2MB at 0x7E000000)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ddr-regions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DDR Regions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tvm-runtime-memory-pools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TVM Runtime Memory Pools
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#important-memory-pool-separation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Important: Memory Pool Separation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-placement-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Section Placement Summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c7x-mmu-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C7x MMU Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="C7x MMU Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-mmu-is-needed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why MMU is Needed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mmu-register-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MMU Register Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mair-memory-attribute-indirection-register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MAIR (Memory Attribute Indirection Register)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#page-table-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Page Table Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory-regions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Regions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#block-descriptor-attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Block Descriptor Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shareability-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shareability Considerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mmu-source-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MMU Source Files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="c7x-memory-map-reference">C7x Memory Map Reference</h1>
+<p>This describes the memory layout used by the standalone JTAG test harness
+(see <a href="../testing/dsp-cpp-harness.html">DSP C++ Harness</a>), defined in
+<code>tests/ti-dsp-runtime/dsp-cpp/j722s/linker_c7x.cmd</code>.</p>
+<p><strong>This is a separate, independent memory map from the firmware's unified
+DDR pool</strong> (see <a href="../firmware/design-deep-dive.html">Firmware Design Deep-Dive</a>)
+-- the two build targets are not related, and their DDR heap sizes
+genuinely differ (128 MB here vs. 352 MiB in the firmware). Don't cross-check
+numbers between the two; each is correct for its own linker script.</p>
+<h2 id="j722s-c7x-memory-layout">J722S C7x Memory Layout</h2>
+<p>The J722S C75 DSP has 2MB of L2 SRAM local to the core plus access to DDR memory.
+The linker command file (<code>j722s/linker_c7x.cmd</code>) defines the memory layout for
+standalone JTAG execution.</p>
+<h3 id="code-in-ddr-mode-default">Code-in-DDR Mode (Default)</h3>
+<p>The default configuration places application code in DDR (cached via MMU) to
+maximize L2 SRAM for the TVM data heap. Only boot code and MMU init remain in L2.</p>
+<h3 id="l2-sram-regions-2mb-at-0x7e000000">L2 SRAM Regions (2MB at 0x7E000000)</h3>
+<table>
+<thead>
+<tr>
+<th>Region</th>
+<th>Address Range</th>
+<th>Size</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L2_VECS</td>
+<td>0x7E000000 - 0x7E003FFF</td>
+<td>16KB</td>
+<td>Interrupt/exception vectors</td>
+</tr>
+<tr>
+<td>L2_SECVECS</td>
+<td>0x7E004000 - 0x7E007FFF</td>
+<td>16KB</td>
+<td>Secure vectors</td>
+</tr>
+<tr>
+<td>L2_BOOT</td>
+<td>0x7E008000 - 0x7E008FFF</td>
+<td>4KB</td>
+<td>Boot code (<code>_c_int00_secure</code>)</td>
+</tr>
+<tr>
+<td>L2_INIT</td>
+<td>0x7E009000 - 0x7E018FFF</td>
+<td>64KB</td>
+<td>Pre-MMU init code (<code>.text:l2_init</code>)</td>
+</tr>
+<tr>
+<td>L2_DATA</td>
+<td>0x7E019000 - 0x7E038FFF</td>
+<td>128KB</td>
+<td>Data sections (<code>.data</code>, <code>.bss</code>, <code>.cio</code>)</td>
+</tr>
+<tr>
+<td>L2_STACK</td>
+<td>0x7E039000 - 0x7E068FFF</td>
+<td><strong>192KB</strong></td>
+<td>Stack (<code>.stack</code>) - expanded</td>
+</tr>
+<tr>
+<td>L2_SCRATCH</td>
+<td>0x7E069000 - 0x7E1FFFFF</td>
+<td><strong>1.59MB</strong></td>
+<td><strong>TVM L2 pool</strong> (<code>.tvm_l2_heap</code>)</td>
+</tr>
+<tr>
+<td>L2_AUX</td>
+<td>0x7F000000 - 0x7F03BFFF</td>
+<td>240KB</td>
+<td>Auxiliary storage (<code>.l2aux</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Note:</strong> The standard malloc heap (<code>.sysmem</code>) has been moved to DDR to maximize L2 for
+the TVM runtime. This allows a larger stack (192KB vs 128KB) and keeps all of L2_SCRATCH
+available for TVM tensor allocations.</p>
+<p><strong>Key difference from code-in-L2 mode</strong>: Application code (<code>.text</code>) goes to DDR,
+freeing ~1.3MB additional L2 space for the TVM heap.</p>
+<h3 id="ddr-regions">DDR Regions</h3>
+<table>
+<thead>
+<tr>
+<th>Region</th>
+<th>Address Range</th>
+<th>Size</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DDR_C7X_BOOT</td>
+<td>0xAD200000</td>
+<td>1KB</td>
+<td>DDR boot code</td>
+</tr>
+<tr>
+<td>DDR_C7X_VECS</td>
+<td>0xAD400000</td>
+<td>16KB</td>
+<td>DDR vectors</td>
+</tr>
+<tr>
+<td>DDR_C7X_SECVECS</td>
+<td>0xAD600000</td>
+<td>16KB</td>
+<td>DDR secure vectors</td>
+</tr>
+<tr>
+<td>DDR_C7X_CODE</td>
+<td>0xAD604000 - 0xAD803FFF</td>
+<td>2MB</td>
+<td>Application code (cached via MMU)</td>
+</tr>
+<tr>
+<td>DDR_SYSMEM</td>
+<td>0xAD804000 - 0xAD843FFF</td>
+<td>256KB</td>
+<td>Standard malloc heap (<code>.sysmem</code>)</td>
+</tr>
+<tr>
+<td>DDR_C7X_MAIN</td>
+<td>0xAD844000 - 0xB0FFFFFF</td>
+<td>~55.7MB</td>
+<td><strong>Model weights</strong> (<code>.rodata.weights</code>)</td>
+</tr>
+<tr>
+<td>DDR_C7X_EXTENDED</td>
+<td>0x108000000 - 0x10FFFFFFF</td>
+<td>128MB</td>
+<td><strong>TVM DDR heap</strong> (runtime tensors)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Note:</strong> DDR_C7X_EXTENDED uses high DDR above 4GB (virtual addresses 0x108000000+
+map to physical 0x888000000+ per TI SDK memory map). This requires 8GB LPDDR4 and
+is verified by the TI RTOS SDK <code>app_mem_map.h</code>.</p>
+<h3 id="tvm-runtime-memory-pools">TVM Runtime Memory Pools</h3>
+<p>The TVM DSP runtime uses two memory pools configured via linker symbols:</p>
+<table>
+<thead>
+<tr>
+<th>Pool</th>
+<th>Region</th>
+<th>Address Range</th>
+<th>Size</th>
+<th>Usage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L2 (Fast)</td>
+<td>L2_SCRATCH</td>
+<td>0x7E069000 - 0x7E1FFFFF</td>
+<td><strong>1.59MB</strong></td>
+<td>Intermediate tensors, frequently accessed data</td>
+</tr>
+<tr>
+<td>DDR (Main)</td>
+<td>DDR_C7X_EXTENDED</td>
+<td>0x108000000 - 0x110000000</td>
+<td><strong>128MB</strong></td>
+<td>Runtime tensor allocations, large outputs</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Model weights</strong> are placed in DDR_C7X_MAIN (~55.7MB) via the <code>.rodata.weights</code> section,
+separate from the runtime heap.</p>
+<p><strong>Linker symbols</strong> (read by TVM runtime at initialization):
+<div class="highlight"><pre><span></span><code>__TVM_DSP_L2_HEAP_START  = 0x7E069000
+__TVM_DSP_L2_HEAP_END    = 0x7E200000
+__TVM_DSP_DDR_HEAP_START = 0x108000000
+__TVM_DSP_DDR_HEAP_END   = 0x110000000
+</code></pre></div></p>
+<h3 id="important-memory-pool-separation">Important: Memory Pool Separation</h3>
+<p>The TVM heaps <strong>must not overlap</strong> with <code>.sysmem</code> (standard malloc heap used by
+<code>printf</code>, <code>fopen</code>, etc.). Earlier versions had overlap issues causing memory
+corruption when printf's internal buffers overwrote TVM tensor data.</p>
+<p><strong>Current layout (correct, code-in-DDR mode):</strong>
+- <code>.sysmem</code> (malloc) → DDR_SYSMEM (0xAD804000, 256KB) - in low DDR
+- <code>.stack</code> → L2_STACK (0x7E039000, 192KB) - expanded
+- <code>.rodata.weights</code> → DDR_C7X_MAIN (0xAD844000, ~55.7MB) - model weights
+- TVM L2 pool → L2_SCRATCH (0x7E069000, 1.59MB)
+- TVM DDR pool → DDR_C7X_EXTENDED (0x108000000, 128MB) - in high DDR (&gt;4GB)</p>
+<p><strong>Why use extended DDR for TVM heap:</strong> The J722S has 8GB LPDDR4 with high DDR
+addresses (0x108000000+) mapped via MMU. Using extended DDR for the TVM runtime
+heap frees DDR_C7X_MAIN for model weights (up to ~55.7MB), enabling larger models.</p>
+<p>To customize the TVM pool locations, modify the linker symbols in <code>linker_c7x.cmd</code>.
+The runtime reads these symbols at initialization, so no library rebuild is needed.</p>
+<h3 id="section-placement-summary">Section Placement Summary</h3>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Region</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.vecs</code></td>
+<td>L2_VECS</td>
+<td>Interrupt vector table</td>
+</tr>
+<tr>
+<td><code>.text</code></td>
+<td>DDR_C7X_CODE</td>
+<td>Application code (cached via MMU)</td>
+</tr>
+<tr>
+<td><code>.text:l2_init</code></td>
+<td>L2_INIT</td>
+<td>Pre-MMU init code (runs before DDR cached)</td>
+</tr>
+<tr>
+<td><code>.const</code></td>
+<td>DDR_C7X_CODE</td>
+<td>Read-only constants (small)</td>
+</tr>
+<tr>
+<td><code>.rodata.weights</code></td>
+<td>DDR_C7X_MAIN</td>
+<td><strong>Model weights</strong> (up to ~55.7MB)</td>
+</tr>
+<tr>
+<td><code>.data</code></td>
+<td>L2_DATA</td>
+<td>Initialized global data</td>
+</tr>
+<tr>
+<td><code>.bss</code></td>
+<td>L2_DATA</td>
+<td>Zero-initialized data</td>
+</tr>
+<tr>
+<td><code>.cio</code></td>
+<td>L2_DATA</td>
+<td>Console I/O buffer (printf)</td>
+</tr>
+<tr>
+<td><code>.stack</code></td>
+<td>L2_STACK</td>
+<td>Program stack (192KB)</td>
+</tr>
+<tr>
+<td><code>.sysmem</code></td>
+<td>DDR_SYSMEM</td>
+<td>Standard heap (malloc/free) - 256KB in DDR</td>
+</tr>
+<tr>
+<td><code>.tvm_l2_heap</code></td>
+<td>L2_SCRATCH</td>
+<td>TVM fast memory pool (1.59MB)</td>
+</tr>
+<tr>
+<td><code>.tvm_ddr_heap</code></td>
+<td>DDR_C7X_EXTENDED</td>
+<td>TVM main memory pool (128MB in high DDR)</td>
+</tr>
+<tr>
+<td><code>.fardata</code></td>
+<td>DDR_C7X_MAIN</td>
+<td>Large data arrays</td>
+</tr>
+</tbody>
+</table>
+<h2 id="c7x-mmu-configuration">C7x MMU Configuration</h2>
+<p>The C7x DSP on J722S requires MMU (Memory Management Unit) configuration for
+cached and executable DDR access. The application is responsible for
+initializing the MMU before calling any TVM runtime functions.</p>
+<h3 id="why-mmu-is-needed">Why MMU is Needed</h3>
+<p>Without proper MMU configuration, DDR memory accesses are:
+- Uncached (slow, every access goes to external memory)
+- Potentially non-executable (can't run code from DDR)</p>
+<p>The MMU enables:
+- Cached DDR access for model weights and tensors
+- Executable DDR regions for code-in-DDR mode (maximizes L2 for data)
+- Proper memory attributes for L2 SRAM and peripheral regions</p>
+<h3 id="mmu-register-configuration">MMU Register Configuration</h3>
+<p>The MMU uses direct ECR (Extended Control Register) access, adapted from
+TI's edgeai-tidl-kernels approach:</p>
+<table>
+<thead>
+<tr>
+<th>Register</th>
+<th>ECR</th>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SCR</td>
+<td>ECR784</td>
+<td>0x80000000000000C1</td>
+<td>System Control: MMU + caches enabled</td>
+</tr>
+<tr>
+<td>TCR0</td>
+<td>ECR785</td>
+<td>0x0000000000002A21</td>
+<td>Translation Control: 4KB granule, 2GB space</td>
+</tr>
+<tr>
+<td>TBR0</td>
+<td>ECR787</td>
+<td>(page table addr)</td>
+<td>Translation Base: points to level 1 table</td>
+</tr>
+<tr>
+<td>MAR</td>
+<td>ECR789</td>
+<td>0x3D3D3D2915032A00</td>
+<td>Memory Attributes: cacheable/device types</td>
+</tr>
+</tbody>
+</table>
+<h3 id="mair-memory-attribute-indirection-register">MAIR (Memory Attribute Indirection Register)</h3>
+<p>The MAR value packs 8 memory attribute configurations (MAIR0-7):</p>
+<table>
+<thead>
+<tr>
+<th>Index</th>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MAIR0</td>
+<td>0x00</td>
+<td>Device-nGnRnE (strongly ordered device memory)</td>
+</tr>
+<tr>
+<td>MAIR1</td>
+<td>0x2A</td>
+<td>Write-Through No-Allocate</td>
+</tr>
+<tr>
+<td>MAIR2</td>
+<td>0x03</td>
+<td>Device-nGnRE</td>
+</tr>
+<tr>
+<td>MAIR3</td>
+<td>0x15</td>
+<td>Write-Through Allocate</td>
+</tr>
+<tr>
+<td>MAIR4</td>
+<td>0x29</td>
+<td>Non-cacheable</td>
+</tr>
+<tr>
+<td>MAIR5</td>
+<td>0x3D</td>
+<td>Write-Back Read-Allocate Write-Allocate (normal cached)</td>
+</tr>
+<tr>
+<td>MAIR6</td>
+<td>0x3D</td>
+<td>Write-Back Read-Allocate Write-Allocate</td>
+</tr>
+<tr>
+<td>MAIR7</td>
+<td>0x3D</td>
+<td>Write-Back Read-Allocate Write-Allocate</td>
+</tr>
+</tbody>
+</table>
+<h3 id="page-table-structure">Page Table Structure</h3>
+<p>The J722S implementation uses ARMv8-style 2-level page tables with 1GB L1 blocks
+and 2MB L2 blocks:</p>
+<div class="highlight"><pre><span></span><code>Level 1 (512 entries)         Level 2 (512 entries)
+┌─────────────────────┐       ┌─────────────────────┐
+│ [0] 0x00-0x3F: Dev  │ Block │                     │
+│ [1] 0x40-0x7F: Tbl  │──────&gt;│ MSMC (0x70): Cached │
+│ [2] 0x80-0xBF: DDR  │ Block │ L2   (0x7E): Cached │
+│ [3] 0xC0-0xFF: DDR  │ Block │ L2AUX(0x7F): Cached │
+│ [4] 1.0-1.3G: DDR   │ Block │                     │
+│ [5] 1.4-1.7G: DDR   │ Block └─────────────────────┘
+└─────────────────────┘
+</code></pre></div>
+<h3 id="memory-regions">Memory Regions</h3>
+<table>
+<thead>
+<tr>
+<th>Region</th>
+<th>Address Range</th>
+<th>Size</th>
+<th>Attributes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Peripherals</td>
+<td>0x00000000-0x3FFFFFFF</td>
+<td>1GB</td>
+<td>Device, Non-Shareable</td>
+</tr>
+<tr>
+<td>Secure Proxy</td>
+<td>0x48000000-0x4FFFFFFF</td>
+<td>128MB</td>
+<td>Device (for DMSC comm)</td>
+</tr>
+<tr>
+<td>MSMC</td>
+<td>0x70000000-0x703FFFFF</td>
+<td>4MB</td>
+<td>Cached, Outer Shareable</td>
+</tr>
+<tr>
+<td>L2 SRAM</td>
+<td>0x7E000000-0x7E1FFFFF</td>
+<td>2MB</td>
+<td>Cached, Non-Shareable</td>
+</tr>
+<tr>
+<td>L2 AUX</td>
+<td>0x7F000000-0x7F03FFFF</td>
+<td>256KB</td>
+<td>Cached, Non-Shareable</td>
+</tr>
+<tr>
+<td>DDR</td>
+<td>0x80000000-0xFFFFFFFF</td>
+<td>2GB</td>
+<td>Cached, Outer Shareable</td>
+</tr>
+<tr>
+<td>DDR (ext)</td>
+<td>0x100000000-0x17FFFFFFF</td>
+<td>2GB</td>
+<td>Cached, Outer Shareable (TVM heap at 0x108000000)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="block-descriptor-attributes">Block Descriptor Attributes</h3>
+<table>
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Bits</th>
+<th>Values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Type</td>
+<td>[1:0]</td>
+<td>0b01 = Block descriptor</td>
+</tr>
+<tr>
+<td>AttrIndx</td>
+<td>[4:2]</td>
+<td>MAIR index (0-7)</td>
+</tr>
+<tr>
+<td>NS</td>
+<td>[5]</td>
+<td>Non-Secure</td>
+</tr>
+<tr>
+<td>AP</td>
+<td>[7:6]</td>
+<td>Access permissions (0b00 = RW)</td>
+</tr>
+<tr>
+<td>SH</td>
+<td>[9:8]</td>
+<td>Shareability (0=NSH, 2=OSH, 3=ISH)</td>
+</tr>
+<tr>
+<td>AF</td>
+<td>[10]</td>
+<td>Access Flag (must be 1)</td>
+</tr>
+<tr>
+<td>Address</td>
+<td>[47:21]</td>
+<td>2MB-aligned physical address (L2)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="shareability-considerations">Shareability Considerations</h3>
+<ul>
+<li><strong>Non-Shareable (NSH)</strong>: Use for L2 SRAM which is local to each C75 core</li>
+<li><strong>Outer Shareable (OSH)</strong>: Use for DDR and MSMC for multi-core coherency</li>
+</ul>
+<h3 id="mmu-source-files">MMU Source Files</h3>
+<p>The MMU implementation is in <code>j722s/</code>:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mmu.c</code></td>
+<td>MMU initialization with detailed comments</td>
+</tr>
+<tr>
+<td><code>c75_asm.S</code></td>
+<td>Assembly functions for ECR register access</td>
+</tr>
+<tr>
+<td><code>boot_c75.c</code></td>
+<td>Boot code that calls <code>MmuP_init()</code> before <code>main()</code></td>
+</tr>
+<tr>
+<td><code>linker_c7x.cmd</code></td>
+<td>Linker script with page table sections</td>
+</tr>
+</tbody>
+</table>
+<h3 id="security-mode">Security Mode</h3>
+<p>The C7x runs in CXM=3 (RootSupervisor) mode when loaded via JTAG. This mode:
+- Has full access to MMU configuration registers
+- Can modify page tables and enable/disable MMU
+- Requires direct ECR register access (SDK MmuP functions may not work)</p>
+<p>The runtime detects the security mode and reports it during initialization:
+<div class="highlight"><pre><span></span><code>C7x security mode: CXM=3 (RootSupervisor)
+</code></pre></div></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

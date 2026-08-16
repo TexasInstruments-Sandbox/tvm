@@ -1,0 +1,2213 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../backend/mmalib-integration.html">
+      
+      
+        <link rel="next" href="memory-map.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Runtime Internals - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#dsp-runtime-internals" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Runtime Internals
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/compilation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/python-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/c-static.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/mmalib-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="internals.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-platforms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Platforms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build Outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#running-unit-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Unit Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Memory Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#memory-pools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Pools
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#allocation-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Allocation Strategy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backing-memory-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backing Memory Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c7x-mmu-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C7x MMU Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="C7x MMU Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-application-managed-mmu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Application-Managed MMU?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tensor-file-io-host-testing-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tensor File I/O (Host Testing Only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-full-tvm-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from Full TVM Runtime
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="memory-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C7x Memory Map Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/design-deep-dive.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/arm-client-internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM Host Client Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-debug.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Debug Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/c-static-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dsp-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dsp-cpp-harness.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP C++ Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/mmalib-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/pt2e-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/quantized-sweep.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dynamic-shape-limits.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Shape Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-platforms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Platforms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build Outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#running-unit-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running Unit Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Memory Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#memory-pools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Pools
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#allocation-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Allocation Strategy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backing-memory-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backing Memory Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c7x-mmu-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C7x MMU Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="C7x MMU Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-application-managed-mmu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Application-Managed MMU?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tensor-file-io-host-testing-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tensor File I/O (Host Testing Only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#differences-from-full-tvm-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Differences from Full TVM Runtime
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="dsp-runtime-internals">DSP Runtime Internals</h1>
+<p>Minimal runtime for executing TVM-compiled models on TI DSP processors.
+Located at <code>src/runtime/ti_dsp/</code>. For the public C++ API this runtime
+exposes to applications, see <code>src/runtime/ti_dsp/MODEL_API.md</code> in the
+source tree.</p>
+<h2 id="overview">Overview</h2>
+<p>The TVM DSP Runtime provides a lightweight C++14 API for running TVM-generated
+models on resource-constrained embedded DSP environments. Key features:</p>
+<ul>
+<li><strong>C++14 Model API</strong>: Clean, RAII-based interface (<code>model.h</code>)</li>
+<li><strong>Zero-copy design</strong>: No copies of input/output data</li>
+<li><strong>Static memory pools</strong>: No dynamic allocation in hot path</li>
+<li><strong>Cross-platform</strong>: PC host emulation, TI C66x, and TI C7x hardware</li>
+</ul>
+<h2 id="supported-platforms">Supported Platforms</h2>
+<table>
+<thead>
+<tr>
+<th>Build variant</th>
+<th>Device</th>
+<th>Output library</th>
+<th>Toolchain</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>c66x_host</code></td>
+<td>PC (C66x host emulation)</td>
+<td><code>libtvm_dsp_runtime_host.a</code></td>
+<td>GCC/Clang</td>
+</tr>
+<tr>
+<td><code>c66x</code></td>
+<td>AWRL6844 C66x DSP</td>
+<td><code>libtvm_dsp_runtime_c66x.a</code></td>
+<td>ti-cgt-c6000 v8.5+</td>
+</tr>
+<tr>
+<td><code>c7x_host</code></td>
+<td>PC (C7x host emulation)</td>
+<td><code>libtvm_dsp_runtime_c7x_host.a</code></td>
+<td>GCC + TI Host Emu</td>
+</tr>
+<tr>
+<td><code>c7x</code></td>
+<td>J722S/AM67A C7x DSP</td>
+<td><code>libtvm_dsp_runtime_c7x.a</code></td>
+<td>ti-cgt-c7000 v5.0+</td>
+</tr>
+</tbody>
+</table>
+<h2 id="directory-structure">Directory Structure</h2>
+<div class="highlight"><pre><span></span><code>ti_dsp/
+├── include/                  # Public API
+│   └── model.h               # C++14 Model API (only header users need)
+├── cpp/                      # C++14 implementation and utilities
+│   ├── model.cpp             # Model class implementation
+│   ├── scope_guard.h         # RAII scope guard
+│   ├── fixed_vector.h        # Fixed-capacity vector
+│   ├── span.h                # Non-owning array view
+│   ├── result.h              # Error handling without exceptions
+│   ├── typed_handle.h        # Type-safe handle wrapper
+│   └── ...                   # Other internal utilities
+├── cmake/                    # CMake modules
+│   ├── toolchain-awrl6844.cmake  # C66x cross-compilation toolchain
+│   ├── toolchain-j722s-c7x.cmake # C7x cross-compilation toolchain
+│   └── WeightEmbedding.cmake     # Binary weight embedding support
+├── constants/                # weights.bin parser (internal)
+├── container/                # NDArray, Shape, Array containers (internal)
+├── dma/                      # DMA abstraction (tiling, host stub)
+├── dynmod/                   # C7x DLOAD dynamic module infrastructure
+├── ffi/                      # FFI types (internal)
+├── firmware/                 # C7x remoteproc firmware (J722S/AM67A)
+├── platform/                 # Platform abstraction (internal)
+│   ├── host/                 # C66x host emulation backend (GCC)
+│   ├── c66x/                 # TI C66x backend (AWRL6844)
+│   ├── c7x/                  # TI C7x backend (J722S)
+│   │   ├── c7x_platform.c    # Platform init, memory pools
+│   │   └── c7x_cxm.asm       # Security mode detection
+│   └── common/               # Shared memory pool manager
+├── registry/                 # Function registry (internal)
+├── scripts/                  # JTAG deployment scripts
+│   ├── run_on_c66x.sh        # C66x hardware deployment (AWRL6844)
+│   └── run_on_c75x.sh        # C7x hardware deployment (J722S)
+├── tidl/                     # TIDL offload API (internal)
+├── vm/                       # VM builtins (internal)
+├── tests/                    # Unit tests
+├── build_runtime.sh          # Build script for all runtime variants
+└── CMakeLists.txt            # Build configuration
+</code></pre></div>
+<h2 id="building">Building</h2>
+<p>Use <code>build_runtime.sh</code> to build any runtime variant. The script
+auto-detects TI compiler installations.</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>src/runtime/ti_dsp
+
+bash<span class="w"> </span>build_runtime.sh<span class="w"> </span>c66x_host<span class="w">   </span><span class="c1"># C66x host emulation (no TI compiler needed)</span>
+bash<span class="w"> </span>build_runtime.sh<span class="w"> </span>c66x<span class="w">        </span><span class="c1"># C66x cross-compilation (needs TI_CGT_C6000_PATH)</span>
+bash<span class="w"> </span>build_runtime.sh<span class="w"> </span>c7x_host<span class="w">    </span><span class="c1"># C7x host emulation (needs TI_CGT_C7000_PATH)</span>
+bash<span class="w"> </span>build_runtime.sh<span class="w"> </span>c7x<span class="w">         </span><span class="c1"># C7x cross-compilation (needs TI_CGT_C7000_PATH)</span>
+bash<span class="w"> </span>build_runtime.sh<span class="w"> </span>all<span class="w">         </span><span class="c1"># Build c66x + c7x + c7x_host</span>
+bash<span class="w"> </span>build_runtime.sh<span class="w"> </span>clean<span class="w">       </span><span class="c1"># Remove all build directories</span>
+</code></pre></div>
+<h3 id="prerequisites">Prerequisites</h3>
+<p><strong><code>c66x_host</code></strong> (C66x host emulation on PC):
+- CMake 3.16+
+- C99/C++14 compiler (GCC, Clang)</p>
+<p><strong><code>c66x</code></strong> (C66x cross-compilation for AWRL6844):
+- TI C6000 Compiler v8.5.0+ (<code>ti-cgt-c6000</code>) — set <code>TI_CGT_C6000_PATH</code>
+- MMWAVE-L-SDK-6 v6.1.0.05 (auto-detected or set <code>MMWAVE_SDK_PATH</code>)</p>
+<p><strong><code>c7x_host</code></strong> (C7x host emulation on PC):
+- TI C7000 Compiler v5.0.1+ (<code>ti-cgt-c7000</code>) — set <code>TI_CGT_C7000_PATH</code>
+  (provides the Host Emulation library; system GCC is used to compile)</p>
+<p><strong><code>c7x</code></strong> (C7x cross-compilation for J722S/AM67A):
+- TI C7000 Compiler v5.0.1+ (<code>ti-cgt-c7000</code>) — set <code>TI_CGT_C7000_PATH</code>
+- MCU+ SDK for J722S (auto-detected or set <code>MCU_PLUS_SDK_PATH</code>)</p>
+<h3 id="build-outputs">Build Outputs</h3>
+<table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>Build directory</th>
+<th>Library</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>c66x_host</code></td>
+<td><code>build-c66x-host/</code></td>
+<td><code>libtvm_dsp_runtime_host.a</code></td>
+</tr>
+<tr>
+<td><code>c66x</code></td>
+<td><code>build-c66x/</code></td>
+<td><code>libtvm_dsp_runtime_c66x.a</code></td>
+</tr>
+<tr>
+<td><code>c7x_host</code></td>
+<td><code>build-c7x-host/</code></td>
+<td><code>libtvm_dsp_runtime_c7x_host.a</code></td>
+</tr>
+<tr>
+<td><code>c7x</code></td>
+<td><code>build-c7x/</code></td>
+<td><code>libtvm_dsp_runtime_c7x.a</code></td>
+</tr>
+</tbody>
+</table>
+<p>Each build also produces unit test executables in its build directory.</p>
+<h3 id="running-unit-tests">Running Unit Tests</h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># C66x host emulation (runs on PC)</span>
+<span class="nb">cd</span><span class="w"> </span>build-c66x-host
+ctest<span class="w"> </span>--output-on-failure
+
+<span class="c1"># C7x host emulation (runs on PC)</span>
+<span class="nb">cd</span><span class="w"> </span>build-c7x-host
+ctest<span class="w"> </span>--output-on-failure
+
+<span class="c1"># C66x hardware (requires AWRL6844 + XDS110 probe)</span>
+<span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp/scripts/run_on_c66x.sh<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>build-c66x/test_vm_builtins_c66x.out
+
+<span class="c1"># C7x hardware (requires J722S/AM67A board)</span>
+<span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp/scripts/run_on_c75x.sh<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>build-c7x/test_vm_builtins_c7x.out
+</code></pre></div>
+<h2 id="memory-configuration">Memory Configuration</h2>
+<p>Pool sizes are defined in the platform headers:</p>
+<p><strong>C66x host emulation</strong> (<code>platform/host/host_platform.h</code>):
+<div class="highlight"><pre><span></span><code><span class="cp">#define TVM_DSP_L2_SIZE  (4 * 1024 * 1024)   </span><span class="c1">// 4MB emulated fast pool</span>
+<span class="cp">#define TVM_DSP_L3_SIZE  (64 * 1024 * 1024)  </span><span class="c1">// 64MB emulated main pool</span>
+</code></pre></div></p>
+<p><strong>C66x AWRL6844</strong> (<code>platform/c66x/c66x_platform.h</code>):
+<div class="highlight"><pre><span></span><code><span class="cp">#define TVM_DSP_L2_SIZE  (256 * 1024)  </span><span class="c1">// 256KB L2 SRAM (default)</span>
+<span class="cp">#define TVM_DSP_L3_SIZE  (512 * 1024)  </span><span class="c1">// 512KB L3 SRAM (default)</span>
+</code></pre></div></p>
+<p><strong>C7x J722S</strong> (<code>platform/c7x/c7x_platform.h</code>):
+<div class="highlight"><pre><span></span><code><span class="cp">#define TVM_DSP_L2_SIZE_FALLBACK   (512 * 1024)       </span><span class="c1">// 512KB L2 SRAM fallback</span>
+<span class="cp">#define TVM_DSP_DDR_SIZE_FALLBACK  (64 * 1024 * 1024) </span><span class="c1">// 64MB DDR fallback</span>
+</code></pre></div>
+C7x pool sizes are queried at runtime from the firmware via
+<code>tvm_dsp_get_l2_base()</code> / <code>tvm_dsp_get_l2_size()</code>; the fallback values
+are used only when firmware getters are unavailable.</p>
+<h2 id="memory-architecture">Memory Architecture</h2>
+<p>The DSP runtime uses <strong>static pool allocation</strong> - no <code>malloc()</code> calls at runtime.
+All memory is pre-allocated at link time for deterministic behavior.</p>
+<h3 id="memory-pools">Memory Pools</h3>
+<p><strong>C66x (AWRL6844):</strong>
+| Pool | Size | Use Case | Access Speed |
+|------|------|----------|--------------|
+| L2 (Fast) | 256KB | Storage ≤32KB, hot data | Fastest (L2 SRAM) |
+| L3 (Main) | 512KB | Storage &gt;32KB, constants | Slower (L3 SRAM) |</p>
+<p><strong>C7x (J722S):</strong>
+| Pool | Size | Use Case | Access Speed |
+|------|------|----------|--------------|
+| L2 (Fast) | 512KB | Storage ≤32KB, hot data | Fastest (L2 SRAM) |
+| DDR (Main) | 64MB | Storage &gt;32KB, constants | Slower (DDR) |</p>
+<p>The storage allocation threshold balances L2 utilization against
+capacity. Tensors exceeding this threshold are placed in L3/DDR to avoid
+exhausting the limited L2 space.</p>
+<h3 id="allocation-strategy">Allocation Strategy</h3>
+<p>The allocator uses a <strong>bump-pointer + free-list</strong> approach:</p>
+<ol>
+<li><strong>First allocation</strong>: Bumps the pool pointer forward</li>
+<li><strong>Free</strong>: Adds block to a size-segregated free-list</li>
+<li><strong>Subsequent allocations</strong>: Checks free-list first for reuse</li>
+<li><strong>Fallback</strong>: Uses bump-pointer if no suitable free block</li>
+</ol>
+<p>This design provides:
+- O(1) allocation in common case
+- Memory reuse without fragmentation
+- No dynamic memory at runtime</p>
+<h3 id="backing-memory-setup">Backing Memory Setup</h3>
+<p><strong>Host emulation</strong>: Pools are allocated via <code>malloc()</code> during platform init.</p>
+<p><strong>C66x hardware</strong>: Pools are placed via linker script sections:</p>
+<div class="highlight"><pre><span></span><code>SECTIONS {
+    .tvm_l2_heap &gt; L2SRAM_C66x  /* 256KB in L2 SRAM */
+    .tvm_l3_heap &gt; L3_MEM       /* 512KB in L3 memory */
+}
+</code></pre></div>
+<p><strong>C7x hardware</strong>: Pools are placed via linker script sections:</p>
+<div class="highlight"><pre><span></span><code>SECTIONS {
+    .tvm_l2_heap &gt; L2_HEAP       /* 512KB in L2 SRAM */
+    .tvm_ddr_heap &gt; DDR_C7X_MAIN /* 64MB in DDR */
+}
+</code></pre></div>
+<p>The linker allocates these sections at build time. At runtime,
+<code>tvm_dsp_memory_pool_init()</code> initializes the pool structures using
+linker-provided symbols.</p>
+<p>Note: these pool sizes describe the <em>standard runtime build</em> config
+(<code>platform/c7x/c7x_platform.h</code> fallbacks). The actual deployed firmware's
+unified DDR pool is larger (352 MiB) -- see
+<a href="../firmware/design-deep-dive.html">Firmware Design Deep-Dive</a> -- and the
+standalone JTAG test harness uses yet another, independent memory map --
+see <a href="memory-map.html">C7x Memory Map Reference</a>. These are three distinct
+build targets; don't cross-check pool sizes between them.</p>
+<h2 id="c7x-mmu-configuration">C7x MMU Configuration</h2>
+<p>For C7x platforms (J722S), the application is responsible for initializing the
+MMU before calling any TVM runtime functions. The TVM DSP runtime assumes the
+MMU is already configured when <code>tvm_dsp_platform_init()</code> is called.</p>
+<h3 id="why-application-managed-mmu">Why Application-Managed MMU?</h3>
+<ol>
+<li>
+<p><strong>Linker-MMU Coupling</strong>: The application manages the linker command file,
+   which defines memory regions. MMU page tables must match the linker's
+   memory layout exactly.</p>
+</li>
+<li>
+<p><strong>Single Source of Truth</strong>: Having MMU configuration in one place (the
+   application) avoids conflicts between runtime and application page tables.</p>
+</li>
+<li>
+<p><strong>Boot Sequence</strong>: MMU init must happen early in boot (before DDR is
+   accessible), which is naturally handled by application boot code.</p>
+</li>
+</ol>
+<p>See <a href="memory-map.html">C7x Memory Map Reference</a> for the detailed
+register-level configuration (ECR registers, MAIR table, page table
+structure) used by the standalone JTAG test harness's reference
+implementation (<code>tests/ti-dsp-runtime/dsp-cpp/j722s/mmu.c</code>).</p>
+<h2 id="tensor-file-io-host-testing-only">Tensor File I/O (Host Testing Only)</h2>
+<p>For host testing, the <code>io/</code> module provides binary tensor file I/O:</p>
+<div class="highlight"><pre><span></span><code><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;io/tensor_file.h&quot;</span>
+
+<span class="c1">// Read tensors from file</span>
+<span class="kt">int</span><span class="w"> </span><span class="n">num_tensors</span><span class="p">;</span>
+<span class="n">TVMDSPNDArray</span><span class="o">**</span><span class="w"> </span><span class="n">tensors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TVMDSPReadTensorsFromFile</span><span class="p">(</span><span class="s">&quot;input.bin&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">num_tensors</span><span class="p">);</span>
+
+<span class="c1">// Write tensors to file</span>
+<span class="n">TVMDSPWriteTensorsToFile</span><span class="p">(</span><span class="s">&quot;output.bin&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">tensors</span><span class="p">,</span><span class="w"> </span><span class="n">num_tensors</span><span class="p">);</span>
+
+<span class="c1">// Free tensor array</span>
+<span class="n">TVMDSPFreeTensorArray</span><span class="p">(</span><span class="n">tensors</span><span class="p">,</span><span class="w"> </span><span class="n">num_tensors</span><span class="p">);</span>
+</code></pre></div>
+<p>Python utilities for creating/reading these files are in
+<code>tests/ti-dsp-runtime/dsp-cpp/dsp_utils.py</code>.</p>
+<h2 id="differences-from-full-tvm-runtime">Differences from Full TVM Runtime</h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Full TVM</th>
+<th>DSP Runtime</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Memory management</td>
+<td>Dynamic (malloc/free)</td>
+<td>Static pools</td>
+</tr>
+<tr>
+<td>Error handling</td>
+<td>Exceptions</td>
+<td>ModelError enum</td>
+</tr>
+<tr>
+<td>C++ standard</td>
+<td>C++17</td>
+<td>C++14</td>
+</tr>
+<tr>
+<td>RTTI</td>
+<td>Yes</td>
+<td>No</td>
+</tr>
+<tr>
+<td>VirtualMachine</td>
+<td>Full VM class</td>
+<td>Direct TIR calls</td>
+</tr>
+<tr>
+<td>Binary size</td>
+<td>~10MB+</td>
+<td>~100KB</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

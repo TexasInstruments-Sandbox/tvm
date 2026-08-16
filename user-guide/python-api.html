@@ -1,0 +1,2061 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="examples.html">
+      
+      
+        <link rel="next" href="../contributor-guide/architecture-overview.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Python / C++ API Reference - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#python-c-api-reference-c7xvirtualmachine-c7xmodule" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Python / C++ API Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../contributor-guide/architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="compilation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="python-api.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#python-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Python API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#standard-usage-copy-based-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard usage (copy-based inputs)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zero-copy-outputs-run_nocopy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero-copy outputs: run_nocopy()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zero-copy-inputs-create_input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero-copy inputs: create_input()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#properties" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Properties
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#constructor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Constructor
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C++ API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="C++ API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#standard-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#function-dispatch-mirrors-tvm-c-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Function dispatch (mirrors TVM C++ Module)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zero-copy-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero-copy inputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#class-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Class reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-and-lifetime-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory and lifetime rules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#locating-library-and-header-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Locating Library and Header Paths
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/backend/c-static.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/backend/mmalib-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/dsp-runtime/internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/dsp-runtime/memory-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C7x Memory Map Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/firmware/architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/firmware/design-deep-dive.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/firmware/arm-client-internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM Host Client Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/hardware-debug.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Debug Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/c-static-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/dsp-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/dsp-cpp-harness.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP C++ Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/mmalib-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/pt2e-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/quantized-sweep.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/dynamic-shape-limits.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Shape Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#python-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Python API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#standard-usage-copy-based-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard usage (copy-based inputs)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zero-copy-outputs-run_nocopy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero-copy outputs: run_nocopy()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zero-copy-inputs-create_input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero-copy inputs: create_input()
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#properties" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Properties
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#constructor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Constructor
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C++ API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="C++ API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#standard-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#function-dispatch-mirrors-tvm-c-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Function dispatch (mirrors TVM C++ Module)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zero-copy-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero-copy inputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#class-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Class reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-and-lifetime-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory and lifetime rules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#locating-library-and-header-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Locating Library and Header Paths
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="python-c-api-reference-c7xvirtualmachine-c7xmodule">Python / C++ API Reference: <code>C7xVirtualMachine</code> / <code>c7x::Module</code></h1>
+<p>Arm-side inference API for TVM <code>c_static</code> modules running on the C7x DSP.
+Provides a <code>relax.VirtualMachine</code>-compatible interface in both Python and
+C++, routing inference to the DSP via the <code>c7x_compute</code> IPC service.</p>
+<p>The C++ API is a direct mirror of the Python one, so this single document
+covers both.</p>
+<p><strong>Runs on the board, not the dev host.</strong> Both APIs talk to the DSP over the
+board's local rpmsg IPC channel, so your Python/C++ process must run on the
+ARM Linux side of the target board (AM67A / BeagleY-AI) itself — it cannot
+connect to a board remotely over the network. Compile/quantize the model on
+your dev host, then copy the compiled artifact (<code>lib0.out</code>) to the board to
+run inference.</p>
+<p><strong>Prerequisites:</strong>
+- <code>c7x_compute</code> firmware already running on the DSP (check with
+  <code>c7x_compute ping</code> on the board)
+- <code>libc7x_arm_runtime.so</code> installed on the board — see <a href="getting-started.html">Getting
+  Started</a> for the wheel-based build+deploy flow, or
+  <a href="deploying-firmware.html">Deploying Firmware</a> for the native
+  cross-compile/scp flow. <a href="#locating-library-and-header-paths">Locating Library and Header
+  Paths</a> below covers resolving where
+  either flow put the <code>.so</code>/header, for building your own application
+  against these APIs.</p>
+<hr />
+<h2 id="python-api">Python API</h2>
+<p><strong>Import:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">tvm.contrib.c7x</span><span class="w"> </span><span class="kn">import</span> <span class="n">C7xVirtualMachine</span>
+</code></pre></div>
+<h3 id="standard-usage-copy-based-inputs">Standard usage (copy-based inputs)</h3>
+<p>Identical syntax to <code>relax.VirtualMachine</code> on CPU:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">tvm</span><span class="o">,</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tvm.contrib.c7x</span><span class="w"> </span><span class="kn">import</span> <span class="n">C7xVirtualMachine</span>
+
+<span class="n">vm</span> <span class="o">=</span> <span class="n">C7xVirtualMachine</span><span class="p">(</span><span class="s2">&quot;/models/resnet18.out&quot;</span><span class="p">)</span>
+<span class="n">inp</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">nd</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">&quot;float32&quot;</span><span class="p">))</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">vm</span><span class="p">[</span><span class="s2">&quot;main&quot;</span><span class="p">](</span><span class="n">inp</span><span class="p">)</span>        <span class="c1"># returns tvm.nd.NDArray</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span><span class="o">.</span><span class="n">argmax</span><span class="p">())</span>
+
+<span class="n">vm</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</code></pre></div>
+<p>Context manager form (recommended for scripts):</p>
+<div class="highlight"><pre><span></span><code><span class="k">with</span> <span class="n">C7xVirtualMachine</span><span class="p">(</span><span class="s2">&quot;/models/resnet18.out&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">vm</span><span class="p">:</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">vm</span><span class="p">[</span><span class="s2">&quot;main&quot;</span><span class="p">](</span><span class="n">inp</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="zero-copy-outputs-run_nocopy">Zero-copy outputs: <code>run_nocopy()</code></h3>
+<p><code>vm["main"]()</code> copies outputs from result DDR to new memory (safe across
+multiple calls).  <code>run_nocopy()</code> returns numpy views directly into the mmap'd
+result buffer — no copy — but they are <strong>only valid until the next
+<code>run_nocopy()</code> call</strong>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">out_np</span> <span class="o">=</span> <span class="n">vm</span><span class="o">.</span><span class="n">run_nocopy</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>   <span class="c1"># numpy array, zero-copy</span>
+<span class="n">process</span><span class="p">(</span><span class="n">out_np</span><span class="p">)</span>                <span class="c1"># must finish before the next run_nocopy() call</span>
+</code></pre></div>
+<h3 id="zero-copy-inputs-create_input">Zero-copy inputs: <code>create_input()</code></h3>
+<p>Pre-allocate an input tensor inside the staging DDR buffer.  Writing to it
+skips the staging <code>memcpy</code> on the next inference call:</p>
+<div class="highlight"><pre><span></span><code><span class="n">staging</span> <span class="o">=</span> <span class="n">vm</span><span class="o">.</span><span class="n">create_input</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">),</span> <span class="s2">&quot;float32&quot;</span><span class="p">)</span>  <span class="c1"># backed by staging DDR</span>
+<span class="n">staging</span><span class="o">.</span><span class="n">copyfrom</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>     <span class="c1"># writes directly to staging buffer</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">vm</span><span class="p">[</span><span class="s2">&quot;main&quot;</span><span class="p">](</span><span class="n">staging</span><span class="p">)</span>   <span class="c1"># no input copy</span>
+</code></pre></div>
+<p>The tensor is valid until <code>close()</code> is called.  Multiple inputs can be
+pre-staged; each call to <code>create_input()</code> advances the allocation offset by the
+tensor size (aligned to 64 bytes).</p>
+<h3 id="properties">Properties</h3>
+<div class="highlight"><pre><span></span><code><span class="n">vm</span><span class="o">.</span><span class="n">last_cycles</span>   <span class="c1"># DSP TSC cycle count from the most recent inference (int)</span>
+<span class="n">vm</span><span class="o">.</span><span class="n">is_loaded</span>     <span class="c1"># True if the module is currently loaded on the DSP (bool)</span>
+</code></pre></div>
+<h3 id="constructor">Constructor</h3>
+<div class="highlight"><pre><span></span><code><span class="n">C7xVirtualMachine</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">so_path</span><span class="o">=</span><span class="s2">&quot;libc7x_arm_runtime.so&quot;</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li><code>module_path</code>: path to <code>lib0.out</code> (the TVM c_static dynmod)</li>
+<li><code>so_path</code>: name or path of <code>libc7x_arm_runtime.so</code>. A bare name (the
+  default) first checks the wheel's own bundled copy
+  (<code>tvm.data.ti_dsp.paths.find_c7x_arm_runtime_so()</code>), then falls back to
+  <code>ctypes.util.find_library</code> + <code>LD_LIBRARY_PATH</code> -- so a <code>tvm-ti-c7x-inference</code>
+  wheel install needs no override at all; only a native/source-tree deploy
+  does (or pass an explicit absolute path to skip the lookup).</li>
+</ul>
+<p>Connection to the DSP is established lazily on the first call to <code>vm["main"]</code>
+or <code>create_input()</code>.</p>
+<hr />
+<h2 id="c-api">C++ API</h2>
+<p><strong>Header:</strong>
+<code>c7x_runtime.h</code> (<code>src/runtime/ti_dsp/firmware/c7x/arm/include/c7x_runtime.h</code>
+in the source tree)
+— not deployed to <code>/usr/local/include/</code> by <code>./build.sh deploy</code>; resolve it
+from the <code>tvm-ti-c7x-inference</code> wheel or the source tree instead, see
+<a href="#locating-library-and-header-paths">Locating Library and Header Paths</a></p>
+<p>No TVM runtime dependency — only DLPack is required, so this header can be
+used from any C++ application on the board.</p>
+<h3 id="standard-usage">Standard usage</h3>
+<div class="highlight"><pre><span></span><code><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;c7x_runtime.h&quot;</span>
+
+<span class="c1">// Load module — throws std::runtime_error on failure</span>
+<span class="k">auto</span><span class="w"> </span><span class="n">vm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c7x</span><span class="o">::</span><span class="n">Module</span><span class="o">::</span><span class="n">Load</span><span class="p">(</span><span class="s">&quot;/models/resnet18.out&quot;</span><span class="p">);</span>
+
+<span class="c1">// Single-input convenience</span>
+<span class="n">c7x</span><span class="o">::</span><span class="n">OutputTensor</span><span class="w"> </span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vm</span><span class="p">.</span><span class="n">Run</span><span class="p">(</span><span class="o">&amp;</span><span class="n">input_dl_tensor</span><span class="p">);</span>
+<span class="c1">// out.dl.data → pointer into result DDR, valid until next Run() or Close()</span>
+
+<span class="c1">// Multi-input convenience</span>
+<span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">c7x</span><span class="o">::</span><span class="n">OutputTensor</span><span class="o">&gt;</span><span class="w"> </span><span class="n">outs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vm</span><span class="p">.</span><span class="n">Run</span><span class="p">({</span><span class="o">&amp;</span><span class="n">in0</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">in1</span><span class="p">});</span>
+</code></pre></div>
+<h3 id="function-dispatch-mirrors-tvm-c-module">Function dispatch (mirrors TVM C++ Module)</h3>
+<div class="highlight"><pre><span></span><code><span class="n">c7x</span><span class="o">::</span><span class="n">OutputTensor</span><span class="w"> </span><span class="n">outputs</span><span class="p">[</span><span class="mi">8</span><span class="p">];</span>
+<span class="kt">int</span><span class="w"> </span><span class="n">num_outputs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<span class="k">const</span><span class="w"> </span><span class="n">DLTensor</span><span class="o">*</span><span class="w"> </span><span class="n">inputs</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="o">&amp;</span><span class="n">dl_tensor</span><span class="w"> </span><span class="p">};</span>
+
+<span class="k">auto</span><span class="w"> </span><span class="n">fn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vm</span><span class="p">[</span><span class="s">&quot;main&quot;</span><span class="p">];</span>
+<span class="kt">int</span><span class="w"> </span><span class="n">rc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">fn</span><span class="p">(</span><span class="n">inputs</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">outputs</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">num_outputs</span><span class="p">);</span>
+<span class="c1">// rc == 0 on success; outputs[0..num_outputs-1] are valid</span>
+</code></pre></div>
+<h3 id="zero-copy-inputs">Zero-copy inputs</h3>
+<div class="highlight"><pre><span></span><code><span class="kt">int64_t</span><span class="w"> </span><span class="n">shape</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">224</span><span class="p">,</span><span class="w"> </span><span class="mi">224</span><span class="p">};</span>
+<span class="n">DLDataType</span><span class="w"> </span><span class="n">float32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="n">kDLFloat</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">};</span>
+<span class="n">DLTensor</span><span class="o">*</span><span class="w"> </span><span class="n">inp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vm</span><span class="p">.</span><span class="n">CreateInput</span><span class="p">(</span><span class="n">shape</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="n">float32</span><span class="p">);</span><span class="w">  </span><span class="c1">// data in staging DDR</span>
+<span class="n">memcpy</span><span class="p">(</span><span class="n">inp</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">my_data</span><span class="p">,</span><span class="w"> </span><span class="n">nbytes</span><span class="p">);</span>
+<span class="k">auto</span><span class="w"> </span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vm</span><span class="p">.</span><span class="n">Run</span><span class="p">(</span><span class="n">inp</span><span class="p">);</span><span class="w">  </span><span class="c1">// no staging memcpy</span>
+</code></pre></div>
+<p><code>CreateInput</code> returns <code>nullptr</code> if the staging buffer is full or the module is
+not loaded.  Supports up to <code>kMaxInputs</code> (128) pre-staged tensors.</p>
+<h3 id="class-reference">Class reference</h3>
+<div class="highlight"><pre><span></span><code><span class="k">namespace</span><span class="w"> </span><span class="nn">c7x</span><span class="w"> </span><span class="p">{</span>
+
+<span class="k">struct</span><span class="w"> </span><span class="nc">OutputTensor</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">DLTensor</span><span class="w"> </span><span class="n">dl</span><span class="p">;</span><span class="w">        </span><span class="c1">// data → result DDR (zero-copy); valid until next Run/Close</span>
+<span class="w">    </span><span class="kt">int64_t</span><span class="w">  </span><span class="n">_shape</span><span class="p">[</span><span class="mi">6</span><span class="p">];</span><span class="w"> </span><span class="c1">// shape storage (dl.shape → this)</span>
+<span class="w">    </span><span class="kt">size_t</span><span class="w">   </span><span class="n">data_size</span><span class="p">;</span><span class="w"> </span><span class="c1">// byte size of the output</span>
+<span class="p">};</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Module</span><span class="w"> </span><span class="p">{</span>
+<span class="k">public</span><span class="o">:</span>
+<span class="w">    </span><span class="k">static</span><span class="w"> </span><span class="n">Module</span><span class="w"> </span><span class="n">Load</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">lib0_path</span><span class="p">);</span><span class="w">  </span><span class="c1">// throws on failure</span>
+
+<span class="w">    </span><span class="o">~</span><span class="n">Module</span><span class="p">();</span>
+<span class="w">    </span><span class="n">Module</span><span class="p">(</span><span class="n">Module</span><span class="o">&amp;&amp;</span><span class="p">)</span><span class="w"> </span><span class="k">noexcept</span><span class="p">;</span>
+<span class="w">    </span><span class="n">Module</span><span class="o">&amp;</span><span class="w"> </span><span class="k">operator</span><span class="o">=</span><span class="p">(</span><span class="n">Module</span><span class="o">&amp;&amp;</span><span class="p">)</span><span class="w"> </span><span class="k">noexcept</span><span class="p">;</span>
+<span class="w">    </span><span class="n">Module</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">Module</span><span class="o">&amp;</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">delete</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">struct</span><span class="w"> </span><span class="nc">Function</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="nf">operator</span><span class="p">()(</span><span class="k">const</span><span class="w"> </span><span class="n">DLTensor</span><span class="o">*</span><span class="w"> </span><span class="k">const</span><span class="o">*</span><span class="w"> </span><span class="n">inputs</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">num_inputs</span><span class="p">,</span>
+<span class="w">                       </span><span class="n">OutputTensor</span><span class="o">*</span><span class="w"> </span><span class="n">outputs</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="o">*</span><span class="w"> </span><span class="n">num_outputs</span><span class="p">)</span><span class="w"> </span><span class="k">const</span><span class="p">;</span>
+<span class="w">    </span><span class="p">};</span>
+
+<span class="w">    </span><span class="n">Function</span><span class="w">                       </span><span class="k">operator</span><span class="p">[](</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">name</span><span class="p">);</span>
+<span class="w">    </span><span class="n">OutputTensor</span><span class="w">                   </span><span class="nf">Run</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">DLTensor</span><span class="o">*</span><span class="w"> </span><span class="n">input</span><span class="p">);</span>
+<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">OutputTensor</span><span class="o">&gt;</span><span class="w">      </span><span class="n">Run</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="n">DLTensor</span><span class="o">*&gt;&amp;</span><span class="w"> </span><span class="n">inputs</span><span class="p">);</span>
+
+<span class="w">    </span><span class="n">DLTensor</span><span class="o">*</span><span class="w"> </span><span class="nf">CreateInput</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">int64_t</span><span class="o">*</span><span class="w"> </span><span class="n">shape</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">ndim</span><span class="p">,</span><span class="w"> </span><span class="n">DLDataType</span><span class="w"> </span><span class="n">dtype</span><span class="p">);</span>
+<span class="w">    </span><span class="kt">void</span><span class="o">*</span><span class="w">     </span><span class="nf">StagingBuffer</span><span class="p">(</span><span class="kt">size_t</span><span class="o">*</span><span class="w"> </span><span class="n">size_out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">nullptr</span><span class="p">)</span><span class="w"> </span><span class="k">const</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">void</span><span class="w">      </span><span class="nf">Close</span><span class="p">();</span>
+<span class="p">};</span>
+
+<span class="p">}</span><span class="w"> </span><span class="c1">// namespace c7x</span>
+</code></pre></div>
+<hr />
+<h2 id="memory-and-lifetime-rules">Memory and lifetime rules</h2>
+<p>Getting these wrong is the most common source of bugs — outputs and
+pre-staged inputs are views into shared DDR, not independent allocations:</p>
+<table>
+<thead>
+<tr>
+<th>API</th>
+<th>Valid until</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vm["main"](...)</code> / C++ <code>Run(...)</code></td>
+<td>Not time-limited — output is copied to new memory before return.</td>
+</tr>
+<tr>
+<td><code>vm.run_nocopy(...)</code> output</td>
+<td>The <strong>next</strong> <code>run_nocopy()</code> call (no copy — a numpy view of <code>result_buf</code>).</td>
+</tr>
+<tr>
+<td>C++ <code>OutputTensor.dl.data</code></td>
+<td>The <strong>next</strong> <code>Run()</code> call, or <code>Close()</code>.</td>
+</tr>
+<tr>
+<td><code>vm.create_input(...)</code> / C++ <code>CreateInput(...)</code> tensor</td>
+<td><code>vm.close()</code> / <code>Close()</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>If you need output data to outlive the next inference call, copy it
+yourself (e.g. <code>memcpy(my_buf, out.dl.data, out.dl.data_size)</code> in C++, or use
+<code>vm["main"](...)</code> instead of <code>run_nocopy()</code> in Python).</p>
+<hr />
+<h2 id="locating-library-and-header-paths">Locating Library and Header Paths</h2>
+<p><code>libc7x_arm_runtime.so</code> and <code>c7x_runtime.h</code> (used by both APIs above) are
+built and deployed to the board by <a href="getting-started.html">Getting Started</a>'s
+wheel-based flow, or natively by <a href="deploying-firmware.html">Deploying Firmware</a>
+(<code>arm/build.sh deploy</code>, i.e. cross-compile + scp + <code>ldconfig</code>) -- see
+<a href="deploying-firmware.html#testing">Deploying Firmware -- Testing</a> for how to
+confirm either deploy actually works before building against it. This
+section is only about resolving <em>where those files ended up</em> afterwards,
+for building your own application against the API -- not about the
+build/deploy step itself.</p>
+<p><strong>Wheel install:</strong> <code>pip install tvm-ti-c7x-inference</code> on the board unpacks
+<code>libc7x_arm_runtime.so</code>, <code>c7x_runtime.h</code>, and this Python module into
+site-packages. The Python API's <code>so_path</code> already resolves this
+automatically (see Constructor above); a C++ build, or anything linking
+against the <code>.so</code> directly, has to resolve both paths itself instead of
+assuming a system install:</p>
+<div class="highlight"><pre><span></span><code>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;from tvm.data.ti_dsp.paths import find_c7x_include_dir; \</span>
+<span class="s2">    print(find_c7x_include_dir())&quot;</span>
+python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;from tvm.data.ti_dsp.paths import find_c7x_arm_runtime_so; \</span>
+<span class="s2">    print(find_c7x_arm_runtime_so())&quot;</span>
+</code></pre></div>
+<p><code>ctypes.CDLL()</code> (used by the Python API) loads the <code>.so</code> by absolute path,
+so no <code>ldconfig</code> step is needed either way. A C++ build should pass the
+include dir as <code>-I</code> and either link against the resolved <code>.so</code> path
+directly or <code>dlopen()</code> it at runtime. <code>find_c7x_include_dir()</code> returns
+<code>None</code> outside a wheel install (e.g. in a source checkout, where the
+header and DLPack live in two separate source-tree directories instead
+of one merged <code>include/</code>) — callers should fall back to those paths in
+that case, as <code>examples/run_resnet18_classification.py</code>
+(<code>tests/ti-dsp-runtime/examples/run_resnet18_classification.py</code> in the
+source tree) does.</p>
+<hr />
+<h2 id="examples">Examples</h2>
+<p><a href="examples.html">Examples: YOLO26 &amp; ResNet-18</a> has full runnable examples
+for both APIs:</p>
+<ul>
+<li>Python: YOLO26 object detection on BeagleY-AI/AM67A --
+  <code>run_yolo26_detection.py</code> compiles and deploys the model from the dev
+  host, and <code>yolo26_board_runner.py</code> is the board-side script that
+  actually calls <code>C7xVirtualMachine</code>.</li>
+<li>C++: ResNet-18 classification -- <code>run_resnet18_classification.py</code>
+  compiles and cross-compiles from the dev host, and
+  <code>resnet18_board_runner.cpp</code> is the board-side program that calls
+  <code>c7x::Module</code> directly, built on the small shared
+  <code>c7x_infer.h</code> (<code>tests/ti-dsp-runtime/examples/common/c7x_infer.h</code> in
+  the source tree) helper library.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

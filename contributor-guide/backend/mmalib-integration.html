@@ -1,0 +1,2139 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="c-static.html">
+      
+      
+        <link rel="next" href="../dsp-runtime/internals.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>MMALIB Integration - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mmalib-integration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              MMALIB Integration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/compilation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/python-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="c-static.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="mmalib-integration.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-mmalib" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why MMALIB
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compiler-side-qdq-offload-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compiler-Side: QDQ Offload Pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Compiler-Side: QDQ Offload Pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#entry-point-c7xmmaquantizer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry point: C7xMMAQuantizer
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Operations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#firmware-decoupling-mmalib-from-tidl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Firmware: Decoupling MMALIB from TIDL
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-files-full-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Files (Full Pipeline)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-am67a-c7x-1-ghz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance (AM67A C7x @ 1 GHz)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/memory-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C7x Memory Map Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/design-deep-dive.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/arm-client-internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM Host Client Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-debug.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Debug Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/c-static-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dsp-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dsp-cpp-harness.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP C++ Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/mmalib-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/pt2e-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/quantized-sweep.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dynamic-shape-limits.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Shape Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-mmalib" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why MMALIB
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compiler-side-qdq-offload-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compiler-Side: QDQ Offload Pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Compiler-Side: QDQ Offload Pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#entry-point-c7xmmaquantizer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry point: C7xMMAQuantizer
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Operations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#firmware-decoupling-mmalib-from-tidl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Firmware: Decoupling MMALIB from TIDL
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-files-full-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Files (Full Pipeline)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-am67a-c7x-1-ghz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance (AM67A C7x @ 1 GHz)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="mmalib-integration">MMALIB Integration</h1>
+<p>C wrappers that let TVM's <code>c_static</code> backend offload compute-intensive
+Relax ops to the C7x MMA (Matrix Multiply Accelerator) coprocessor on
+AM67A (J722S) via TI's MMALIB library, plus the glue that lets the
+firmware and codegen link MMALIB without also requiring TIDL. Located
+at <code>src/runtime/ti_dsp/mmalib/</code>.</p>
+<p>Target string: <code>c_static -mcpu=c7x -mmalib=1</code></p>
+<h2 id="files">Files</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mmalib_wrappers.{h,cpp}</code></td>
+<td>C wrappers for the 8 MMALIB kernels (conv2d/depthwise-conv2d/matmul/matmul_bias × int8/int16), linked into the C7x firmware and exported via DLOAD</td>
+</tr>
+<tr>
+<td><code>tidl_maxpool_wrapper.{h,cpp}</code></td>
+<td><code>max_pool2d</code> wrapper — TIDL-backed (<code>c7x_int8_max_pool_tidl</code>) when the firmware links TIDL, with a scalar fallback (<code>c7x_int8_max_pool</code>) for <code>--tidl OFF</code> builds (e.g. BeagleY-AI)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="why-mmalib">Why MMALIB</h2>
+<p>A single 64ch 56×56 int8 conv2d layer takes ~45M cycles on the C7x scalar
+pipeline. The same layer takes ~1.67M cycles via the MMA coprocessor
+through MMALIB — a 27× speedup — and drops to ~477K cycles when input
+data is staged into L2 SRAM via DMA before the MMA call (96× speedup).</p>
+<h2 id="compiler-side-qdq-offload-pipeline">Compiler-Side: QDQ Offload Pipeline</h2>
+<p>TVM generates a single C source file; each eligible Relax op is replaced
+by a <code>call_extern</code> to an MMALIB wrapper, with quantization scale/shift/
+bias folded in at compile time. There are three code paths, distinguished
+by quantization scheme and dtype:</p>
+<div class="highlight"><pre><span></span><code>Relax IR (R.matmul, R.nn.conv2d)
+  │
+  ├─ Int8 QDQ path: FuseMMALIBQDQ{Conv2d,DwConv2d,FC} + FuseInt8ResidualAdd
+  │    (runs BEFORE FuseQDQToInt8Conv2D)
+  │    → Matches PT2E pattern: dequant(data)→op(_, dequant(w))→[bias]→[relu]→quantize
+  │    → All quant params folded into integer bias/scale/shift at compile time
+  │    → TIR: call_extern(&quot;mmalib_conv2d_i8&quot;, ..., bias_i32, scale_u8, shift_u8)
+  │
+  ├─ Int16 QDQ path: FuseMMALIBQDQ{Conv2dI16,DwConv2dI16,FCI16} + FuseInt16ResidualAdd
+  │    (runs AFTER int8 QDQ passes, BEFORE FuseQDQToInt8Conv2D)
+  │    → Same PT2E pattern structure; d_zp and o_zp must be 0 (symmetric only)
+  │    → Bias int64 (wider accumulator); same uint8 scale_u8/shift_u8 requant
+  │    → TIR: call_extern(&quot;mmalib_conv2d_i16&quot; / &quot;mmalib_matmul_bias_i16&quot; / ...)
+  │
+  ├─ Int16 legalize path: LegalizeOps(customize_legalize_map)
+  │    → Float32 ops with no quantization → call_extern(&quot;mmalib_conv2d_i16&quot; / &quot;mmalib_matmul_i16&quot;)
+  │    → Used for weight-only-quantized LLM inference (LegalizeMLPToMMALIBInt16)
+  │
+  ▼  CodeGenCStatic
+Generated C code calling wrapper functions
+  │
+  ▼  Link against MMALIB
+Executable (c7x_host or c7x_dload)
+</code></pre></div>
+<p>All ops use NCHW (planar channel-first) when MMALIB is enabled — the
+pipeline skips <code>ConvertLayoutNHWC</code> when <code>-mmalib=1</code> is set, since
+MMALIB's conv kernel (<code>convolveBias_row</code>) expects each input channel as
+a contiguous H×W block, which maps directly to NCHW storage. Layout
+conversion happens at network I/O boundaries only.</p>
+<p>The QDQ fusion passes must run <strong>before</strong> <code>FuseQDQToInt8Conv2D</code> and
+<code>EliminateQDQRoundTrip</code> — those elimination passes remove intermediate
+<code>quantize→dequantize</code> pairs between consecutive quantized layers,
+destroying the pattern the MMALIB passes need to match. Running first
+means the passes see the intact PT2E graph where every layer boundary
+has explicit QDQ nodes. All pass instantiation is centralized in
+<code>get_mmalib_qdq_passes()</code> in <code>ti_mmalib_passes.py</code>; <code>pipeline.py</code> calls
+this function and is never edited when new MMALIB passes are added.</p>
+<h3 id="entry-point-c7xmmaquantizer">Entry point: C7xMMAQuantizer</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">tvm.relax.frontend.torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">C7xMMAQuantizer</span><span class="p">,</span> <span class="n">from_exported_program</span>
+
+<span class="n">quantizer</span> <span class="o">=</span> <span class="n">C7xMMAQuantizer</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;int8&quot;</span><span class="p">)</span>   <span class="c1"># or &quot;int16&quot;</span>
+<span class="n">prepared</span>  <span class="o">=</span> <span class="n">prepare_pt2e</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">quantizer</span><span class="p">)</span>
+<span class="c1"># ... calibrate ...</span>
+<span class="n">quantized</span> <span class="o">=</span> <span class="n">convert_pt2e</span><span class="p">(</span><span class="n">prepared</span><span class="p">)</span>
+<span class="n">ep</span>  <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">quantized</span><span class="p">,</span> <span class="n">example_inputs</span><span class="p">)</span>
+<span class="n">mod</span> <span class="o">=</span> <span class="n">from_exported_program</span><span class="p">(</span><span class="n">ep</span><span class="p">,</span> <span class="n">keep_params_as_input</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="c1"># → mod now contains the QDQ pattern that the MMALIB passes will match</span>
+</code></pre></div>
+<p>All QDQ fusion passes match this PT2E pattern (4 variants per op:
+with/without bias × with/without relu):</p>
+<div class="highlight"><pre><span></span><code>dequantize(data, d_scale, d_zp)
+  → op(float, dequantize(weight, w_scale, w_zp=0))
+  → [add(float_bias)] → [relu]
+  → quantize(output, o_scale, o_zp)
+</code></pre></div>
+<p>The entire chain is replaced by a single <code>call_extern</code> with compile-time
+integer parameters — scale, shift, and bias are all computed once during
+TVM compilation, nothing at inference time.</p>
+<h2 id="supported-operations">Supported Operations</h2>
+<table>
+<thead>
+<tr>
+<th>Op</th>
+<th>Dtype</th>
+<th>Path</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>matmul</td>
+<td>int8, int16</td>
+<td>legalize</td>
+<td>2D, dims multiples of 64 (i8) or 32 (i16)</td>
+</tr>
+<tr>
+<td>conv2d</td>
+<td>int16</td>
+<td>legalize</td>
+<td>N=1, symmetric stride, dilation=1, groups=1, C_out%32==0</td>
+</tr>
+<tr>
+<td>conv2d (QDQ fused)</td>
+<td>int8</td>
+<td>QDQ</td>
+<td>N=1, symmetric stride, dilation=1, groups=1, C_out%64==0</td>
+</tr>
+<tr>
+<td>conv2d (QDQ fused)</td>
+<td>int16</td>
+<td>QDQ</td>
+<td>N=1, symmetric stride, dilation=1, groups=1, C_out%32==0</td>
+</tr>
+<tr>
+<td>depthwise conv2d (QDQ fused)</td>
+<td>int8</td>
+<td>QDQ</td>
+<td>N=1, groups=C_in, kernel 3x3/5x5/7x7, stride 1-2, dilation=1</td>
+</tr>
+<tr>
+<td>depthwise conv2d (QDQ fused)</td>
+<td>int16</td>
+<td>QDQ</td>
+<td>N=1, groups=C_in, <strong>3×3 only</strong> (MMALIB-882), stride 1-2, dilation=1</td>
+</tr>
+<tr>
+<td>matmul_bias (FC, QDQ fused)</td>
+<td>int8</td>
+<td>QDQ</td>
+<td>K%64==0, N%64==0, weight [N,K] transposed internally</td>
+</tr>
+<tr>
+<td>matmul_bias (FC, QDQ fused)</td>
+<td>int16</td>
+<td>QDQ</td>
+<td>K%32==0, N%32==0, d_zp/o_zp must be 0, bias int64</td>
+</tr>
+<tr>
+<td>residual add (QDQ fused)</td>
+<td>int8</td>
+<td>QDQ</td>
+<td>Both add(x,skip) and add(skip,x) operand orders; with/without relu</td>
+</tr>
+<tr>
+<td>residual add (QDQ fused)</td>
+<td>int16</td>
+<td>QDQ</td>
+<td>Same as int8; d_zp/skip_zp/o_zp must all be 0 (symmetric only)</td>
+</tr>
+</tbody>
+</table>
+<p>Non-eligible ops fall through to the default loop-based legalization.</p>
+<h2 id="firmware-decoupling-mmalib-from-tidl">Firmware: Decoupling MMALIB from TIDL</h2>
+<p>BeagleY-AI firmware is built <code>--tidl OFF --mmalib ON</code>:</p>
+<ul>
+<li><strong><code>firmware/c7x/dsp/CMakeLists.txt</code></strong> has two independent CMake options,
+  <code>USE_TIDL_RUNTIME</code> and <code>USE_TI_MMALIB</code>. <code>--tidl &lt;ON|OFF&gt;</code> and
+  <code>--mmalib &lt;ON|OFF&gt;</code> on <code>build.sh</code> forward to them. <code>--tidl ON</code> still
+  forces <code>--mmalib ON</code> (TIDL's own algo lib has unresolved
+  <code>MMALIB_CNN_*</code>/<code>MMALIB_LINALG_*</code> symbols at link time), but the reverse
+  isn't true: <code>--tidl OFF --mmalib ON</code> links MMALIB without TIDL.</li>
+<li><strong><code>dyn_loader.c</code></strong> guards TIDL-only symbols (<code>c7x_int8_max_pool_tidl</code>,
+  <code>TIDL_VISION_FXNS</code>) behind <code>#ifdef USE_TIDL_RUNTIME</code> and MMALIB symbols
+  behind <code>#ifdef USE_TI_MMALIB</code>, so a no-TIDL firmware's export table
+  never references a TIDL symbol that isn't linked.</li>
+<li><strong>Codegen</strong>: <code>FuseQDQToTIDLMaxPool</code> — the one pass that unconditionally
+  emitted a TIDL-backed kernel even outside TIDL-offload paths — now reads
+  a <code>tidl-kernels</code> target attr (default <code>true</code>, preserving prior
+  behavior). Passing <code>-tidl-kernels=0</code> in the <code>c_static</code> target string
+  makes it emit <code>call_extern("c7x_int8_max_pool", ...)</code> (the scalar
+  fallback in <code>tidl_maxpool_wrapper.cpp</code>) instead of
+  <code>c7x_int8_max_pool_tidl</code>, so a model with <code>max_pool2d</code> still links
+  against a no-TIDL firmware. <strong>Every BeagleY-AI compile must pass
+  <code>-tidl-kernels=0</code> explicitly</strong> — codegen has no way to detect what the
+  firmware actually linked, so without this flag <code>FuseQDQToTIDLMaxPool</code>
+  emits a call to a symbol that doesn't exist there, which fails only at
+  DLOAD load time on the board, not at compile time.</li>
+</ul>
+<h2 id="key-files-full-pipeline">Key Files (Full Pipeline)</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_passes.py</code></td>
+<td><strong>Central registry</strong>: <code>get_mmalib_qdq_passes()</code>, all MMALIB pass config</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_qdq_fusion.py</code></td>
+<td>QDQ conv2d pattern matching + lowering (int8)</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_qdq_i16_conv.py</code></td>
+<td>QDQ conv2d pattern matching + lowering (int16)</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_qdq_dwconv.py</code></td>
+<td>QDQ depthwise conv2d — int8 check + shared <code>_check_dwconv2d_geometry</code></td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_qdq_i16_dwconv.py</code></td>
+<td>QDQ depthwise conv2d pattern matching + lowering (int16)</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_qdq_fc.py</code></td>
+<td>QDQ FC/matmul_bias pattern matching + lowering (int8 + int16)</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_legalize.py</code></td>
+<td>Float→int16 legalization + <code>_float_to_scale_shift</code> helper</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_inject_dma.py</code></td>
+<td>L2 DMA prefetch injection (TIR pass, all MMALIB kernels)</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_residual_add.py</code></td>
+<td>Residual add fusion — int8 + int16, both operand orders</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/backend/cpu_generic/pipeline.py</code></td>
+<td>Pipeline wiring</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/mmalib/mmalib_wrappers.{h,cpp}</code></td>
+<td>C wrappers (8 entry points)</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/mmalib/tidl_maxpool_wrapper.{h,cpp}</code></td>
+<td><code>max_pool2d</code> wrapper (TIDL-backed + scalar fallback)</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/kernels/c7x_residual_add.{cpp,h}</code></td>
+<td>Fixed-point residual add kernels (int8 + int16)</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/dma/tvm_dsp_dma.c</code></td>
+<td>EDMA runtime (virt_to_phys for staging buffer)</td>
+</tr>
+<tr>
+<td><code>src/target/target_kind.cc</code></td>
+<td><code>mmalib</code> and <code>tidl-kernels</code> target attributes</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/firmware/c7x/dsp/CMakeLists.txt</code></td>
+<td><code>USE_TIDL_RUNTIME</code> / <code>USE_TI_MMALIB</code> build options</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/firmware/c7x/dsp/src/dyn_loader.c</code></td>
+<td>Exports 8 MMALIB symbols + guards TIDL-only symbols</td>
+</tr>
+<tr>
+<td><code>tests/ti-dsp-runtime/mmalib-tests/</code></td>
+<td>Unit tests (conv2d, dwconv2d, FC, residual add — i8 and i16)</td>
+</tr>
+<tr>
+<td><code>tests/ti-dsp-runtime/quantized/</code></td>
+<td>Full model tests (ResNet, MobileNet, GoogLeNet, ShuffleNet)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="testing">Testing</h2>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>tests/ti-dsp-runtime
+
+<span class="c1"># Quick unit tests — all MMALIB kernels, host emulation</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>mmalib-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>-v
+
+<span class="c1"># Full unit test suite (includes non-quick tests)</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>mmalib-tests/<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host
+
+<span class="c1"># ResNet-18 int8 with MMALIB (host emulation)</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/test_quantized_resnet_dsp.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>--mmalib
+
+<span class="c1"># ResNet-18 int8 with MMALIB (AM67A hardware)</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/test_quantized_resnet_dsp.py<span class="w"> </span>-v<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>--use-cpp-api<span class="w"> </span>--mmalib<span class="w"> </span>--profile
+
+<span class="c1"># PT2E int8 models (MobileNet V2)</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>pt2e-tests/test_mobilenet_v2_pt2e_dsp.py<span class="w"> </span>-v<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>--mmalib
+
+<span class="c1"># PT2E int8 + int16 single-layer e2e (C7xMMAQuantizer → DSP)</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>pt2e-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>-v
+</code></pre></div>
+<h2 id="performance-am67a-c7x-1-ghz">Performance (AM67A C7x @ 1 GHz)</h2>
+<p>Single conv2d layer (int8, 64ch 56x56, 3x3 kernel, stride=1):</p>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Cycles</th>
+<th>Time</th>
+<th>Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MMALIB + L2 DMA prefetch</td>
+<td>477K</td>
+<td>0.48ms</td>
+<td>96x</td>
+</tr>
+<tr>
+<td>MMALIB (MMA, DDR-resident data)</td>
+<td>1.67M</td>
+<td>1.67ms</td>
+<td>27x</td>
+</tr>
+<tr>
+<td>TVM loop-based (C7x scalar)</td>
+<td>45.2M</td>
+<td>45.2ms</td>
+<td>baseline</td>
+</tr>
+</tbody>
+</table>
+<p>Full model end-to-end (all layers, int8 quantized):</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>MMALIB Offloaded Layers</th>
+<th>Cycles</th>
+<th>Time</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ResNet-18</td>
+<td>20 conv2d, 8 res_add, 1 FC</td>
+<td>100M</td>
+<td>100ms</td>
+</tr>
+<tr>
+<td>ShuffleNet V2</td>
+<td>1 conv2d, 19 dwconv2d, 1 FC</td>
+<td>315M</td>
+<td>315ms</td>
+</tr>
+<tr>
+<td>MobileNet V2</td>
+<td>19 conv2d, 17 dwconv2d, 10 res_add, 1 FC</td>
+<td>2,386M</td>
+<td>2.4s</td>
+</tr>
+<tr>
+<td>MobileNet V3</td>
+<td>6 conv2d, 15 dwconv2d, 1 FC, 10 res_add</td>
+<td>2,369M</td>
+<td>2.4s</td>
+</tr>
+<tr>
+<td>GoogLeNet</td>
+<td>33 conv2d, 3 res_add, 1 FC</td>
+<td>6,790M</td>
+<td>6.8s</td>
+</tr>
+</tbody>
+</table>
+<p>ResNet-18 baseline (no MMALIB, scalar loops): 4,705M cycles (4.7s) → <strong>47x speedup</strong>.</p>
+<p>L2 DMA prefetch provides 3.5x speedup per conv2d layer by staging input
+(and weights when they fit) into L2 SRAM before the MMALIB call — the MMA
+coprocessor reads from fast L2 scratchpad instead of slow DDR.</p>
+<h2 id="limitations">Limitations</h2>
+<ul>
+<li>Weight quantization must be symmetric (w_zp=0)</li>
+<li>Output-channel tiling for stride&gt;1 adds init/exec overhead per chunk</li>
+<li>Intermediate activation alignment: 128-byte (exceeds MMA's 64-byte requirement)</li>
+<li>L2 DMA requires guard allocation (128 bytes) to prevent SE prefetch page fault</li>
+<li>Weights exceeding L2 budget remain in DDR (512ch layers: 2.3 MB &gt; 1.25 MB L2)</li>
+<li>Depthwise conv2d requires 64-byte aligned output row stride; wrapper allocates
+  a padded buffer and compacts if W_out is not 64-aligned</li>
+<li>MobileNet V2/V3 dominated by non-MMALIB layers (dequantize, hardswish, clip,
+  adaptive_avg_pool) which still run as scalar loops</li>
+<li>INT16 depthwise conv2d: only 3×3 kernels supported (<code>mmalib_depthwise_conv2d_i16</code>);
+  5×5 and 7×7 return <code>MMALIB_ERR_NOT_IMPLEMENTED</code> (tracked as MMALIB-882)</li>
+<li>INT16 QDQ activation quantization: always symmetric — d_zp and o_zp must be 0.
+  Asymmetric patterns are rejected by the i16 check functions and fall through to float</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

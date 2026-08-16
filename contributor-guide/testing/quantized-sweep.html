@@ -1,0 +1,2233 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="pt2e-suite.html">
+      
+      
+        <link rel="next" href="dynamic-shape-limits.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Quantized Model Sweep - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#quantized-model-sweep" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Quantized Model Sweep
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/compilation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/python-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/c-static.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/mmalib-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/memory-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C7x Memory Map Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/design-deep-dive.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/arm-client-internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM Host Client Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-debug.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Debug Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="c-static-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="dsp-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="dsp-cpp-harness.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP C++ Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="mmalib-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="pt2e-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="quantized-sweep.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#running" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test_quantized_yolopy-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_quantized_yolo.py status
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test_quantized_torchvisionpy-sweep-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_quantized_torchvision.py sweep status
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="test_quantized_torchvision.py sweep status">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#66-pass-max_diff-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        66 PASS (max_diff &lt;= 25)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#squeezenet-mmalib-accumulation-bug-not-observer-noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SqueezeNet — MMALIB accumulation bug, not observer noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mnasnet1_0-fixed-mmalib_conv2d_i8-silently-no-opd-for-c_out-1024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mnasnet1_0 — fixed: mmalib_conv2d_i8 silently no-op'd for C_out &gt; 1024
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1-excluded-quantizer-bug-fixed-now-blocked-by-a-separate-tvm-pass-bug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1 EXCLUDED — quantizer bug fixed; now blocked by a separate TVM pass bug
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-excluded-exceed-the-256-mib-am67a-dload-ddr-heap-weight-size-alone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4 EXCLUDED — exceed the 256 MiB AM67A DLOAD DDR heap (weight size alone)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-excluded-not-supported-runtime-ddr-pool-exhaustion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7 EXCLUDED — NOT SUPPORTED, runtime DDR pool exhaustion
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="dynamic-shape-limits.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Shape Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#running" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test_quantized_yolopy-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_quantized_yolo.py status
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test_quantized_torchvisionpy-sweep-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_quantized_torchvision.py sweep status
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="test_quantized_torchvision.py sweep status">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#66-pass-max_diff-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        66 PASS (max_diff &lt;= 25)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#squeezenet-mmalib-accumulation-bug-not-observer-noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SqueezeNet — MMALIB accumulation bug, not observer noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mnasnet1_0-fixed-mmalib_conv2d_i8-silently-no-opd-for-c_out-1024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mnasnet1_0 — fixed: mmalib_conv2d_i8 silently no-op'd for C_out &gt; 1024
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1-excluded-quantizer-bug-fixed-now-blocked-by-a-separate-tvm-pass-bug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1 EXCLUDED — quantizer bug fixed; now blocked by a separate TVM pass bug
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-excluded-exceed-the-256-mib-am67a-dload-ddr-heap-weight-size-alone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4 EXCLUDED — exceed the 256 MiB AM67A DLOAD DDR heap (weight size alone)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-excluded-not-supported-runtime-ddr-pool-exhaustion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7 EXCLUDED — NOT SUPPORTED, runtime DDR pool exhaustion
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="quantized-model-sweep">Quantized Model Sweep</h1>
+<p>End-to-end tests for INT8-quantized TorchVision and YOLO models (PT2E
+<code>C7xMMAQuantizer</code>) on the TVM <code>c_static</code> backend, with and without MMALIB
+offload, on C7x host emulation and real hardware (AM67A and BeagleY-AI).
+Located at <code>tests/ti-dsp-runtime/quantized/</code>.</p>
+<h2 id="running">Running</h2>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>tests/ti-dsp-runtime
+<span class="nb">export</span><span class="w"> </span><span class="nv">TI_CGT_C7000_PATH</span><span class="o">=</span>/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+
+<span class="c1"># One model, host emulation</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>quantized/test_quantized_resnet.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>--mmalib
+
+<span class="c1"># One model, AM67A hardware</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>quantized/test_quantized_resnet.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>--board<span class="w"> </span>j722s-evm<span class="w"> </span>--mmalib
+
+<span class="c1"># One model, BeagleY-AI hardware</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>quantized/test_quantized_yolo.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>--board<span class="w"> </span>beagley-ai<span class="w"> </span>--mmalib<span class="w"> </span>-k<span class="w"> </span>yolo26n
+
+<span class="c1"># Full TorchVision classification sweep, one model</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span><span class="s2">&quot;quantized/test_quantized_torchvision.py::test_quantized_torchvision_dsp[resnet50]&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>--board<span class="w"> </span>j722s-evm<span class="w"> </span>--mmalib
+
+<span class="c1"># Standalone script</span>
+python<span class="w"> </span>quantized/test_quantized_resnet.py<span class="w"> </span>--dsp-mode<span class="w"> </span>c7x_host<span class="w"> </span>--mmalib
+</code></pre></div>
+<p><code>c7x_dload</code> tests talk to real DSP hardware and require <code>--board
+&lt;j722s-evm|beagley-ai&gt;</code> (no default -- omitting it is an error, since the
+codegen target and the SSH deploy host both depend on it): run them one at
+a time, in the foreground, never in the background or concurrently (single
+DSP core; conflicts hang the firmware and require a board reboot/power
+cycle). BeagleY-AI's firmware has no TIDL kernels linked, so its <code>c_static</code>
+target string needs <code>-tidl-kernels=0</code>; <code>get_target_string()</code> in
+<code>dsp-cpp/dsp_utils.py</code> adds this automatically whenever <code>--board
+beagley-ai</code> is passed.</p>
+<h2 id="test-files">Test files</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Model(s)</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_quantized_resnet.py</code></td>
+<td>ResNet-18</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td><code>test_quantized_resnext101.py</code></td>
+<td>ResNeXt-101 (32x8d)</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td><code>test_quantized_googlenet.py</code></td>
+<td>GoogLeNet</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td><code>test_quantized_inception_v3.py</code></td>
+<td>InceptionV3</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td><code>test_quantized_mobilenet_v2.py</code></td>
+<td>MobileNetV2</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td><code>test_quantized_mobilenet_v3.py</code></td>
+<td>MobileNetV3-Large</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td><code>test_quantized_shufflenet_v2.py</code></td>
+<td>ShuffleNetV2 (x0.5)</td>
+<td>PASS</td>
+</tr>
+<tr>
+<td><code>test_quantized_yolo.py</code></td>
+<td>YOLOv5n/s, YOLOv8n/s, YOLO26n (object detection)</td>
+<td>PASS, all 5 (see below)</td>
+</tr>
+<tr>
+<td><code>test_quantized_torchvision.py</code></td>
+<td>All 80 TorchVision ImageNet classifiers, via <code>cl_torchvision.py</code>'s dynamic loader</td>
+<td>see sweep below</td>
+</tr>
+</tbody>
+</table>
+<p>The first 7 use <code>model_utils.py</code>'s per-model <code>create_quantized_*_model</code>
+functions (hardcoded torchvision import, synthetic random input, PT2E via
+<code>_pt2e_quantize</code>). <code>test_quantized_torchvision.py</code> instead cross-imports
+<code>tests/cstatic/cl_torchvision.py</code> (model loading + correct per-model
+preprocessing) and <code>pt2e-tests/pt2e_utils.py</code> (<code>e2e_quantize_and_import</code> /
+<code>run_and_check</code>) directly, so it covers whatever TorchVision model
+<code>cl_torchvision.py</code> can load without needing a dedicated function per model.</p>
+<h2 id="test_quantized_yolopy-status"><code>test_quantized_yolo.py</code> status</h2>
+<p>YOLOv5n/s and YOLOv8n/s return a raw per-anchor detection tensor
+(<code>[1, 4+nc, num_anchors]</code>, no NMS/top-k selection applied) — mixing
+small-magnitude box regression with bounded-range class scores, so
+pass/fail uses cosine similarity against the PyTorch fake-quantized
+reference rather than an element-wise tolerance (see <code>run_and_check</code>'s
+tolerance discussion under "Shared infrastructure" below for why whole
+models need a different bar than single-op unit tests).</p>
+<p>YOLO26n instead runs its actual production inference path: the NMS-free
+"one2one" detection head, which does an internal top-k selection over
+class scores and returns already-decided <code>[1, 300, 6]</code> detections
+(<code>x1, y1, x2, y2, confidence, class_idx</code>). Getting there required three
+fixes, none of them YOLO26-specific — they'd block any model whose graph
+does a <code>topk</code>/advanced-indexing-heavy postprocess:</p>
+<ol>
+<li><strong><code>aten.div</code>/<code>aten.rsub</code> dtype bug</strong> (<code>base_fx_graph_translator.py</code>):
+   dividing an int64 tensor by a Python int built the divisor constant
+   with a hardcoded int32 default, tripping <code>floor_divide</code>'s dtype-match
+   check. Fixed to match the tensor operand's dtype, mirroring the
+   existing <code>_binary_op</code> pattern used by <code>add</code>/<code>mul</code>/<code>sub</code> in the same
+   file.</li>
+<li><strong><code>aten.index.Tensor</code> ndim bug</strong> (same file): assumed the index list
+   always covers every tensor dimension, but PyTorch allows a shorter list
+   with trailing dimensions implicitly left untouched. Fixed to derive
+   <code>ndim</code> from the tensor itself.</li>
+<li><strong><code>C7xMMAQuantizer</code> over-annotation</strong> (<code>c7x_mma_quantizer.py</code>): its
+   quantization-transparent-op annotation (<code>_TRANSPARENT_OPS</code>) is applied
+   purely by op type, with no check for what consumes the result. A
+   <code>flatten</code> sitting between the detection head's score gather and its
+   <code>topk</code> selection was getting quantized with a scale calibrated for the
+   <em>box</em> coordinates it shared a tensor with — crushing every class score
+   toward zero and making <code>topk</code>'s selection degenerate to picking by
+   tie-break order instead of by actual score. Fixed with a <code>_feeds_topk</code>
+   reachability check that keeps any region feeding a <code>topk</code> in float,
+   regardless of which transparent/structural ops sit in between.</li>
+</ol>
+<p>Beyond the frontend, <code>relax.topk</code> itself had no DSP-compilable
+implementation at all: its only lowering is a runtime packed-function call
+(<code>tvm.contrib.sort.topk</code>), which <code>c_static</code>'s standalone-C executables have
+no way to satisfy. A hand-written kernel
+(<code>src/runtime/ti_dsp/kernels/c7x_topk.cpp</code>, wired in via <code>call_extern</code> the
+same way MMALIB conv2d is) closes this gap for every C7x target, not just
+MMALIB builds.</p>
+<p>Because YOLO26n's output is a set of already-<em>selected</em> detections rather
+than a raw tensor, comparing it against the reference is a different
+problem than for v5/v8: a near-tied class score can legitimately cause the
+DSP (real kernel execution) and the PyTorch reference (fake-quant
+simulation of the same graph) to pick a different anchor at the selection
+boundary — both correct, but producing a totally different row at that
+index. <code>test_quantized_yolo.py</code> handles this with greedy IoU+class
+matching (<code>_match_fraction</code>) instead of cosine similarity for this model:
+each DSP detection is matched to its best same-class, highest-IoU
+counterpart in the reference set, and the pass bar is a fraction of
+detections matched above an IoU threshold.</p>
+<p>All 5 models pass on <code>c7x_host</code> and on BeagleY-AI hardware (via
+<code>--board beagley-ai</code>); YOLOv5n/s and YOLOv8n/s were previously
+verified on AM67A hardware as well, though not re-run there since the
+MMALIB fix described next. BeagleY-AI's firmware links no TIDL kernels,
+and bringing up this test on that board independently surfaced a second,
+model-agnostic bug in the MMALIB QDQ fusion passes: conv bias was resolved
+via a bare <code>isinstance(x, relax.Constant)</code> check, but PT2E represents conv
+bias as <code>reshape(Constant)</code>, so every MMALIB-offloaded conv across every
+model in this suite was silently running with zero bias. Fixed with a
+shared constant-resolution helper in <code>ti_mmalib_legalize.py</code> that unwraps
+<code>reshape</code>/<code>expand_dims</code>/<code>squeeze</code>/<code>astype</code> down to the constant leaf — this
+improved accuracy for every existing MMALIB model, not just YOLO.</p>
+<h2 id="test_quantized_torchvisionpy-sweep-status"><code>test_quantized_torchvision.py</code> sweep status</h2>
+<p>80 candidate TorchVision classification models. 13 are excluded outright
+(never run): 4 for weight size, 7 for runtime DDR pool exhaustion, 1 for
+a TVM pass bug hit after quantization, 1 for a genuine MMALIB
+misclassification (all below). Of the remaining 67, run via
+<code>c7x_dload --mmalib</code> on real AM67A hardware: <strong>all pass</strong> — 66 via the
+elementwise <code>max_diff&lt;=25</code> bound, 1 (<code>squeezenet1_1</code>) via a top-1
+classification match instead (see below).</p>
+<h3 id="66-pass-max_diff-25">66 PASS (max_diff &lt;= 25)</h3>
+<p>alexnet, convnext_base, convnext_tiny, convnext_small,
+densenet121/161/169/201, efficientnet_b0/b1/b2/b3/b4/b5,
+efficientnet_v2_s/v2_m/v2_l, googlenet, inception_v3,
+mnasnet0_5/0_75/1_0/1_3, mobilenet_v2, mobilenet_v3_large/small,
+all 7 <code>regnet_x_*</code> sizes, all 7 <code>regnet_y_*</code> sizes,
+resnet18/34/50/101/152, resnext50_32x4d/101_32x8d/101_64x4d,
+all 4 <code>shufflenet_v2_*</code> sizes, <code>swin_s</code>, <code>swin_t</code>, all 8 vgg variants
+(11/13/16/19, with and without <code>_bn</code>), <code>vit_b_16</code>, <code>vit_b_32</code>,
+wide_resnet50_2/101_2.</p>
+<p><code>mnasnet1_0</code> regressed after <code>e992d3e5b7</code>, was briefly excluded pending
+root-cause, and is back here after the actual fix — see "mnasnet1_0"
+below, a separate issue from SqueezeNet's.</p>
+<p>Native cl7x cross-compilation for <code>swin_s</code>/<code>swin_t</code>/<code>vit_b_16</code>/<code>vit_b_32</code>
+is slow — up to ~12 minutes for <code>vit_b_16</code>, dominated by cl7x's <code>cg7x</code>
+code generator pegged at 99%+ CPU. This is genuine compute (confirmed via
+<code>pstree</code>/CPU%, not a hang) — give these enough timeout headroom
+(15-20 min) rather than treating "no output for N minutes" as a hang.</p>
+<h3 id="squeezenet-mmalib-accumulation-bug-not-observer-noise">SqueezeNet — MMALIB accumulation bug, not observer noise</h3>
+<p>Both SqueezeNet variants fail the elementwise <code>max_diff&lt;=25</code> bound
+(<code>squeezenet1_0</code>: 30, <code>squeezenet1_1</code>: 27) on host and hardware, while
+the identical Q/DQ graph through the generic (non-MMALIB) int8 codegen
+path gives <code>max_diff=7</code> — so the divergence is MMALIB-specific, not a
+quantization-graph issue. The error compounds geometrically with
+Fire-module depth, and SqueezeNet is the only model in this 66-PASS set
+with no BatchNorm anywhere to renormalize and reset that per-layer
+error every other model gets for free. The actual <code>(accum * scale) &gt;&gt;
+shift</code> requantization runs inside TI's closed-source
+<code>MMALIB_CNN_convolveBias_row</code> (called from
+<code>src/runtime/ti_dsp/mmalib/mmalib_wrappers.cpp</code>), which exposes no
+rounding-mode field — a truncating shift would produce exactly this
+signature (a small systematic per-layer bias compounding unboundedly
+without BN to reset it). Not fixable in our own code — vendor kernel
+internals.</p>
+<p><strong>Resolution, since the two variants behave differently in practice:</strong></p>
+<ul>
+<li><code>squeezenet1_1</code>: the divergence is benign on the standard test image —
+  top-1 prediction is still correct (<code>258</code> both sides) despite exceeding
+  <code>max_diff=25</code>. Checked via top-1 classification match instead (see
+  <code>_TOP1_MATCH_ONLY</code> in <code>test_quantized_torchvision.py</code>) — the same bar
+  the non-MMALIB path already uses — rather than loosening <code>max_diff</code> for
+  every model in the sweep.</li>
+<li><code>squeezenet1_0</code>: <strong>not benign.</strong> The MMALIB path picks the wrong class
+  outright (<code>157</code> instead of the correct <code>258</code>; top-5 barely overlaps).
+  Excluded (<code>_EXCLUDED_MISCLASSIFY</code> in <code>test_quantized_torchvision.py</code>)
+  rather than loosening its tolerance, which would hide a genuine
+  misclassification.</li>
+</ul>
+<h3 id="mnasnet1_0-fixed-mmalib_conv2d_i8-silently-no-opd-for-c_out-1024">mnasnet1_0 — fixed: <code>mmalib_conv2d_i8</code> silently no-op'd for C_out &gt; 1024</h3>
+<p>A pre-existing latent bug in the regular (non-depthwise) MMALIB conv2d
+path, unrelated to depthwise conv: <code>conv2d_impl</code> in
+<code>mmalib_wrappers.cpp</code> (backing <code>mmalib_conv2d_i8</code>, used by
+<code>ti_mmalib_qdq_fusion.py</code> for every <code>groups==1</code> MMALIB conv2d) started
+with a stale guard, <code>if (C_out &gt; 1024) { return -1; }</code>, left over from
+when default bias/scale/shift used fixed-<code>[1024]</code>-sized stack buffers
+(see <code>c577e1a894</code>) — those became dynamically-sized
+(<code>TVMBackendAllocWorkspace</code>) later, but the guard was never removed.
+The TE/TIR call site never checks this extern's return value, so for
+<code>C_out &gt; 1024</code> the kernel returned immediately without writing
+<code>output</code>, silently leaving it as whatever was already in that memory
+(all-zero in practice). mnasnet1_0's final feature-expansion conv (a
+common MobileNet-family pattern: 1x1 conv from 320-&gt;1280 channels right
+before global average pooling) has <code>C_out=1280</code>, so its MMALIB path
+always computed nothing — misclassifying (<code>428</code> instead of the correct
+<code>258</code>, top-5 disjoint from the reference's).</p>
+<p><strong>Fix:</strong> <code>conv2d_impl</code> now tiles <code>C_out</code> for the <code>stride==1</code> case too,
+the same way it already did for <code>stride&gt;1</code>. The stale guard is removed
+entirely. Regression coverage: <code>test_mmalib_conv2d_cout_boundary_dsp.py</code>,
+parametrized at <code>C_out</code> in <code>{512, 1024, 1280, 2048}</code> — the last two
+exercise the new tiling path; all pass at <code>max_diff&lt;=1</code> (before the
+fix, <code>1280</code> and <code>2048</code> came back with 100% zero output). mnasnet1_0
+end-to-end: <code>max_diff</code> 29-&gt;2, top-1 258 (correct) restored.</p>
+<p>Given mnasnet-family/MobileNet-family models commonly expand to
+1280+ channels right before their classifier head, worth checking
+whether this also explains any other excluded/borderline model in this
+sweep.</p>
+<h3 id="1-excluded-quantizer-bug-fixed-now-blocked-by-a-separate-tvm-pass-bug">1 EXCLUDED — quantizer bug fixed; now blocked by a separate TVM pass bug</h3>
+<p><code>maxvit_t</code> originally failed during quantization itself
+(<code>AssertionError: Expecting input to have dtype torch.float32, but got
+dtype: torch.int64</code>), before TVM was even invoked. <code>C7xMMAQuantizer</code>'s
+annotation logic matched <code>view.default</code>/<code>permute.default</code>/
+<code>flatten.using_ints</code>/<code>add.Tensor</code>/<code>mm.default</code> purely by op target, with
+no check that the operand was actually a floating-point tensor —
+<code>relative_position_index</code> (an int64 lookup-table buffer for windowed
+attention, reshaped via <code>.view(-1)</code>) got annotated for quantization like
+any other activation, and <code>convert_pt2e</code> crashed inserting
+<code>quantize_per_tensor</code> on it.</p>
+<p><strong>Fixed</strong> in <code>python/tvm/relax/frontend/torch/c7x_mma_quantizer.py</code>: added
+<code>_is_float_tensor()</code> (checks the FX node's traced <code>meta["val"]</code> dtype) and
+gated the <code>_TRANSPARENT_OPS</code>/<code>_TIDL_ACT_OPS</code>/<code>_AVG_POOL_OPS</code>/<code>_NORM_OPS</code>/
+<code>mm</code>+<code>add</code> branches on it. No regressions — all 27
+<code>test_c7x_mma_quantizer*</code> tests and the full <code>pt2e-tests/</code> quick suite
+(56 tests) still pass on <code>c7x_host</code>.</p>
+<p>With that fixed, <code>maxvit_t</code> now gets past quantization but fails later,
+inside TVM's own pipeline:</p>
+<div class="highlight"><pre><span></span><code>tvm.error.InternalError: Check failed: (opt) is false: The struct info
+of Tuple must be TupleStructInfo, but expression lv7 has struct info
+R.Tensor((1, 64, 56, 56), dtype=&quot;int8&quot;)
+</code></pre></div>
+<p>in <code>python/tvm/relax/transform/ti_eliminate_qdq_transparent.py</code>. Not
+root-caused yet — excluded (<code>_EXCLUDED_QUANT_BUG</code> in
+<code>test_quantized_torchvision.py</code>) rather than chased further for now.</p>
+<h3 id="4-excluded-exceed-the-256-mib-am67a-dload-ddr-heap-weight-size-alone">4 EXCLUDED — exceed the 256 MiB AM67A DLOAD DDR heap (weight size alone)</h3>
+<p><code>regnet_y_128gf</code>, <code>vit_h_14</code>, <code>vit_l_32</code>, <code>vit_l_16</code> — int8 weight size
+alone (615 MB, 603 MB, 292 MB, 290 MB respectively) exceeds
+<code>DDR_C7X_1_LOCAL_HEAP</code>'s 256 MiB, before any runtime/workspace overhead.
+See <code>_EXCLUDED_WEIGHT_SIZE</code> in <code>test_quantized_torchvision.py</code>.</p>
+<p>Note: a "DDR watch list" of 5 borderline models (120-190 MB int8 weight —
+<code>convnext_large</code>, <code>regnet_y_32gf</code>, the vgg family, <code>wide_resnet101_2</code>)
+was flagged in planning as needing real link-time verification rather
+than an estimate. All 5 fit and link fine — the int8-weight-size
+heuristic was overly conservative there. (<code>convnext_large</code> is excluded
+for a different reason below, unrelated to weight size.)</p>
+<h3 id="7-excluded-not-supported-runtime-ddr-pool-exhaustion">7 EXCLUDED — NOT SUPPORTED, runtime DDR pool exhaustion</h3>
+<p><code>convnext_large</code>, <code>efficientnet_b6</code>, <code>efficientnet_b7</code>, <code>swin_b</code>,
+<code>swin_v2_b</code>, <code>swin_v2_s</code>, <code>swin_v2_t</code>. Spans both CNN and transformer
+architectures — not one family's problem. See <code>_EXCLUDED_DDR_OOM</code> in
+<code>test_quantized_torchvision.py</code>.</p>
+<p>All 7 fail identically: <code>c7x: INFER failed: status=-11 return_value=-1</code>
+/ <code>{"status":"error","stage":"infer","error":"Function call failed"}</code>.
+This <em>looks</em> segfault-like but isn't — <code>status=-11</code> is the generic code
+<code>cg_main_dsp</code> returns whenever any kernel call inside it returns
+nonzero, discarding the real error. The real error, visible with
+<code>-profile-layers</code> (see <code>TVMPrintLayerProfile</code>/<code>compute_service.c</code>), is
+always the same: genuine exhaustion of the DSP's 352 MiB unified DDR
+pool (<code>DDR_C7X_1_LOCAL_HEAP</code> — weights + DLOAD code/data segments +
+runtime workspace tensors, one shared pool), hit at a late layer with
+the pool &gt;99% full:</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Shortfall</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>convnext_large</code></td>
+<td>requested 602,112 B, free 599,296 B — short by <strong>2,816 B</strong></td>
+</tr>
+<tr>
+<td><code>efficientnet_b6</code></td>
+<td>requested 5,227,200 B, free 2,353,024 B — short by <strong>2,874,176 B (~2.74 MB)</strong></td>
+</tr>
+<tr>
+<td><code>efficientnet_b7</code></td>
+<td>requested 25,920,000 B, free 25,875,328 B — short by <strong>44,672 B (~43.6 KB)</strong></td>
+</tr>
+<tr>
+<td><code>swin_b</code></td>
+<td>requested 401,408 B, free 38,016 B — short by <strong>~355 KB</strong></td>
+</tr>
+<tr>
+<td><code>swin_v2_b</code></td>
+<td>requested 4,194,304 B, free 3,069,344 B — short by <strong>~1.07 MB</strong></td>
+</tr>
+<tr>
+<td><code>swin_v2_s</code></td>
+<td>requested 1,572,864 B, free 1,516,944 B — short by <strong>~54.6 KB</strong></td>
+</tr>
+<tr>
+<td><code>swin_v2_t</code></td>
+<td>requested 1,572,864 B, free 1,187,216 B — short by <strong>~376.6 KB</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Each is the widest/deepest/largest-input variant in its family
+(<code>convnext_large</code> vs. <code>convnext_base</code>; <code>efficientnet_b6</code>/<code>b7</code> vs. <code>b5</code>;
+<code>swin_b</code>/<code>swin_v2_*</code> vs. the passing <code>swin_s</code>/<code>swin_t</code>) — peak DDR usage
+lands just past the pool's budget. Confirmed via the bump+free-list
+allocator in <code>platform/common/memory_pool.c</code>: not a leak (LIFO free
+list, correct <code>num_allocs</code>/<code>num_frees</code> bookkeeping, auto-reset when the
+pool fully drains) — genuine peak-usage-over-budget for these 7 models
+specifically.</p>
+<p><strong>Not fixed — documented as unsupported instead.</strong> Closing the largest
+gap (<code>swin_v2_b</code>'s ~1.07 MB) would need a further heap extension beyond
+the current 352 MiB; there's no more room without either (a) freeing an
+MMU region slot (the C7x's ARMv8 MMU config hard-caps at 16 region
+descriptors — <code>maxInstances: 16</code> in the SDK's <code>mmu_armv8.syscfg.js</code> —
+and all 16 are already used) or (b) re-deriving a matching fix to
+<code>tvm_dsp_dma.c</code>'s <code>virt_to_phys()</code> hardcoded bounds (needed the last
+time this heap was extended). Given the real hardware risk of another
+MMU/heap change (a bad region descriptor can hang the DSP, requiring
+board reboot/power-cycle), these 7 are excluded rather than chased
+further for now.</p>
+<p>Native cl7x compilation for <code>swin_v2_t/s/b</code> (all 3 excluded above) is
+also slow, same as the passing <code>swin_s</code>/<code>swin_t</code>/<code>vit_b_*</code> noted earlier
+— but that's incidental; the actual reason they're excluded is the DDR
+OOM above, not compile time.</p>
+<details>
+<summary>swin_v2's TVM-side segfault fix (unrelated to the DDR OOM above; already fixed in this codebase)</summary>
+
+`swin_v2_t/s/b` crash ~40s into `relax.build`, well before cl7x, with
+`Fatal Python error: Segmentation fault`, unless the fix below is
+present. Root cause: `fold_constant.cc`'s
+`ConstantFolder::ConstEvaluateCallTIR` tries to eagerly evaluate a
+`call_tir` node via a host `"llvm"` JIT whenever all its args happen to
+be constants. Build succeeds (LLVM ORC JIT resolves symbols lazily, so
+no exception at build time), but the later `CallPacked` fails with `JIT
+session error: Symbols not found: [ c7x_dequantize_vecmatmul ]` — a
+segfault instead of a catchable exception, because
+`c7x_dequantize_vecmatmul` is a real DSP-only kernel with no host symbol.
+
+That kernel is emitted by `FuseDequantizeMatmul`'s C7x path
+(`python/tvm/relax/transform/fuse_dequantize_matmul.py`) for
+weight-only-quantized `dequantize -> matmul` patterns. swin_v2's
+continuous-relative-position-bias MLP (`cpb_mlp` in
+`ShiftedWindowAttentionV2`) is applied to a **fixed coordinate buffer**,
+not the image — so its matmul's activation operand is itself
+compile-time-constant, unlike every other matmul in the network.
+`FuseDequantizeMatmul` intentionally runs before `FoldConstant` (to avoid
+expanding int8 weights back to float32 in weights.bin), so it can't just
+check `isinstance(act, relax.Constant)` — at that point the whole
+cpb_mlp chain is still plain `Var`s.
+
+Fixed by `python/tvm/relax/transform/ti_c7x_const_reachability.py`
+(`ConstReachability`: walks a Var's producer chain back to
+`relax.Constant` leaves), used to skip the DSP-extern path when the
+activation is transitively constant, in `fuse_dequantize_matmul.py`
+(fall back to the existing portable TE path) and
+`ti_fuse_qdq_c7x_relu.py` (leave the composite un-lowered so
+`LegalizeOps`/`FoldConstant` handle it safely) — both are needed, since
+fixing only the matmul surfaces the identical crash one step later on
+`c7x_int8_relu` (cpb_mlp's ReLU is also constant-fed). This is a
+*systemic* shape of bug across the whole `FuseQDQToC7x*` pass family
+(concat, avgpool, layernorm, activation, TIDL maxpool, MMALIB QDQ
+variants all intercept a QDQ pattern into a DSP `call_extern` before
+`FoldConstant` runs, none of them check for all-constant inputs) — only
+the two instances swin_v2 hits are fixed; `ConstReachability` is there
+to reuse if another model triggers one of the others.
+
+</details>
+
+<h2 id="shared-infrastructure">Shared infrastructure</h2>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Location</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_pt2e_quantize</code></td>
+<td><code>model_utils.py</code></td>
+<td>Export → <code>prepare_pt2e</code> → calibrate (random noise or real images) → <code>convert_pt2e</code>; used by the 7 per-model files</td>
+</tr>
+<tr>
+<td><code>load_model_with_preprocessing</code>, <code>load_image</code>, <code>get_all_classification_models</code></td>
+<td><code>tests/cstatic/cl_torchvision.py</code></td>
+<td>Dynamic model loading with correct per-model preprocessing; cross-imported by <code>test_quantized_torchvision.py</code></td>
+</tr>
+<tr>
+<td><code>e2e_quantize_and_import</code>, <code>run_and_check</code></td>
+<td><code>tests/ti-dsp-runtime/pt2e-tests/pt2e_utils.py</code></td>
+<td>Full quantize→import pipeline and MMALIB compile+run+assert; cross-imported by <code>test_quantized_torchvision.py</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>run_and_check</code>'s default tolerance (<code>max_diff=2</code>, ±1 LSB) is calibrated
+for single-op unit tests (see <a href="pt2e-suite.html">PT2E Quantizer Suite</a>) —
+whole models compound int8 rounding error across many layers, so
+<code>test_quantized_torchvision.py</code> passes <code>max_diff=25</code> explicitly instead
+of relying on the default.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>TVM built with the <code>c_static</code> backend (<code>TVM_HOME</code> set, <code>PYTHONPATH</code>
+  includes <code>python/</code>)</li>
+<li><code>TI_CGT_C7000_PATH</code> for DSP tests</li>
+<li>For <code>c7x_dload</code>: firmware deployed on the target board (<code>deploy-c7x.sh
+  --board &lt;j722s-evm|beagley-ai&gt;</code>), and the matching <code>pytest --board
+  &lt;j722s-evm|beagley-ai&gt;</code> -- both required, no default</li>
+<li><code>--mmalib</code> fixture/flag (from <code>conftest.py</code>) selects the MMALIB target;
+  omitting it runs the generic (non-MMALIB) int8 codegen path instead</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

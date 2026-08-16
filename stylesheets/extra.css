@@ -1,0 +1,43 @@
+/* Color values sourced from TI's sphinx_rtd_theme_ti/_static/theme_overrides.css */
+:root > * {
+  --md-primary-fg-color:        #CC0000;
+  --md-primary-fg-color--light: #E13333;
+  --md-primary-fg-color--dark:  #990000;
+  --md-primary-bg-color:        #fff;
+
+  --md-accent-fg-color:              #118899;
+  --md-accent-fg-color--transparent: rgba(17, 136, 153, 0.1);
+
+  /* TI's body links are teal, not red — override separately since
+     Material defaults typeset link color to the primary color */
+  --md-typeset-a-color: #118899;
+}
+
+/* HEADER + TABS
+   ti.com's own header is a white bar (the TI logo has dark artwork that
+   doesn't read on a red background), with TI red kept as an accent
+   elsewhere (buttons, active nav, links via --md-primary-fg-color above).
+   Material paints .md-header/.md-tabs text via `currentcolor`, so setting
+   `color` here recolors the title, icons, and tab labels together. */
+.md-header,
+.md-tabs {
+  background-color: #fff;
+  color: #333;
+}
+
+.md-header,
+.md-tabs {
+  border-bottom: 2px solid #CC0000;
+}
+
+/* Search input box: normally a white chip that pops against the red
+   header; needs its own border now that the header behind it is white. */
+.md-header .md-search__form {
+  border: 1px solid #d9d9d9;
+}
+
+/* This icon is one of the few header elements Material colors directly
+   from --md-primary-bg-color instead of inheriting `currentcolor`. */
+.md-header .md-search__input + .md-search__icon {
+  color: #555;
+}

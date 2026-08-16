@@ -1,0 +1,2225 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="mmalib-suite.html">
+      
+      
+        <link rel="next" href="quantized-sweep.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>PT2E Quantizer Suite - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pt2e-quantizer-suite" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              PT2E Quantizer Suite
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/compilation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/python-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/c-static.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/mmalib-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/memory-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C7x Memory Map Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/design-deep-dive.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/arm-client-internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM Host Client Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-debug.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Debug Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="c-static-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="dsp-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="dsp-cpp-harness.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP C++ Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="mmalib-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="pt2e-suite.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#running" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-being-tested" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is being tested
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test files
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Test files">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#test_c7x_mma_quantizerpy-annotator-unit-tests-pure-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_c7x_mma_quantizer.py — annotator unit tests (pure Python)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test_c7x_mma_quantizer_i16py-int16-pipeline-unit-tests-pure-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_c7x_mma_quantizer_i16.py — int16 pipeline unit tests (pure Python)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test_c7x_mma_quantizer_e2e_dsppy-end-to-end-dsp-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_c7x_mma_quantizer_e2e_dsp.py — end-to-end DSP tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test_c7x_activationpy-c7x-activation-fusion-unit-tests-pure-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_c7x_activation.py — C7x activation fusion unit tests (pure Python)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test_c7x_activation_e2e_dsppy-c7x-activation-end-to-end-dsp-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_c7x_activation_e2e_dsp.py — C7x activation end-to-end DSP tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test_mobilenet_v2_pt2e_dsppy-mobilenetv2-integration-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_mobilenet_v2_pt2e_dsp.py — MobileNetV2 integration test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-helpers-pt2e_utilspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared helpers (pt2e_utils.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="quantized-sweep.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="dynamic-shape-limits.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Shape Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#running" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-being-tested" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is being tested
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test files
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Test files">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#test_c7x_mma_quantizerpy-annotator-unit-tests-pure-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_c7x_mma_quantizer.py — annotator unit tests (pure Python)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test_c7x_mma_quantizer_i16py-int16-pipeline-unit-tests-pure-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_c7x_mma_quantizer_i16.py — int16 pipeline unit tests (pure Python)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test_c7x_mma_quantizer_e2e_dsppy-end-to-end-dsp-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_c7x_mma_quantizer_e2e_dsp.py — end-to-end DSP tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test_c7x_activationpy-c7x-activation-fusion-unit-tests-pure-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_c7x_activation.py — C7x activation fusion unit tests (pure Python)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test_c7x_activation_e2e_dsppy-c7x-activation-end-to-end-dsp-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_c7x_activation_e2e_dsp.py — C7x activation end-to-end DSP tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test_mobilenet_v2_pt2e_dsppy-mobilenetv2-integration-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        test_mobilenet_v2_pt2e_dsp.py — MobileNetV2 integration test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-helpers-pt2e_utilspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared helpers (pt2e_utils.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="pt2e-quantizer-suite">PT2E Quantizer Suite</h1>
+<p>End-to-end tests for the <code>C7xMMAQuantizer</code> → TVM c_static → MMALIB pipeline.
+<code>C7xMMAQuantizer</code> is a <code>torchao</code> <code>Quantizer</code> subclass that annotates a PyTorch
+exported graph for int8 or int16 quantization targeting TI C7x MMALIB kernels.
+Located at <code>tests/ti-dsp-runtime/pt2e-tests/</code>.</p>
+<h2 id="running">Running</h2>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>tests/ti-dsp-runtime
+<span class="nb">export</span><span class="w"> </span><span class="nv">TI_CGT_C7000_PATH</span><span class="o">=</span>/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+
+<span class="c1"># Pure-Python tests (no DSP or toolchain required, ~3s)</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>pt2e-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w"> </span>-v
+
+<span class="c1"># Host emulation (requires TI CGT, ~1 min)</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>pt2e-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>-v
+
+<span class="c1"># AM67A hardware</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>pt2e-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>-v
+</code></pre></div>
+<h2 id="what-is-being-tested">What is being tested</h2>
+<p>The tests validate the full quantization pipeline:</p>
+<div class="highlight"><pre><span></span><code>float PyTorch model
+  → C7xMMAQuantizer (prepare_pt2e / calibrate / convert_pt2e)
+  → from_exported_program  →  Relax IRModule
+  → c_static -mcpu=c7x -mmalib=1  (FuseMMALIBQDQ* passes)
+  → MMALIB kernel on c7x_host / c7x_dload
+</code></pre></div>
+<p>There are three layers of testing, from fastest to slowest:</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Requires DSP?</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Annotation / PyTorch-level</td>
+<td>No</td>
+<td>C7xMMAQuantizer annotates the right ops with correct dtypes and zero_points</td>
+</tr>
+<tr>
+<td>TVM import + fusion</td>
+<td>No</td>
+<td><code>from_exported_program</code> imports correctly; MMALIB fusion passes fire on the right patterns</td>
+</tr>
+<tr>
+<td>End-to-end on DSP</td>
+<td>Yes</td>
+<td>Compiled DSP output matches PyTorch quantized reference within tolerance</td>
+</tr>
+</tbody>
+</table>
+<h2 id="test-files">Test files</h2>
+<h3 id="test_c7x_mma_quantizerpy-annotator-unit-tests-pure-python"><code>test_c7x_mma_quantizer.py</code> — annotator unit tests (pure Python)</h3>
+<p>Tests <code>C7xMMAQuantizer</code> at the PyTorch graph level, before TVM is involved.</p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_conv_int8_sym_produces_qdq</code></td>
+<td>Conv2d gets Q/DQ nodes with int8 symmetric spec</td>
+</tr>
+<tr>
+<td><code>test_conv_int8_affine_produces_qdq</code></td>
+<td>Conv2d with affine (asymmetric) activation also works</td>
+</tr>
+<tr>
+<td><code>test_linear_int8_produces_qdq</code></td>
+<td>Linear layer gets Q/DQ nodes</td>
+</tr>
+<tr>
+<td><code>test_depthwise_conv_int8_produces_qdq</code></td>
+<td>Depthwise conv2d annotated via <code>conv2d.default</code></td>
+</tr>
+<tr>
+<td><code>test_conv_weight_zero_point_is_zero</code></td>
+<td>Per-channel weight zero_points are all 0 (MMALIB requirement)</td>
+</tr>
+<tr>
+<td><code>test_linear_weight_zero_point_is_zero</code></td>
+<td>Same for linear weights</td>
+</tr>
+<tr>
+<td><code>test_int16_force_symmetric_warning</code></td>
+<td><code>symmetric_activations=False</code> with int16 emits UserWarning and is ignored</td>
+</tr>
+<tr>
+<td><code>test_int16_produces_int16_quantize_nodes</code></td>
+<td>int16 quantizer emits <code>torch.int16</code> quantize nodes</td>
+</tr>
+<tr>
+<td><code>test_no_double_annotation</code></td>
+<td>Running annotate() twice does not overwrite existing annotations</td>
+</tr>
+<tr>
+<td><code>test_invalid_dtype_raises</code></td>
+<td><code>C7xMMAQuantizer(dtype="int4")</code> raises ValueError</td>
+</tr>
+<tr>
+<td><code>test_mm_both_inputs_use_act_spec</code></td>
+<td><code>aten.mm</code> annotates both matrix inputs as activations</td>
+</tr>
+<tr>
+<td><code>test_addmm_bias_not_annotated</code></td>
+<td>Bias arg of <code>aten.addmm</code> is not annotated (stays float32)</td>
+</tr>
+<tr>
+<td><code>test_add_tensor_both_inputs_annotated</code></td>
+<td>Residual add annotates both inputs</td>
+</tr>
+<tr>
+<td><code>test_add_tensor_produces_qdq</code></td>
+<td>Residual add model produces Q/DQ nodes after convert</td>
+</tr>
+<tr>
+<td><code>test_transparent_ops_get_annotated</code></td>
+<td>max_pool2d, view, permute, flatten are annotated by <code>_TRANSPARENT_OPS</code></td>
+</tr>
+<tr>
+<td><code>test_transparent_ops_output_uses_shared_spec</code></td>
+<td>Transparent op output uses <code>SharedQuantizationSpec</code> → matching scales → EliminateQDQTransparent fires</td>
+</tr>
+<tr>
+<td><code>test_transparent_ops_produce_qdq</code></td>
+<td>Full convert produces Q/DQ wrappers that EliminateQDQTransparent can remove</td>
+</tr>
+</tbody>
+</table>
+<h3 id="test_c7x_mma_quantizer_i16py-int16-pipeline-unit-tests-pure-python"><code>test_c7x_mma_quantizer_i16.py</code> — int16 pipeline unit tests (pure Python)</h3>
+<p>Tests the int16 PT2E flow through TVM import and MMALIB fusion, without DSP execution.</p>
+<p><strong>Section 1 — Annotation:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_int16_produces_int16_quantize_on_activations</code></td>
+<td>Activations quantized with <code>torch.int16</code> dtype</td>
+</tr>
+<tr>
+<td><code>test_int16_weight_zero_point_is_zero</code></td>
+<td>Per-channel weight zero_points are 0</td>
+</tr>
+<tr>
+<td><code>test_int16_activation_zero_point_is_zero</code></td>
+<td>Activation zero_points are 0 (symmetric only)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Section 2 — TVM import:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_int16_tvm_import_succeeds</code></td>
+<td><code>from_exported_program</code> does not crash on int16 graphs</td>
+</tr>
+<tr>
+<td><code>test_int16_tvm_import_zero_point_is_int8</code></td>
+<td>Zero_points in Relax IR are <code>int8</code> (regression: previously crashed with "got int16")</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Section 3 — Fusion:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_int16_conv2d_fusion_fires</code></td>
+<td><code>FuseMMALIBQDQConv2dI16</code> produces a <code>mmalib_conv2d</code> function</td>
+</tr>
+<tr>
+<td><code>test_int16_linear_fusion_fires</code></td>
+<td><code>FuseMMALIBQDQFCI16</code> produces a <code>mmalib_fc_i16</code> function</td>
+</tr>
+<tr>
+<td><code>test_int16_residual_add_fusion_fires</code></td>
+<td><code>FuseInt16ResidualAdd</code> produces an <code>i16_residual_add</code> function</td>
+</tr>
+<tr>
+<td><code>test_int16_dwconv2d_fusion_fires</code></td>
+<td><code>FuseMMALIBQDQDwConv2dI16</code> produces a <code>mmalib_dwconv2d</code> function</td>
+</tr>
+<tr>
+<td><code>test_int16_5x5_dwconv2d_not_fused</code></td>
+<td>5×5 depthwise is <strong>not</strong> fused (MMALIB-882: unsupported kernel size)</td>
+</tr>
+<tr>
+<td><code>test_int16_i8_passes_not_triggered_on_int16_graph</code></td>
+<td>Int8 conv2d pass does not match int16 inputs</td>
+</tr>
+</tbody>
+</table>
+<h3 id="test_c7x_mma_quantizer_e2e_dsppy-end-to-end-dsp-tests"><code>test_c7x_mma_quantizer_e2e_dsp.py</code> — end-to-end DSP tests</h3>
+<p>Runs single-layer models through the full pipeline on DSP hardware or host emulation.
+Correctness is asserted against the PyTorch quantized reference output.</p>
+<p><strong>Int8 tests</strong> — <code>max_diff ≤ 2</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Model</th>
+<th>MMALIB kernel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_e2e_conv2d_i8</code></td>
+<td><code>Conv2d(3,8,3)</code></td>
+<td><code>mmalib_conv2d_i8</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_depthwise_conv2d_i8</code></td>
+<td><code>Conv2d(8,8,3,groups=8)</code></td>
+<td><code>mmalib_depthwise_conv2d_i8</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_linear_i8</code></td>
+<td><code>Linear(64,128)</code></td>
+<td><code>mmalib_matmul_bias_i8</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_linear_i8_no_bias</code></td>
+<td><code>Linear(64,128,bias=False)</code></td>
+<td>generic int8 fallback</td>
+</tr>
+<tr>
+<td><code>test_e2e_residual_add_i8</code></td>
+<td><code>Conv2d + skip</code></td>
+<td><code>c7x_int8_residual_add_relu</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_linear_3d_i8</code></td>
+<td><code>Linear(64,128)</code> on 3D input</td>
+<td><code>mmalib_matmul_bias_i8</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Int16 tests</strong> — <code>max_diff ≤ 10</code> (higher tolerance: uint8 scale/shift requantization
+error scales with √K; observed max ≤ 6 in practice):</p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Model</th>
+<th>MMALIB kernel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_e2e_conv2d_i16</code></td>
+<td><code>Conv2d(32,32,3)</code></td>
+<td><code>mmalib_conv2d_i16</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_depthwise_conv2d_i16</code></td>
+<td><code>Conv2d(32,32,3,groups=32)</code></td>
+<td><code>mmalib_depthwise_conv2d_i16</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_linear_i16</code></td>
+<td><code>Linear(64,64)</code></td>
+<td><code>mmalib_matmul_bias_i16</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_residual_add_i16</code></td>
+<td><code>Conv2d(32,32,3) + skip</code></td>
+<td><code>c7x_int16_residual_add_relu</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="test_c7x_activationpy-c7x-activation-fusion-unit-tests-pure-python"><code>test_c7x_activation.py</code> — C7x activation fusion unit tests (pure Python)</h3>
+<p>Tests <code>FuseQDQToC7xActivation</code>, <code>FuseQDQToC7xAvgPool</code>, and
+<code>FuseQDQToC7xLayerNorm</code> at the Relax IR level without DSP execution. These
+passes run unconditionally on every c_static target (not gated behind TIDL
+offload, unlike e.g. <code>FuseQDQToTIDLMaxPool</code>) — despite the <code>_TIDL_ACT_OPS</code>
+name in the quantizer source, the kernels they emit (<code>c7x_int8_gelu</code>, etc.)
+are plain C7x kernels available on every board, including BeagleY-AI.</p>
+<p><strong>Annotation tests:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_gelu_gets_annotated</code></td>
+<td><code>aten.gelu</code> is in <code>_TIDL_ACT_OPS</code> and gets annotated</td>
+</tr>
+<tr>
+<td><code>test_silu_gets_annotated</code></td>
+<td><code>aten.silu</code> gets annotated</td>
+</tr>
+<tr>
+<td><code>test_hardsigmoid_gets_annotated</code></td>
+<td><code>aten.hardsigmoid</code> gets annotated</td>
+</tr>
+<tr>
+<td><code>test_hardswish_gets_annotated</code></td>
+<td><code>aten.hardswish</code> gets annotated</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Fusion tests:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>What it checks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_activation_fusion_fires[GeluModel-c7x_int8_gelu]</code></td>
+<td><code>FuseQDQToC7xActivation</code> emits <code>call_tir(c7x_int8_gelu, ...)</code></td>
+</tr>
+<tr>
+<td><code>test_activation_fusion_fires[SiluModel-c7x_int8_silu]</code></td>
+<td>silu fused to <code>c7x_int8_silu</code></td>
+</tr>
+<tr>
+<td><code>test_activation_fusion_fires[HardsigmoidModel-c7x_int8_hardsigmoid]</code></td>
+<td>hardsigmoid fused</td>
+</tr>
+<tr>
+<td><code>test_activation_fusion_fires[HardswishModel-c7x_int8_hardswish]</code></td>
+<td>hardswish fused</td>
+</tr>
+<tr>
+<td><code>test_gelu_output_is_int8</code></td>
+<td>Fused gelu kernel output dtype is int8</td>
+</tr>
+<tr>
+<td><code>test_i8_passes_do_not_trigger_on_int16</code></td>
+<td><code>c7x_int8_gelu</code> does not fire on int16 graphs</td>
+</tr>
+</tbody>
+</table>
+<h3 id="test_c7x_activation_e2e_dsppy-c7x-activation-end-to-end-dsp-tests"><code>test_c7x_activation_e2e_dsp.py</code> — C7x activation end-to-end DSP tests</h3>
+<p>Runs models through the full pipeline on DSP hardware or host emulation.
+Validates <code>FuseQDQToC7xActivation</code>, <code>FuseQDQToC7xAvgPool</code>, and
+<code>FuseQDQToC7xLayerNorm</code> produce correct output.</p>
+<p>All tests: <code>max_diff ≤ 2</code> vs PyTorch quantized reference.</p>
+<p><strong>Activation tests</strong> — model: <code>Linear(32,32) → activation → Linear(32,16)</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Kernel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_e2e_gelu_i8</code></td>
+<td><code>c7x_int8_gelu</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_silu_i8</code></td>
+<td><code>c7x_int8_silu</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_hardsigmoid_i8</code></td>
+<td><code>c7x_int8_hardsigmoid</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_hardswish_i8</code></td>
+<td><code>c7x_int8_hardswish</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Pooling tests</strong> — model: <code>Conv2d(8,8,3) → pool</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Model</th>
+<th>Kernel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_e2e_global_avg_pool_i8</code></td>
+<td><code>AdaptiveAvgPool2d(1,1)</code> on <code>[1,8,16,16]</code></td>
+<td><code>c7x_int8_global_avg_pool</code></td>
+</tr>
+<tr>
+<td><code>test_e2e_avg_pool2d_i8</code></td>
+<td><code>AvgPool2d(3,stride=1,padding=1)</code> on <code>[1,8,16,16]</code></td>
+<td><code>c7x_int8_avg_pool</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Normalization test</strong> — model: <code>Linear(32,32) → LayerNorm(32) → Linear(32,16)</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Kernel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_e2e_layer_norm_i8</code></td>
+<td><code>c7x_int8_layer_norm</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="test_mobilenet_v2_pt2e_dsppy-mobilenetv2-integration-test"><code>test_mobilenet_v2_pt2e_dsp.py</code> — MobileNetV2 integration test</h3>
+<p>Exercises all four int8 MMALIB kernels together on a real classification model.
+Two assertions: (1) top-1 prediction matches without MMALIB (validates import pipeline),
+(2) <code>max_diff ≤ 20</code> with MMALIB (validates all kernels produce plausible output).</p>
+<h2 id="shared-helpers-pt2e_utilspy">Shared helpers (<code>pt2e_utils.py</code>)</h2>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>quantize_pt2e(model, inputs, quantizer)</code></td>
+<td>Export → prepare → calibrate → convert; returns Q/DQ GraphModule</td>
+</tr>
+<tr>
+<td><code>e2e_quantize_and_import(model, inputs, dtype)</code></td>
+<td>Full pipeline to Relax IRModule with params bound</td>
+</tr>
+<tr>
+<td><code>run_and_check(mod, input, ref, dsp_mode, ...)</code></td>
+<td>Compile with <code>-mmalib=1</code>, run on DSP, assert <code>max_diff</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>TVM built with c_static backend (<code>TVM_HOME</code> set, <code>PYTHONPATH</code> includes <code>python/</code>)</li>
+<li>For DSP tests: TI C7000 CGT (<code>TI_CGT_C7000_PATH</code>)</li>
+<li>For <code>c7x_dload</code> tests: firmware deployed on AM67A board (<code>deploy-c7x.sh</code>)</li>
+<li>DSP runtime built: <code>cd src/runtime/ti_dsp &amp;&amp; bash build_runtime.sh c7x_host</code></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

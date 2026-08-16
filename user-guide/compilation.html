@@ -1,0 +1,2068 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="quantization.html">
+      
+      
+        <link rel="next" href="examples.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Compilation - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#compilation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Compilation
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../contributor-guide/architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="compilation.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-public-tvm-apis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Public TVM APIs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Public TVM APIs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#from-pytorch-to-relax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From PyTorch to Relax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#target-string" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target string
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#target-attributes-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target Attributes Reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#picking-the-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Picking the pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#building" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#exporting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exporting
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#from-generated-c-to-a-runnable-artifact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From Generated C to a Runnable Artifact
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reusing-the-test-harnesss-compilation-helpers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reusing the Test Harness's Compilation Helpers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#worked-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worked Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Worked Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#c7x_dload-what-the-two-examples-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        c7x_dload: What the two examples do
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#host-emulation-fast-iteration-without-hardware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host emulation: fast iteration without hardware
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="python-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/backend/c-static.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/backend/mmalib-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/dsp-runtime/internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/dsp-runtime/memory-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C7x Memory Map Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/firmware/architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/firmware/design-deep-dive.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/firmware/arm-client-internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ARM Host Client Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/hardware-debug.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Debug Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/c-static-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/dsp-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/dsp-cpp-harness.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP C++ Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/mmalib-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/pt2e-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/quantized-sweep.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributor-guide/testing/dynamic-shape-limits.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Shape Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-public-tvm-apis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Public TVM APIs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Public TVM APIs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#from-pytorch-to-relax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From PyTorch to Relax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#target-string" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target string
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#target-attributes-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target Attributes Reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#picking-the-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Picking the pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#building" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#exporting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exporting
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#from-generated-c-to-a-runnable-artifact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From Generated C to a Runnable Artifact
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reusing-the-test-harnesss-compilation-helpers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reusing the Test Harness's Compilation Helpers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#worked-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worked Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Worked Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#c7x_dload-what-the-two-examples-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        c7x_dload: What the two examples do
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#host-emulation-fast-iteration-without-hardware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host emulation: fast iteration without hardware
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="compilation">Compilation</h1>
+<h2 id="overview">Overview</h2>
+<p>Compilation turns a PyTorch model -- quantized or plain float32 -- into
+a runnable artifact: a <code>lib0.out</code> DLOAD module for on-board deployment
+(<code>c7x_dload</code>), or a native executable for host emulation (<code>c7x_host</code>,
+no board needed). Four stages: PyTorch's own export, TVM's Relax import
+of that exported program into an <code>IRModule</code>, and TVM's <code>c_static</code>
+backend compiling that <code>IRModule</code> to C source + a weights file (the
+public TVM APIs), then the TI toolchain building that C source into the
+final artifact (a native build -- not a TVM API, and the mechanics
+differ by mode):</p>
+<pre class="mermaid"><code>flowchart TD
+    P["PyTorch model (nn.Module)"] --&gt; Q["torch.export.export(model, example_args)"]
+    Q --&gt; R{quantize?}
+    R --&gt;|"no -- float32"| S["from_exported_program(exported,&lt;br/&gt;keep_params_as_input=True)"]
+    R --&gt;|"yes -- see Quantization"| T["PT2E: prepare_pt2e / calibrate /&lt;br/&gt;convert_pt2e, then re-export"]
+    T --&gt; S
+    S --&gt; A["Relax IRModule"]
+    A --&gt; B["relax.build(mod, target)&lt;br/&gt;c_static -mcpu=c7x [-mmalib=1]"]
+    B --&gt; C["lib0.c / devc.c / weights.bin&lt;br/&gt;(export_library)"]
+    C --&gt; D["cl7x + lnk7x --dynamic=lib&lt;br/&gt;DLOAD linker script"]
+    C --&gt; E["g++ + TI C7000&lt;br/&gt;Host Emulation library"]
+    D --&gt; F["lib0.out&lt;br/&gt;relocatable C7x ELF"]
+    E --&gt; G["cg_dsp&lt;br/&gt;x86 executable"]
+    F --&gt; H["scp to board, loaded by DLOAD&lt;br/&gt;(see Python / C++ API Reference)"]
+    G --&gt; I["run locally -- no board,&lt;br/&gt;fast iteration"]</code></pre>
+<p>See <a href="quantization.html">Quantization</a> for the PT2E branch, and
+<a href="python-api.html">Python / C++ API Reference</a> for what happens once
+<code>lib0.out</code> is on the board.</p>
+<h2 id="the-public-tvm-apis">The Public TVM APIs</h2>
+<h3 id="from-pytorch-to-relax">From PyTorch to Relax</h3>
+<p>Every model, quantized or not, enters TVM the same way:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">tvm.relax.frontend.torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">from_exported_program</span>
+
+<span class="n">exported</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">example_args</span><span class="p">)</span>
+<span class="n">mod</span> <span class="o">=</span> <span class="n">from_exported_program</span><span class="p">(</span><span class="n">exported</span><span class="p">,</span> <span class="n">keep_params_as_input</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<p>For a quantized model, <code>model</code> here is PT2E's <code>convert_pt2e</code> output and
+<code>exported</code> comes from a second, post-quantization <code>torch.export.export</code>
+call -- see <a href="quantization.html">Quantization</a> for the <code>prepare_pt2e</code> /
+calibrate / <code>convert_pt2e</code> sequence that produces it. Either way, <code>mod</code>
+is a plain Relax <code>IRModule</code> from here on -- the input to everything
+below, whether it came from a float or quantized model.</p>
+<h3 id="target-string">Target string</h3>
+<div class="highlight"><pre><span></span><code><span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static -mcpu=c7x -mmalib=1&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><code>mcpu</code> selects the DSP family (<code>c66x</code> or <code>c7x</code>); everything else is a
+target attribute that tunes or extends what codegen does for that CPU.</p>
+<h3 id="target-attributes-reference">Target Attributes Reference</h3>
+<table>
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mcpu</code></td>
+<td>String</td>
+<td>(unset)</td>
+<td>Target CPU: <code>c66x</code>, <code>c7x</code> (also accepts <code>arm</code>-prefixed, <code>generic</code>)</td>
+</tr>
+<tr>
+<td><code>use-cpp-api</code></td>
+<td>Bool</td>
+<td><code>true</code></td>
+<td>Direct C++ calls for VM operations instead of FFI dispatch (~12% faster on DSP). <strong>Required</strong> (not just faster) for <code>c7x_dload</code> -- DLOAD needs the C++-API codegen path.</td>
+</tr>
+<tr>
+<td><code>profile-layers</code></td>
+<td>Bool</td>
+<td><code>false</code></td>
+<td>Per-layer DSP cycle profiling, printed via the shared-memory trace buffer (see <a href="deploying-firmware.html">Deploying Firmware</a>)</td>
+</tr>
+<tr>
+<td><code>mmalib</code></td>
+<td>Bool</td>
+<td><code>false</code></td>
+<td>Route eligible conv2d/matmul ops to MMALIB kernels (requires <code>mcpu=c7x</code>; see <a href="quantization.html">Quantization</a>)</td>
+</tr>
+<tr>
+<td><code>tidl-kernels</code></td>
+<td>Bool</td>
+<td><code>true</code></td>
+<td>Firmware has TIDL-backed native kernels available (e.g. <code>c7x_int8_max_pool_tidl</code>). <strong>Must be <code>0</code></strong> (<code>-tidl-kernels=0</code>) for BeagleY-AI, whose firmware links <code>--tidl OFF</code> -- otherwise codegen emits a call to a symbol the firmware doesn't export, which fails only at DLOAD load time on the board, not at compile time.</td>
+</tr>
+<tr>
+<td><code>tidl-runtime</code></td>
+<td>Bool</td>
+<td><code>false</code></td>
+<td>Emit <code>tidl_bridge_init_all()</code> in <code>cg_main_dsp</code>; set automatically when TIDL subgraphs are present. Not used by either example in this repo -- both offload via MMALIB directly, not TIDL subgraphs.</td>
+</tr>
+<tr>
+<td><code>skip-runtime-checks</code></td>
+<td>Bool</td>
+<td><code>true</code></td>
+<td>Skip tensor shape/type validation</td>
+</tr>
+<tr>
+<td><code>debug-alloc</code></td>
+<td>Bool</td>
+<td><code>false</code></td>
+<td>Enable diagnostic allocation tracing</td>
+</tr>
+</tbody>
+</table>
+<h3 id="picking-the-pipeline">Picking the pipeline</h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">tvm.relax.backend.cpu_generic.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_default_pipeline</span>
+
+<span class="n">relax_pipeline</span> <span class="o">=</span> <span class="n">get_default_pipeline</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
+</code></pre></div>
+<p><code>get_default_pipeline</code> selects the right sequence of Relax passes for
+<code>target</code> -- MMALIB QDQ fusion, layout conversion, DMA tiling, and so on,
+depending on the target attributes above. Treat it as a black box here:
+see <a href="../contributor-guide/backend/mmalib-integration.html">MMALIB Integration</a>
+and the <code>tvm-relax-c7x:relax-passes</code> skill for what runs inside it. You
+rarely call this yourself -- <code>compile_for_dsp</code> (below) already does.</p>
+<h3 id="building">Building</h3>
+<div class="highlight"><pre><span></span><code><span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="n">target_string</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">target</span><span class="p">:</span>
+    <span class="k">with</span> <span class="n">tvm</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">PassContext</span><span class="p">(</span><span class="n">opt_level</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+        <span class="n">executable</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">build</span><span class="p">(</span>
+            <span class="n">mod</span><span class="p">,</span>
+            <span class="n">target</span><span class="p">,</span>
+            <span class="n">exec_mode</span><span class="o">=</span><span class="s2">&quot;compiled&quot;</span><span class="p">,</span>
+            <span class="n">system_lib</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">relax_pipeline</span><span class="o">=</span><span class="n">relax_pipeline</span><span class="p">,</span>
+            <span class="n">tir_pipeline</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="p">)</span>
+</code></pre></div>
+<ul>
+<li><code>exec_mode="compiled"</code> -- compiles the VM's own control flow to native
+  code instead of interpreting bytecode (the default <code>"bytecode"</code> mode);
+  required for <code>c_static</code>'s fully-static, no-interpreter-loop model.</li>
+<li><code>system_lib=True</code> -- packs the result as a statically-linked system
+  library that auto-registers its functions, instead of a dynamically
+  loaded module. Matches an embedded target with no shared-library
+  loader.</li>
+<li><code>relax_pipeline</code> -- the pass sequence from <em>Picking the pipeline</em>
+  above.</li>
+<li><code>tir_pipeline=None</code> -- use the target's own registered TIR pipeline
+  (e.g. <code>ScheduleC7xDMATiling</code>) instead of a generic default.</li>
+</ul>
+<h3 id="exporting">Exporting</h3>
+<div class="highlight"><pre><span></span><code><span class="n">executable</span><span class="o">.</span><span class="n">export_library</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">tar_path</span><span class="p">),</span> <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">)</span>
+</code></pre></div>
+<p>Produces a Model Library Format tarball; extract it to get <code>lib0.c</code>,
+<code>devc.c</code>, and <code>weights.bin</code> -- the inputs to the native build stage
+below.</p>
+<h2 id="from-generated-c-to-a-runnable-artifact">From Generated C to a Runnable Artifact</h2>
+<p><code>lib0.c</code> + <code>weights.bin</code> are not runnable yet. What happens next depends
+on the mode:</p>
+<ul>
+<li><strong><code>c7x_dload</code></strong>: the TI CGT C7000 compiler and a DLOAD linker script
+  (<code>--dynamic=lib</code>) build <code>lib0.c</code> into a relocatable C7x ELF
+  (<code>lib0.out</code>), with <code>weights.bin</code> embedded as a <code>.rodata.weights</code>
+  section. See <a href="../contributor-guide/backend/c-static.html#building-a-dload-module">C Static Backend -- Building a DLOAD
+  Module</a>
+  for the two-stage link and the full end-to-end diagram.</li>
+<li><strong><code>c7x_host</code></strong>: system <code>g++</code>, plus TI's C7000 Host Emulation library
+  (emulates C7x vector types/intrinsics on x86), build <code>lib0.c</code> into a
+  native <code>cg_dsp</code> executable -- no DLOAD, no board. Requires
+  <code>TI_CGT_C7000_PATH</code>. This is the fast, no-hardware iteration path; see
+  <a href="../contributor-guide/testing/dsp-cpp-harness.html">DSP C++ Harness</a> for
+  the general host-emulation CMake pattern this builds on.</li>
+</ul>
+<p>Neither step is a TVM API call -- both are native builds this project's
+test harness automates (next section).</p>
+<h2 id="reusing-the-test-harnesss-compilation-helpers">Reusing the Test Harness's Compilation Helpers</h2>
+<p><code>tests/ti-dsp-runtime/dsp-cpp/dsp_utils.py</code> wraps everything above in
+three functions. Reuse them rather than re-implementing the sequence:
+they're exercised by the full DSP pytest suite across every board/mode
+combination, so they already handle edge cases that are easy to miss
+writing it from scratch -- BeagleY-AI's <code>-tidl-kernels=0</code>, the DLOAD
+two-stage link, weights embedding.</p>
+<ul>
+<li><strong><code>get_target_string(dsp_mode, profile_layers=False, use_cpp_api=False)</code></strong>
+  -- builds the target string for a given mode (<code>"c7x_host"</code> or
+  <code>"c7x_dload"</code>), including the <code>c7x_dload</code>-only <code>-tidl-kernels=0</code> for
+  BeagleY-AI.</li>
+<li><strong><code>compile_for_dsp(mod, target_string, output_dir)</code></strong> -- runs
+  <em>Picking the pipeline</em> through <em>Exporting</em> above; returns the
+  directory containing <code>lib0.c</code> / <code>weights.bin</code>.</li>
+<li><strong><code>build_dsp_dynmod(generated_dir, build_dir, weights_file=...)</code></strong>
+  (<code>c7x_dload</code>) -- runs the DLOAD build; returns the path to <code>lib0.out</code>.</li>
+<li><strong><code>build_dsp_c7x_host(generated_dir, build_dir=...)</code></strong> (<code>c7x_host</code>) --
+  runs the host-emulation build; returns the path to the <code>cg_dsp</code>
+  executable. Pair with <code>run_dsp_host(executable)</code> to actually run it.</li>
+</ul>
+<h2 id="worked-examples">Worked Examples</h2>
+<h3 id="c7x_dload-what-the-two-examples-do">c7x_dload: What the two examples do</h3>
+<p>Both <code>run_yolo26_detection.py</code> and <code>run_resnet18_classification.py</code>
+target <code>c7x_dload</code> and MMALIB, and the sequence is exactly the three
+helpers above:</p>
+<div class="highlight"><pre><span></span><code><span class="n">target_string</span> <span class="o">=</span> <span class="n">get_target_string</span><span class="p">(</span><span class="s2">&quot;c7x_dload&quot;</span><span class="p">,</span> <span class="n">use_cpp_api</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; -mmalib=1&quot;</span>
+<span class="n">generated_dir</span> <span class="o">=</span> <span class="n">compile_for_dsp</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target_string</span><span class="o">=</span><span class="n">target_string</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="n">build_dir</span><span class="p">)</span>
+
+<span class="n">weights_path</span> <span class="o">=</span> <span class="n">generated_dir</span> <span class="o">/</span> <span class="s2">&quot;weights.bin&quot;</span>
+<span class="n">module_path</span> <span class="o">=</span> <span class="n">build_dsp_dynmod</span><span class="p">(</span>
+    <span class="n">generated_dir</span><span class="o">=</span><span class="n">generated_dir</span><span class="p">,</span>
+    <span class="n">build_dir</span><span class="o">=</span><span class="n">build_dir</span> <span class="o">/</span> <span class="s2">&quot;build&quot;</span><span class="p">,</span>
+    <span class="n">weights_file</span><span class="o">=</span><span class="n">weights_path</span> <span class="k">if</span> <span class="n">weights_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<p><code>use_cpp_api=True</code> is not a style choice here -- c7x_dload requires the
+C++-API codegen path. The one real difference between the two scripts:
+YOLO26 also threads <code>profile_layers</code> through <code>get_target_string</code>, since
+its <code>--profile-layers</code> CLI flag needs to reach the target string; ResNet-18
+has no such flag. See <a href="examples.html">Examples: YOLO26 &amp;
+ResNet-18</a> for the full scripts.</p>
+<h3 id="host-emulation-fast-iteration-without-hardware">Host emulation: fast iteration without hardware</h3>
+<p>Neither example uses <code>c7x_host</code> -- both are hardcoded to <code>c7x_dload</code>, so
+this illustration comes from the test harness's own end-to-end helper
+(<code>compile_and_run_dsp</code>) instead, which does exactly this for the DSP
+pytest suite's <code>--dsp-mode=c7x_host</code> runs:</p>
+<div class="highlight"><pre><span></span><code><span class="n">target_string</span> <span class="o">=</span> <span class="n">get_target_string</span><span class="p">(</span><span class="s2">&quot;c7x_host&quot;</span><span class="p">,</span> <span class="n">use_cpp_api</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">generated_dir</span> <span class="o">=</span> <span class="n">compile_for_dsp</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target_string</span><span class="o">=</span><span class="n">target_string</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="n">workspace</span><span class="p">)</span>
+
+<span class="n">host_exe</span> <span class="o">=</span> <span class="n">build_dsp_c7x_host</span><span class="p">(</span><span class="n">generated_dir</span><span class="p">,</span> <span class="n">build_dir</span><span class="o">=</span><span class="n">build_dir</span><span class="p">)</span>
+<span class="n">write_tensors_to_file</span><span class="p">(</span><span class="n">input_tensors</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">build_dir</span> <span class="o">/</span> <span class="s2">&quot;input.bin&quot;</span><span class="p">))</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_dsp_host</span><span class="p">(</span><span class="n">host_exe</span><span class="p">)</span>
+</code></pre></div>
+<p>No <code>build_dsp_dynmod</code>, no board, no <code>weights_file</code> argument -- weights
+are picked up straight from <code>generated_dir</code> by the CMake build. See
+<a href="../contributor-guide/testing/dsp-suite.html">DSP Suite</a> and the
+<code>tvm-relax-c7x:testing</code> skill for running this mode under pytest.</p>
+<h2 id="see-also">See Also</h2>
+<ul>
+<li><a href="quantization.html">Quantization</a> -- producing the input <code>IRModule</code>.</li>
+<li><a href="../contributor-guide/backend/c-static.html">C Static Backend</a> --
+  DLOAD build internals, codegen architecture.</li>
+<li><a href="../contributor-guide/backend/mmalib-integration.html">MMALIB Integration</a>
+  -- what the default pipeline's MMALIB passes actually do.</li>
+<li><a href="../contributor-guide/testing/dsp-cpp-harness.html">DSP C++ Harness</a> --
+  the CMake build this project's helpers automate.</li>
+<li><a href="python-api.html">Python / C++ API Reference</a> -- running the resulting
+  module.</li>
+<li><a href="examples.html">Examples: YOLO26 &amp; ResNet-18</a> -- full runnable scripts.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
