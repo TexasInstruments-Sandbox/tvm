@@ -23,12 +23,21 @@
  * =============================================================================
  * DMA-buf to physical address conversion (TI remoteproc extension)
  * See: ti-processor-sdk-rtos/app_utils/utils/mem/include/linux/dma_buf_phys.h
+ *
+ * Upstream <linux/remoteproc_cdev.h> on this toolchain predates this ioctl
+ * (it only has RPROC_SET/GET_SHUTDOWN_ON_RELEASE); the real struct is TI's
+ * downstream addition, not in mainline. Layout verified against
+ * ti-processor-sdk-linux-adas-j722s-evm-11_02_01_03/board-support/
+ * ti-linux-kernel-6.12.57+git-ti/include/uapi/linux/remoteproc_cdev.h, whose
+ * struct rproc_dma_buf_attach_data is byte-identical to this one -- field
+ * renamed to `da` to match that name (it holds the device address, not a
+ * raw physical address, despite the historical `dma_buf_phys_data` name).
  * =============================================================================
  */
 
 struct dma_buf_phys_data {
     __u32 fd;
-    __u64 phys;
+    __u64 da;
 };
 
 #define RPROC_MAGIC             0xB7
@@ -227,7 +236,7 @@ c7x_client_t *c7x_client_open(void)
         fprintf(stderr, "c7x: Failed to get physical address: %s\n", strerror(errno));
         return nullptr;
     }
-    client->phys_addr = static_cast<uint64_t>(phys_data.phys);
+    client->phys_addr = static_cast<uint64_t>(phys_data.da);
 
     /* Verify the physical address matches the expected DMA heap region */
     if (client->phys_addr != C7X_SHARED_PHYS_BASE) {
