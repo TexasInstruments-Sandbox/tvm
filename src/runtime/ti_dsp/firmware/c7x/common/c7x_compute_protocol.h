@@ -49,34 +49,52 @@ extern "C" {
 #endif
 #define C7X_SHARED_SIZE         0x20000000ULL   /* 512 MB total — full DMA heap carveout */
 
-/* Staging buffer: first 468 MB of the shared DDR carveout.
- * Used for host-to-DSP data transfer: ELF modules (DLOAD), weights
- * (MODEL_LOAD), and inference input tensors (INFER).
+/* Staging region: first 468 MB of the shared DDR carveout.
+ * Used for host-to-DSP data transfer: ELF modules (DLOAD) and weights
+ * (MODEL_LOAD) only -- inference input tensors go to the separate,
+ * dynamically-sized input_buf dmabuf instead (client->input_buf).
  *
  * The address is the DSP virtual address from the static MMU mapping:
  *   Physical 0x900000000 -> DSP virtual 0xC0000000
- * The host side uses mmap'd userspace pointers (client->staging_buf). */
+ * The host allocates staging+KV as one dmabuf first so first-fit packs it
+ * at the pool base and this address stays valid (client->staging). */
 #define C7X_STAGING_ADDR   0xC0000000ULL
 #define C7X_STAGING_SIZE   0x1D400000ULL   /* 468 MB */
 
-/* KV cache fixed region: 12 MB between staging and result.
+/* KV cache fixed region: 12 MB right after staging.
  * Persists across inferences — not touched by watermark restore.
  * Used when C7X_INFER_FLAG_KV_RESIDENT is set: the DSP copies KV output
  * tensors here after cg_main_dsp() and reads them back as inputs on the
- * next inference without host involvement. */
+ * next inference without host involvement.
+ *
+ * Reserved by the host allocating one dmabuf covering
+ * [C7X_STAGING_ADDR, C7X_KV_ADDR + C7X_KV_SIZE) first, so first-fit packs
+ * it at the pool's low end and this fixed address stays valid without the
+ * host needing to steer the allocator (gen_pool has no such API). */
 #define C7X_KV_ADDR      0xDD400000ULL   /* staging + 468 MB */
 #define C7X_KV_SIZE      0x00C00000ULL   /* 12 MB */
 #define C7X_KV_NUM_TENSORS   60
 #define C7X_KV_TENSOR_SIZE   196608      /* 1*3*256*64*sizeof(float) */
 
-/* Result buffer: last 32 MB (DSP-to-host: inference output + printf). */
-#define C7X_RESULT_ADDR  0xDE000000ULL
-#define C7X_RESULT_SIZE  0x02000000ULL   /* 32 MB */
+/* Inference input/output buffers (input_buf/output_buf) are separate,
+ * per-session dmabufs sized from tvm_dsp_io_meta and communicated per-INFER
+ * via c7x_msg_infer's input_dsp_addr/input_size/result_dsp_addr/result_size
+ * -- there is no fixed address/size for either anymore. The DSP tracks the
+ * current output_buf as g_result_dsp_addr/g_result_size (compute_service.c);
+ * input_buf needs no such global since every validation site already has
+ * the request in hand.
+ *
+ * Printf buffer: 64 KB, communicated once via C7X_MSG_SET_PRINTF_BUF right
+ * after c7x_client_open(). Before that first rebind, shm_printf_init() at
+ * boot targets a scratch address at the top of the whole shared carveout
+ * (nothing else claims that address until the host starts allocating). */
+#define C7X_PRINTF_BUF_SIZE       0x00010000ULL   /* 64 KB */
+#define C7X_PRINTF_BUF_BOOT_ADDR  (C7X_SHARED_BASE + C7X_SHARED_SIZE - C7X_PRINTF_BUF_SIZE)
 
-/* Printf buffer: last 64 KB of result buffer */
-#define C7X_PRINTF_BUF_SIZE     0x00010000ULL   /* 64 KB */
-#define C7X_PRINTF_BUF_ADDR     (C7X_RESULT_ADDR + \
-        C7X_RESULT_SIZE - C7X_PRINTF_BUF_SIZE)
+/* struct shm_printf_hdr's on-wire size (shm_printf.c): magic/wr_index/
+ * buf_size/reserved, 4 uint32_t. Shared here so the host's printf read
+ * (c7x_compute_client.cpp) doesn't duplicate this as a magic number. */
+#define C7X_SHM_PRINTF_HDR_SIZE  16U
 
 /*
  * =============================================================================
@@ -110,6 +128,12 @@ extern "C" {
  * in the IPC message, avoiding the 512-byte rpmsg size limit.  The response
  * message type is the same C7X_MSG_INFER_RESP. */
 #define C7X_MSG_INFER_LARGE     0x0023
+
+/* Sent once right after c7x_client_open(), before any DYN_LOAD -- rebinds
+ * DSP printf from its boot-time scratch address to the host's actual
+ * printf_buf dmabuf (see shm_printf_rebind()). */
+#define C7X_MSG_SET_PRINTF_BUF      0x0030
+#define C7X_MSG_SET_PRINTF_BUF_RESP 0x1030
 
 /*
  * =============================================================================
@@ -183,6 +207,26 @@ struct c7x_msg_status_resp {
     uint32_t uptime_ms;         /* Uptime in milliseconds */
     uint32_t jobs_completed;    /* Total jobs processed */
     uint32_t jobs_failed;       /* Total jobs failed */
+} __attribute__((packed));
+
+/*
+ * SET_PRINTF_BUF request (32 bytes)
+ * Rebind DSP printf from its boot-time scratch address (shm_printf_init(),
+ * C7X_PRINTF_BUF_BOOT_ADDR) to the host's actual printf_buf dmabuf. Sent
+ * once, right after c7x_client_open(), before any DYN_LOAD.
+ */
+struct c7x_msg_set_printf_buf {
+    struct c7x_msg_hdr hdr;     /* type = C7X_MSG_SET_PRINTF_BUF */
+    uint64_t printf_dsp_addr;
+    uint32_t printf_size;
+    uint32_t reserved;
+} __attribute__((packed));
+
+/*
+ * SET_PRINTF_BUF response (16 bytes)
+ */
+struct c7x_msg_set_printf_buf_resp {
+    struct c7x_msg_hdr hdr;     /* type = C7X_MSG_SET_PRINTF_BUF_RESP */
 } __attribute__((packed));
 
 /*
@@ -343,11 +387,15 @@ struct c7x_msg_infer {
     uint32_t model_id;          /* Loaded weights model ID */
     uint32_t num_inputs;        /* Number of input tensors */
     uint32_t flags;             /* See above: bits[15:0]=repeat count */
+    uint64_t input_dsp_addr;    /* input_buf base, for C7X_IS_VALID_INPUT_ADDR */
+    uint64_t input_size;        /* input_buf declared capacity */
+    uint64_t result_dsp_addr;   /* output_buf base -- mandatory (D7) */
+    uint64_t result_size;       /* output_buf declared capacity -- mandatory */
     struct c7x_tensor_desc inputs[1]; /* Variable-length array */
 } __attribute__((packed));
 
 /*
- * INFER_LARGE request (48 bytes).
+ * INFER_LARGE request (80 bytes).
  *
  * Used when the number of input tensors is too large to fit the tensor
  * descriptors inline in the 512-byte rpmsg buffer.  The host writes the
@@ -369,6 +417,10 @@ struct c7x_msg_infer_large {
     uint64_t descs_addr;            /* Staging DDR address of descriptor array */
     uint32_t descs_size;            /* Size in bytes of descriptor array */
     uint32_t reserved;
+    uint64_t input_dsp_addr;        /* Same meaning as c7x_msg_infer's */
+    uint64_t input_size;
+    uint64_t result_dsp_addr;
+    uint64_t result_size;
 } __attribute__((packed));
 
 /* INFER flags */
@@ -404,6 +456,9 @@ struct c7x_msg_infer_resp {
                                  * moment of failure. 0 otherwise. */
     uint32_t oom_total;         /* status==ERR_NOMEM: total pool bytes.
                                  * 0 otherwise. */
+    uint64_t result_required;   /* status==ERR_SIZE: output_buf capacity
+                                 * that would have fit the tensor that
+                                 * overflowed it. 0 otherwise. */
     struct c7x_tensor_desc outputs[1]; /* Inline (descs_addr == 0) */
 } __attribute__((packed));
 
@@ -436,27 +491,33 @@ union c7x_msg {
  * =============================================================================
  */
 
-/* Check if address+size is within shared buffer region (overflow-safe) */
-#define C7X_IS_VALID_STAGING_ADDR(addr, size) \
-    ((size) <= C7X_STAGING_SIZE && \
-     (addr) >= C7X_STAGING_ADDR && \
-     ((addr) - C7X_STAGING_ADDR) <= (C7X_STAGING_SIZE - (size)))
+/* Does [addr, addr+size) fall entirely within [base, base+bound)?
+ * (overflow-safe). input_buf/output_buf have no fixed base/size of their
+ * own anymore -- each message carries its sender's actual buffer base+size
+ * (D12), so validation takes them as explicit parameters rather than
+ * reading fixed C7X_* constants. */
+#define C7X_IS_VALID_RANGE(addr, size, base, bound) \
+    ((size) <= (bound) && \
+     (addr) >= (base) && \
+     ((addr) - (base)) <= ((bound) - (size)))
 
 #define C7X_IS_VALID_KV_ADDR(addr, size) \
-    ((size) <= C7X_KV_SIZE && \
-     (addr) >= C7X_KV_ADDR && \
-     ((addr) - C7X_KV_ADDR) <= (C7X_KV_SIZE - (size)))
+    C7X_IS_VALID_RANGE(addr, size, C7X_KV_ADDR, C7X_KV_SIZE)
 
-#define C7X_IS_VALID_INPUT_ADDR(addr, size) \
-    (C7X_IS_VALID_STAGING_ADDR(addr, size) || C7X_IS_VALID_KV_ADDR(addr, size))
+/* input_base/input_bound: the sender's input_dsp_addr/input_size. */
+#define C7X_IS_VALID_INPUT_ADDR(addr, size, input_base, input_bound) \
+    (C7X_IS_VALID_RANGE(addr, size, input_base, input_bound) || \
+     C7X_IS_VALID_KV_ADDR(addr, size))
 
-#define C7X_IS_VALID_RESULT_ADDR(addr, size) \
-    ((size) <= C7X_RESULT_SIZE && \
-     (addr) >= C7X_RESULT_ADDR && \
-     ((addr) - C7X_RESULT_ADDR) <= (C7X_RESULT_SIZE - (size)))
-
-/* Service version: major.minor.patch encoded as 0xMMmmpp */
-#define C7X_SERVICE_VERSION     0x020000  /* v2.0.0 */
+/* Service version: major.minor.patch encoded as 0xMMmmpp.
+ *
+ * Bump the major on any incompatible wire change -- a struct changing size,
+ * or a message becoming mandatory.  v3.0.0 covers the per-buffer dmabuf
+ * protocol: c7x_msg_infer, c7x_msg_infer_large, c7x_msg_dyn_load_resp and
+ * c7x_msg_infer_resp all grew, and SET_PRINTF_BUF became mandatory at open.
+ * A mismatched pair otherwise fails deep inside open or infer with an error
+ * that reads as a bug rather than as a stale firmware image. */
+#define C7X_SERVICE_VERSION     0x030000  /* v3.0.0 */
 
 /* Extract version components */
 #define C7X_VERSION_MAJOR(v) (((v) >> 16) & 0xFF)

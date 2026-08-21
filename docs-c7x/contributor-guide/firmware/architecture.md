@@ -124,23 +124,27 @@ runtime it depends on. Key milestones from original development:
 *at the time of that merge* -- 128 MB was correct then; the pool was
 later extended to its current 352 MiB, see "Memory Layout" above.)
 
-## Future work: dynamic buffer allocation
+## Per-buffer dmabufs (done)
 
-The 512 MB shared DDR carveout is currently split into fixed-size
-regions at compile time (`C7X_STAGING_ADDR` / `C7X_STAGING_SIZE` =
-468 MB, `C7X_KV_ADDR` / `C7X_KV_SIZE` = 12 MB, `C7X_RESULT_ADDR` /
-`C7X_RESULT_SIZE` = 32 MB).  These constants are hardcoded in
-`c7x_compute_protocol.h` because the DSP MMU mapping is static.
+The 512 MB shared DDR carveout was originally one dmabuf, synced whole on
+every inference regardless of how much data actually moved (`struct
+dma_buf_sync` has no offset/length, so sync granularity is allocation
+granularity). It's now split into independently-allocated, independently-synced
+dmabufs: `client->staging` (ELF + weights only, still fixed at
+`C7X_STAGING_ADDR`/468 MB since `gen_pool_first_fit` packs the first
+allocation at the pool base), `client->printf_buf` (64 KB, rebindable via
+`C7X_MSG_SET_PRINTF_BUF`), and `client->input_buf`/`output_buf` (sized per
+session from the compiled module's `tvm_dsp_io_meta`, or
+`c7x_client_reserve_io()` for a module with no table). `C7X_KV_ADDR` stays
+fixed too, folded into `client->staging`'s 480 MB reservation.
 
-A future improvement would make the partitioning dynamic:
+See [ARM Host Client Internals](arm-client-internals.md) for the buffer
+table and capacity-declaration semantics, and `c7x_compute_protocol.h` for
+the wire format (`c7x_msg_infer`'s `input_dsp_addr`/`result_dsp_addr` fields
+replace the old fixed `C7X_RESULT_ADDR` constant).
 
-- Replace the fixed staging/result split with a single
-  `C7X_SHARED_BASE` + `C7X_SHARED_SIZE` region
-- Have the host negotiate the layout at connection time (e.g. in
-  the PING response or a new CONFIGURE message): staging region
-  size, result region offset, printf buffer offset
-- The DSP would use the negotiated offsets instead of compile-time
-  constants
-- This enables models with very large outputs (e.g. segmentation
-  masks) to borrow space from the staging region after inference
-  input has been consumed
+**Known limitation carried over from this change:** the firmware tracks the
+current session's `output_buf`/`printf_buf` base as process-global state,
+not per-connection -- a second concurrently-connected client would silently
+redirect the first's buffers. Acceptable today (one DSP core, access already
+serialised), but worth revisiting if that assumption changes.

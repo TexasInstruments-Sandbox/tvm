@@ -32,6 +32,22 @@ extern "C" {
 void shm_printf_init(void *buf_addr, uint32_t buf_size);
 
 /**
+ * Rebind the printf buffer to a new address/size after shm_printf_init()
+ * already ran at boot (C7X_MSG_SET_PRINTF_BUF handler).  Re-runs the buffer
+ * setup but not add_device()/freopen(), which only need to happen once.
+ *
+ * @param buf_addr  Start of the new printf buffer in shared memory.
+ * @param buf_size  Total size of the new printf buffer.
+ *
+ * @return 0 on success, -1 if the buffer is unusable (printf stays bound to
+ *         the previous buffer).  The caller must report a failure rather than
+ *         assume the rebind happened: the host sizes its reads from its own
+ *         printf_buf, so silently staying on the boot buffer makes it print
+ *         whatever its never-written mapping happens to contain.
+ */
+int shm_printf_rebind(void *buf_addr, uint32_t buf_size);
+
+/**
  * Reset the printf buffer write index to zero.
  * Call before each inference to start with a clean buffer.
  */

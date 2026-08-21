@@ -1,5 +1,14 @@
 # Firmware Design Deep-Dive
 
+> **Memory layout sections below are stale.** This document predates the
+> per-buffer dmabuf change: the single 512 MB staging/result split described
+> here (`staging_buf`/`result_buf`, `C7X_RESULT_ADDR`, one whole-carveout
+> `DMA_BUF_IOCTL_SYNC` per inference) has been replaced by separate,
+> independently-synced dmabufs (`client->staging` for ELF/weights only,
+> `input_buf`/`output_buf` sized from `tvm_dsp_io_meta`, `printf_buf`). See
+> [ARM Host Client Internals](arm-client-internals.md) for the current
+> design. A full rewrite of this document is tracked separately.
+
 ## Overview
 
 The c7x-firmware is a host-DSP compute service for the TI AM67A (J722S)

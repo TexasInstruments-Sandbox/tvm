@@ -79,7 +79,24 @@ int c7x_client_get_last_oom(c7x_client_t *client, uint32_t *requested,
                              uint32_t *free_bytes, uint32_t *total);
 
 /**
+ * Current input_buf capacity, without taking a pointer to it.
+ *
+ * Unlike c7x_client_get_input_buffer(), this does not lock the capacity, so
+ * a caller can check whether a tensor fits and still fall back to
+ * c7x_client_reserve_io() when it doesn't.
+ *
+ * @param client  Client handle
+ *
+ * @return input_buf size in bytes (0 if client is NULL or nothing is sized yet)
+ */
+size_t c7x_client_input_capacity(c7x_client_t *client);
+
+/**
  * Get pointer to the input buffer in shared memory.
+ *
+ * Locks the input_buf/output_buf capacity when it returns non-NULL: the
+ * returned pointer must stay valid, so c7x_client_reserve_io() is rejected
+ * with -EBUSY afterward.  Returning NULL locks nothing.
  *
  * @param client  Client handle
  * @param size    Output: buffer size in bytes
@@ -176,6 +193,24 @@ int c7x_client_model_unload(c7x_client_t *client, uint32_t model_id);
  */
 int c7x_client_dyn_load(c7x_client_t *client, const char *elf_file,
                         uint32_t *handle_out);
+
+/**
+ * Raise input_buf/output_buf capacity beyond whatever c7x_client_dyn_load()
+ * auto-sized from tvm_dsp_io_meta -- for a module with no table, or one
+ * whose table is only an upper bound. Takes the max of the requested and
+ * current capacity for each buffer (never shrinks).
+ *
+ * Must be called before the first CreateInput()/INFER for the current
+ * load; rejected with -EBUSY afterward, since input_buf/output_buf may
+ * already have pointers handed out by then that a resize would invalidate.
+ *
+ * @param client    Client handle
+ * @param in_bytes  Minimum input_buf capacity to reserve
+ * @param out_bytes Minimum output_buf capacity to reserve
+ *
+ * @return 0 on success, negative error code on failure
+ */
+int c7x_client_reserve_io(c7x_client_t *client, uint64_t in_bytes, uint64_t out_bytes);
 
 /**
  * Unload a previously loaded dynamic module.

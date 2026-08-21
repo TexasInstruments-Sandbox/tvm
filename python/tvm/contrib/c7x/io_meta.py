@@ -53,8 +53,7 @@ def _tensor_nbytes(sinfo: relax.StructInfo) -> Optional[int]:
     shape = sinfo.shape
     if not isinstance(shape, relax.ShapeExpr):
         return None
-    dtype = tvm.DataType(sinfo.dtype)
-    nbytes = (dtype.bits * dtype.lanes + 7) // 8
+    nbytes = tvm.DataType(sinfo.dtype).itemsize
     for dim in shape.values:
         if not isinstance(dim, tvm.tir.IntImm):
             return None
@@ -116,9 +115,17 @@ def compute_io_meta_bytes(mod: tvm.IRModule, entry_name: str = "main") -> Option
     num_outputs = len(output_sizes)
 
     # Descriptor region (D9) precedes tensor data at the front of input_buf.
-    descs_bytes = _round_up(num_inputs * TENSOR_DESC_SIZE)
-    input_bytes = descs_bytes + sum(_round_up(s) for s in input_sizes)
-    output_bytes = sum(_round_up(s) for s in output_sizes)
+    input_bytes = _round_up(num_inputs * TENSOR_DESC_SIZE) + sum(_round_up(s) for s in input_sizes)
+    # On the output side the firmware appends the descriptor array *after* the
+    # tensor data, but only when it doesn't fit inline in the IPC response
+    # (``extract_infer_output()``).  Reserve room for it unconditionally
+    # instead of replicating that threshold here: the descriptors cost a few
+    # hundred bytes next to the tensor data, whereas a capacity short by
+    # exactly that much makes every inference of a many-output model fail with
+    # C7X_STATUS_ERR_SIZE.
+    output_bytes = _round_up(num_outputs * TENSOR_DESC_SIZE) + sum(
+        _round_up(s) for s in output_sizes
+    )
 
     return struct.pack(
         "<IIIIQQII",

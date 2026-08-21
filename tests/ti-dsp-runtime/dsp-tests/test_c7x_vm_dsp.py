@@ -114,6 +114,28 @@ def _compile_mlp_lib0() -> Path:
     return module_path
 
 
+def _compile_mlp_lib0_no_io_meta() -> Path:
+    """Same MLP as _compile_mlp_lib0(), but with tvm_dsp_io_meta.bin deleted
+    before embedding -- simulates a pre-W2 .out (or one with a symbolic entry
+    shape) so DYN_LOAD_RESP reports io_input_bytes=io_output_bytes=0 and
+    capacity is entirely up to c7x_client_reserve_io()."""
+    tvm_mod, _, _ = create_mlp_model(input_size=64, hidden_size=32, output_size=8)
+    target = "c_static -mcpu=c7x -use-cpp-api=1"
+    gen_dir = Path(tempfile.mkdtemp(prefix="c7x_vm_test_noiometa_"))
+    compile_for_dsp(tvm_mod, target_string=target, output_dir=gen_dir)
+    io_meta = gen_dir / "tvm_dsp_io_meta.bin"
+    if io_meta.exists():
+        io_meta.unlink()
+    build_dir = Path(tempfile.mkdtemp(prefix="c7x_vm_build_noiometa_"))
+    weights = gen_dir / "weights.bin"
+    module_path = build_dsp_dynmod(
+        generated_dir=gen_dir,
+        build_dir=build_dir,
+        weights_file=weights if weights.exists() else None,
+    )
+    return module_path
+
+
 def _cpu_reference_mlp(input_data: np.ndarray) -> np.ndarray:
     """Run the same MLP on CPU via TVM RelaxVM for reference."""
     tvm_mod, _, _ = create_mlp_model(input_size=64, hidden_size=32, output_size=8)
@@ -834,6 +856,195 @@ class TestCreateInput:
         vm.close()
         assert len(vm._input_slots) == 0  # noqa: SLF001
         assert vm._staging_alloc_offset == 0  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# Over-capacity: reserve_io() with a deliberately small capacity, both
+# directions (D4: exceeding declared capacity is always an error, never
+# absorbed; D2: reallocation on reserve_io() is the only supported retry).
+# ---------------------------------------------------------------------------
+
+# MLP(input_size=64, hidden_size=32, output_size=8): 1 input (1,64) f32,
+# 1 output (1,8) f32.
+#   input tensor:  64*4                      = 256 bytes (+ the descriptor
+#                  region, whose size depends on io_num_inputs -- read
+#                  dynamically from vm._staging_alloc_offset rather than
+#                  assumed, since it differs between a real io_meta table
+#                  (1 input) and this no-table build's fallback guess)
+#   output tensor: 8*4 = 32, round64 = 64 bytes
+_MLP_INPUT_TENSOR_BYTES = 256
+_MLP_REAL_OUTPUT_BYTES = 64
+
+
+def _run_capacity_overrun_on_board(board: str, lib0_path: Path,
+                                   small_in: int, small_out: int,
+                                   timeout: int = 60) -> dict:
+    """Deploy the no-io-meta MLP and drive the reserve_io()/retry sequence
+    via SSH: reserve (small_in, small_out), attempt inference (must fail
+    cleanly), reserve up to the real requirement, retry (must succeed).
+
+    The real input requirement is read back from vm._staging_alloc_offset
+    (the descriptor-region size, D9) rather than assumed -- it differs
+    between a real io_meta table and this no-table build's fallback guess.
+    """
+    import json as _json
+
+    remote = f"root@{board}"
+    remote_dir = "/tmp/_c7x_vm_cap_test"
+    remote_lib0 = f"{remote_dir}/lib0.out"
+    remote_pymod = f"{remote_dir}/c7x_runtime.py"
+    c7x_runtime_py = Path(__file__).parent.parent.parent.parent / \
+        "python" / "tvm" / "contrib" / "c7x" / "c7x_runtime.py"
+
+    subprocess.run(
+        ["ssh", "-o", "ConnectTimeout=10", remote, f"mkdir -p {remote_dir}"],
+        check=True, timeout=10,
+    )
+    for local, rpath in [(str(lib0_path), remote_lib0), (str(c7x_runtime_py), remote_pymod)]:
+        subprocess.run(["scp", "-q", local, f"{remote}:{rpath}"], check=True, timeout=60)
+
+    script = rf"""
+import sys, json
+import numpy as np
+sys.path.insert(0, '{remote_dir}')
+from c7x_runtime import C7xVirtualMachine
+
+lib0 = '{remote_lib0}'
+so_path = '/usr/local/lib/libc7x_arm_runtime.so'
+inp = np.array([(i + 1) * 0.01 for i in range(64)], dtype=np.float32).reshape(1, 64)
+r = {{}}
+
+try:
+    vm = C7xVirtualMachine(lib0, so_path=so_path)
+    vm.reserve_io({small_in}, {small_out})
+    real_input_bytes = vm._staging_alloc_offset + {_MLP_INPUT_TENSOR_BYTES}
+    try:
+        vm.run_nocopy(inp)  # not vm["main"](): no TVM import triggered on the board
+    except RuntimeError as e:
+        r['first_call_failed'] = True
+        r['first_call_error'] = str(e)
+    vm.reserve_io(real_input_bytes, {_MLP_REAL_OUTPUT_BYTES})
+    out = vm.run_nocopy(inp)
+    r['retry_succeeded'] = True
+    r['retry_shape'] = list(out.shape)
+    vm.close()
+except Exception as e:
+    r['unexpected_error'] = str(e)
+
+print(json.dumps(r))
+"""
+    result = subprocess.run(
+        ["ssh", "-o", "ConnectTimeout=10", remote, f"python3 -c {_shlex_quote(script)}"],
+        capture_output=True, text=True, timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"Remote capacity-overrun test failed on {board} (rc={result.returncode}):\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+    for line in reversed(result.stdout.strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            return _json.loads(line)
+    raise AssertionError(
+        f"No JSON output from remote capacity-overrun test on {board}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+@pytest.fixture(scope="module")
+def mlp_lib0_no_io_meta():
+    """Compile the MLP without tvm_dsp_io_meta.bin (once per module)."""
+    return _compile_mlp_lib0_no_io_meta()
+
+
+@requires_firmware
+class TestCapacityOverrun:
+    """reserve_io() undersized, then a real inference that needs more:
+    input side must fail with -EFBIG before staging anything (host-side
+    check, D2), output side must fail with C7X_STATUS_ERR_SIZE and a
+    usable result_required (firmware-side, D7) -- both without corrupting
+    the client, and a correctly-sized reserve_io() + retry must then
+    succeed on the same client (the only reallocation path in the design)."""
+
+    @pytest.mark.core
+    def test_input_over_capacity_fails_and_recovers(self, mlp_lib0_no_io_meta,
+                                                     board_target):
+        """input_buf too small: -EFBIG before any DSP round-trip."""
+        small_in, small_out = 64, 4096  # input too small, output plenty
+        if board_target:
+            r = _run_capacity_overrun_on_board(board_target, mlp_lib0_no_io_meta,
+                                               small_in, small_out)
+            assert "unexpected_error" not in r, f"Unexpected error: {r}"
+            assert r.get("first_call_failed"), f"First call should have failed: {r}"
+            assert r.get("retry_succeeded"), f"Retry should have succeeded: {r}"
+            return
+        vm = C7xVirtualMachine(mlp_lib0_no_io_meta)
+        vm.reserve_io(small_in, small_out)
+        real_input_bytes = vm._staging_alloc_offset + _MLP_INPUT_TENSOR_BYTES  # noqa: SLF001
+        inp = np.array([(i + 1) * 0.01 for i in range(64)], dtype=np.float32).reshape(1, 64)
+        with pytest.raises(RuntimeError):
+            vm["main"](inp)
+        # Undersized attempt must not lock capacity -- retry with enough room.
+        vm.reserve_io(real_input_bytes, _MLP_REAL_OUTPUT_BYTES)
+        out = vm["main"](inp)
+        vm.close()
+        assert out.numpy().shape == (1, 8)
+
+    @pytest.mark.core
+    def test_output_over_capacity_fails_and_recovers(self, mlp_lib0_no_io_meta,
+                                                      board_target):
+        """output_buf too small: firmware-side C7X_STATUS_ERR_SIZE."""
+        # The output tensor is exactly 32 raw bytes (8 float32); a 32-byte
+        # output_buf fits it exactly (no alignment padding needed for a
+        # single tensor at offset 0), so small_out must be < 32 to
+        # genuinely overflow.
+        small_in, small_out = 4096, 16  # input plenty, output too small
+        if board_target:
+            r = _run_capacity_overrun_on_board(board_target, mlp_lib0_no_io_meta,
+                                               small_in, small_out)
+            assert "unexpected_error" not in r, f"Unexpected error: {r}"
+            assert r.get("first_call_failed"), f"First call should have failed: {r}"
+            assert r.get("retry_succeeded"), f"Retry should have succeeded: {r}"
+            return
+        vm = C7xVirtualMachine(mlp_lib0_no_io_meta)
+        vm.reserve_io(small_in, small_out)
+        real_input_bytes = vm._staging_alloc_offset + _MLP_INPUT_TENSOR_BYTES  # noqa: SLF001
+        inp = np.array([(i + 1) * 0.01 for i in range(64)], dtype=np.float32).reshape(1, 64)
+        with pytest.raises(RuntimeError):
+            vm["main"](inp)
+        vm.reserve_io(real_input_bytes, _MLP_REAL_OUTPUT_BYTES)
+        out = vm["main"](inp)
+        vm.close()
+        assert out.numpy().shape == (1, 8)
+
+    @pytest.mark.core
+    def test_reserve_io_rejected_after_first_use(self, mlp_lib0_no_io_meta, board_target):
+        """reserve_io() must be rejected (-EBUSY) once capacity is locked."""
+        if board_target:
+            pytest.skip("local-only: exercises the client library's in-process lock directly")
+        vm = C7xVirtualMachine(mlp_lib0_no_io_meta)
+        vm.reserve_io(4096, 4096)
+        inp = np.array([(i + 1) * 0.01 for i in range(64)], dtype=np.float32).reshape(1, 64)
+        vm["main"](inp)  # locks capacity on success
+        with pytest.raises(RuntimeError, match="already in use"):
+            vm.reserve_io(8192, 8192)
+        vm.close()
+
+
+# ---------------------------------------------------------------------------
+# INFER_LARGE (>4 inputs) — D9 descriptor-region-at-front-of-input_buf
+#
+# Not covered here: a synthetic N-separate-input model (no weights, plain
+# relax.op.add chain) hits a pre-existing TVM c_static/VMShapeLower failure
+# ("ERROR: Inference failed (5)") that reproduces identically under c7x_host
+# with as few as 2 inputs -- i.e. it is unrelated to INFER_LARGE, DLOAD, or
+# this plan's dmabuf changes; every model in the regression set with a real
+# multi-input calling convention (SmolLM decode: 3 real inputs + 60 KV
+# tensors) goes through the SmolLM suite instead (test_smollm_chat_e2e.py,
+# not in the quick tier). Run that suite to validate D9's descriptor
+# placement before relying on INFER_LARGE in production.
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
