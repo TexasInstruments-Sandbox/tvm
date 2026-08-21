@@ -203,7 +203,9 @@ if(EXISTS "${WEIGHTS_FILE}")
     message(STATUS "  Weights: ${WEIGHTS_FILE} (embedded in dynmod)")
 endif()
 
-# --- Stage 1.8: Embed tvm_dsp_io_meta.bin as .rodata.io_meta (optional) ---
+# --- Stage 1.8: Embed tvm_dsp_io_meta.bin (optional) ---
+# bin_to_asm.py hardcodes .sect ".rodata.weights", so the blob lands in the
+# weights section rather than one of its own -- look for it there in the map.
 # Declared input/output byte counts for per-buffer dmabuf sizing (DYN_LOAD_RESP).
 # Absent for modules built before this existed, or with symbolic entry shapes --
 # handle_dyn_load() treats a missing symbol as "no metadata", not an error.

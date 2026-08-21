@@ -1088,6 +1088,11 @@ class TIDLOffloadCompiler:
 
         io_meta_path = gen_dir / "tvm_dsp_io_meta.bin"
         if not write_io_meta(lowered, io_meta_path):
+            # Delete, don't just stop passing the path: CMake's IO_META_FILE
+            # defaults to ${GENERATED_CODE_DIR}/tvm_dsp_io_meta.bin and embeds
+            # it if it exists, so a blob left by a previous compile into this
+            # directory would supply the wrong declared capacities.
+            io_meta_path.unlink(missing_ok=True)
             io_meta_path = None
 
         # 4. Generate real TIDL bridge

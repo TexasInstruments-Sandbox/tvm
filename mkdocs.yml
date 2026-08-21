@@ -51,6 +51,7 @@ nav:
       - Firmware Architecture: contributor-guide/firmware/architecture.md
       - Firmware Design Deep-Dive: contributor-guide/firmware/design-deep-dive.md
       - ARM Host Client Internals: contributor-guide/firmware/arm-client-internals.md
+      - Per-Buffer dmabuf Design: contributor-guide/firmware/dmabuf-design.md
     - Hardware Debug Scripts: contributor-guide/hardware-debug.md
     - Testing:
       - Overview: contributor-guide/testing/overview.md

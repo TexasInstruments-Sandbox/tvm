@@ -199,6 +199,10 @@ def _load_runtime_lib(so_path: str) -> ctypes.CDLL:
         ctypes.POINTER(ctypes.c_uint64),             # cycles (out, optional)
     ]
 
+    # size_t c7x_client_input_capacity(c7x_client_t *)
+    lib.c7x_client_input_capacity.restype = ctypes.c_size_t
+    lib.c7x_client_input_capacity.argtypes = [ctypes.c_void_p]
+
     # void *c7x_client_get_input_buffer(c7x_client_t *, size_t *)
     lib.c7x_client_get_input_buffer.restype = ctypes.c_void_p
     lib.c7x_client_get_input_buffer.argtypes = [
@@ -225,6 +229,12 @@ def _load_runtime_lib(so_path: str) -> ctypes.CDLL:
         ctypes.POINTER(ctypes.c_uint32),
         ctypes.POINTER(ctypes.c_uint32),
         ctypes.POINTER(ctypes.c_uint32),
+    ]
+
+    # int c7x_client_reserve_io(c7x_client_t *, uint64_t, uint64_t)
+    lib.c7x_client_reserve_io.restype = ctypes.c_int
+    lib.c7x_client_reserve_io.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint64,
     ]
 
     # const char *c7x_strerror(int)
@@ -418,15 +428,22 @@ class C7xVirtualMachine:
         np_dtype = np.dtype(dtype)
         nbytes = int(np.prod(shape)) * np_dtype.itemsize
 
-        if self._staging_ptr == 0:
-            raise RuntimeError(
-                "C7xVirtualMachine.create_input: staging buffer not available"
-            )
-        if self._staging_alloc_offset + nbytes > self._staging_size:
+        # Capacity check before _ensure_staging_cached(): that call fetches the
+        # pointer, which locks capacity, and a tensor that doesn't fit should
+        # leave reserve_io() available as the way forward.
+        capacity = int(self._lib.c7x_client_input_capacity(self._client))
+        if self._staging_alloc_offset + nbytes > capacity:
             raise RuntimeError(
                 f"C7xVirtualMachine.create_input: staging buffer full "
                 f"(need {nbytes} bytes, offset={self._staging_alloc_offset}, "
-                f"size={self._staging_size})"
+                f"size={capacity}) -- call reserve_io() before the first "
+                f"create_input()"
+            )
+
+        self._ensure_staging_cached()
+        if self._staging_ptr == 0:
+            raise RuntimeError(
+                "C7xVirtualMachine.create_input: staging buffer not available"
             )
 
         # Build a numpy array backed by shared memory at the staging offset
@@ -489,18 +506,34 @@ class C7xVirtualMachine:
         self._client = client
         self._handle = handle.value
 
-        # Cache staging buffer base, size, and real ELF-end offset.
+        # input_buf's pointer/size are deliberately NOT cached here: fetching
+        # them via c7x_client_get_input_buffer() locks capacity (D2's
+        # io_capacity_locked -- that accessor is also what CreateInput() uses
+        # to get a pointer it hands to the caller, so it must lock). Caching
+        # eagerly on every load would lock before the caller ever gets a
+        # chance to call reserve_io(). Fetched lazily in create_input()
+        # instead, which is a real "first use" and should lock anyway.
+        #
+        # input_data_offset (the descriptor-region size, D9) is safe to read
+        # eagerly -- that accessor doesn't hand out a buffer pointer.
+        self._staging_alloc_offset = int(
+            self._lib.c7x_client_get_input_data_offset(self._client)
+        )
+
+    def _ensure_staging_cached(self) -> None:
+        """Lazily fetch and cache input_buf's pointer/size for create_input().
+
+        Deferred out of _ensure_loaded() (see its comment) so reserve_io()
+        can still run beforehand; this is the actual first-use point that
+        should lock capacity.
+        """
+        if self._staging_ptr != 0:
+            return
         sz = ctypes.c_size_t(0)
         self._staging_ptr = self._lib.c7x_client_get_input_buffer(
             self._client, ctypes.byref(sz)
         ) or 0
         self._staging_size = sz.value
-        # Use the actual ELF end offset (set by dyn_load) instead of a
-        # conservative guess.  This prevents CreateInput() from accidentally
-        # landing inside the loaded ELF's in-place rodata segments.
-        self._staging_alloc_offset = int(
-            self._lib.c7x_client_get_input_data_offset(self._client)
-        )
 
     def get_io_meta(self) -> dict:
         """Declared input_buf/output_buf capacity from the loaded module's
@@ -529,6 +562,29 @@ class C7xVirtualMachine:
             "flags": flags.value,
         }
 
+    def reserve_io(self, in_bytes: int, out_bytes: int) -> None:
+        """Raise input_buf/output_buf capacity beyond whatever the loaded
+        module's tvm_dsp_io_meta auto-sized (see get_io_meta()) -- for a
+        module with no table, or one whose table is only an upper bound.
+        Takes the max of the requested and current capacity for each
+        buffer (never shrinks). Triggers module load if not already loaded.
+
+        Raises RuntimeError (rc=-EBUSY) if called after the first
+        create_input()/inference for the current load -- input_buf/
+        output_buf may already have pointers handed out that a resize
+        would invalidate.
+        """
+        self._ensure_loaded()
+        rc = self._lib.c7x_client_reserve_io(
+            self._client, ctypes.c_uint64(in_bytes), ctypes.c_uint64(out_bytes)
+        )
+        if rc != 0:
+            msg = self._lib.c7x_strerror(rc)
+            raise RuntimeError(
+                f"C7xVirtualMachine.reserve_io({in_bytes}, {out_bytes}) failed: "
+                f"{msg.decode() if msg else 'unknown error'} (rc={rc})"
+            )
+
     def close(self) -> None:
         """Unload module and close IPC connection.  Idempotent."""
         if self._handle is not None and self._client is not None:
@@ -540,6 +596,8 @@ class C7xVirtualMachine:
             self._lib.c7x_client_close(self._client)
             self._client = None
         self._input_slots.clear()
+        self._staging_ptr = 0
+        self._staging_size = 0
         self._staging_alloc_offset = 0
         self._last_nocopy_outputs = []
 
@@ -578,7 +636,7 @@ class C7xVirtualMachine:
     ) -> Tuple[List[_C7xTensorDesc], List[np.ndarray]]:
         """Convert inputs (tvm.nd or numpy) to _C7xTensorDesc list.
 
-        Pre-staged inputs (data pointer within staging_buf range) are detected
+        Pre-staged inputs (data pointer within input_buf's range) are detected
         and passed through without copying in the C layer.
         """
         descs = []

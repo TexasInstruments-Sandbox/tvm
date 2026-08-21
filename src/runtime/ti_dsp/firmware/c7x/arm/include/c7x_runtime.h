@@ -47,14 +47,14 @@ static const int kMaxInputs  = 128;
 /*
  * OutputTensor — thin DLTensor wrapper for inference results.
  *
- * dl.data points directly into the mmap'd result DDR buffer — no copy.
+ * dl.data points directly into the mmap'd output_buf dmabuf — no copy.
  * Valid until the next Module::Run() call or Module::Close().
  *
  * If you need to retain the data beyond the next inference, copy it:
  *   memcpy(my_buf, out.dl.data, out.dl.data_size);
  */
 struct OutputTensor {
-    DLTensor dl;          /* Standard DLTensor; data points into result_buf */
+    DLTensor dl;          /* Standard DLTensor; data points into output_buf */
     int64_t  _shape[6];   /* Shape storage (dl.shape → this array) */
     size_t   data_size;   /* Byte size of the output (convenience) */
 };
@@ -109,26 +109,27 @@ public:
     std::vector<OutputTensor> Run(const std::vector<const DLTensor*>& inputs);
 
     /* -----------------------------------------------------------------------
-     * Zero-copy input path — pre-allocate tensor IN staging DDR
+     * Zero-copy input path — pre-allocate tensor IN input_buf
      * ----------------------------------------------------------------------- */
 
     /*
-     * Allocate an input tensor directly in the staging buffer.
+     * Allocate an input tensor directly in input_buf.
      *
-     * Returns a DLTensor with data pointing into the mmap'd staging_buf.
+     * Returns a DLTensor with data pointing into the mmap'd input_buf dmabuf.
      * User writes input data there; the next Run() call skips the memcpy for
      * this tensor (pre-staged detection based on pointer range).
      *
-     * Inputs are allocated sequentially from the staging buffer start (after
-     * the loaded ELF region).  A subsequent call with different shape/dtype
-     * advances the offset.  All allocations are valid until Close().
+     * Inputs are allocated sequentially from input_buf's start (after the
+     * descriptor region reserved at the front, D9).  A subsequent call with
+     * different shape/dtype advances the offset.  All allocations are valid
+     * until Close().
      *
      * Returns nullptr on failure (buffer full).
      */
     DLTensor* CreateInput(const int64_t* shape, int ndim, DLDataType dtype);
 
     /*
-     * Returns a pointer to the raw staging buffer and its size.
+     * Returns a pointer to the raw input_buf and its size.
      * For advanced usage; prefer CreateInput() for per-tensor allocation.
      */
     void* StagingBuffer(size_t* size_out = nullptr) const;

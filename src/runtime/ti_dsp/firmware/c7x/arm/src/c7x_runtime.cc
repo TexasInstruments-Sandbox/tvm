@@ -5,11 +5,11 @@
  * that mirrors the TVM C++ Module interface.
  *
  * Zero-copy strategy:
- *   - Outputs: c7x_client_infer() already returns pointers into the mmap'd
- *     result DDR buffer.  OutputTensor.dl.data wraps these directly — no copy.
- *   - Inputs: if the user's DLTensor.data falls within [staging_buf,
- *     staging_buf + C7X_STAGING_SIZE), the staging memcpy is skipped.
- *     Use CreateInput() to obtain a DLTensor pre-allocated in staging DDR.
+ *   - Outputs: c7x_client_infer() already returns pointers into output_buf's
+ *     mmap.  OutputTensor.dl.data wraps these directly — no copy.
+ *   - Inputs: if the user's DLTensor.data falls within input_buf's range
+ *     (c7x_client_get_input_buffer()), the staging memcpy is skipped.
+ *     Use CreateInput() to obtain a DLTensor pre-allocated in input_buf.
  */
 
 #include "c7x_runtime.h"
@@ -34,9 +34,10 @@ struct Module::Impl {
     uint32_t      handle       = 0;        /* DYN_LOAD module handle */
     uint32_t      model_id     = 0;        /* 0 = embedded weights */
 
-    /* Staging buffer pre-allocation state (for CreateInput). */
-    size_t        staging_alloc_offset = 0; /* next free offset in staging_buf
-                                               (past ELF region, set after load) */
+    /* input_buf pre-allocation state (for CreateInput). */
+    size_t        staging_alloc_offset = 0; /* next free offset in input_buf
+                                               (past the descriptor region,
+                                               set after load -- D9) */
 
     /* Per-call output scratch (reused across Run() calls). */
     c7x_tensor_desc_t out_descs[kMaxOutputs];
@@ -108,7 +109,7 @@ static c7x_tensor_desc_t dl_to_c7x_desc(const DLTensor* t)
 
 /*
  * Wrap an output c7x_tensor_desc_t as an OutputTensor.
- * out.dl.data points directly into result_buf — zero-copy.
+ * out.dl.data points directly into output_buf — zero-copy.
  */
 static OutputTensor c7x_desc_to_output(const c7x_tensor_desc_t& d)
 {
@@ -276,18 +277,19 @@ DLTensor* Module::CreateInput(const int64_t* shape, int ndim, DLDataType dtype)
     size_t nbytes = dtype_itemsize(dtype);
     for (int i = 0; i < ndim; i++) nbytes *= static_cast<size_t>(shape[i]);
 
-    /* Get staging buffer base from client */
-    size_t staging_size = 0;
-    void *staging_base = c7x_client_get_input_buffer(impl_->client, &staging_size);
-    if (!staging_base) return nullptr;
-
-    /* Check space */
+    /* Check space before asking for the pointer: c7x_client_get_input_buffer()
+     * locks the capacity, and a tensor that doesn't fit should still leave
+     * c7x_client_reserve_io() available as the documented way forward. */
+    size_t staging_size = c7x_client_input_capacity(impl_->client);
     if (impl_->staging_alloc_offset + nbytes > staging_size) {
         fprintf(stderr, "c7x::CreateInput: staging buffer full "
-                "(need %zu, offset %zu, size %zu)\n",
+                "(need %zu, offset %zu, size %zu -- see reserve_io())\n",
                 nbytes, impl_->staging_alloc_offset, staging_size);
         return nullptr;
     }
+
+    void *staging_base = c7x_client_get_input_buffer(impl_->client, nullptr);
+    if (!staging_base) return nullptr;
 
     int slot = impl_->num_inputs_alloc++;
     DLTensor* t = &impl_->input_tensors[slot];

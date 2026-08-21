@@ -26,6 +26,7 @@
 #include <kernel/dpl/DebugP.h>
 
 #include "shm_printf.h"
+#include "c7x_compute_protocol.h"
 
 /* TI RTS file I/O interface */
 #include <file.h>
@@ -37,7 +38,9 @@
  */
 
 #define SHM_PRINTF_MAGIC    0x50524E54U  /* "PRNT" */
-#define SHM_PRINTF_HDR_SIZE 16U
+/* On-wire header size shared with the host's printf read
+ * (c7x_compute_client.cpp) -- see C7X_SHM_PRINTF_HDR_SIZE. */
+#define SHM_PRINTF_HDR_SIZE C7X_SHM_PRINTF_HDR_SIZE
 
 struct shm_printf_hdr {
     uint32_t magic;
@@ -180,6 +183,38 @@ void shm_printf_init(void *buf_addr, uint32_t buf_size)
 
     DebugP_log("[SHM_PRINTF] Initialized: buf=%p size=%u text=%u\r\n",
                buf_addr, buf_size, g_buf_size);
+}
+
+int shm_printf_rebind(void *buf_addr, uint32_t buf_size)
+{
+    if (buf_addr == NULL || buf_size <= SHM_PRINTF_HDR_SIZE) {
+        DebugP_log("[SHM_PRINTF] rebind: invalid buffer addr=%p size=%u\r\n",
+                   buf_addr, buf_size);
+        return -1;
+    }
+
+    /* Flush whatever's pending at the old address first -- if this ran
+     * mid-line (unflushed _IOLBF data still targeting g_hdr), that data
+     * would otherwise land in the new buffer instead of the old one. */
+    fflush(stdout);
+
+    /* Same "set up buffer pointers / initialize header" logic as
+     * shm_printf_init(), deliberately not shared via a common helper --
+     * duplicating four assignments is cheaper than the indirection.
+     * add_device()/freopen() are NOT repeated: they bind "shmout" by
+     * device name, not by address, and only need to run once at boot. */
+    g_hdr = (struct shm_printf_hdr *)buf_addr;
+    g_buf = (char *)buf_addr + SHM_PRINTF_HDR_SIZE;
+    g_buf_size = buf_size - SHM_PRINTF_HDR_SIZE;
+
+    g_hdr->magic = SHM_PRINTF_MAGIC;
+    g_hdr->wr_index = 0;
+    g_hdr->buf_size = g_buf_size;
+    g_hdr->reserved = 0;
+
+    DebugP_log("[SHM_PRINTF] Rebound: buf=%p size=%u text=%u\r\n",
+               buf_addr, buf_size, g_buf_size);
+    return 0;
 }
 
 void shm_printf_reset(void)

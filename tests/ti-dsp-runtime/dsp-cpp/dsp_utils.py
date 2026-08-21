@@ -95,9 +95,7 @@ def _raise_if_oom(error_text: str, stage: str, fallback_message: str) -> None:
 def _run_timed(cmd, cwd, log_f, label):
     """Run a subprocess, log elapsed wall-clock time to log_f and stdout."""
     t0 = time.perf_counter()
-    result = subprocess.run(
-        cmd, cwd=str(cwd), stdout=log_f, stderr=subprocess.STDOUT, check=False
-    )
+    result = subprocess.run(cmd, cwd=str(cwd), stdout=log_f, stderr=subprocess.STDOUT, check=False)
     elapsed = time.perf_counter() - t0
     msg = f"[timing] {label}: {elapsed:.1f}s\n"
     log_f.write(msg)
@@ -565,6 +563,12 @@ def compile_for_dsp(
     if write_io_meta(mod, io_meta_path):
         logger.info(f"  tvm_dsp_io_meta.bin: {io_meta_path.stat().st_size} bytes")
     else:
+        # Remove any blob a previous compile left in this directory. Both
+        # build_dsp_dynmod()'s auto-detect and CMake's IO_META_FILE default
+        # locate it by path, so leaving it behind would embed the *previous*
+        # module's declared capacities into this one -- an undersized
+        # input_buf/output_buf that fails at inference, not at build time.
+        io_meta_path.unlink(missing_ok=True)
         logger.info("  tvm_dsp_io_meta.bin: skipped (non-static entry shape)")
 
     return output_dir

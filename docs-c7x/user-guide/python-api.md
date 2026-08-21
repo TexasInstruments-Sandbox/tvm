@@ -211,7 +211,7 @@ pre-staged inputs are views into shared DDR, not independent allocations:
 | API | Valid until |
 |-----|-------------|
 | `vm["main"](...)` / C++ `Run(...)` | Not time-limited — output is copied to new memory before return. |
-| `vm.run_nocopy(...)` output | The **next** `run_nocopy()` call (no copy — a numpy view of `result_buf`). |
+| `vm.run_nocopy(...)` output | The **next** `run_nocopy()` call (no copy — a numpy view of `output_buf`). |
 | C++ `OutputTensor.dl.data` | The **next** `Run()` call, or `Close()`. |
 | `vm.create_input(...)` / C++ `CreateInput(...)` tensor | `vm.close()` / `Close()`. |
 
