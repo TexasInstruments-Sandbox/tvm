@@ -128,6 +128,31 @@ def _cpu_reference_mlp(input_data: np.ndarray) -> np.ndarray:
     return out.numpy()
 
 
+def _expected_mlp_io_meta() -> dict:
+    """Recompute the MLP's tvm_dsp_io_meta from its StructInfo, matching
+    _compile_mlp_lib0()'s model exactly. This is the expected value for
+    the hardware round-trip test below: DYN_LOAD_RESP's io_* fields must
+    equal what compute_io_meta_bytes() derived and embedded, proving the
+    firmware read back the same blob the Python export path wrote."""
+    import struct
+
+    from tvm.contrib.c7x.io_meta import compute_io_meta_bytes
+
+    tvm_mod, _, _ = create_mlp_model(input_size=64, hidden_size=32, output_size=8)
+    data = compute_io_meta_bytes(tvm_mod)
+    assert data is not None, "MLP has static shapes; io_meta must not be None"
+    _, _, num_inputs, num_outputs, input_bytes, output_bytes, flags, _ = struct.unpack(
+        "<IIIIQQII", data
+    )
+    return {
+        "input_bytes": input_bytes,
+        "output_bytes": output_bytes,
+        "num_inputs": num_inputs,
+        "num_outputs": num_outputs,
+        "flags": flags,
+    }
+
+
 def _find_c7x_runtime_binary() -> Path | None:
     """Return path to test_c7x_runtime binary, or None if not found."""
     path = shutil.which("test_c7x_runtime")
@@ -256,6 +281,13 @@ try:
     )
 except Exception as e:
     r['repeated_error'] = str(e)
+
+try:
+    vm5 = C7xVirtualMachine(lib0, so_path=so_path)
+    r['io_meta'] = vm5.get_io_meta()
+    vm5.close()
+except Exception as e:
+    r['io_meta_error'] = str(e)
 
 
 # --- API contract (no firmware needed, just the .so) ---
@@ -542,6 +574,24 @@ class TestC7xVMInference:
         with C7xVirtualMachine(mlp_lib0) as vm:
             vm["main"](mlp_input)
             assert vm.last_cycles > 0, "Expected positive cycle count from DSP"
+
+    @pytest.mark.core
+    def test_io_meta_matches_declared_sizes(self, mlp_lib0, mlp_input, mlp_cpu_ref,
+                                            board_target):
+        """DYN_LOAD_RESP's io_* fields must equal what compute_io_meta_bytes()
+        derived for this model -- the metadata-matches-reality check W2 calls
+        for, not just "some nonzero number came back"."""
+        expected = _expected_mlp_io_meta()
+        if board_target:
+            r = _remote_results(self, board_target, mlp_lib0, mlp_input, mlp_cpu_ref)
+            assert "io_meta_error" not in r, f"Remote io_meta call failed: {r}"
+            assert r.get("io_meta") == expected, (
+                f"Remote io_meta {r.get('io_meta')} != expected {expected}"
+            )
+            return
+        with C7xVirtualMachine(mlp_lib0) as vm:
+            meta = vm.get_io_meta()
+        assert meta == expected, f"io_meta {meta} != expected {expected}"
 
     @pytest.mark.core
     def test_context_manager_closes_on_exit(self, mlp_lib0, mlp_input, mlp_cpu_ref,

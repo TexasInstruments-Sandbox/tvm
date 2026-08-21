@@ -112,6 +112,23 @@ void *c7x_client_get_output_buffer(c7x_client_t *client, size_t *size);
  */
 size_t c7x_client_get_input_data_offset(c7x_client_t *client);
 
+/**
+ * Get declared input_buf/output_buf capacity from the most recent
+ * c7x_client_dyn_load()'s tvm_dsp_io_meta (all-zero if the loaded module
+ * was built without one -- see tvm.contrib.c7x.io_meta).
+ *
+ * @param client       Client handle
+ * @param input_bytes  Output: declared input_buf capacity (NULL to skip)
+ * @param output_bytes Output: declared output_buf capacity (NULL to skip)
+ * @param num_inputs   Output: declared input tensor count (NULL to skip)
+ * @param num_outputs  Output: declared output tensor count (NULL to skip)
+ * @param flags        Output: tvm_dsp_io_meta flags (NULL to skip)
+ */
+void c7x_client_get_io_meta(c7x_client_t *client,
+                            uint64_t *input_bytes, uint64_t *output_bytes,
+                            uint32_t *num_inputs, uint32_t *num_outputs,
+                            uint32_t *flags);
+
 /*
  * =============================================================================
  * Dynamic Loading API

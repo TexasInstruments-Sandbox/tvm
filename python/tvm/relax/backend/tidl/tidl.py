@@ -1080,6 +1080,16 @@ class TIDLOffloadCompiler:
             tf.extractall(str(gen_dir))
         tar_path.unlink()
 
+        # Declared input/output byte counts for per-buffer dmabuf sizing
+        # (DYN_LOAD_RESP). `lowered` is the exact IRModule passed to
+        # relax.build() above. Skipped (no file written) for a symbolic
+        # entry shape -- see write_io_meta.
+        from tvm.contrib.c7x.io_meta import write_io_meta
+
+        io_meta_path = gen_dir / "tvm_dsp_io_meta.bin"
+        if not write_io_meta(lowered, io_meta_path):
+            io_meta_path = None
+
         # 4. Generate real TIDL bridge
         bridge_path = gen_dir / "tidl_bridge.c"
         self.generate_bridge(
@@ -1115,6 +1125,7 @@ class TIDLOffloadCompiler:
                 generated_dir=gen_dir,
                 build_dir=build_path,
                 weights_file=weights_path if weights_path.exists() else None,
+                io_meta_file=io_meta_path,
                 tidl_bridge=str(bridge_path),
                 use_tidl=bool(artifacts),
                 tidl_artifacts_dir=self._artifacts_dir if artifacts else None,
@@ -1139,6 +1150,7 @@ def _build_dynmod(
     generated_dir: Path,
     build_dir: Path,
     weights_file: Optional[Path] = None,
+    io_meta_file: Optional[Path] = None,
     tidl_bridge: Optional[str] = None,
     use_tidl: bool = False,
     tidl_artifacts_dir: Optional[str] = None,
@@ -1157,6 +1169,8 @@ def _build_dynmod(
         CMake build output directory.
     weights_file : Path, optional
         Path to weights.bin to embed.
+    io_meta_file : Path, optional
+        Path to a tvm_dsp_io_meta.bin (see tvm.contrib.c7x.io_meta) to embed.
     tidl_bridge : str, optional
         Path to tidl_bridge.c source file.
     use_tidl : bool
@@ -1214,6 +1228,8 @@ def _build_dynmod(
     ]
     if weights_file is not None and Path(weights_file).exists():
         cmake_cmd.append(f"-DWEIGHTS_FILE={Path(weights_file).resolve()}")
+    if io_meta_file is not None and Path(io_meta_file).exists():
+        cmake_cmd.append(f"-DIO_META_FILE={Path(io_meta_file).resolve()}")
     if tidl_bridge:
         cmake_cmd.append(f"-DTIDL_BRIDGE_SOURCES={tidl_bridge}")
     if use_tidl:
