@@ -555,6 +555,18 @@ def compile_for_dsp(
         logger.info(f"  {lib_path.name}: {lib_path.stat().st_size} bytes")
     logger.info(f"  weights.bin: {weights_path.stat().st_size} bytes")
 
+    # Declared input/output byte counts for per-buffer dmabuf sizing
+    # (DYN_LOAD_RESP). `mod` is read here, not earlier, so this reflects the
+    # exact IRModule passed to relax.build() above. Silently skipped (no
+    # file written) for symbolic entry shapes -- see write_io_meta.
+    from tvm.contrib.c7x.io_meta import write_io_meta
+
+    io_meta_path = output_dir / "tvm_dsp_io_meta.bin"
+    if write_io_meta(mod, io_meta_path):
+        logger.info(f"  tvm_dsp_io_meta.bin: {io_meta_path.stat().st_size} bytes")
+    else:
+        logger.info("  tvm_dsp_io_meta.bin: skipped (non-static entry shape)")
+
     return output_dir
 
 
@@ -854,6 +866,7 @@ def build_dsp_dynmod(
     build_type: str = "Release",
     build_dir: Optional[Path] = None,
     weights_file: Optional[Union[str, Path]] = None,
+    io_meta_file: Optional[Union[str, Path]] = None,
     tidl_bridge: Optional[str] = None,
     use_tidl: bool = False,
     tidl_artifacts_dir: Optional[str] = None,
@@ -877,6 +890,10 @@ def build_dsp_dynmod(
             Falls back to this module's directory for backward compatibility.
         build_type: Build type - "Release" (default) or "Debug".
         build_dir: Optional build directory. If None, creates one in dsp_cpp_dir.
+        io_meta_file: Path to a tvm_dsp_io_meta.bin (see tvm.contrib.c7x.io_meta).
+            If None, auto-detected from generated_dir; embedding is skipped
+            entirely if it's absent there (e.g. compile_for_dsp skipped it for
+            a non-static entry shape).
         fp_reassoc_off: If True, compile lib0.c with ``--fp_reassoc=off`` to
             disable the cl7x floating-point reassociation optimization.  This
             prevents the compiler from reordering matmul accumulations, which
@@ -925,6 +942,14 @@ def build_dsp_dynmod(
     if weights_file is not None and Path(weights_file).exists():
         logger.info(f"  Weights: {weights_file} (will be embedded)")
 
+    # Auto-detect tvm_dsp_io_meta.bin from generated_dir if not specified
+    if io_meta_file is None:
+        auto_io_meta = generated_dir / "tvm_dsp_io_meta.bin"
+        if auto_io_meta.exists():
+            io_meta_file = auto_io_meta
+    if io_meta_file is not None and Path(io_meta_file).exists():
+        logger.info(f"  IO meta: {io_meta_file} (will be embedded)")
+
     # Configure cmake with C7x toolchain + C7X_DYNMOD flag
     cmake_cmd = [
         "cmake",
@@ -937,6 +962,8 @@ def build_dsp_dynmod(
     ]
     if weights_file is not None and Path(weights_file).exists():
         cmake_cmd.insert(-1, f"-DWEIGHTS_FILE={Path(weights_file).resolve()}")
+    if io_meta_file is not None and Path(io_meta_file).exists():
+        cmake_cmd.insert(-1, f"-DIO_META_FILE={Path(io_meta_file).resolve()}")
     if tidl_bridge:
         cmake_cmd.insert(-1, f"-DTIDL_BRIDGE_SOURCES={tidl_bridge}")
     if use_tidl:

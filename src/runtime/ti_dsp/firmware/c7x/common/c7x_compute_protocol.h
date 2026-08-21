@@ -192,6 +192,31 @@ struct c7x_msg_status_resp {
  */
 
 /*
+ * Compile-time IO metadata, emitted by the Python export path
+ * (tvm.contrib.c7x.io_meta) and embedded in lib0.out next to weights.bin.
+ * Looked up in handle_dyn_load() via
+ * dyn_loader_query_symbol(handle, "_binary_tvm_dsp_io_meta_start", ...),
+ * the same mechanism already used for _binary_weights_bin_start. Declares
+ * the input_buf/output_buf capacity to report in DYN_LOAD_RESP; a missing
+ * symbol means "no metadata" (io_* fields all zero), not an error -- older
+ * modules and ones with symbolic entry shapes take this path.
+ */
+#define TVM_DSP_IO_META_MAGIC             0x4D4F4954U /* "TIOM", little-endian */
+#define TVM_DSP_IO_META_VERSION           1U
+#define TVM_DSP_IO_META_FLAG_SIZES_EXACT  (1U << 0)
+
+struct tvm_dsp_io_meta {
+    uint32_t magic;         /* TVM_DSP_IO_META_MAGIC */
+    uint32_t version;       /* TVM_DSP_IO_META_VERSION */
+    uint32_t num_inputs;
+    uint32_t num_outputs;
+    uint64_t input_bytes;   /* input_buf capacity, incl. descriptor region */
+    uint64_t output_bytes;  /* output_buf capacity */
+    uint32_t flags;         /* bit0 = sizes exact; clear = upper bound only */
+    uint32_t reserved;
+} __attribute__((packed));
+
+/*
  * DYN_LOAD request (32 bytes)
  * Load an ELF shared object pre-staged at input buffer.
  */
@@ -203,7 +228,7 @@ struct c7x_msg_dyn_load {
 } __attribute__((packed));
 
 /*
- * DYN_LOAD response (40 bytes)
+ * DYN_LOAD response (68 bytes)
  */
 struct c7x_msg_dyn_load_resp {
     struct c7x_msg_hdr hdr;     /* type = C7X_MSG_DYN_LOAD_RESP */
@@ -216,6 +241,11 @@ struct c7x_msg_dyn_load_resp {
                                  * moment of failure. 0 otherwise. */
     uint32_t oom_total;         /* status==ERR_NOMEM: total pool bytes.
                                  * 0 otherwise. */
+    uint64_t io_input_bytes;    /* From tvm_dsp_io_meta; 0 if absent */
+    uint64_t io_output_bytes;   /* From tvm_dsp_io_meta; 0 if absent */
+    uint32_t io_num_inputs;
+    uint32_t io_num_outputs;
+    uint32_t io_flags;
 } __attribute__((packed));
 
 /*

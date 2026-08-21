@@ -215,6 +215,18 @@ def _load_runtime_lib(so_path: str) -> ctypes.CDLL:
     lib.c7x_client_get_input_data_offset.restype = ctypes.c_size_t
     lib.c7x_client_get_input_data_offset.argtypes = [ctypes.c_void_p]
 
+    # void c7x_client_get_io_meta(c7x_client_t *, uint64_t *, uint64_t *,
+    #                             uint32_t *, uint32_t *, uint32_t *)
+    lib.c7x_client_get_io_meta.restype = None
+    lib.c7x_client_get_io_meta.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_uint64),
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.POINTER(ctypes.c_uint32),
+    ]
+
     # const char *c7x_strerror(int)
     lib.c7x_strerror.restype = ctypes.c_char_p
     lib.c7x_strerror.argtypes = [ctypes.c_int]
@@ -489,6 +501,33 @@ class C7xVirtualMachine:
         self._staging_alloc_offset = int(
             self._lib.c7x_client_get_input_data_offset(self._client)
         )
+
+    def get_io_meta(self) -> dict:
+        """Declared input_buf/output_buf capacity from the loaded module's
+        tvm_dsp_io_meta (all zero if it was built without one -- see
+        tvm.contrib.c7x.io_meta). Triggers module load if not already loaded.
+        """
+        self._ensure_loaded()
+        input_bytes = ctypes.c_uint64(0)
+        output_bytes = ctypes.c_uint64(0)
+        num_inputs = ctypes.c_uint32(0)
+        num_outputs = ctypes.c_uint32(0)
+        flags = ctypes.c_uint32(0)
+        self._lib.c7x_client_get_io_meta(
+            self._client,
+            ctypes.byref(input_bytes),
+            ctypes.byref(output_bytes),
+            ctypes.byref(num_inputs),
+            ctypes.byref(num_outputs),
+            ctypes.byref(flags),
+        )
+        return {
+            "input_bytes": input_bytes.value,
+            "output_bytes": output_bytes.value,
+            "num_inputs": num_inputs.value,
+            "num_outputs": num_outputs.value,
+            "flags": flags.value,
+        }
 
     def close(self) -> None:
         """Unload module and close IPC connection.  Idempotent."""

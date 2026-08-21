@@ -96,6 +96,15 @@ struct c7x_client {
     uint32_t last_oom_requested = 0;
     uint32_t last_oom_free = 0;
     uint32_t last_oom_total = 0;
+    /* Declared input_buf/output_buf capacity from the most recent DYN_LOAD's
+     * tvm_dsp_io_meta (0 if the loaded module had none). Not yet consumed
+     * to size any buffer -- input_buf/output_buf are still the single
+     * shared_map region until they become separate per-purpose dmabufs. */
+    uint64_t io_input_bytes = 0;
+    uint64_t io_output_bytes = 0;
+    uint32_t io_num_inputs = 0;
+    uint32_t io_num_outputs = 0;
+    uint32_t io_flags = 0;
 };
 
 /* C7x core 0 device tree address (stable across reboots/stop-start cycles) */
@@ -511,10 +520,24 @@ int c7x_client_dyn_load(c7x_client_t *client, const char *elf_file,
     /* DLOAD maps rodata segments in-place in the staging buffer.
      * Stage input tensors after the ELF to avoid overwriting them. */
     client->input_data_offset = file_size;
+    client->io_input_bytes = resp.io_input_bytes;
+    client->io_output_bytes = resp.io_output_bytes;
+    client->io_num_inputs = resp.io_num_inputs;
+    client->io_num_outputs = resp.io_num_outputs;
+    client->io_flags = resp.io_flags;
     printf("c7x: Loaded module handle=%u (text=%u data=%u "
            "input_offset=%zu)\n",
            resp.module_handle, resp.text_size, resp.data_size,
            client->input_data_offset);
+    if (resp.io_input_bytes != 0 || resp.io_output_bytes != 0) {
+        printf("c7x: IO meta: input=%llu output=%llu inputs=%u outputs=%u "
+               "flags=0x%x\n",
+               static_cast<unsigned long long>(resp.io_input_bytes),
+               static_cast<unsigned long long>(resp.io_output_bytes),
+               resp.io_num_inputs, resp.io_num_outputs, resp.io_flags);
+    } else {
+        printf("c7x: IO meta: none (module built without it)\n");
+    }
 
     return 0;
 }
@@ -832,6 +855,18 @@ void *c7x_client_get_input_buffer(c7x_client_t *client, size_t *size)
 size_t c7x_client_get_input_data_offset(c7x_client_t *client)
 {
     return client ? client->input_data_offset : 0;
+}
+
+void c7x_client_get_io_meta(c7x_client_t *client,
+                            uint64_t *input_bytes, uint64_t *output_bytes,
+                            uint32_t *num_inputs, uint32_t *num_outputs,
+                            uint32_t *flags)
+{
+    if (input_bytes)  *input_bytes  = client ? client->io_input_bytes  : 0;
+    if (output_bytes) *output_bytes = client ? client->io_output_bytes : 0;
+    if (num_inputs)   *num_inputs   = client ? client->io_num_inputs   : 0;
+    if (num_outputs)  *num_outputs  = client ? client->io_num_outputs  : 0;
+    if (flags)        *flags        = client ? client->io_flags       : 0;
 }
 
 void *c7x_client_get_output_buffer(c7x_client_t *client, size_t *size)

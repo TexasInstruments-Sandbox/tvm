@@ -216,6 +216,40 @@ static void handle_dyn_load(struct c7x_msg_dyn_load *req,
         }
     }
 
+    /* Check for embedded IO metadata (declared input_buf/output_buf
+     * capacity). Unlike weights.bin, this blob is a packed struct emitted
+     * directly by the Python export path, not a raw .word-labelled size --
+     * no separate _size symbol to dereference. A missing symbol or bad
+     * magic (stale .out predating this, or built with a symbolic entry
+     * shape) leaves the io_* fields at 0, which the host treats as "no
+     * metadata" rather than an error. */
+    resp->io_input_bytes = 0;
+    resp->io_output_bytes = 0;
+    resp->io_num_inputs = 0;
+    resp->io_num_outputs = 0;
+    resp->io_flags = 0;
+    {
+        uint64_t meta_addr = 0;
+        if (dyn_loader_query_symbol(handle, "_binary_tvm_dsp_io_meta_start", &meta_addr) == 0 &&
+            meta_addr != 0) {
+            const struct tvm_dsp_io_meta *meta =
+                (const struct tvm_dsp_io_meta *)(uintptr_t)meta_addr;
+            if (meta->magic == TVM_DSP_IO_META_MAGIC) {
+                resp->io_input_bytes = meta->input_bytes;
+                resp->io_output_bytes = meta->output_bytes;
+                resp->io_num_inputs = meta->num_inputs;
+                resp->io_num_outputs = meta->num_outputs;
+                resp->io_flags = meta->flags;
+                DebugP_log("[COMPUTE] IO meta: in=%llu out=%llu inputs=%u outputs=%u\r\n",
+                           (unsigned long long)meta->input_bytes,
+                           (unsigned long long)meta->output_bytes,
+                           meta->num_inputs, meta->num_outputs);
+            } else {
+                DebugP_log("[COMPUTE] IO meta bad magic: 0x%08x\r\n", meta->magic);
+            }
+        }
+    }
+
     resp->hdr.status = C7X_STATUS_SUCCESS;
     resp->module_handle = handle;
     /* text_size and data_size are set by DLIF callbacks, we report 0 for now */

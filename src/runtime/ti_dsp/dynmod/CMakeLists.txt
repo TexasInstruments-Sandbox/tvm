@@ -79,6 +79,10 @@ set(PSDK_PATH "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
 # === Weights ===
 set(WEIGHTS_FILE "${GENERATED_CODE_DIR}/weights.bin" CACHE FILEPATH "Path to weights.bin")
 
+# === IO metadata (optional -- see Stage 1.8) ===
+set(IO_META_FILE "${GENERATED_CODE_DIR}/tvm_dsp_io_meta.bin" CACHE FILEPATH
+    "Path to tvm_dsp_io_meta.bin")
+
 message(STATUS "C7x Dynmod Configuration:")
 message(STATUS "  TVM_HOME: ${TVM_HOME}")
 message(STATUS "  Generated code: ${GENERATED_CODE_DIR}")
@@ -197,6 +201,43 @@ if(EXISTS "${WEIGHTS_FILE}")
         --export=_binary_weights_bin_size
     )
     message(STATUS "  Weights: ${WEIGHTS_FILE} (embedded in dynmod)")
+endif()
+
+# --- Stage 1.8: Embed tvm_dsp_io_meta.bin as .rodata.io_meta (optional) ---
+# Declared input/output byte counts for per-buffer dmabuf sizing (DYN_LOAD_RESP).
+# Absent for modules built before this existed, or with symbolic entry shapes --
+# handle_dyn_load() treats a missing symbol as "no metadata", not an error.
+set(IO_META_OBJ_FILE "")
+set(IO_META_EXPORT_FLAGS "")
+if(EXISTS "${IO_META_FILE}")
+    set(IO_META_ASM "${CMAKE_CURRENT_BINARY_DIR}/io_meta_bin_data.asm")
+    set(IO_META_OBJ_FILE "${CMAKE_CURRENT_BINARY_DIR}/io_meta_bin_data.obj")
+
+    add_custom_command(
+        OUTPUT "${IO_META_ASM}"
+        COMMAND ${CMAKE_COMMAND} -E time
+            python3 "${BIN_TO_ASM_SCRIPT}"
+            "${IO_META_FILE}" "${IO_META_ASM}" "tvm_dsp_io_meta"
+        DEPENDS "${IO_META_FILE}" "${BIN_TO_ASM_SCRIPT}"
+        COMMENT "Stage 1.8a: Generating io_meta assembly"
+    )
+    add_custom_command(
+        OUTPUT "${IO_META_OBJ_FILE}"
+        COMMAND ${CMAKE_COMMAND} -E time
+            ${CMAKE_C_COMPILER}
+            -mv7524 --abi=eabi
+            --compile_only
+            --output_file="${IO_META_OBJ_FILE}"
+            "${IO_META_ASM}"
+        DEPENDS "${IO_META_ASM}"
+        COMMENT "Stage 1.8b: Assembling io_meta object"
+    )
+    set(IO_META_EXPORT_FLAGS
+        --export=_binary_tvm_dsp_io_meta_start
+        --export=_binary_tvm_dsp_io_meta_end
+        --export=_binary_tvm_dsp_io_meta_size
+    )
+    message(STATUS "  IO meta: ${IO_META_FILE} (embedded in dynmod)")
 endif()
 
 # --- Stage 2: Compile and link the TVM module ---
@@ -439,9 +480,11 @@ add_custom_command(
         ${LIB_OBJS}
         ${BRIDGE_OBJ_FILE}
         ${WEIGHTS_OBJ_FILE}
+        ${IO_META_OBJ_FILE}
         ${TIDL_OBJ_FILES}
         "${DYNMOD_CMD}"
         ${WEIGHTS_EXPORT_FLAGS}
+        ${IO_META_EXPORT_FLAGS}
         ${TIDL_EXPORT_FLAGS}
         ${TIDL_LIB_FLAGS}
         "${DSP_SYMS_SECT_OBJ}"
@@ -450,7 +493,7 @@ add_custom_command(
         -m "${LIB0_MAP}"
         --output_file="${LIB0_OUT}"
     DEPENDS ${LIB_OBJS} ${BRIDGE_OBJ_FILE} "${DSP_SYMS_SECT_OBJ}" "${DSP_SYMS_OUT}" "${DYNMOD_CMD}"
-            ${WEIGHTS_OBJ_FILE} ${TIDL_OBJ_FILES}
+            ${WEIGHTS_OBJ_FILE} ${IO_META_OBJ_FILE} ${TIDL_OBJ_FILES}
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     COMMENT "Stage 2b: Linking lib0.out (DLOAD relocatable module)"
 )
