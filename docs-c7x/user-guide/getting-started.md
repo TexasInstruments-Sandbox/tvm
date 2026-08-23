@@ -50,13 +50,23 @@ deployed and validated against real hardware without a local
 `docker/Dockerfile.ci_c7x` bakes in everything needed to build for
 BeagleY-AI -- the TI CGT C7000 compiler, TI SysConfig, PSDK RTOS, LLVM,
 the aarch64 cross-compiler, and `uv` -- so none of that needs installing
-on the host directly. This is the fastest path from a clean checkout to
-a validated board; three commands:
+on the host directly. Start from a fresh clone, including submodules:
 
 ```bash
-# 1. Build the image (behind a corporate proxy: pass it through as
-#    shown; otherwise drop the --build-arg lines)
+git clone https://github.com/TexasInstruments-Sandbox/tvm
+cd tvm
+git submodule update --init --recursive
+```
+
+This is the fastest path from a clean checkout to a validated board;
+three commands:
+
+```bash
+# 1. Build the image. --build-arg BASE_IMAGE=ubuntu:24.04 is required.
+#    Behind a corporate proxy, also pass http_proxy/https_proxy as
+#    shown; otherwise drop those two lines.
 docker build -t tvm.ci_c7x:latest \
+  --build-arg BASE_IMAGE=ubuntu:24.04 \
   --build-arg http_proxy=$http_proxy \
   --build-arg https_proxy=$https_proxy \
   -f docker/Dockerfile.ci_c7x docker/

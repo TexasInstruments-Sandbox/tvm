@@ -19,7 +19,7 @@ pytest-based test infrastructure.
 !!! note "Scope"
     - This project targets only **one of the two C7™ DSP cores**
       present on the AM67A SoC (TI's
-      [AM67A datasheet](https://www.ti.com/product/AM67A).
+      [AM67A datasheet](https://www.ti.com/product/AM67A)).
     - **TIDL subgraph offload is not enabled on BeagleY-AI.** That
       board uses MMALIB direct offload only (`--tidl OFF --mmalib ON`).
 
