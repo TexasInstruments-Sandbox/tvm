@@ -79,8 +79,9 @@ of `input_buf` rather than "wherever there's room before the tensor data"
 
 `input_buf`/`output_buf` are sized once from the loaded module's
 `tvm_dsp_io_meta` (see `tvm.contrib.c7x.io_meta`), or via
-`c7x_client_reserve_io()` for a module built without one. Exceeding the
-declared capacity is always an error -- never silently absorbed:
+`c7x_client_reserve_io()` for a module built without one -- or one whose
+table over-declares for the calling convention in use (see below). Exceeding
+the declared capacity is always an error -- never silently absorbed:
 
 - **Input** over capacity: caught host-side, before staging anything
   (`-EFBIG`).
@@ -97,6 +98,33 @@ happens on the *first* successful use (a `CreateInput()` call, or a
 completed inference that handed back output pointers), not merely on
 attempting one, so a too-small reservation can still be grown and retried
 on the same client without corruption.
+
+### When the table over-declares
+
+`tvm_dsp_io_meta` is derived from the entry signature, which bounds capacity
+over *calling conventions* rather than describing one call. The same compiled
+module has two footprints: with `C7X_INFER_FLAG_KV_RESIDENT` the firmware
+diverts every output past the first to `C7X_KV_ADDR`, so only the first
+reaches `output_buf`.
+
+SmolLM-135M prefill returns 61 tensors (logits + 60 KV) and declares
+24,384,320 bytes of output. Driven kv-resident it needs 12,583,040. Its input
+side genuinely needs 11,802,496 -- prefill must push a zeroed cache, so it
+can't use the synthetic-descriptor path decode uses -- and the carveout has
+33,488,896 bytes above the staging reservation. The declaration doesn't fit;
+the actual use does, with ~9 MB spare.
+
+So `c7x_client_dyn_load()` treats an unmeetable declaration as advisory:
+whatever partial sizing succeeded is kept, a warning names declared vs
+allocated, and the load reports success. The caller then declares its real
+per-call figure with `c7x_client_reserve_io()` before the first inference.
+`tests/ti-dsp-runtime/SmolLM/` does this from `metadata.json`'s `io_reserve`,
+computed at compile time by `tvm.contrib.c7x.io_meta.kv_resident_output_bytes()`
+and sent over the session protocol's `reserve_io` op.
+
+This is why the buffer table above lists `c7x_client_reserve_io()` as a size
+source alongside the table, rather than only as a fallback for modules built
+without one.
 
 ## Known limitation: single client only
 

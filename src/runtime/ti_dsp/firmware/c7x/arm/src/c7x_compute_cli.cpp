@@ -763,6 +763,8 @@ static bool json_get_ll(const char *buf, const char *key, long long *out)
  *             followed by N bytes of raw input tensor data
  *   response: {"status":"ok","cycles":C,"num_outputs":M,"output_size":O,"outputs":[...]}\n
  *             followed by O bytes of raw output tensor data
+ *   reserve:  {"op":"reserve_io","input_bytes":X,"output_bytes":Y}\n
+ *             no payload; response {"status":"ok"} or {"status":"error",...}
  *   exit:     {"op":"exit"}\n  OR  stdin EOF  → unload + exit
  */
 static int cmd_session_run(const char *module_file)
@@ -802,6 +804,38 @@ static int cmd_session_run(const char *module_file)
         if (op_p && strncmp(op_p, "\"exit\"", 6) == 0) {
             clean_exit = true;
             break;
+        }
+
+        /* Declare this session's real IO capacity, overriding an io_meta
+         * table that only bounds it (see c7x_client_reserve_io()). Must come
+         * before the first infer below, which locks capacity. No payload, so
+         * the field names deliberately avoid "input_size": a client speaking
+         * this op to an older binary then fails the infer-field parse below
+         * and gets "Invalid request format" without that binary trying to
+         * read a payload that was never sent. */
+        if (op_p && strncmp(op_p, "\"reserve_io\"", 12) == 0) {
+            long long in_bytes_ll = 0, out_bytes_ll = 0;
+            /* Both fields must be present, though either may be 0 to mean
+             * "leave this buffer alone". Defaulting a missing field to 0
+             * instead would reserve nothing and still report success, turning
+             * a field-name typo into an unexplained ERR_SIZE at the first
+             * inference rather than an error here. */
+            if (!json_get_ll(header_buf, "input_bytes", &in_bytes_ll) ||
+                !json_get_ll(header_buf, "output_bytes", &out_bytes_ll)) {
+                printf("{\"status\":\"error\",\"error\":\"reserve_io needs "
+                       "input_bytes and output_bytes\"}\n");
+                continue;
+            }
+            int rc = c7x_client_reserve_io(client,
+                                           static_cast<uint64_t>(in_bytes_ll),
+                                           static_cast<uint64_t>(out_bytes_ll));
+            if (rc == 0) {
+                printf("{\"status\":\"ok\"}\n");
+            } else {
+                printf("{\"status\":\"error\",\"error\":\"%s\"}\n",
+                       c7x_strerror(rc));
+            }
+            continue;
         }
 
         /* Parse infer request fields */

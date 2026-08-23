@@ -307,6 +307,33 @@ class C7xSession:
         except Exception:
             pass
 
+    def reserve_io(self, input_bytes, output_bytes, timeout_s=60):
+        """Declare this session's real input_buf/output_buf need.
+
+        The loaded module's embedded io_meta sizes both buffers from its entry
+        signature, which counts every output -- including the 60 KV tensors
+        that kv_resident diverts to the DSP's fixed KV region and never puts
+        in output_buf.  For prefill that over-declaration exceeds the shared
+        carveout, so the DSP-side sizing warns and leaves output_buf short;
+        this is how the caller supplies the figure that actually applies.
+
+        Must be sent before the first infer() on this session: capacity locks
+        once a buffer pointer has been handed out.
+        """
+        header = json.dumps(
+            {
+                "op": "reserve_io",
+                "input_bytes": int(input_bytes),
+                "output_bytes": int(output_bytes),
+            },
+            separators=(",", ":"),
+        )
+        self._proc.stdin.write(header.encode() + b"\n")
+        self._proc.stdin.flush()
+        info = json.loads(_read_json_line(self._proc.stdout, timeout_s))
+        if info.get("status") != "ok":
+            raise RuntimeError(f"session reserve_io failed: {info.get('error')}")
+
     def infer(self, input_arrays, timeout_s=600, profile=False,
               kv_resident=False, kv_meta=None):
         """Send one inference request, return (output_arrays, cycles).
@@ -532,6 +559,10 @@ class SmolLMEngine:
         self.cache = KVCache(num_layers, num_kv_heads, self.max_cache_len, head_dim)
         self.cache_pos = 0  # next position to write into the KV cache
         self._kv_resident = False  # set after prefill populates DSP KV region
+        # Per-module {"input_bytes", "output_bytes"} from compile-chat; absent
+        # for artifacts built before this existed, in which case we skip the
+        # reservation and take whatever the embedded io_meta sized.
+        self._io_reserve = metadata.get("io_reserve", {})
         self._kv_meta = {
             "num_kv_heads": num_kv_heads,
             "max_cache_len": self.max_cache_len,
@@ -582,6 +613,17 @@ class SmolLMEngine:
             profile=profile,
         )
 
+    def _apply_io_reserve(self, sess, label):
+        """Declare `label`'s real IO capacity on a freshly opened session.
+
+        No-op when compile-chat didn't record a figure for it (artifacts built
+        before io_reserve existed), which leaves whatever the module's embedded
+        io_meta sized. Must run before the session's first infer().
+        """
+        reserve = self._io_reserve.get(label)
+        if reserve:
+            sess.reserve_io(reserve["input_bytes"], reserve["output_bytes"])
+
     def _get_decode_session(self):
         """Lazily create and return the persistent decode session."""
         if self._decode_session is None:
@@ -591,6 +633,11 @@ class SmolLMEngine:
                 flush=True,
             )
             self._decode_session = C7xSession(self.decode_out, self.c7x_compute)
+            # A no-op at today's shapes -- decode's declared capacity already
+            # fits, and reserve_io() never shrinks -- but a larger
+            # --max-cache-len grows its declaration the same way prefill's is
+            # grown, and then this is what keeps it loadable.
+            self._apply_io_reserve(self._decode_session, "decode")
             print(" ready")
         return self._decode_session
 
@@ -634,6 +681,7 @@ class SmolLMEngine:
             all_inputs = [input_ids, cache_pos] + self.cache.as_inputs()
             sess = C7xSession(self.prefill_out, self.c7x_compute)
             try:
+                self._apply_io_reserve(sess, "prefill")
                 outputs, _cycles = sess.infer(
                     all_inputs, kv_resident=True, kv_meta=self._kv_meta
                 )

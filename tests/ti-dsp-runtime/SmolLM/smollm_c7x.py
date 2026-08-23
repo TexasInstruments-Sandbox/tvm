@@ -44,6 +44,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import torch
@@ -54,6 +55,7 @@ from transformers import AutoModelForCausalLM
 
 import tvm
 from tvm import relax, te, tir
+from tvm.contrib.c7x.io_meta import compute_io_meta, kv_resident_output_bytes
 from tvm.relax.frontend.torch import from_exported_program
 
 # Add dsp-cpp to path for dsp_utils
@@ -1019,7 +1021,7 @@ def _compile_one_kvcache_mode(
     quantize: bool,
     label: str,
     profile_layers: bool = False,
-) -> int:
+) -> tuple[int, Optional[dict]]:
     """Export, compile, and build one KV-cache model variant (prefill or decode).
 
     The exported program has buffer mutations (60 KV cache tensors) that
@@ -1027,7 +1029,10 @@ def _compile_one_kvcache_mode(
     keep_params_as_input=True, we identify KV cache params by name pattern
     and keep them as runtime inputs; model weights are bound as constants.
 
-    Returns 0 on success, 1 on failure.
+    Returns (rc, io_reserve): rc is 0 on success, 1 on failure.  io_reserve is
+    the {"input_bytes", "output_bytes"} this module actually needs when driven
+    with C7X_INFER_FLAG_KV_RESIDENT, for smollm_board.py to declare via the
+    session reserve_io op, or None if exact sizes aren't derivable.
     """
     print(f"\n  [{label}] seq_len={seq_len}")
 
@@ -1150,6 +1155,35 @@ def _compile_one_kvcache_mode(
     print(f"    TVM compile → {label_dir} ...")
     generated_dir = compile_for_dsp(mod, target_string, output_dir=label_dir)
 
+    # This module's real per-call IO footprint, for smollm_board.py to declare
+    # via the session reserve_io op.
+    #
+    # compile_for_dsp() just embedded tvm_dsp_io_meta.bin derived from the
+    # entry signature, which counts all 61 outputs (logits + 60 KV).  That is
+    # the right declaration for a caller that wants the KV cache back, but
+    # smollm_board.py always passes kv_resident=True, so the firmware diverts
+    # those 60 to C7X_KV_ADDR and only logits reaches output_buf.  For prefill
+    # the difference decides whether the module loads at all: 24.4 MB declared
+    # against ~32 MB of carveout above the staging reservation, of which
+    # input_buf already needs 11.8 MB.
+    #
+    # `mod` is the same object compile_for_dsp() passed to write_io_meta(), so
+    # input_bytes here is by construction the value embedded in the blob -- a
+    # no-op reservation when the load already sized input_buf, and a repair if
+    # a future variant's input allocation also comes up short.
+    io_reserve = None
+    declared = compute_io_meta(mod)
+    kv_out_bytes = kv_resident_output_bytes(mod)
+    if declared is not None and kv_out_bytes is not None:
+        io_reserve = {
+            "input_bytes": declared.input_bytes,
+            "output_bytes": kv_out_bytes,
+        }
+        print(
+            f"    IO reserve (kv_resident): input={declared.input_bytes:,} B "
+            f"output={kv_out_bytes:,} B"
+        )
+
     # Build dynmod
     if dsp_mode in ("c7x_dload", "c7x_host"):
         build_dir = label_dir / "build-dynmod"
@@ -1171,7 +1205,7 @@ def _compile_one_kvcache_mode(
                 f"    Built ({'--fp_reassoc=off' if fp_reassoc_off else 'default'}): {module_path}"
             )
 
-    return 0
+    return 0, io_reserve
 
 
 def cmd_compile_chat(args) -> int:
@@ -1223,7 +1257,7 @@ def cmd_compile_chat(args) -> int:
 
     # Compile prefill
     print("\n[2/3] Compiling prefill model ...")
-    rc = _compile_one_kvcache_mode(
+    rc, prefill_reserve = _compile_one_kvcache_mode(
         exportable,
         args.prefill_len,
         artifacts_dir,
@@ -1238,7 +1272,7 @@ def cmd_compile_chat(args) -> int:
 
     # Compile decode
     print("\n[3/3] Compiling decode model ...")
-    rc = _compile_one_kvcache_mode(
+    rc, decode_reserve = _compile_one_kvcache_mode(
         exportable,
         1,
         artifacts_dir,
@@ -1273,6 +1307,15 @@ def cmd_compile_chat(args) -> int:
         "vocab_size": 49152,
         "eos_token_id": 0,  # updated below if tokenizer available
     }
+    # Per-call IO capacity for the session reserve_io op.  A missing label
+    # means "don't reserve", leaving whatever the embedded io_meta sized.
+    io_reserve = {
+        label: reserve
+        for label, reserve in (("prefill", prefill_reserve), ("decode", decode_reserve))
+        if reserve is not None
+    }
+    if io_reserve:
+        metadata["io_reserve"] = io_reserve
     # Try to read EOS token id from tokenizer config
     tok_cfg = args.model_dir / "tokenizer_config.json"
     tok_json = args.model_dir / "tokenizer.json"

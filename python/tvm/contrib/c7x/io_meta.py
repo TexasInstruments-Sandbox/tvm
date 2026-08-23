@@ -25,7 +25,7 @@ symbol lookup in ``handle_dyn_load()``
 
 import struct
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, NamedTuple, Optional, Union
 
 import tvm
 from tvm import relax
@@ -73,27 +73,67 @@ def _sizes_or_none(sinfos: List[relax.StructInfo]) -> Optional[List[int]]:
 
 
 def _flatten_output_tensors(sinfo: relax.StructInfo) -> Optional[List[relax.StructInfo]]:
-    """Flatten a return StructInfo into a list of TensorStructInfo, recursing one
-    level into tuples (the shape the c7x protocol's output descriptors take).
-    Returns None if sinfo contains anything else (e.g. a nested tuple)."""
+    """Flatten a return StructInfo into a list of TensorStructInfo, recursing
+    through arbitrarily nested tuples.
+
+    A nested tuple field (e.g. a single-tensor return wrapped as
+    ``R.Tuple(R.Tuple(R.Tensor(...)), ...)`` -- seen from SmolLM's
+    torch.export-derived return combined with its KV scatter outputs) has no
+    effect on the compiled module's actual call ABI: TVM's lowering
+    (ExpandTupleArguments/FuseTIR) already flattens nested Relax tuples into
+    a flat output list before codegen, so the byte-size total computed here
+    must match that flattening rather than rejecting it. Returns None if
+    sinfo contains anything that isn't a Tensor or a Tuple of such (e.g. an
+    Object/PrimValue field)."""
     if isinstance(sinfo, relax.TensorStructInfo):
         return [sinfo]
     if isinstance(sinfo, relax.TupleStructInfo):
-        if not all(isinstance(f, relax.TensorStructInfo) for f in sinfo.fields):
-            return None
-        return list(sinfo.fields)
+        flat = []
+        for field in sinfo.fields:
+            sub = _flatten_output_tensors(field)
+            if sub is None:
+                return None
+            flat.extend(sub)
+        return flat
     return None
 
 
-def compute_io_meta_bytes(mod: tvm.IRModule, entry_name: str = "main") -> Optional[bytes]:
-    """Pack a ``tvm_dsp_io_meta`` blob for ``mod[entry_name]``.
+def _buf_bytes(sizes: List[int]) -> int:
+    """Capacity one dmabuf needs to hold ``sizes`` tensors and their descriptors.
 
-    Returns None if any input/output tensor has a non-static shape (no model
-    in the current regression set does -- entry shapes are static in
-    practice -- so this is a defensive fallback, not a routine path). The
-    caller should then skip writing the file; a missing symbol is a
-    supported "no metadata" state on the firmware side, resolved at runtime
-    via ``c7x_client_reserve_io()`` instead.
+    The descriptor region (D9) precedes tensor data at the front of
+    ``input_buf``.  On the output side the firmware appends the descriptor
+    array *after* the tensor data, and only when it doesn't fit inline in the
+    IPC response (``extract_infer_output()``); room is reserved for it
+    unconditionally rather than replicating that threshold here, because the
+    descriptors cost a few hundred bytes next to the tensor data whereas a
+    capacity short by exactly that much makes every inference of a
+    many-output model fail with C7X_STATUS_ERR_SIZE.
+    """
+    return _round_up(len(sizes) * TENSOR_DESC_SIZE) + sum(_round_up(s) for s in sizes)
+
+
+class IoMeta(NamedTuple):
+    """Declared entry-point IO capacity for one compiled module."""
+
+    num_inputs: int
+    num_outputs: int
+    input_bytes: int
+    output_bytes: int
+
+
+def compute_io_meta(mod: tvm.IRModule, entry_name: str = "main") -> Optional[IoMeta]:
+    """Declared input_buf/output_buf capacity for ``mod[entry_name]``.
+
+    Returns None if any input/output tensor has a genuinely non-static
+    shape (a symbolic dim TVM never resolved to a compile-time constant) --
+    entry shapes are static in practice, so this is a defensive fallback,
+    not a routine path. Nested output tuples are not such a case: they're
+    flattened by ``_flatten_output_tensors`` to match how the runtime ABI
+    already flattens them. When this does return None, the caller should
+    skip writing the file; a missing symbol is a supported "no metadata"
+    state on the firmware side, resolved at runtime via
+    ``c7x_client_reserve_io()`` instead.
     """
     func = mod[entry_name]
 
@@ -111,33 +151,69 @@ def compute_io_meta_bytes(mod: tvm.IRModule, entry_name: str = "main") -> Option
     if output_sizes is None:
         return None
 
-    num_inputs = len(input_sizes)
-    num_outputs = len(output_sizes)
-
-    # Descriptor region (D9) precedes tensor data at the front of input_buf.
-    input_bytes = _round_up(num_inputs * TENSOR_DESC_SIZE) + sum(_round_up(s) for s in input_sizes)
-    # On the output side the firmware appends the descriptor array *after* the
-    # tensor data, but only when it doesn't fit inline in the IPC response
-    # (``extract_infer_output()``).  Reserve room for it unconditionally
-    # instead of replicating that threshold here: the descriptors cost a few
-    # hundred bytes next to the tensor data, whereas a capacity short by
-    # exactly that much makes every inference of a many-output model fail with
-    # C7X_STATUS_ERR_SIZE.
-    output_bytes = _round_up(num_outputs * TENSOR_DESC_SIZE) + sum(
-        _round_up(s) for s in output_sizes
+    return IoMeta(
+        num_inputs=len(input_sizes),
+        num_outputs=len(output_sizes),
+        input_bytes=_buf_bytes(input_sizes),
+        output_bytes=_buf_bytes(output_sizes),
     )
+
+
+def compute_io_meta_bytes(mod: tvm.IRModule, entry_name: str = "main") -> Optional[bytes]:
+    """Pack a ``tvm_dsp_io_meta`` blob for ``mod[entry_name]``.
+
+    Returns None under the same condition as ``compute_io_meta()``, whose
+    docstring explains it.  Callers that want the numbers rather than the
+    wire format should use that instead of unpacking this.
+    """
+    meta = compute_io_meta(mod, entry_name)
+    if meta is None:
+        return None
 
     return struct.pack(
         "<IIIIQQII",
         IO_META_MAGIC,
         IO_META_VERSION,
-        num_inputs,
-        num_outputs,
-        input_bytes,
-        output_bytes,
+        meta.num_inputs,
+        meta.num_outputs,
+        meta.input_bytes,
+        meta.output_bytes,
         IO_META_FLAG_SIZES_EXACT,
         0,  # reserved
     )
+
+
+def kv_resident_output_bytes(
+    mod: tvm.IRModule, entry_name: str = "main", num_returned: int = 1
+) -> Optional[int]:
+    """``output_buf`` bytes needed when only the first ``num_returned`` output
+    tensors are written there.
+
+    ``C7X_INFER_FLAG_KV_RESIDENT`` makes the DSP copy every output past the
+    first ``num_returned`` to the persistent ``C7X_KV_ADDR`` region rather
+    than into ``output_buf`` (``copy_kv_to_fixed_region()`` in
+    ``compute_service.c``), so a caller that always sets the flag needs far
+    less than the entry signature implies -- for SmolLM prefill, 12,583,040
+    bytes against a declared 24,384,320.
+
+    This does not make ``compute_io_meta_bytes()`` wrong: that stays the
+    correct declaration for the *same* module invoked without the flag,
+    where all outputs do land in ``output_buf``. One compiled module has two
+    footprints depending on the calling convention, and only the caller
+    knows which one it will use, so this is the per-call figure to pass to
+    ``c7x_client_reserve_io()``.
+
+    Returns None under the same condition as ``compute_io_meta()`` (a
+    non-static shape), and goes through the same ``_buf_bytes()`` as the
+    declaration so the two figures cannot drift apart.
+    """
+    output_sinfos = _flatten_output_tensors(mod[entry_name].ret_struct_info)
+    if output_sinfos is None:
+        return None
+    sizes = _sizes_or_none(output_sinfos[:num_returned])
+    if sizes is None:
+        return None
+    return _buf_bytes(sizes)
 
 
 def write_io_meta(

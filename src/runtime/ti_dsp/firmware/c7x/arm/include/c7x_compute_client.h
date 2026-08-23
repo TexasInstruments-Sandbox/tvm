@@ -200,6 +200,13 @@ int c7x_client_dyn_load(c7x_client_t *client, const char *elf_file,
  * whose table is only an upper bound. Takes the max of the requested and
  * current capacity for each buffer (never shrinks).
  *
+ * Also the way *down* from an over-declaration: a table that exceeds what
+ * the carveout can provide only warns at load (the entry signature is an
+ * upper bound over calling conventions -- see the comment at the
+ * ensure_io_capacity() call in c7x_client_dyn_load()), leaving whatever
+ * partial sizing succeeded. A caller taking a cheaper path, e.g. with
+ * C7X_INFER_FLAG_KV_RESIDENT, declares its real per-call need here.
+ *
  * Must be called before the first CreateInput()/INFER for the current
  * load; rejected with -EBUSY afterward, since input_buf/output_buf may
  * already have pointers handed out by then that a resize would invalidate.
