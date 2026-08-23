@@ -1,15 +1,18 @@
-"""End-to-end SmolLM chat test on AM67A hardware.
+"""End-to-end SmolLM chat test on C7x hardware.
 
 Compiles the model, deploys to board, runs inference with the standard
 test prompt, and verifies both accuracy (output text) and performance
 (tok/s threshold).
 
 Usage:
-    pytest test_smollm_chat_e2e.py -v --dsp-mode=c7x_dload
+    pytest test_smollm_chat_e2e.py -v --dsp-mode=c7x_dload --board beagley-ai
 
 Requirements:
-    - AM67A board reachable as root@am67a
-    - Firmware deployed (c7x_compute.out)
+    - Board reachable over SSH as root@<hostname> for the selected --board
+      (j722s-evm -> am67a, beagley-ai -> beagley-ai)
+    - Firmware and ARM client deployed for that same board (c7x_compute.out
+      plus c7x_compute/libc7x_arm_runtime.so -- a client older than the
+      board's firmware protocol major version cannot connect at all)
     - TI_CGT_C7000_PATH set
 """
 
@@ -21,6 +24,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from dsp_utils import get_board_hostname, get_current_board
 
 _THIS_DIR = Path(__file__).parent
 
@@ -36,7 +40,7 @@ def _resolve_model_dir() -> Path:
 
 
 _MODEL_DIR = _resolve_model_dir()
-_BOARD_TARGET = "root@am67a"
+_BOARD_USER = "root"
 _BOARD_MODEL_DIR = "/opt/smollm"
 _TEST_PROMPT = "What is the capital of France?"
 _EXPECTED_SUBSTR = "Paris"
@@ -53,6 +57,20 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
     if not _MODEL_DIR.exists() or not (_MODEL_DIR / "config.json").exists():
         pytest.skip(f"SmolLM model weights not found at {_MODEL_DIR}")
 
+    # Resolve the board from --board rather than assuming one. This must not
+    # fall back to a default: the compiled DLOAD module and the board's
+    # firmware have to agree on the shared-carveout base, and a mismatch
+    # corrupts DMA addressing silently instead of failing the build.
+    board = get_current_board()
+    board_host = get_board_hostname()
+    if board is None or board_host is None:
+        pytest.fail(
+            "No board specified: pass --board <j722s-evm|beagley-ai> "
+            "(needed to pick the SSH host to deploy to, and to compile for "
+            "the matching carveout base)"
+        )
+    board_target = f"{_BOARD_USER}@{board_host}"
+
     artifacts_dir = Path(tempfile.mkdtemp(prefix="smollm_ci_"))
 
     # Step 1: Compile
@@ -61,6 +79,7 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
         "--model-dir", str(_MODEL_DIR),
         "--quantize",
         "--dsp-mode", "c7x_dload",
+        "--board", board,
         "--prefill-len", "64",
         "--max-cache-len", "256",
         "-o", str(artifacts_dir),
@@ -77,7 +96,7 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
     deploy_cmd = [
         "python", str(_THIS_DIR / "smollm_c7x.py"), "deploy",
         "--artifacts", str(artifacts_dir),
-        "--target", f"{_BOARD_TARGET}:{_BOARD_MODEL_DIR}",
+        "--target", f"{board_target}:{_BOARD_MODEL_DIR}",
     ]
     result = subprocess.run(deploy_cmd, capture_output=True, text=True, timeout=600)
     assert result.returncode == 0, f"Deploy failed:\n{result.stderr[-500:]}"
@@ -90,7 +109,7 @@ def test_smollm_chat_accuracy_and_performance(dsp_mode, record_cycles):
         f"--max-tokens {_MAX_TOKENS} --temperature 0"
     )
     result = subprocess.run(
-        ["ssh", _BOARD_TARGET, board_cmd],
+        ["ssh", board_target, board_cmd],
         capture_output=True, text=True, timeout=600,
     )
     assert result.returncode == 0, f"Board inference failed:\n{result.stderr[-500:]}"
