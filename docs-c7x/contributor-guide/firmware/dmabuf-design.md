@@ -43,6 +43,20 @@ input's size before it stages), `C7X_STATUS_ERR_SIZE` + `result_required`
 for output (only the firmware can detect it, mid-write, against the
 transmitted capacity).
 
+**A declaration that can't be met warns; it doesn't fail the load.** The
+entry signature bounds capacity over *calling conventions*, not per call. A
+caller setting `C7X_INFER_FLAG_KV_RESIDENT` has its KV outputs diverted to
+`C7X_KV_ADDR` and never puts them in `output_buf`, so it can need far less
+than the signature implies -- SmolLM-135M prefill declares 24.4 MB of output
+for 61 tensors but needs 12.6 MB for the one that actually lands there, on a
+carveout with only ~32 MB above the staging reservation. Failing the load
+would make such a module unloadable for a need it doesn't have, and the
+caller can't say so first: capacity is only declarable against an
+already-loaded module. So `c7x_client_dyn_load()` keeps whatever partial
+sizing succeeded, warns with declared-vs-allocated, and the caller states its
+real figure via `c7x_client_reserve_io()`. Nothing is absorbed silently -- an
+under-reservation still hits the two errors above at the first inference.
+
 **Capacity locks on first *use*, not first *attempt*.** A rejected
 undersized `CreateInput()`/inference must still allow the caller to call
 `c7x_client_reserve_io()` again and retry -- that's the only supported path
@@ -116,7 +130,18 @@ once per inference.
   a fully static entry shape, so `tvm_dsp_io_meta` is always exact today.
   A model with a symbolic shape would need either an upper-bound flag in
   the metadata or no table at all (falling back to
-  `c7x_client_reserve_io()`) -- not yet exercised by anything real.
+  `c7x_client_reserve_io()`) -- not yet exercised by anything real. Note
+  the *upper-bound* half of this now is: SmolLM's table is exact for its
+  signature but an over-declaration for how the board script calls it, which
+  is why an unmeetable declaration warns rather than failing the load.
+- **Descriptor region for a module with no table at all.** The region is
+  sized from the declared input count, falling back to
+  `kFallbackDescRegionInputs = 4` when there's no table. A no-table module
+  needing `INFER_LARGE` (more than ~4 inputs) therefore can't run: the
+  `descs_size > input_data_offset` check fails it with `-EFBIG`, and
+  `c7x_client_reserve_io()` raises byte capacity but not the descriptor
+  count. Raising it would mean an extra parameter with no caller today --
+  every current many-input module has a table.
 
 ## See also
 

@@ -678,10 +678,34 @@ int c7x_client_dyn_load(c7x_client_t *client, const char *elf_file,
     client->io_capacity_locked = false;
 
     /* Grow input_buf/output_buf if this module needs more than whatever a
-     * previous load already sized them to (D2's only reallocation path). */
+     * previous load already sized them to (D2's only reallocation path).
+     *
+     * A declaration that can't be met warns rather than failing the load.
+     * tvm_dsp_io_meta is derived from the entry signature, which is an upper
+     * bound over calling conventions, not a per-call figure: a caller that
+     * sets C7X_INFER_FLAG_KV_RESIDENT has its KV outputs diverted to
+     * C7X_KV_ADDR and never puts them in output_buf, so it can need far less
+     * than the signature implies (SmolLM prefill: 12.6 MB against a declared
+     * 24.4 MB, on a carveout with only ~32 MB above the staging reservation).
+     * Refusing the load would make such a module unloadable for a need it
+     * does not have, and the caller has no way to say so first -- capacity
+     * can only be declared against an already-loaded module.
+     *
+     * Whatever partial sizing succeeded is kept, and the caller states its
+     * real need via c7x_client_reserve_io() (still usable: the lock was
+     * cleared just above). Nothing is silently absorbed -- an
+     * under-reservation still fails loudly at the first inference: -EFBIG
+     * host-side for input, C7X_STATUS_ERR_SIZE + result_required for
+     * output. */
     if (!ensure_io_capacity(client, resp.io_input_bytes, resp.io_output_bytes)) {
-        fprintf(stderr, "c7x: Failed to size input_buf/output_buf for this module\n");
-        return -ENOMEM;
+        fprintf(stderr, "c7x: WARNING: declared IO capacity (input=%llu "
+                "output=%llu bytes) exceeds what the carveout can provide "
+                "(allocated input_buf=%zu output_buf=%zu) -- call "
+                "c7x_client_reserve_io() with this session's real need "
+                "before the first CreateInput()/INFER\n",
+                static_cast<unsigned long long>(resp.io_input_bytes),
+                static_cast<unsigned long long>(resp.io_output_bytes),
+                client->input_buf.size, client->output_buf.size);
     }
 
     printf("c7x: Loaded module handle=%u (text=%u data=%u)\n",
