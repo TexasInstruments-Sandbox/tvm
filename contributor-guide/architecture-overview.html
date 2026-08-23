@@ -1637,21 +1637,21 @@ rpmsg IPC channel, so these calls must run on the board itself, not
 the dev host:</p>
 <div class="highlight"><pre><span></span><code> Dev Host (x86 Linux)                    AM67A / J722S Board
  ─────────────────────                   ─────────────────────
- relax.build(mod, target=&quot;c_static
-             -mcpu=c7x&quot;)
+ relax.build(mod, target="c_static
+             -mcpu=c7x")
         |
         v
  lib0.c / lib1.c / weights.bin
         |
  cl7x + lnk7x --dynamic=lib
         v
- lib0.out (relocatable C7x ELF)  --scp--&gt;   Python: C7xVirtualMachine(&quot;lib0.out&quot;)
-                                            C++:    c7x::Module::Load(&quot;lib0.out&quot;)
+ lib0.out (relocatable C7x ELF)  --scp--&gt;   Python: C7xVirtualMachine("lib0.out")
+                                            C++:    c7x::Module::Load("lib0.out")
                                                   |
                                             DLOAD: parse ELF, resolve
                                             61 symbols, relocate into DDR
                                                   v
-                                            Python: vm[&quot;main&quot;](inp)
+                                            Python: vm["main"](inp)
                                                     (or vm.run_nocopy(inp))
                                             C++:    vm.Run(&amp;input)
                                             (cg_main_dsp() on device)

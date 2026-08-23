@@ -1784,16 +1784,16 @@ Use Python/numpy on the development machine to generate it alongside a
 CPU reference output <code>ref.bin</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="c1"># Generate a random input matching your model&#39;s expected shape</span>
-<span class="n">inp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">64</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">&quot;float32&quot;</span><span class="p">)</span>
-<span class="n">inp</span><span class="o">.</span><span class="n">tofile</span><span class="p">(</span><span class="s2">&quot;/tmp/input.bin&quot;</span><span class="p">)</span>
+<span class="c1"># Generate a random input matching your model's expected shape</span>
+<span class="n">inp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">64</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">)</span>
+<span class="n">inp</span><span class="o">.</span><span class="n">tofile</span><span class="p">(</span><span class="s2">"/tmp/input.bin"</span><span class="p">)</span>
 
 <span class="c1"># Run on CPU to get the reference output</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
-<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;tests/ti-dsp-runtime/dsp-tests&quot;</span><span class="p">)</span>
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="s2">"tests/ti-dsp-runtime/dsp-tests"</span><span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">test_c7x_vm_dsp</span><span class="w"> </span><span class="kn">import</span> <span class="n">_cpu_reference_mlp</span>
 <span class="n">ref</span> <span class="o">=</span> <span class="n">_cpu_reference_mlp</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>
-<span class="n">ref</span><span class="o">.</span><span class="n">tofile</span><span class="p">(</span><span class="s2">&quot;/tmp/ref.bin&quot;</span><span class="p">)</span>
+<span class="n">ref</span><span class="o">.</span><span class="n">tofile</span><span class="p">(</span><span class="s2">"/tmp/ref.bin"</span><span class="p">)</span>
 </code></pre></div>
 <p>Or use the pytest fixture directly — <code>test_c7x_vm_dsp.py::TestC7xCpp</code>
 generates and transfers the files automatically.</p>

@@ -2098,14 +2098,14 @@ structure) used by the standalone JTAG test harness's reference
 implementation (<code>tests/ti-dsp-runtime/dsp-cpp/j722s/mmu.c</code>).</p>
 <h2 id="tensor-file-io-host-testing-only">Tensor File I/O (Host Testing Only)</h2>
 <p>For host testing, the <code>io/</code> module provides binary tensor file I/O:</p>
-<div class="highlight"><pre><span></span><code><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;io/tensor_file.h&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="cp">#include</span><span class="w"> </span><span class="cpf">"io/tensor_file.h"</span>
 
 <span class="c1">// Read tensors from file</span>
 <span class="kt">int</span><span class="w"> </span><span class="n">num_tensors</span><span class="p">;</span>
-<span class="n">TVMDSPNDArray</span><span class="o">**</span><span class="w"> </span><span class="n">tensors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TVMDSPReadTensorsFromFile</span><span class="p">(</span><span class="s">&quot;input.bin&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">num_tensors</span><span class="p">);</span>
+<span class="n">TVMDSPNDArray</span><span class="o">**</span><span class="w"> </span><span class="n">tensors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TVMDSPReadTensorsFromFile</span><span class="p">(</span><span class="s">"input.bin"</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">num_tensors</span><span class="p">);</span>
 
 <span class="c1">// Write tensors to file</span>
-<span class="n">TVMDSPWriteTensorsToFile</span><span class="p">(</span><span class="s">&quot;output.bin&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">tensors</span><span class="p">,</span><span class="w"> </span><span class="n">num_tensors</span><span class="p">);</span>
+<span class="n">TVMDSPWriteTensorsToFile</span><span class="p">(</span><span class="s">"output.bin"</span><span class="p">,</span><span class="w"> </span><span class="n">tensors</span><span class="p">,</span><span class="w"> </span><span class="n">num_tensors</span><span class="p">);</span>
 
 <span class="c1">// Free tensor array</span>
 <span class="n">TVMDSPFreeTensorArray</span><span class="p">(</span><span class="n">tensors</span><span class="p">,</span><span class="w"> </span><span class="n">num_tensors</span><span class="p">);</span>

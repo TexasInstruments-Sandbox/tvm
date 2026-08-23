@@ -1649,10 +1649,10 @@ outputs within tolerance (rtol=1e-3, atol=1e-5). Located at
 
 <span class="c1"># Run quick tests in parallel (excludes slow and model_zoo)</span>
 <span class="nb">cd</span><span class="w"> </span>tests/cstatic
-pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not slow and not model_zoo&quot;</span><span class="w"> </span>-n<span class="w"> </span>auto<span class="w"> </span>-v
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not slow and not model_zoo"</span><span class="w"> </span>-n<span class="w"> </span>auto<span class="w"> </span>-v
 
 <span class="c1"># Run all tests (including slow: ViT-B/16, segmentation; excludes model_zoo)</span>
-pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not model_zoo&quot;</span><span class="w"> </span>-v
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not model_zoo"</span><span class="w"> </span>-v
 
 <span class="c1"># Debug a failed test (preserve temp workspace)</span>
 <span class="nv">CSTATIC_KEEP_TEMP</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/test_resnet.py<span class="w"> </span>-v
@@ -1746,10 +1746,10 @@ uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </s
 </tbody>
 </table>
 <h3 id="running-by-category">Running by category</h3>
-<div class="highlight"><pre><span></span><code>pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not slow and not model_zoo&quot;</span><span class="w">   </span><span class="c1"># Quick only (~30s)</span>
-pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;slow and not model_zoo&quot;</span><span class="w">       </span><span class="c1"># Slow only (~5min)</span>
+<div class="highlight"><pre><span></span><code>pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not slow and not model_zoo"</span><span class="w">   </span><span class="c1"># Quick only (~30s)</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">"slow and not model_zoo"</span><span class="w">       </span><span class="c1"># Slow only (~5min)</span>
 pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/test_model_zoo.py<span class="w">                  </span><span class="c1"># Model zoo only (111 models)</span>
-pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not model_zoo&quot;</span><span class="w"> </span>-n<span class="w"> </span>auto<span class="w">        </span><span class="c1"># Quick + slow, parallel</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>unit-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not model_zoo"</span><span class="w"> </span>-n<span class="w"> </span>auto<span class="w">        </span><span class="c1"># Quick + slow, parallel</span>
 </code></pre></div>
 <h2 id="standalone-model-scripts">Standalone Model Scripts</h2>
 <p>Interactive scripts for broader model coverage (not run by CI):</p>

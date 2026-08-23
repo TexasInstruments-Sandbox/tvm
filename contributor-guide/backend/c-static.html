@@ -2611,13 +2611,13 @@ and C7x DSP processors.</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">tvm</span><span class="w"> </span><span class="kn">import</span> <span class="n">relax</span>
 
 <span class="c1"># Basic c_static target</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static&quot;</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static"</span><span class="p">)</span>
 
 <span class="c1"># Target TI C66x DSP</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static -mcpu=c66x&quot;</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c66x"</span><span class="p">)</span>
 
 <span class="c1"># Target TI C7x DSP (AM67A/J722S via DLOAD)</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static -mcpu=c7x&quot;</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c7x"</span><span class="p">)</span>
 
 <span class="c1"># Compile model</span>
 <span class="n">mod</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">LegalizeOps</span><span class="p">()(</span><span class="n">mod</span><span class="p">)</span>
@@ -2667,17 +2667,17 @@ the source tree.</p>
 <span class="nd">@I</span><span class="o">.</span><span class="n">ir_module</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">MLPModule</span><span class="p">:</span>
     <span class="nd">@R</span><span class="o">.</span><span class="n">function</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">R</span><span class="o">.</span><span class="n">Tensor</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">784</span><span class="p">),</span> <span class="s2">&quot;float32&quot;</span><span class="p">)):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">R</span><span class="o">.</span><span class="n">Tensor</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">784</span><span class="p">),</span> <span class="s2">"float32"</span><span class="p">)):</span>
         <span class="c1"># ... model definition</span>
         <span class="k">pass</span>
 
 <span class="c1"># Compile with c_static backend</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static&quot;</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static"</span><span class="p">)</span>
 <span class="n">mod</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">LegalizeOps</span><span class="p">()(</span><span class="n">MLPModule</span><span class="p">)</span>
 <span class="n">ex</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">)</span>
 
 <span class="c1"># Export artifacts</span>
-<span class="n">ex</span><span class="o">.</span><span class="n">export_library</span><span class="p">(</span><span class="s2">&quot;model_lib.so&quot;</span><span class="p">)</span>
+<span class="n">ex</span><span class="o">.</span><span class="n">export_library</span><span class="p">(</span><span class="s2">"model_lib.so"</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="2-generated-files">2. Generated Files</h3>
 <p>After compilation, you get:
@@ -2685,7 +2685,7 @@ the source tree.</p>
 - <code>lib0.h</code> - Header with function declarations
 - <code>weights.bin</code> - Model parameters (if binary mode)</p>
 <h3 id="3-integration-example">3. Integration Example</h3>
-<div class="highlight"><pre><span></span><code><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;lib0.h&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="cp">#include</span><span class="w"> </span><span class="cpf">"lib0.h"</span>
 <span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;tvm/runtime/crt/ndarray.h&gt;</span>
 
 <span class="kt">int</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
@@ -2701,17 +2701,17 @@ the source tree.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">tvm</span>
 
 <span class="c1"># C66x with default optimizations (recommended)</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static -mcpu=c66x&quot;</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c66x"</span><span class="p">)</span>
 <span class="c1"># Defaults enabled: -use-cpp-api=1, -skip-runtime-checks=1</span>
 
 <span class="c1"># With layer profiling</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static -mcpu=c66x -profile-layers=1&quot;</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c66x -profile-layers=1"</span><span class="p">)</span>
 
 <span class="c1"># Disable optimizations for debugging</span>
 <span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span>
-    <span class="s2">&quot;c_static -mcpu=c66x &quot;</span>
-    <span class="s2">&quot;-skip-runtime-checks=0 &quot;</span>
-    <span class="s2">&quot;-use-cpp-api=0&quot;</span>
+    <span class="s2">"c_static -mcpu=c66x "</span>
+    <span class="s2">"-skip-runtime-checks=0 "</span>
+    <span class="s2">"-use-cpp-api=0"</span>
 <span class="p">)</span>
 </code></pre></div>
 <h3 id="build-environment-setup">Build Environment Setup</h3>
@@ -2759,8 +2759,8 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.</p>
  │    TVM Compiler        │
  │    (Python)            │
  │                        │
- │  target = &quot;c_static    │
- │           -mcpu=c7x&quot;   │
+ │  target = "c_static    │
+ │           -mcpu=c7x"   │
  └──────────┬─────────────┘
             │
             │  relax.build()
@@ -2809,10 +2809,10 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">tvm</span>
 
 <span class="c1"># C7x with default optimizations (recommended)</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static -mcpu=c7x&quot;</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c7x"</span><span class="p">)</span>
 
 <span class="c1"># With layer profiling</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static -mcpu=c7x -profile-layers=1&quot;</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c7x -profile-layers=1"</span><span class="p">)</span>
 </code></pre></div>
 <p>When <code>mcpu=c7x</code> is set, the following defaults apply:</p>
 <table>
@@ -2905,7 +2905,7 @@ build, deploy, and usage instructions, and
 <a href="../firmware/design-deep-dive.html">Firmware Design Deep-Dive</a> for
 architecture and DLOAD internals.</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># On dev host: compile model and build DLOAD module</span>
-<span class="nv">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>tvm.target.Target<span class="o">(</span><span class="s2">&quot;c_static -mcpu=c7x&quot;</span><span class="o">)</span>
+<span class="nv">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>tvm.target.Target<span class="o">(</span><span class="s2">"c_static -mcpu=c7x"</span><span class="o">)</span>
 <span class="c1"># ... (produces lib0.c + weights.bin)</span>
 <span class="c1"># ... (TI CGT C7000 build produces lib0.out)</span>
 
@@ -3026,7 +3026,7 @@ Running DMA lowering while indices are still int64 avoids this.</p>
 LowerOpaqueBlock
 FlattenBuffer            -- flatten multi-dim buffers to 1D
 LowerAsyncDMA            -- convert copy loops to dma_copy/dma_wait intrinsics
-LowerDMAToExtern         -- convert intrinsics to call_extern(&quot;tvm_dsp_dma_copy&quot;, ...)
+LowerDMAToExtern         -- convert intrinsics to call_extern("tvm_dsp_dma_copy", ...)
 NarrowDataType(32)       -- safe now, DMA calls are opaque externs
 StorageRewrite
 MakePackedAPI

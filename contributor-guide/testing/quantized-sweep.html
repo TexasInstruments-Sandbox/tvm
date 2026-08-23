@@ -1745,7 +1745,7 @@ pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w">
 <span class="w">    </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>--board<span class="w"> </span>beagley-ai<span class="w"> </span>--mmalib<span class="w"> </span>-k<span class="w"> </span>yolo26n
 
 <span class="c1"># Full TorchVision classification sweep, one model</span>
-pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span><span class="s2">&quot;quantized/test_quantized_torchvision.py::test_quantized_torchvision_dsp[resnet50]&quot;</span><span class="w"> </span><span class="se">\</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span><span class="s2">"quantized/test_quantized_torchvision.py::test_quantized_torchvision_dsp[resnet50]"</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>--board<span class="w"> </span>j722s-evm<span class="w"> </span>--mmalib
 
 <span class="c1"># Standalone script</span>
@@ -1995,7 +1995,7 @@ gated the <code>_TRANSPARENT_OPS</code>/<code>_TIDL_ACT_OPS</code>/<code>_AVG_PO
 inside TVM's own pipeline:</p>
 <div class="highlight"><pre><span></span><code>tvm.error.InternalError: Check failed: (opt) is false: The struct info
 of Tuple must be TupleStructInfo, but expression lv7 has struct info
-R.Tensor((1, 64, 56, 56), dtype=&quot;int8&quot;)
+R.Tensor((1, 64, 56, 56), dtype="int8")
 </code></pre></div>
 <p>in <code>python/tvm/relax/transform/ti_eliminate_qdq_transparent.py</code>. Not
 root-caused yet — excluded (<code>_EXCLUDED_QUANT_BUG</code> in

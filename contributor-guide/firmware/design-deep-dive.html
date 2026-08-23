@@ -2905,7 +2905,7 @@ point callable via an INFER command from the host.</p>
 |                    C7x DSP (7e000000.dsp)                        |
 |  +------------------------------------------------------------+  |
 |  |  Compute Service (FreeRTOS)                                |  |
-|  |  - RPMessage endpoint 20 (&quot;rpmsg_chrdev&quot;)                  |  |
+|  |  - RPMessage endpoint 20 ("rpmsg_chrdev")                  |  |
 |  |  - DLOAD dynamic loader for C7x ELF modules               |  |
 |  |  - TVM model manager for weights/constants                 |  |
 |  |  - INFER pipeline: resolve entry, call cg_main_dsp         |  |
@@ -3164,7 +3164,7 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
 <p><strong>Allocate shared DDR buffer</strong> from the DMA heap carveout:</p>
 </li>
 </ol>
-<div class="highlight"><pre><span></span><code><span class="n">client</span><span class="o">-&gt;</span><span class="n">dma_heap_fd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">open</span><span class="p">(</span><span class="s">&quot;/dev/dma_heap/carveout_vision_apps_shared-memories&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span>
+<div class="highlight"><pre><span></span><code><span class="n">client</span><span class="o">-&gt;</span><span class="n">dma_heap_fd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">open</span><span class="p">(</span><span class="s">"/dev/dma_heap/carveout_vision_apps_shared-memories"</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span>
 <span class="n">ioctl</span><span class="p">(</span><span class="n">dma_heap_fd</span><span class="p">,</span><span class="w"> </span><span class="n">DMA_HEAP_IOCTL_ALLOC</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">heap_data</span><span class="p">);</span><span class="w">  </span><span class="c1">// heap_data.len = C7X_SHARED_SIZE</span>
 <span class="n">mapped</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mmap</span><span class="p">(</span><span class="nb">NULL</span><span class="p">,</span><span class="w"> </span><span class="n">C7X_SHARED_SIZE</span><span class="p">,</span><span class="w"> </span><span class="n">PROT_READ</span><span class="o">|</span><span class="n">PROT_WRITE</span><span class="p">,</span><span class="w"> </span><span class="n">MAP_SHARED</span><span class="p">,</span><span class="w"> </span><span class="n">dma_buf_fd</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
 <span class="n">client</span><span class="o">-&gt;</span><span class="n">staging_buf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mapped</span><span class="p">;</span><span class="w">                           </span><span class="c1">// input side (offset 0)</span>
@@ -3174,8 +3174,8 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
 <li><strong>Attach buffer to DSP</strong> via remoteproc ioctl — creates the DMA mapping
    that makes the buffer visible to the C7x MMU:</li>
 </ol>
-<p><div class="highlight"><pre><span></span><code><span class="kt">int</span><span class="w"> </span><span class="n">idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">find_remoteproc_index</span><span class="p">(</span><span class="s">&quot;7e000000.dsp&quot;</span><span class="p">);</span>
-<span class="n">client</span><span class="o">-&gt;</span><span class="n">rproc_fd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">open</span><span class="p">(</span><span class="s">&quot;/dev/remoteproc0&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">O_RDONLY</span><span class="p">);</span><span class="w">  </span><span class="c1">// must stay open!</span>
+<p><div class="highlight"><pre><span></span><code><span class="kt">int</span><span class="w"> </span><span class="n">idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">find_remoteproc_index</span><span class="p">(</span><span class="s">"7e000000.dsp"</span><span class="p">);</span>
+<span class="n">client</span><span class="o">-&gt;</span><span class="n">rproc_fd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">open</span><span class="p">(</span><span class="s">"/dev/remoteproc0"</span><span class="p">,</span><span class="w"> </span><span class="n">O_RDONLY</span><span class="p">);</span><span class="w">  </span><span class="c1">// must stay open!</span>
 <span class="n">ioctl</span><span class="p">(</span><span class="n">rproc_fd</span><span class="p">,</span><span class="w"> </span><span class="n">RPROC_IOC_DMA_BUF_ATTACH</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">phys_data</span><span class="p">);</span>
 <span class="n">client</span><span class="o">-&gt;</span><span class="n">phys_addr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">phys_data</span><span class="p">.</span><span class="n">phys</span><span class="p">;</span><span class="w">  </span><span class="c1">// = C7X_SHARED_PHYS_BASE = 0x900000000</span>
 </code></pre></div>
@@ -3222,12 +3222,12 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
 <span class="c1">//   NOTE: .rodata segments are mapped IN-PLACE from staging_buf.</span>
 
 <span class="c1">// 2. Look up the TVM-generated entry point</span>
-<span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;cg_main_dsp&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">sym_addr</span><span class="p">);</span>
+<span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="s">"cg_main_dsp"</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">sym_addr</span><span class="p">);</span>
 <span class="n">g_cg_main_dsp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">cg_main_dsp_fn</span><span class="p">)(</span><span class="kt">uintptr_t</span><span class="p">)</span><span class="n">sym_addr</span><span class="p">;</span>
 
 <span class="c1">// 3. Check for embedded weights</span>
-<span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;_binary_weights_bin_start&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">ws_addr</span><span class="p">);</span>
-<span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;_binary_weights_bin_size&quot;</span><span class="p">,</span><span class="w">  </span><span class="o">&amp;</span><span class="n">wz_addr</span><span class="p">);</span>
+<span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="s">"_binary_weights_bin_start"</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">ws_addr</span><span class="p">);</span>
+<span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span><span class="w"> </span><span class="s">"_binary_weights_bin_size"</span><span class="p">,</span><span class="w">  </span><span class="o">&amp;</span><span class="n">wz_addr</span><span class="p">);</span>
 <span class="n">tvm_model_load_weights</span><span class="p">(</span><span class="n">ws_addr</span><span class="p">,</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="kt">uint32_t</span><span class="o">*</span><span class="p">)</span><span class="n">wz_addr</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">g_embedded_model_id</span><span class="p">);</span>
 
 <span class="c1">// 4. Save pool watermark for workspace reclaim after inference</span>
@@ -3240,7 +3240,7 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
 <h4 id="arm-c7x_client_infer">ARM — <code>c7x_client_infer()</code></h4>
 <p><strong>Source:</strong> <code>firmware/c7x/arm/src/c7x_compute_client.cpp:691</code></p>
 <p><strong>Step A — Stage input tensor data:</strong></p>
-<div class="highlight"><pre><span></span><code><span class="c1">// Inputs go AFTER the ELF to avoid corrupting DLOAD&#39;d rodata</span>
+<div class="highlight"><pre><span></span><code><span class="c1">// Inputs go AFTER the ELF to avoid corrupting DLOAD'd rodata</span>
 <span class="n">data_offset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="o">-&gt;</span><span class="n">input_data_offset</span><span class="p">;</span>
 <span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">num_inputs</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">memcpy</span><span class="p">(</span><span class="n">staging_buf</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">data_offset</span><span class="p">,</span><span class="w"> </span><span class="n">inputs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">inputs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data_size</span><span class="p">);</span>
@@ -3285,7 +3285,7 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
 <p><strong>Source:</strong> <code>firmware/c7x/dsp/src/compute_service.c:616</code></p>
 <p><strong>Steps A-B — Validate, resolve entry point, resolve constants, cache-invalidate inputs:</strong></p>
 <div class="highlight"><pre><span></span><code><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">g_cg_main_dsp</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nb">NULL</span><span class="p">)</span>
-<span class="w">    </span><span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="n">module_handle</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;cg_main_dsp&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">sym_addr</span><span class="p">);</span>
+<span class="w">    </span><span class="n">dyn_loader_query_symbol</span><span class="p">(</span><span class="n">req</span><span class="o">-&gt;</span><span class="n">module_handle</span><span class="p">,</span><span class="w"> </span><span class="s">"cg_main_dsp"</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">sym_addr</span><span class="p">);</span>
 
 <span class="kt">uint32_t</span><span class="w"> </span><span class="n">eff_model_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">req</span><span class="o">-&gt;</span><span class="n">model_id</span><span class="p">;</span>
 <span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">eff_model_id</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">g_embedded_model_id</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span>
@@ -3364,13 +3364,13 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
    ioctl RPROC_DMA_BUF_ATTACH
                                                     compute_service_init()
                                                       RPMessage_construct(ep=20)
-                                                      RPMessage_announce(&quot;rpmsg_chrdev&quot;)
+                                                      RPMessage_announce("rpmsg_chrdev")
                                                       dyn_loader_init()
                                                       tvm_model_init()
                                                       shm_printf_init()
                                                       → compute_service_run() loop
 
- c7x_client_dyn_load(&quot;lib0.out&quot;)
+ c7x_client_dyn_load("lib0.out")
    fread ELF → staging_buf
    DMA_BUF_SYNC_WRITE (flush)
    ──── C7X_MSG_DYN_LOAD ──────────────────────────►
@@ -3379,7 +3379,7 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
                                                         parse ELF, alloc DDR segments
                                                         apply C7x relocations
                                                         resolve 61 symbols
-                                                      query_symbol(&quot;cg_main_dsp&quot;)
+                                                      query_symbol("cg_main_dsp")
                                                       tvm_model_load_weights()
                                                       tvm_dsp_save_infer_watermark()
    ◄─── C7X_MSG_DYN_LOAD_RESP ─────────────────────
@@ -3435,8 +3435,8 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
 <p>Internally calls: <code>c7x_client_open</code> → <code>dyn_load</code> → <code>infer</code> → <code>dyn_unload</code> →
 <code>close</code>, then writes all output tensors to the output file.</p>
 <p>Output (stdout, parseable by Python):
-<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="s2">&quot;ok&quot;</span><span class="p">,</span><span class="nt">&quot;cycles&quot;</span><span class="p">:</span><span class="mi">12345678</span><span class="p">,</span><span class="nt">&quot;num_outputs&quot;</span><span class="p">:</span><span class="mi">1</span><span class="p">,</span><span class="nt">&quot;outputs&quot;</span><span class="p">:[</span>
-<span class="w">  </span><span class="p">{</span><span class="nt">&quot;index&quot;</span><span class="p">:</span><span class="mi">0</span><span class="p">,</span><span class="nt">&quot;ndim&quot;</span><span class="p">:</span><span class="mi">2</span><span class="p">,</span><span class="nt">&quot;dtype_code&quot;</span><span class="p">:</span><span class="mi">2</span><span class="p">,</span><span class="nt">&quot;dtype_bits&quot;</span><span class="p">:</span><span class="mi">32</span><span class="p">,</span><span class="nt">&quot;data_size&quot;</span><span class="p">:</span><span class="mi">4000</span><span class="p">,</span><span class="nt">&quot;shape&quot;</span><span class="p">:[</span><span class="mi">1</span><span class="p">,</span><span class="mi">1000</span><span class="p">]}</span>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"status"</span><span class="p">:</span><span class="s2">"ok"</span><span class="p">,</span><span class="nt">"cycles"</span><span class="p">:</span><span class="mi">12345678</span><span class="p">,</span><span class="nt">"num_outputs"</span><span class="p">:</span><span class="mi">1</span><span class="p">,</span><span class="nt">"outputs"</span><span class="p">:[</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">"index"</span><span class="p">:</span><span class="mi">0</span><span class="p">,</span><span class="nt">"ndim"</span><span class="p">:</span><span class="mi">2</span><span class="p">,</span><span class="nt">"dtype_code"</span><span class="p">:</span><span class="mi">2</span><span class="p">,</span><span class="nt">"dtype_bits"</span><span class="p">:</span><span class="mi">32</span><span class="p">,</span><span class="nt">"data_size"</span><span class="p">:</span><span class="mi">4000</span><span class="p">,</span><span class="nt">"shape"</span><span class="p">:[</span><span class="mi">1</span><span class="p">,</span><span class="mi">1000</span><span class="p">]}</span>
 <span class="p">]}</span>
 </code></pre></div></p>
 <hr />
@@ -3636,7 +3636,7 @@ modules, and where the TVM runtime allocates workspace tensors during inference.
 </table>
 <h3 id="host-side-allocation">Host-Side Allocation</h3>
 <p>The host allocates the shared buffer at runtime from the DMA heap:</p>
-<div class="highlight"><pre><span></span><code>1. open(&quot;/dev/dma_heap/carveout_vision_apps_shared-memories&quot;)
+<div class="highlight"><pre><span></span><code>1. open("/dev/dma_heap/carveout_vision_apps_shared-memories")
 2. ioctl(fd, DMA_HEAP_IOCTL_ALLOC, {len=512MB}) -&gt; dma_buf_fd
 3. mmap(NULL, 512MB, PROT_READ|PROT_WRITE, MAP_SHARED, dma_buf_fd, 0) -&gt; userspace ptr
 4. ioctl(rproc_fd, RPROC_IOC_DMA_BUF_ATTACH) -&gt; physical address (0x900000000)
@@ -3907,7 +3907,7 @@ shared buffer.</p>
 <p>The printf buffer occupies the last 64 KB of the result buffer
 (<code>C7X_PRINTF_BUF_ADDR</code> = result buffer end - 64 KB):</p>
 <div class="highlight"><pre><span></span><code>Offset  Size    Field
-0       4       magic (0x50524E54 = &quot;PRNT&quot;)
+0       4       magic (0x50524E54 = "PRNT")
 4       4       wr_index (bytes written since last reset)
 8       4       buf_size (usable text area = 64K - 16)
 12      4       reserved

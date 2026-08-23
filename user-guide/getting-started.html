@@ -1590,11 +1590,18 @@ deployed and validated against real hardware without a local
 <p><code>docker/Dockerfile.ci_c7x</code> bakes in everything needed to build for
 BeagleY-AI -- the TI CGT C7000 compiler, TI SysConfig, PSDK RTOS, LLVM,
 the aarch64 cross-compiler, and <code>uv</code> -- so none of that needs installing
-on the host directly. This is the fastest path from a clean checkout to
-a validated board; three commands:</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># 1. Build the image (behind a corporate proxy: pass it through as</span>
-<span class="c1">#    shown; otherwise drop the --build-arg lines)</span>
+on the host directly. Start from a fresh clone, including submodules:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/TexasInstruments-Sandbox/tvm
+<span class="nb">cd</span><span class="w"> </span>tvm
+git<span class="w"> </span>submodule<span class="w"> </span>update<span class="w"> </span>--init<span class="w"> </span>--recursive
+</code></pre></div>
+<p>This is the fastest path from a clean checkout to a validated board;
+three commands:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># 1. Build the image. --build-arg BASE_IMAGE=ubuntu:24.04 is required.</span>
+<span class="c1">#    Behind a corporate proxy, also pass http_proxy/https_proxy as</span>
+<span class="c1">#    shown; otherwise drop those two lines.</span>
 docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>tvm.ci_c7x:latest<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">BASE_IMAGE</span><span class="o">=</span>ubuntu:24.04<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">http_proxy</span><span class="o">=</span><span class="nv">$http_proxy</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">https_proxy</span><span class="o">=</span><span class="nv">$https_proxy</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-f<span class="w"> </span>docker/Dockerfile.ci_c7x<span class="w"> </span>docker/
@@ -1650,7 +1657,7 @@ troubleshooting and recovery procedures.</p>
 TI's MMALIB library, which programs the C7x MMA coprocessor via a
 <code>call_extern</code> from the single generated <code>lib0.c</code> to an MMALIB wrapper,
 with quantization scale/shift/bias folded in at compile time:</p>
-<div class="highlight"><pre><span></span><code>target = &quot;c_static -mcpu=c7x -mmalib=1&quot;
+<div class="highlight"><pre><span></span><code>target = "c_static -mcpu=c7x -mmalib=1"
 </code></pre></div>
 <p>A single 64ch 56×56 int8 conv2d layer takes ~45M cycles as C7x
 code; the same layer takes ~1.67M cycles via the MMA coprocessor (27x),

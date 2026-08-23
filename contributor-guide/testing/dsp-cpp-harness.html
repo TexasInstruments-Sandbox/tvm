@@ -2200,7 +2200,7 @@ and C7x) using the minimal DSP runtime. Located at
 <h2 id="quick-start-python">Quick Start (Python)</h2>
 <p>For most users, the <code>dsp_utils.py</code> module provides a simple Python interface:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
-<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;path/to/dsp-cpp&quot;</span><span class="p">)</span>
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="s2">"path/to/dsp-cpp"</span><span class="p">)</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">dsp_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">compile_and_run_dsp</span><span class="p">,</span> <span class="n">compare_results</span>
 
@@ -2208,9 +2208,9 @@ and C7x) using the minimal DSP runtime. Located at
 <span class="n">results</span> <span class="o">=</span> <span class="n">compile_and_run_dsp</span><span class="p">(</span>
     <span class="n">mod</span><span class="o">=</span><span class="n">mod</span><span class="p">,</span>
     <span class="n">input_data</span><span class="o">=</span><span class="n">input_data</span><span class="p">,</span>  <span class="c1"># numpy array or tuple of arrays</span>
-    <span class="n">target_string</span><span class="o">=</span><span class="s2">&quot;c_static -mcpu=c66x&quot;</span><span class="p">,</span>
-    <span class="n">execution_mode</span><span class="o">=</span><span class="s2">&quot;both&quot;</span><span class="p">,</span>  <span class="c1"># &quot;host&quot;, &quot;c66x&quot;, or &quot;both&quot;</span>
-    <span class="n">build_type</span><span class="o">=</span><span class="s2">&quot;Release&quot;</span><span class="p">,</span>   <span class="c1"># &quot;Release&quot; or &quot;Debug&quot;</span>
+    <span class="n">target_string</span><span class="o">=</span><span class="s2">"c_static -mcpu=c66x"</span><span class="p">,</span>
+    <span class="n">execution_mode</span><span class="o">=</span><span class="s2">"both"</span><span class="p">,</span>  <span class="c1"># "host", "c66x", or "both"</span>
+    <span class="n">build_type</span><span class="o">=</span><span class="s2">"Release"</span><span class="p">,</span>   <span class="c1"># "Release" or "Debug"</span>
 <span class="p">)</span>
 </code></pre></div>
 <p>The workflow uses file-based I/O:
@@ -2305,17 +2305,17 @@ cmake<span class="w"> </span>--build<span class="w"> </span>.
 <span class="n">mod</span> <span class="o">=</span> <span class="o">...</span>
 
 <span class="c1"># Build with c_static target for C66x</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static -mcpu=c66x&quot;</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c66x"</span><span class="p">)</span>
 <span class="k">with</span> <span class="n">tvm</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">PassContext</span><span class="p">(</span><span class="n">opt_level</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
-    <span class="n">ex</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">exec_mode</span><span class="o">=</span><span class="s2">&quot;compiled&quot;</span><span class="p">,</span> <span class="n">system_lib</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">ex</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">exec_mode</span><span class="o">=</span><span class="s2">"compiled"</span><span class="p">,</span> <span class="n">system_lib</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
 <span class="c1"># Export generated code to a directory</span>
-<span class="n">ex</span><span class="o">.</span><span class="n">export_library</span><span class="p">(</span><span class="s2">&quot;model_dir/model_library.tar&quot;</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">)</span>
+<span class="n">ex</span><span class="o">.</span><span class="n">export_library</span><span class="p">(</span><span class="s2">"model_dir/model_library.tar"</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">)</span>
 <span class="c1"># Extract to get lib0.c and weights.bin</span>
 </code></pre></div>
 <p>Or use <code>dsp_utils.py</code> which handles this automatically:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">dsp_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">compile_for_dsp</span>
-<span class="n">generated_dir</span> <span class="o">=</span> <span class="n">compile_for_dsp</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="s2">&quot;c_static -mcpu=c66x&quot;</span><span class="p">)</span>
+<span class="n">generated_dir</span> <span class="o">=</span> <span class="n">compile_for_dsp</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="s2">"c_static -mcpu=c66x"</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="step-3-build-host-emulation">Step 3: Build Host Emulation</h3>
 <div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>tests/ti-dsp-runtime/dsp-cpp

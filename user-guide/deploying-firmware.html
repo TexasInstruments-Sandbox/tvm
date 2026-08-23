@@ -1925,13 +1925,13 @@ pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/test_clista_dsp.py<
 <p>The DSP's DebugP trace buffer (<code>trace0</code>) is still available for
 firmware-level debug messages via <code>c7x_compute trace</code>.</p>
 <h3 id="c-library-api">C Library API</h3>
-<div class="highlight"><pre><span></span><code><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;c7x_compute_client.h&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="cp">#include</span><span class="w"> </span><span class="cpf">"c7x_compute_client.h"</span>
 
 <span class="n">c7x_client_t</span><span class="w"> </span><span class="o">*</span><span class="n">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c7x_client_open</span><span class="p">();</span>
 
 <span class="c1">// Dynamic module loading and inference</span>
 <span class="kt">uint32_t</span><span class="w"> </span><span class="n">handle</span><span class="p">;</span>
-<span class="n">c7x_client_dyn_load</span><span class="p">(</span><span class="n">client</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;lib0.out&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">handle</span><span class="p">);</span>
+<span class="n">c7x_client_dyn_load</span><span class="p">(</span><span class="n">client</span><span class="p">,</span><span class="w"> </span><span class="s">"lib0.out"</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">handle</span><span class="p">);</span>
 
 <span class="n">c7x_tensor_desc_t</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">.</span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">my_data</span><span class="p">,</span><span class="w"> </span><span class="p">.</span><span class="n">data_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">};</span>
 <span class="n">c7x_tensor_desc_t</span><span class="w"> </span><span class="n">output</span><span class="p">;</span>

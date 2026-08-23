@@ -1811,7 +1811,7 @@ calibrate / <code>convert_pt2e</code> sequence that produces it. Either way, <co
 is a plain Relax <code>IRModule</code> from here on -- the input to everything
 below, whether it came from a float or quantized model.</p>
 <h3 id="target-string">Target string</h3>
-<div class="highlight"><pre><span></span><code><span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">&quot;c_static -mcpu=c7x -mmalib=1&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c7x -mmalib=1"</span><span class="p">)</span>
 </code></pre></div>
 <p><code>mcpu</code> selects the DSP family (<code>c66x</code> or <code>c7x</code>); everything else is a
 target attribute that tunes or extends what codegen does for that CPU.</p>
@@ -1894,7 +1894,7 @@ rarely call this yourself -- <code>compile_for_dsp</code> (below) already does.<
         <span class="n">executable</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">build</span><span class="p">(</span>
             <span class="n">mod</span><span class="p">,</span>
             <span class="n">target</span><span class="p">,</span>
-            <span class="n">exec_mode</span><span class="o">=</span><span class="s2">&quot;compiled&quot;</span><span class="p">,</span>
+            <span class="n">exec_mode</span><span class="o">=</span><span class="s2">"compiled"</span><span class="p">,</span>
             <span class="n">system_lib</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
             <span class="n">relax_pipeline</span><span class="o">=</span><span class="n">relax_pipeline</span><span class="p">,</span>
             <span class="n">tir_pipeline</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -1964,13 +1964,13 @@ two-stage link, weights embedding.</p>
 <p>Both <code>run_yolo26_detection.py</code> and <code>run_resnet18_classification.py</code>
 target <code>c7x_dload</code> and MMALIB, and the sequence is exactly the three
 helpers above:</p>
-<div class="highlight"><pre><span></span><code><span class="n">target_string</span> <span class="o">=</span> <span class="n">get_target_string</span><span class="p">(</span><span class="s2">&quot;c7x_dload&quot;</span><span class="p">,</span> <span class="n">use_cpp_api</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; -mmalib=1&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="n">target_string</span> <span class="o">=</span> <span class="n">get_target_string</span><span class="p">(</span><span class="s2">"c7x_dload"</span><span class="p">,</span> <span class="n">use_cpp_api</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">+</span> <span class="s2">" -mmalib=1"</span>
 <span class="n">generated_dir</span> <span class="o">=</span> <span class="n">compile_for_dsp</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target_string</span><span class="o">=</span><span class="n">target_string</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="n">build_dir</span><span class="p">)</span>
 
-<span class="n">weights_path</span> <span class="o">=</span> <span class="n">generated_dir</span> <span class="o">/</span> <span class="s2">&quot;weights.bin&quot;</span>
+<span class="n">weights_path</span> <span class="o">=</span> <span class="n">generated_dir</span> <span class="o">/</span> <span class="s2">"weights.bin"</span>
 <span class="n">module_path</span> <span class="o">=</span> <span class="n">build_dsp_dynmod</span><span class="p">(</span>
     <span class="n">generated_dir</span><span class="o">=</span><span class="n">generated_dir</span><span class="p">,</span>
-    <span class="n">build_dir</span><span class="o">=</span><span class="n">build_dir</span> <span class="o">/</span> <span class="s2">&quot;build&quot;</span><span class="p">,</span>
+    <span class="n">build_dir</span><span class="o">=</span><span class="n">build_dir</span> <span class="o">/</span> <span class="s2">"build"</span><span class="p">,</span>
     <span class="n">weights_file</span><span class="o">=</span><span class="n">weights_path</span> <span class="k">if</span> <span class="n">weights_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
@@ -1985,11 +1985,11 @@ ResNet-18</a> for the full scripts.</p>
 this illustration comes from the test harness's own end-to-end helper
 (<code>compile_and_run_dsp</code>) instead, which does exactly this for the DSP
 pytest suite's <code>--dsp-mode=c7x_host</code> runs:</p>
-<div class="highlight"><pre><span></span><code><span class="n">target_string</span> <span class="o">=</span> <span class="n">get_target_string</span><span class="p">(</span><span class="s2">&quot;c7x_host&quot;</span><span class="p">,</span> <span class="n">use_cpp_api</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="n">target_string</span> <span class="o">=</span> <span class="n">get_target_string</span><span class="p">(</span><span class="s2">"c7x_host"</span><span class="p">,</span> <span class="n">use_cpp_api</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="n">generated_dir</span> <span class="o">=</span> <span class="n">compile_for_dsp</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target_string</span><span class="o">=</span><span class="n">target_string</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="n">workspace</span><span class="p">)</span>
 
 <span class="n">host_exe</span> <span class="o">=</span> <span class="n">build_dsp_c7x_host</span><span class="p">(</span><span class="n">generated_dir</span><span class="p">,</span> <span class="n">build_dir</span><span class="o">=</span><span class="n">build_dir</span><span class="p">)</span>
-<span class="n">write_tensors_to_file</span><span class="p">(</span><span class="n">input_tensors</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">build_dir</span> <span class="o">/</span> <span class="s2">&quot;input.bin&quot;</span><span class="p">))</span>
+<span class="n">write_tensors_to_file</span><span class="p">(</span><span class="n">input_tensors</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">build_dir</span> <span class="o">/</span> <span class="s2">"input.bin"</span><span class="p">))</span>
 <span class="n">result</span> <span class="o">=</span> <span class="n">run_dsp_host</span><span class="p">(</span><span class="n">host_exe</span><span class="p">)</span>
 </code></pre></div>
 <p>No <code>build_dsp_dynmod</code>, no board, no <code>weights_file</code> argument -- weights

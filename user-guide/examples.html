@@ -1737,12 +1737,12 @@ Started</a> builds and deploys with -- this assumes
 <code>build_all.sh --wheels</code> and at least one <code>validate_all.sh --board
 beagley-ai</code> already ran against this checkout, which is what creates
 <code>.venv-ci-c7x</code> with the <code>tvm-ti-c7x-compile</code> wheel installed:</p>
-<div class="highlight"><pre><span></span><code>docker/bash.sh<span class="w"> </span>--net<span class="o">=</span>host<span class="w"> </span>-v<span class="w"> </span>~/.ssh:<span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/.ssh:ro<span class="w"> </span>tvm.ci_c7x<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;</span>
+<div class="highlight"><pre><span></span><code>docker/bash.sh<span class="w"> </span>--net<span class="o">=</span>host<span class="w"> </span>-v<span class="w"> </span>~/.ssh:<span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/.ssh:ro<span class="w"> </span>tvm.ci_c7x<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s1">'</span>
 <span class="s1">    source .venv-ci-c7x/bin/activate</span>
 <span class="s1">    unset PYTHONPATH</span>
 <span class="s1">    cd tests/ti-dsp-runtime</span>
 <span class="s1">    python examples/run_yolo26_detection.py --board beagley-ai</span>
-<span class="s1">&#39;</span>
+<span class="s1">'</span>
 </code></pre></div>
 <p>Outside Docker (e.g. a host without Docker at all), set
 <code>TI_CGT_C7000_PATH</code> explicitly and run against the source tree:</p>
@@ -1815,12 +1815,12 @@ this example, since <code>resnet18_board_runner</code> is a native binary.</p>
 <p>Recommended, inside the same <code>ci_c7x</code> container <a href="getting-started.html">Getting
 Started</a> builds and deploys with (see the YOLO26
 Running section above for what this assumes about <code>.venv-ci-c7x</code>):</p>
-<div class="highlight"><pre><span></span><code>docker/bash.sh<span class="w"> </span>--net<span class="o">=</span>host<span class="w"> </span>-v<span class="w"> </span>~/.ssh:<span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/.ssh:ro<span class="w"> </span>tvm.ci_c7x<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;</span>
+<div class="highlight"><pre><span></span><code>docker/bash.sh<span class="w"> </span>--net<span class="o">=</span>host<span class="w"> </span>-v<span class="w"> </span>~/.ssh:<span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/.ssh:ro<span class="w"> </span>tvm.ci_c7x<span class="w"> </span>--<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s1">'</span>
 <span class="s1">    source .venv-ci-c7x/bin/activate</span>
 <span class="s1">    unset PYTHONPATH</span>
 <span class="s1">    cd tests/ti-dsp-runtime</span>
 <span class="s1">    python examples/run_resnet18_classification.py --board beagley-ai</span>
-<span class="s1">&#39;</span>
+<span class="s1">'</span>
 </code></pre></div>
 <p>Outside Docker, set <code>TI_CGT_C7000_PATH</code> explicitly and run against the
 source tree:</p>

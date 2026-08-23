@@ -1799,16 +1799,16 @@ run inference.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">tvm</span><span class="o">,</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">tvm.contrib.c7x</span><span class="w"> </span><span class="kn">import</span> <span class="n">C7xVirtualMachine</span>
 
-<span class="n">vm</span> <span class="o">=</span> <span class="n">C7xVirtualMachine</span><span class="p">(</span><span class="s2">&quot;/models/resnet18.out&quot;</span><span class="p">)</span>
-<span class="n">inp</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">nd</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">&quot;float32&quot;</span><span class="p">))</span>
-<span class="n">out</span> <span class="o">=</span> <span class="n">vm</span><span class="p">[</span><span class="s2">&quot;main&quot;</span><span class="p">](</span><span class="n">inp</span><span class="p">)</span>        <span class="c1"># returns tvm.nd.NDArray</span>
+<span class="n">vm</span> <span class="o">=</span> <span class="n">C7xVirtualMachine</span><span class="p">(</span><span class="s2">"/models/resnet18.out"</span><span class="p">)</span>
+<span class="n">inp</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">nd</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">))</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">vm</span><span class="p">[</span><span class="s2">"main"</span><span class="p">](</span><span class="n">inp</span><span class="p">)</span>        <span class="c1"># returns tvm.nd.NDArray</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span><span class="o">.</span><span class="n">argmax</span><span class="p">())</span>
 
 <span class="n">vm</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
 </code></pre></div>
 <p>Context manager form (recommended for scripts):</p>
-<div class="highlight"><pre><span></span><code><span class="k">with</span> <span class="n">C7xVirtualMachine</span><span class="p">(</span><span class="s2">&quot;/models/resnet18.out&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">vm</span><span class="p">:</span>
-    <span class="n">out</span> <span class="o">=</span> <span class="n">vm</span><span class="p">[</span><span class="s2">&quot;main&quot;</span><span class="p">](</span><span class="n">inp</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="k">with</span> <span class="n">C7xVirtualMachine</span><span class="p">(</span><span class="s2">"/models/resnet18.out"</span><span class="p">)</span> <span class="k">as</span> <span class="n">vm</span><span class="p">:</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">vm</span><span class="p">[</span><span class="s2">"main"</span><span class="p">](</span><span class="n">inp</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="zero-copy-outputs-run_nocopy">Zero-copy outputs: <code>run_nocopy()</code></h3>
 <p><code>vm["main"]()</code> copies outputs from result DDR to new memory (safe across
@@ -1821,9 +1821,9 @@ result buffer — no copy — but they are <strong>only valid until the next
 <h3 id="zero-copy-inputs-create_input">Zero-copy inputs: <code>create_input()</code></h3>
 <p>Pre-allocate an input tensor inside the staging DDR buffer.  Writing to it
 skips the staging <code>memcpy</code> on the next inference call:</p>
-<div class="highlight"><pre><span></span><code><span class="n">staging</span> <span class="o">=</span> <span class="n">vm</span><span class="o">.</span><span class="n">create_input</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">),</span> <span class="s2">&quot;float32&quot;</span><span class="p">)</span>  <span class="c1"># backed by staging DDR</span>
+<div class="highlight"><pre><span></span><code><span class="n">staging</span> <span class="o">=</span> <span class="n">vm</span><span class="o">.</span><span class="n">create_input</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">),</span> <span class="s2">"float32"</span><span class="p">)</span>  <span class="c1"># backed by staging DDR</span>
 <span class="n">staging</span><span class="o">.</span><span class="n">copyfrom</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>     <span class="c1"># writes directly to staging buffer</span>
-<span class="n">out</span> <span class="o">=</span> <span class="n">vm</span><span class="p">[</span><span class="s2">&quot;main&quot;</span><span class="p">](</span><span class="n">staging</span><span class="p">)</span>   <span class="c1"># no input copy</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">vm</span><span class="p">[</span><span class="s2">"main"</span><span class="p">](</span><span class="n">staging</span><span class="p">)</span>   <span class="c1"># no input copy</span>
 </code></pre></div>
 <p>The tensor is valid until <code>close()</code> is called.  Multiple inputs can be
 pre-staged; each call to <code>create_input()</code> advances the allocation offset by the
@@ -1833,7 +1833,7 @@ tensor size (aligned to 64 bytes).</p>
 <span class="n">vm</span><span class="o">.</span><span class="n">is_loaded</span>     <span class="c1"># True if the module is currently loaded on the DSP (bool)</span>
 </code></pre></div>
 <h3 id="constructor">Constructor</h3>
-<div class="highlight"><pre><span></span><code><span class="n">C7xVirtualMachine</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">so_path</span><span class="o">=</span><span class="s2">&quot;libc7x_arm_runtime.so&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="n">C7xVirtualMachine</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">so_path</span><span class="o">=</span><span class="s2">"libc7x_arm_runtime.so"</span><span class="p">)</span>
 </code></pre></div>
 <ul>
 <li><code>module_path</code>: path to <code>lib0.out</code> (the TVM c_static dynmod)</li>
@@ -1857,10 +1857,10 @@ from the <code>tvm-ti-c7x-inference</code> wheel or the source tree instead, see
 <p>No TVM runtime dependency — only DLPack is required, so this header can be
 used from any C++ application on the board.</p>
 <h3 id="standard-usage">Standard usage</h3>
-<div class="highlight"><pre><span></span><code><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;c7x_runtime.h&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="cp">#include</span><span class="w"> </span><span class="cpf">"c7x_runtime.h"</span>
 
 <span class="c1">// Load module — throws std::runtime_error on failure</span>
-<span class="k">auto</span><span class="w"> </span><span class="n">vm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c7x</span><span class="o">::</span><span class="n">Module</span><span class="o">::</span><span class="n">Load</span><span class="p">(</span><span class="s">&quot;/models/resnet18.out&quot;</span><span class="p">);</span>
+<span class="k">auto</span><span class="w"> </span><span class="n">vm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c7x</span><span class="o">::</span><span class="n">Module</span><span class="o">::</span><span class="n">Load</span><span class="p">(</span><span class="s">"/models/resnet18.out"</span><span class="p">);</span>
 
 <span class="c1">// Single-input convenience</span>
 <span class="n">c7x</span><span class="o">::</span><span class="n">OutputTensor</span><span class="w"> </span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vm</span><span class="p">.</span><span class="n">Run</span><span class="p">(</span><span class="o">&amp;</span><span class="n">input_dl_tensor</span><span class="p">);</span>
@@ -1874,7 +1874,7 @@ used from any C++ application on the board.</p>
 <span class="kt">int</span><span class="w"> </span><span class="n">num_outputs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
 <span class="k">const</span><span class="w"> </span><span class="n">DLTensor</span><span class="o">*</span><span class="w"> </span><span class="n">inputs</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="o">&amp;</span><span class="n">dl_tensor</span><span class="w"> </span><span class="p">};</span>
 
-<span class="k">auto</span><span class="w"> </span><span class="n">fn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vm</span><span class="p">[</span><span class="s">&quot;main&quot;</span><span class="p">];</span>
+<span class="k">auto</span><span class="w"> </span><span class="n">fn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vm</span><span class="p">[</span><span class="s">"main"</span><span class="p">];</span>
 <span class="kt">int</span><span class="w"> </span><span class="n">rc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">fn</span><span class="p">(</span><span class="n">inputs</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">outputs</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">num_outputs</span><span class="p">);</span>
 <span class="c1">// rc == 0 on success; outputs[0..num_outputs-1] are valid</span>
 </code></pre></div>
@@ -1971,10 +1971,10 @@ site-packages. The Python API's <code>so_path</code> already resolves this
 automatically (see Constructor above); a C++ build, or anything linking
 against the <code>.so</code> directly, has to resolve both paths itself instead of
 assuming a system install:</p>
-<div class="highlight"><pre><span></span><code>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;from tvm.data.ti_dsp.paths import find_c7x_include_dir; \</span>
-<span class="s2">    print(find_c7x_include_dir())&quot;</span>
-python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;from tvm.data.ti_dsp.paths import find_c7x_arm_runtime_so; \</span>
-<span class="s2">    print(find_c7x_arm_runtime_so())&quot;</span>
+<div class="highlight"><pre><span></span><code>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"from tvm.data.ti_dsp.paths import find_c7x_include_dir; \</span>
+<span class="s2">    print(find_c7x_include_dir())"</span>
+python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"from tvm.data.ti_dsp.paths import find_c7x_arm_runtime_so; \</span>
+<span class="s2">    print(find_c7x_arm_runtime_so())"</span>
 </code></pre></div>
 <p><code>ctypes.CDLL()</code> (used by the Python API) loads the <code>.so</code> by absolute path,
 so no <code>ldconfig</code> step is needed either way. A C++ build should pass the

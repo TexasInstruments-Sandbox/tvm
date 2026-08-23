@@ -1613,7 +1613,7 @@ scheme the c_static/MMALIB backend expects:</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">tvm.relax.frontend.torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">C7xMMAQuantizer</span><span class="p">,</span> <span class="n">from_exported_program</span>
 
 <span class="n">exported</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">example_args</span><span class="p">)</span>
-<span class="n">quantizer</span> <span class="o">=</span> <span class="n">C7xMMAQuantizer</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;int8&quot;</span><span class="p">)</span>   <span class="c1"># or &quot;int16&quot;</span>
+<span class="n">quantizer</span> <span class="o">=</span> <span class="n">C7xMMAQuantizer</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="s2">"int8"</span><span class="p">)</span>   <span class="c1"># or "int16"</span>
 <span class="n">prepared</span> <span class="o">=</span> <span class="n">prepare_pt2e</span><span class="p">(</span><span class="n">exported</span><span class="o">.</span><span class="n">module</span><span class="p">(),</span> <span class="n">quantizer</span><span class="p">)</span>
 
 <span class="k">for</span> <span class="n">sample</span> <span class="ow">in</span> <span class="n">calibration_data</span><span class="p">:</span>             <span class="c1"># real inputs -- see Calibration below</span>
