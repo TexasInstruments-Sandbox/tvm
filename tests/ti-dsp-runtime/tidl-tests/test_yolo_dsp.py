@@ -404,29 +404,24 @@ class TestYOLOTIDL:
 
         Pipeline:
           1. TIDL compile: partition -> import -> lower (expensive step,
-             done once; both host and dload builds share the result)
-          2. c_static codegen: relax.build -> lib0.c + weights.bin
-          3. c7x_host smoke: build with stub bridge (TIDL outputs zeroed)
-             and run via TI Host Emulation.  Verifies the pipeline end-to-
-             end without hardware.  Fails fast if codegen or non-TIDL ops
-             are broken.  Skipped if PC TIDL libs are absent.
-          4. c7x_dload correctness: build with real TIDL bridge, deploy to
-             AM67A, compare output to PyTorch with cosine similarity > 0.94.
-             Only runs when --dsp-mode=c7x_dload.
+             done once; both host and dload builds below reuse the result
+             via TIDLOffloadCompiler.codegen_and_build() instead of paying
+             for compile() a second time).
+          2. c7x_host: codegen_and_build(exec_mode="c7x_host") with the real
+             TIDL bridge (PC AVX libs), run via TI Host Emulation, compare
+             to PyTorch with cosine similarity > 0.94.  Skipped if PC TIDL
+             libs are absent.
+          3. c7x_dload: codegen_and_build(exec_mode="c7x_dload") with the
+             real TIDL bridge, deploy to AM67A, compare output to PyTorch
+             with cosine similarity > 0.94.  Only runs when
+             --dsp-mode=c7x_dload.
         """
-        import tarfile  # noqa: PLC0415,I001
-
-        import tvm  # noqa: PLC0415
         from dsp_utils import (  # noqa: PLC0415
-            build_dsp_c7x_host,
-            build_dsp_dynmod,
             run_dsp_dload,
             run_dsp_host,
             write_tensors_to_file,
         )
-        from tvm.relax.backend.cpu_generic.pipeline import (  # noqa: PLC0415
-            get_default_pipeline,
-        )
+
         from tvm.relax.backend.tidl import TIDLOffloadCompiler  # noqa: PLC0415
 
         if dsp_mode not in ("c7x_host", "c7x_dload"):
@@ -447,65 +442,30 @@ class TestYOLOTIDL:
         # ------------------------------------------------------------------
         # Step 1: TIDL compile (partition → import → lower).
         # This is the expensive step; lowered module is reused for both
-        # c7x_host and c7x_dload builds.
+        # c7x_host and c7x_dload builds below.
         # ------------------------------------------------------------------
         lowered, artifacts = compiler.compile(mod, params=param_dict)
         assert len(artifacts) > 0, "No TIDL subgraphs produced"
         print(f"\n{model_name}: {len(artifacts)} TIDL subgraph(s)")
 
         # ------------------------------------------------------------------
-        # Step 2: C code generation (relax.build → lib0.c + weights.bin)
-        # ------------------------------------------------------------------
-        target = "c_static -mcpu=c7x -use-cpp-api=1 -tidl-runtime=1"
-        tvm_target = tvm.target.Target(target)
-        pipeline = get_default_pipeline(tvm_target)
-        with tvm_target, tvm.transform.PassContext(opt_level=3):
-            ex = relax.build(
-                lowered,
-                target=tvm_target,
-                exec_mode="compiled",
-                system_lib=True,
-                relax_pipeline=pipeline,
-                tir_pipeline=None,
-            )
-        gen_dir = tmp_path / "gen"
-        gen_dir.mkdir()
-        tar_path = gen_dir / "model.tar"
-        ex.export_library(str(tar_path), target=tvm_target)
-        with tarfile.open(str(tar_path)) as tf:
-            tf.extractall(str(gen_dir))
-        tar_path.unlink()
-
-        # ------------------------------------------------------------------
-        # Step 3: c7x_host real bridge (PC AVX TIDL libs, no board needed).
+        # Step 2: c7x_host, real bridge (PC AVX TIDL libs, no board needed).
         # Validates actual INT8 TIDL inference on host; fails fast if
         # calibration is wrong, enabling fast iteration without hardware.
         # Guarded by has_tidl_pc_libs() — skipped if libs are absent.
         # ------------------------------------------------------------------
         from conftest import has_tidl_pc_libs  # noqa: PLC0415
-        from tvm.relax.backend.tidl import generate_artifacts_c  # noqa: PLC0415
 
         if has_tidl_pc_libs():
-            real_bridge_host = str(gen_dir / "tidl_bridge.c")
-            TIDLOffloadCompiler.generate_bridge(
+            host_result = compiler.codegen_and_build(
                 lowered,
-                real_bridge_host,
-                stub=False,
-                artifacts_dir=compiler._artifacts_dir,
+                artifacts,
+                build_dir=str(tmp_path / "host_build"),
+                exec_mode="c7x_host",
             )
-            artifacts_c = str(gen_dir / "tidl_artifacts.c")
-            generate_artifacts_c(compiler._artifacts_dir, artifacts_c)
-
-            host_build_dir = tmp_path / "host_build"
-            exe = build_dsp_c7x_host(
-                gen_dir,
-                tidl_bridge=[real_bridge_host, artifacts_c],
-                build_dir=host_build_dir,
-                use_tidl=True,
-            )
-            input_file = host_build_dir / "input.bin"
+            input_file = host_result.build_dir / "input.bin"
             write_tensors_to_file([input_data], str(input_file))
-            host_out = run_dsp_host(exe, working_dir=host_build_dir)
+            host_out = run_dsp_host(host_result.module_path, working_dir=host_result.build_dir)
 
             flat_ref = torch_out.flatten()
             flat_host = host_out.flatten()
@@ -524,44 +484,27 @@ class TestYOLOTIDL:
             )
 
         # ------------------------------------------------------------------
-        # Step 4: c7x_dload correctness (real TIDL bridge, AM67A hardware).
+        # Step 3: c7x_dload correctness (real TIDL bridge, AM67A hardware).
         # Only runs when --dsp-mode=c7x_dload.
         # ------------------------------------------------------------------
         if dsp_mode == "c7x_dload":
-            # Re-use the real bridge generated in Step 3 if present; otherwise
-            # generate it now (allows running Step 4 without PC TIDL libs).
-            real_bridge_dload = str(gen_dir / "tidl_bridge.c")
-            if not Path(real_bridge_dload).exists():
-                TIDLOffloadCompiler.generate_bridge(
+            dload_build_dir = tmp_path / "dload_build"
+            try:
+                # fp_reassoc_off=True guards against cl7x reordering FP
+                # operations. The c7x_dload NaN (0/0 in YOLO DFL softmax)
+                # below is a separate calibration accuracy issue, not fixed
+                # by this flag.
+                dload_result = compiler.codegen_and_build(
                     lowered,
-                    real_bridge_dload,
-                    stub=False,
-                    artifacts_dir=compiler._artifacts_dir,
+                    artifacts,
+                    build_dir=str(dload_build_dir),
+                    exec_mode="c7x_dload",
+                    fp_reassoc_off=True,
                 )
 
-            dload_build_dir = tmp_path / "dload_build"
-            weights_path = gen_dir / "weights.bin"
-            # fp_reassoc_off=True guards against cl7x reordering FP operations.
-            # The c7x_dload NaN (0/0 in YOLO DFL softmax) is a calibration
-            # accuracy issue: per-subgraph calibration uses image pixels [0,1]
-            # for all subgraphs but intermediate activations at the DFL boundary
-            # are in a different range.  DSP MMA TIDL produces slightly lower
-            # INT8 values than PC AVX, causing all exp(x_i) to underflow to 0.0
-            # → sum=0 → 0/0=NaN.  The test marks this path xfail at runtime.
-            module_path = build_dsp_dynmod(
-                generated_dir=gen_dir,
-                build_dir=dload_build_dir,
-                weights_file=weights_path,
-                tidl_bridge=real_bridge_dload,
-                use_tidl=True,
-                tidl_artifacts_dir=compiler._artifacts_dir,
-                fp_reassoc_off=True,
-            )
-
-            try:
                 output, stdout, cycles = run_dsp_dload(
-                    module_path,
-                    weights_path,
+                    dload_result.module_path,
+                    dload_result.weights_path,
                     [input_data],
                     embedded_weights=True,
                 )
@@ -610,9 +553,6 @@ class TestYOLOTIDL:
                 if not os.environ.get("DSP_KEEP_TEMP"):
                     shutil.rmtree(str(dload_build_dir), ignore_errors=True)
 
-        if not os.environ.get("DSP_KEEP_TEMP"):
-            shutil.rmtree(str(gen_dir), ignore_errors=True)
-
 
 # -----------------------------------------------------------------------------
 # Standalone Script Mode
@@ -656,8 +596,8 @@ def main():
 
     # --visualize: partition + HTML (no hardware, no .so needed for partition)
     if args.visualize:
-        from tvm.relax.backend.tidl import TIDLOffloadCompiler
         from tvm.contrib.c7x.visualize import visualize_partitioning
+        from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
         model_name = args.model or "yolov5n"
         version = next(v for n, v in YOLO_MODELS if n == model_name)
