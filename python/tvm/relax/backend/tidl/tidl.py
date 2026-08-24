@@ -1003,6 +1003,7 @@ class TIDLOffloadCompiler:
         target: Optional[str] = None,
         build_dir: Optional[str] = None,
         exec_mode: str = "c7x_dload",
+        fp_reassoc_off: bool = False,
     ) -> TIDLBuildResult:
         """Full pipeline: compile + codegen + bridge + build.
 
@@ -1026,6 +1027,9 @@ class TIDLOffloadCompiler:
             Execution mode: ``"c7x_dload"`` (default, builds lib0.out for
             AM67A via TI C7x cross-compiler) or ``"c7x_host"`` (builds
             cg_dsp executable for x86-64 host emulation).
+        fp_reassoc_off : bool
+            ``exec_mode="c7x_dload"`` only -- see ``_build_dynmod``'s
+            docstring.
 
         Returns
         -------
@@ -1033,15 +1037,58 @@ class TIDLOffloadCompiler:
             Paths to the built artifact, weights.bin, generated code, and
             TIDL artifacts.  ``result.exec_mode`` reflects the mode used.
         """
+        lowered, artifacts = self.compile(mod, params)
+        return self.codegen_and_build(
+            lowered,
+            artifacts,
+            target=target,
+            build_dir=build_dir,
+            exec_mode=exec_mode,
+            fp_reassoc_off=fp_reassoc_off,
+        )
+
+    def codegen_and_build(
+        self,
+        lowered: IRModule,
+        artifacts: Optional[Dict] = None,
+        target: Optional[str] = None,
+        build_dir: Optional[str] = None,
+        exec_mode: str = "c7x_dload",
+        fp_reassoc_off: bool = False,
+    ) -> TIDLBuildResult:
+        """Codegen + bridge + native build from an already-compiled module.
+
+        This is ``build()`` minus its first step (``compile()``), split out
+        so a caller needing both a c7x_host and a c7x_dload artifact from
+        the same TIDL compile can reuse ``lowered``/``artifacts`` instead of
+        paying for TIDL import/calibration -- the expensive step -- twice.
+
+        Parameters
+        ----------
+        lowered : IRModule
+            Module returned by ``compile()`` (TIDL subgraphs lowered to
+            extern calls).
+        artifacts : dict, optional
+            TIDL artifacts returned alongside ``lowered`` by ``compile()``.
+        target, build_dir, exec_mode
+            See ``build()``.
+        fp_reassoc_off : bool
+            ``exec_mode="c7x_dload"`` only -- see ``_build_dynmod``'s
+            docstring.
+
+        Returns
+        -------
+        TIDLBuildResult
+            Paths to the built artifact, weights.bin, generated code, and
+            TIDL artifacts.  ``result.exec_mode`` reflects the mode used.
+        """
+        artifacts = artifacts or {}
         if target is None:
             target = (
                 "c_static -mcpu=c7x -use-cpp-api=1"
                 if exec_mode == "c7x_dload"
                 else "c_static -mcpu=c7x"
             )
-
-        # 1. Full TIDL offload pipeline
-        lowered, artifacts = self.compile(mod, params)
 
         # 2. Compile to C via relax.build
         # Honor profile_layers config: append -profile-layers to target
@@ -1134,6 +1181,7 @@ class TIDLOffloadCompiler:
                 tidl_bridge=str(bridge_path),
                 use_tidl=bool(artifacts),
                 tidl_artifacts_dir=self._artifacts_dir if artifacts else None,
+                fp_reassoc_off=fp_reassoc_off,
             )
 
         return TIDLBuildResult(
@@ -1160,6 +1208,7 @@ def _build_dynmod(
     use_tidl: bool = False,
     tidl_artifacts_dir: Optional[str] = None,
     build_type: str = "Release",
+    fp_reassoc_off: bool = False,
 ) -> Path:
     """Build a C7x DLOAD relocatable module from generated code.
 
@@ -1184,6 +1233,11 @@ def _build_dynmod(
         Directory containing TIDL net.bin / io.bin files.
     build_type : str
         CMake build type (Release or Debug).
+    fp_reassoc_off : bool
+        Compile lib0.c with ``--fp_reassoc=off`` to disable the cl7x
+        floating-point reassociation optimization -- see
+        ``dsp_utils.build_dsp_dynmod``'s docstring for why (ill-conditioned
+        matmul accumulations reordered by -O2).
 
     Returns
     -------
@@ -1241,6 +1295,8 @@ def _build_dynmod(
         cmake_cmd.append("-DUSE_TIDL=ON")
     if tidl_artifacts_dir:
         cmake_cmd.append(f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
+    if fp_reassoc_off:
+        cmake_cmd.append("-DFP_REASSOC_OFF=ON")
     cmake_cmd.append(str(dynmod_cmake))
 
     log_path = build_dir / "cmake.log"
