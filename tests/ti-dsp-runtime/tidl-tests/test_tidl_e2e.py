@@ -4,14 +4,14 @@
 Validates the full TIDL offloading pipeline without requiring TIDL
 libraries, artifacts, or AM67A hardware.  Uses a stub bridge that
 zero-fills TIDL subgraph outputs, allowing the rest of the pipeline
-(partitioning, lowering, c_static codegen, cross-compile, execution)
+(partitioning, lowering, c_static_lib codegen, cross-compile, execution)
 to be verified on the host.
 
 Pipeline under test
 -------------------
   1. partition_for_tidl -- pattern match and merge TIDL subgraphs
   2. LowerTIDLToTIR    -- replace Codegen="tidl" funcs with TIR stubs
-  3. relax.build       -- c_static codegen (lib0.c + weights.bin)
+  3. relax.build       -- c_static_lib codegen (lib0.c + weights.bin)
   4. generate_bridge   -- stub bridge (memset output to zero)
   5. build_dsp_c7x_host -- compile with g++ + TI Host Emulation library
   6. run_dsp_host      -- execute the binary on the host PC
@@ -104,8 +104,8 @@ def _export_and_bind(model_cls, input_spec):
     return mod
 
 
-def _compile_c_static(mod, target_str="c_static -mcpu=c7x"):
-    """Compile a Relax module with c_static and extract to a temp dir.
+def _compile_c_static_lib(mod, target_str="c_static_lib -mcpu=c7x"):
+    """Compile a Relax module with c_static_lib and extract to a temp dir.
 
     Uses exec_mode="compiled" and system_lib=True to generate the
     __vmtir__main TIR function and cg_main_dsp DSP wrapper, matching
@@ -174,7 +174,7 @@ class TestTIDLPipelineHost:
         lowered = LowerTIDLToTIR()(partitioned)
 
         # 2. Compile to C
-        gen_dir = _compile_c_static(lowered)
+        gen_dir = _compile_c_static_lib(lowered)
 
         build_dir = None
         try:
@@ -247,7 +247,7 @@ class TestTIDLPipelineHostRealBridge:
     2. partition_for_tidl  -- mark conv+relu as TIDL subgraph
     3. TIDLOffloadCompiler.tidl_import()  -- produce net.bin + io.bin
     4. LowerTIDLToTIR     -- replace Codegen="tidl" funcs with call_extern
-    5. relax.build          -- c_static codegen -> lib0.c + weights.bin
+    5. relax.build          -- c_static_lib codegen -> lib0.c + weights.bin
                               (-tidl-runtime=1 so cg_main_dsp calls init)
     6. generate_bridge      -- real TIDL API calls (stub=False)
     7. generate_artifacts_c -- embed net.bin/io.bin as _binary_ C arrays
@@ -317,7 +317,7 @@ class TestTIDLPipelineHostRealBridge:
         # 4. Compile to C (lib0.c + weights.bin).
         # -tidl-runtime=1 causes cg_main_dsp to call tidl_bridge_init_all()
         # before the first inference, which is required for real TIDL bridges.
-        gen_dir = _compile_c_static(lowered_mod, "c_static -mcpu=c7x -tidl-runtime=1")
+        gen_dir = _compile_c_static_lib(lowered_mod, "c_static_lib -mcpu=c7x -tidl-runtime=1")
 
         build_dir = None
         try:

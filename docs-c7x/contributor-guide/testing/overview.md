@@ -10,7 +10,7 @@ Tests for the TVM TI DSP runtime, covering DSP model execution on C66x
 |-----------|-------------|
 | `dsp-cpp/` | Build infrastructure: CMakeLists.txt, dsp_utils.py, c7x_dynmod linker scripts, and C++ integration examples |
 | `dsp-tests/` | Pytest-based DSP model tests (conv2d, resnet, YOLO, etc.) for c66x_host, c7x_host, and c7x_dload modes |
-| `dynamic-tests/` | Dynamic shape and control-flow tests (Relax `If`, dynamic batch) on the c_static/C7x backend |
+| `dynamic-tests/` | Dynamic shape and control-flow tests (Relax `If`, dynamic batch) on the c_static_lib/C7x backend |
 | `mmalib-tests/` | MMALIB direct-offload tests (int8/int16 conv2d, matmul, depthwise) on the C7x MMA accelerator |
 | `pt2e-tests/` | `C7xMMAQuantizer` PT2E quantization and activation/pool/norm fusion tests |
 | `quantized/` | INT8/INT16 quantized end-to-end model tests (ResNet, MobileNet, GoogLeNet, Inception) |

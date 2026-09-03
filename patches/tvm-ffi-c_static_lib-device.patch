@@ -6,7 +6,7 @@ index 2eb36fc..25b577e 100644
          "hexagon": DLDeviceType.kDLHexagon,
          "webgpu": DLDeviceType.kDLWebGPU,
          "trn": DLDeviceType.kDLTrn,
-+        "c_static": DLDeviceType.kDLCPU,
++        "c_static_lib": DLDeviceType.kDLCPU,
      }
  
      def __init__(self, device_type: str | int, index: Optional[Integral] = None) -> None:

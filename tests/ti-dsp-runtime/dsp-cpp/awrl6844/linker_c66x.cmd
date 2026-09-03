@@ -1,6 +1,6 @@
 /* Linker command file for AWRL6844 C66x DSP - CLISTA-DoA Radar Model
  *
- * Adapted from hw_awrl6844_c66x/linker.cmd for TVM C static model execution.
+ * Adapted from hw_awrl6844_c66x/linker.cmd for TVM C static lib model execution.
  * Memory layout optimized for CLISTA-DoA neural network inference.
  */
 

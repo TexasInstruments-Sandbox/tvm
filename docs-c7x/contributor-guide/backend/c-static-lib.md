@@ -1,6 +1,6 @@
-# C Static Backend
+# C Static Lib Backend
 
-The `c_static` backend is a specialized C code generator for TVM that produces
+The `c_static_lib` backend is a specialized C code generator for TVM that produces
 standalone static binaries for Relax VM execution. It generates portable C/C++
 code suitable for embedded deployment, including optimized support for TI C66x
 and C7x DSP processors.
@@ -19,9 +19,9 @@ and C7x DSP processors.
 
 ## Overview
 
-### When to Use c_static
+### When to Use c_static_lib
 
-Use the `c_static` backend when you need:
+Use the `c_static_lib` backend when you need:
 
 - **Static binary deployment**: Self-contained executables without shared library
   dependencies
@@ -46,14 +46,14 @@ Use the `c_static` backend when you need:
 import tvm
 from tvm import relax
 
-# Basic c_static target
-target = tvm.target.Target("c_static")
+# Basic c_static_lib target
+target = tvm.target.Target("c_static_lib")
 
 # Target TI C66x DSP
-target = tvm.target.Target("c_static -mcpu=c66x")
+target = tvm.target.Target("c_static_lib -mcpu=c66x")
 
 # Target TI C7x DSP (AM67A/J722S via DLOAD)
-target = tvm.target.Target("c_static -mcpu=c7x")
+target = tvm.target.Target("c_static_lib -mcpu=c7x")
 
 # Compile model
 mod = relax.transform.LegalizeOps()(mod)
@@ -80,7 +80,7 @@ The DSP runtime is a lightweight, self-contained C++14 library (~100 KB)
 designed for bare-metal and RTOS environments. Key differences from the
 standard TVM runtime:
 
-- **No VM class** -- c_static emits direct function calls to builtin
+- **No VM class** -- c_static_lib emits direct function calls to builtin
   stubs instead of bytecode interpretation
 - **Static memory pools** -- pre-allocated L2 SRAM (fast) and L3/DDR
   (main) pools with bump-pointer allocation; no `malloc()` at runtime
@@ -116,8 +116,8 @@ class MLPModule:
         # ... model definition
         pass
 
-# Compile with c_static backend
-target = tvm.target.Target("c_static")
+# Compile with c_static_lib backend
+target = tvm.target.Target("c_static_lib")
 mod = relax.transform.LegalizeOps()(MLPModule)
 ex = relax.build(mod, target=target)
 
@@ -155,15 +155,15 @@ int main() {
 import tvm
 
 # C66x with default optimizations (recommended)
-target = tvm.target.Target("c_static -mcpu=c66x")
+target = tvm.target.Target("c_static_lib -mcpu=c66x")
 # Defaults enabled: -use-cpp-api=1, -skip-runtime-checks=1
 
 # With layer profiling
-target = tvm.target.Target("c_static -mcpu=c66x -profile-layers=1")
+target = tvm.target.Target("c_static_lib -mcpu=c66x -profile-layers=1")
 
 # Disable optimizations for debugging
 target = tvm.target.Target(
-    "c_static -mcpu=c66x "
+    "c_static_lib -mcpu=c66x "
     "-skip-runtime-checks=0 "
     "-use-cpp-api=0"
 )
@@ -211,7 +211,7 @@ pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x --profile-layers
 
 ## C7x DSP and DLOAD Deployment
 
-The c_static backend supports deploying TVM-compiled models to the TI C7x
+The c_static_lib backend supports deploying TVM-compiled models to the TI C7x
 DSP on the AM67A (J722S) SoC via runtime dynamic loading. Instead of
 linking the model into the DSP firmware at build time, the generated code is
 compiled into a relocatable C7x ELF module that the firmware's DLOAD
@@ -227,7 +227,7 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.
  │    TVM Compiler        │
  │    (Python)            │
  │                        │
- │  target = "c_static    │
+ │  target = "c_static_lib    │
  │           -mcpu=c7x"   │
  └──────────┬─────────────┘
             │
@@ -235,7 +235,7 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.
             ▼
  ┌──────────┴─────────────┐
  │                        ├───▶  lib0.c       (computation kernels)
- │   c_static codegen     │
+ │   c_static_lib codegen     │
  │                        ├───▶  weights.bin  (model parameters)
  └──────────┬─────────────┘
             │
@@ -280,10 +280,10 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.
 import tvm
 
 # C7x with default optimizations (recommended)
-target = tvm.target.Target("c_static -mcpu=c7x")
+target = tvm.target.Target("c_static_lib -mcpu=c7x")
 
 # With layer profiling
-target = tvm.target.Target("c_static -mcpu=c7x -profile-layers=1")
+target = tvm.target.Target("c_static_lib -mcpu=c7x -profile-layers=1")
 ```
 
 When `mcpu=c7x` is set, the following defaults apply:
@@ -376,7 +376,7 @@ architecture and DLOAD internals.
 
 ```bash
 # On dev host: compile model and build DLOAD module
-target = tvm.target.Target("c_static -mcpu=c7x")
+target = tvm.target.Target("c_static_lib -mcpu=c7x")
 # ... (produces lib0.c + weights.bin)
 # ... (TI CGT C7000 build produces lib0.out)
 
@@ -412,7 +412,7 @@ The C7x DLOAD flow spans two repositories:
 
 | Component | Repository | Path |
 |-----------|-----------|------|
-| c_static code generator | `tvm` | `src/target/c_static/` |
+| c_static_lib code generator | `tvm` | `src/target/c_static_lib/` |
 | TI DSP runtime | `tvm` | `src/runtime/ti_dsp/` |
 | `bin_to_asm.py` (weights embedder) | `tvm` | `src/runtime/ti_dsp/scripts/` |
 | DLOAD linker script + stubs | `tvm` | `src/runtime/ti_dsp/dynmod/c7x_dynmod/` |
@@ -422,7 +422,7 @@ The C7x DLOAD flow spans two repositories:
 
 ## C7x DMA Tiling
 
-When targeting `c_static -mcpu=c7x`, the compiler automatically applies
+When targeting `c_static_lib -mcpu=c7x`, the compiler automatically applies
 DMA-based double-buffered tiling to conv2d layers whose working set
 exceeds the L2 SRAM budget.  This overlaps data movement (DDR to L2)
 with computation using the C7x DMA engine.
@@ -487,7 +487,7 @@ MakePackedAPI
 
 **Stage 3 -- C codegen and linking**
 
-The c_static codegen emits `tvm_dsp_dma_copy()` and
+The c_static_lib codegen emits `tvm_dsp_dma_copy()` and
 `tvm_dsp_dma_wait()` as regular C function calls.  The DSP runtime
 header (`dma/tvm_dsp_dma.h`) is included via `kDSPHeaders` in the code
 template.  At link time, the calls resolve to:
@@ -565,7 +565,7 @@ emulation and C7x hardware.
 | `python/tvm/relax/transform/schedule_c7x_dma.py` | ScheduleC7xDMATiling pass |
 | `python/tvm/tir/pipeline.py` | `_c7x_dma_tir_pipeline` with reordered DMA lowering |
 | `python/tvm/tir/transform/lower_dma_to_extern.py` | `LowerDMAToExtern` pass (TIR intrinsics to call_extern) |
-| `src/target/c_static/codegen_c_static_templates.h` | `kDSPHeaders` includes `dma/tvm_dsp_dma.h` |
+| `src/target/c_static_lib/codegen_c_static_lib_templates.h` | `kDSPHeaders` includes `dma/tvm_dsp_dma.h` |
 | `src/runtime/ti_dsp/dma/tvm_dsp_dma.h` | DMA API header |
 | `src/runtime/ti_dsp/dma/tvm_dsp_dma.c` | C7x hardware stub (memcpy, Phase 1) |
 | `src/runtime/ti_dsp/dma/tvm_dsp_dma_host.c` | Host emulation stub (memcpy) |
@@ -577,14 +577,14 @@ emulation and C7x hardware.
 ### Directory Structure
 
 ```
-src/target/c_static/
-|-- codegen_c_static.h           # Core code generator class
-|-- codegen_c_static.cc          # Main implementation (~1800 lines)
-|-- codegen_c_static_dsp.h       # DSP extension class
-|-- codegen_c_static_dsp.cc      # TI DSP pragmas, profiling
-|-- codegen_c_static_wrapper.h   # Wrapper generator class
-|-- codegen_c_static_wrapper.cc  # C++ wrapper generation
-|-- codegen_c_static_templates.h # Code templates (headers, helpers)
+src/target/c_static_lib/
+|-- codegen_c_static_lib.h           # Core code generator class
+|-- codegen_c_static_lib.cc          # Main implementation (~1800 lines)
+|-- codegen_c_static_lib_dsp.h       # DSP extension class
+|-- codegen_c_static_lib_dsp.cc      # TI DSP pragmas, profiling
+|-- codegen_c_static_lib_wrapper.h   # Wrapper generator class
+|-- codegen_c_static_lib_wrapper.cc  # C++ wrapper generation
+|-- codegen_c_static_lib_templates.h # Code templates (headers, helpers)
 |-- weight_packer.cc             # Weight/constant serialization to weights.bin
 ```
 
@@ -592,7 +592,7 @@ src/target/c_static/
 
 | Class | Responsibility |
 |-------|----------------|
-| `CodeGenCStatic` | Core TIR-to-C code generation, inherits from CodeGenC |
+| `CodeGenCStaticLib` | Core TIR-to-C code generation, inherits from CodeGenC |
 | `DSPCodeGenExtension` | Emit TI DSP pragmas, headers, profiling infrastructure |
 | `WrapperGenerator` | Generate C++ wrapper functions for exported functions |
 
@@ -631,7 +631,7 @@ struct DSPConfig {
 
 ## C++ API for VM Operations
 
-The c_static backend includes an optimized C++ API mode (`-use-cpp-api=1`) that
+The c_static_lib backend includes an optimized C++ API mode (`-use-cpp-api=1`) that
 bypasses the FFI layer for VM operations, providing significant performance gains
 on embedded targets.
 
@@ -670,11 +670,11 @@ _r.SetNDArray(3, vm::AllocTensor(_r.GetStorage(2), 0, _c.GetShape(5), _c.GetDTyp
 | `use-cpp-api` | `true` | Direct C++ calls (~12% faster) |
 | `skip-runtime-checks` | `true` | Skip tensor validation (~5% faster) |
 
-Both optimizations are **enabled by default** for all c_static targets.
+Both optimizations are **enabled by default** for all c_static_lib targets.
 
 ## Building and Testing
 
-### Build TVM with c_static Backend
+### Build TVM with c_static_lib Backend
 
 ```bash
 # Configure build
@@ -708,7 +708,7 @@ ninja
 cd $TVM_HOME
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 
-# C static backend tests
+# C static lib backend tests
 pytest tests/cstatic/unit-tests/test_conv2d.py -v
 pytest tests/cstatic/unit-tests/test_resnet.py -v
 pytest tests/cstatic/unit-tests/test_matmul.py -v

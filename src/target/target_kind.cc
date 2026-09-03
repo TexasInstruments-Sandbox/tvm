@@ -265,21 +265,21 @@ TargetJSON TestTargetParser(TargetJSON target) {
 }
 
 /*!
- * \brief Update the attributes in the C Static target.
+ * \brief Update the attributes in the C Static Lib target.
  * \param target The Target to update
  * \return The updated attributes
  *
- * This parser validates mcpu and device options for the c_static backend.
+ * This parser validates mcpu and device options for the c_static_lib backend.
  * Supported mcpu values include: c66x, c7x, arm-cortex-a, generic
  * The device option allows specifying a specific device instance.
  */
-TargetJSON UpdateCStaticAttrs(TargetJSON target) {
+TargetJSON UpdateCStaticLibAttrs(TargetJSON target) {
   // Validate mcpu if specified
   if (target.count("mcpu")) {
     ffi::String mcpu = Downcast<ffi::String>(target.at("mcpu"));
     std::string mcpu_str = mcpu;
 
-    // List of known/supported CPU prefixes for c_static
+    // List of known/supported CPU prefixes for c_static_lib
     bool valid_mcpu = false;
     if (support::StartsWith(mcpu_str, "c66") ||      // TI C66x DSP family
         support::StartsWith(mcpu_str, "c7") ||       // TI C7x DSP family
@@ -289,7 +289,7 @@ TargetJSON UpdateCStaticAttrs(TargetJSON target) {
     }
 
     if (!valid_mcpu) {
-      LOG(WARNING) << "c_static target: unrecognized mcpu value '" << mcpu_str
+      LOG(WARNING) << "c_static_lib target: unrecognized mcpu value '" << mcpu_str
                    << "'. Known prefixes: c66, c7, arm, generic. "
                    << "Proceeding anyway, but code generation may not be optimized.";
     }
@@ -306,7 +306,7 @@ TargetJSON UpdateCStaticAttrs(TargetJSON target) {
   if (target.count("device")) {
     ffi::String device = Downcast<ffi::String>(target.at("device"));
     std::string device_str = device;
-    LOG(INFO) << "c_static target configured for device: " << device_str;
+    LOG(INFO) << "c_static_lib target configured for device: " << device_str;
 
     // AWR L6844: TI radar processor with C66x DSP
     if (device_str == "awrl6844") {
@@ -506,7 +506,7 @@ TVM_REGISTER_TARGET_KIND("composite", kDLCPU)  // line break
 TVM_REGISTER_TARGET_KIND("test", kDLCPU)  // line break
     .set_target_parser(TestTargetParser);
 
-TVM_REGISTER_TARGET_KIND("c_static", kDLCPU)
+TVM_REGISTER_TARGET_KIND("c_static_lib", kDLCPU)
     .add_attr_option<ffi::Array<ffi::String>>("mattr")
     .add_attr_option<ffi::String>("mcpu")
     .add_attr_option<int64_t>("constants-byte-alignment", 16)
@@ -532,8 +532,8 @@ TVM_REGISTER_TARGET_KIND("c_static", kDLCPU)
     .add_attr_option<bool>("tidl-kernels", true)
     // Use MMALIB for eligible matmul/conv2d ops (requires mcpu=c7x)
     .add_attr_option<bool>("mmalib", false)
-    .set_default_keys({"c_static", "cpu"})
-    .set_target_parser(UpdateCStaticAttrs);
+    .set_default_keys({"c_static_lib", "cpu"})
+    .set_target_parser(UpdateCStaticLibAttrs);
 
 /**********  Registry  **********/
 

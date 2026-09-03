@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""C7x Arm runtime wrapper — Python inference API for TVM c_static modules.
+"""C7x Arm runtime wrapper — Python inference API for TVM c_static_lib modules.
 
 Provides a VirtualMachine-compatible interface that routes inference to the
 C7x DSP via the c7x_compute IPC service using ctypes bindings to

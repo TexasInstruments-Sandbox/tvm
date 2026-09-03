@@ -287,9 +287,9 @@ class Module(_Module):
             else:
                 path_cc = os.path.join(workspace_dir, f"{pack_lib_prefix}devc.c")
 
-                # If we are dealing with the c_static target, export weights to binary
+                # If we are dealing with the c_static_lib target, export weights to binary
                 target = kwargs.get('target', None) if kwargs else None
-                if target and 'c_static' in target.keys:
+                if target and 'c_static_lib' in target.keys:
                     path_bin = os.path.join(workspace_dir, f"{pack_lib_prefix}weights.bin")
                     with open(path_cc, "w") as f:
                         f.write(_ffi_api.ModulePackWeightsToBinary(self, path_bin, target))

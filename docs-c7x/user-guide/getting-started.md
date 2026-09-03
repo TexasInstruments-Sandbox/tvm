@@ -136,7 +136,7 @@ TI's MMALIB library, which programs the C7x MMA coprocessor via a
 with quantization scale/shift/bias folded in at compile time:
 
 ```
-target = "c_static -mcpu=c7x -mmalib=1"
+target = "c_static_lib -mcpu=c7x -mmalib=1"
 ```
 
 A single 64ch 56×56 int8 conv2d layer takes ~45M cycles as C7x

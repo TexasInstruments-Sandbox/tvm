@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(CStaticTestExecutable CXX C)
+project(CStaticLibTestExecutable CXX C)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)

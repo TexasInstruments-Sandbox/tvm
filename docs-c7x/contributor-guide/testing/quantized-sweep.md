@@ -1,7 +1,7 @@
 # Quantized Model Sweep
 
 End-to-end tests for INT8-quantized TorchVision and YOLO models (PT2E
-`C7xMMAQuantizer`) on the TVM `c_static` backend, with and without MMALIB
+`C7xMMAQuantizer`) on the TVM `c_static_lib` backend, with and without MMALIB
 offload, on C7x host emulation and real hardware (AM67A and BeagleY-AI).
 Located at `tests/ti-dsp-runtime/quantized/`.
 
@@ -34,7 +34,7 @@ python quantized/test_quantized_resnet.py --dsp-mode c7x_host --mmalib
 codegen target and the SSH deploy host both depend on it): run them one at
 a time, in the foreground, never in the background or concurrently (single
 DSP core; conflicts hang the firmware and require a board reboot/power
-cycle). BeagleY-AI's firmware has no TIDL kernels linked, so its `c_static`
+cycle). BeagleY-AI's firmware has no TIDL kernels linked, so its `c_static_lib`
 target string needs `-tidl-kernels=0`; `get_target_string()` in
 `dsp-cpp/dsp_utils.py` adds this automatically whenever `--board
 beagley-ai` is passed.
@@ -101,7 +101,7 @@ does a `topk`/advanced-indexing-heavy postprocess:
 
 Beyond the frontend, `relax.topk` itself had no DSP-compilable
 implementation at all: its only lowering is a runtime packed-function call
-(`tvm.contrib.sort.topk`), which `c_static`'s standalone-C executables have
+(`tvm.contrib.sort.topk`), which `c_static_lib`'s standalone-C executables have
 no way to satisfy. A hand-written kernel
 (`src/runtime/ti_dsp/kernels/c7x_topk.cpp`, wired in via `call_extern` the
 same way MMALIB conv2d is) closes this gap for every C7x target, not just
@@ -389,7 +389,7 @@ of relying on the default.
 
 ## Prerequisites
 
-- TVM built with the `c_static` backend (`TVM_HOME` set, `PYTHONPATH`
+- TVM built with the `c_static_lib` backend (`TVM_HOME` set, `PYTHONPATH`
   includes `python/`)
 - `TI_CGT_C7000_PATH` for DSP tests
 - For `c7x_dload`: firmware deployed on the target board (`deploy-c7x.sh

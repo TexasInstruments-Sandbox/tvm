@@ -181,7 +181,7 @@ def get_tir_pipeline(name: str = "default", **kwargs) -> tvm.transform.Pass:
 
 
 def _c7x_dma_tir_pipeline():
-    """TIR pipeline for c_static -mcpu=c7x with async DMA lowering.
+    """TIR pipeline for c_static_lib -mcpu=c7x with async DMA lowering.
 
     Stripped-down fork of ``default_tir_pipeline`` tailored for a
     single-core CPU DSP target (no GPU, no threads, no shared memory,
@@ -283,7 +283,7 @@ def get_default_tir_pipeline(
     target: tvm.target.Target,  # pylint: disable=unused-argument
 ) -> tvm.transform.Pass:
     """Get the default TIR pipeline for the given target."""
-    if target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x":
+    if target.kind.name == "c_static_lib" and getattr(target, "mcpu", "") == "c7x":
         return _c7x_dma_tir_pipeline()
     if target.kind.name == "opencl" and "adreno" in target.keys:
         return backend.adreno.get_tir_pipeline(target)

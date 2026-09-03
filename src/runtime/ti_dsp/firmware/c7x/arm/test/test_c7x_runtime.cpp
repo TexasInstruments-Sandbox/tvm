@@ -12,7 +12,7 @@
  *                    [--ref ref.bin]   [--atol 1e-3]
  *
  * Arguments:
- *   lib0.out    TVM c_static DLOAD module built by build_dsp_dynmod() or
+ *   lib0.out    TVM c_static_lib DLOAD module built by build_dsp_dynmod() or
  *               TIDLOffloadCompiler.build().  The file is uploaded to the
  *               C7x DSP via DLOAD; weights may be embedded or separate.
  *   input.bin   Raw tensor data: flat, contiguous, row-major, no header.

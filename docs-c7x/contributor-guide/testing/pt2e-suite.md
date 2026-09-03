@@ -1,6 +1,6 @@
 # PT2E Quantizer Suite
 
-End-to-end tests for the `C7xMMAQuantizer` → TVM c_static → MMALIB pipeline.
+End-to-end tests for the `C7xMMAQuantizer` → TVM c_static_lib → MMALIB pipeline.
 `C7xMMAQuantizer` is a `torchao` `Quantizer` subclass that annotates a PyTorch
 exported graph for int8 or int16 quantization targeting TI C7x MMALIB kernels.
 Located at `tests/ti-dsp-runtime/pt2e-tests/`.
@@ -29,7 +29,7 @@ The tests validate the full quantization pipeline:
 float PyTorch model
   → C7xMMAQuantizer (prepare_pt2e / calibrate / convert_pt2e)
   → from_exported_program  →  Relax IRModule
-  → c_static -mcpu=c7x -mmalib=1  (FuseMMALIBQDQ* passes)
+  → c_static_lib -mcpu=c7x -mmalib=1  (FuseMMALIBQDQ* passes)
   → MMALIB kernel on c7x_host / c7x_dload
 ```
 
@@ -127,7 +127,7 @@ error scales with √K; observed max ≤ 6 in practice):
 
 Tests `FuseQDQToC7xActivation`, `FuseQDQToC7xAvgPool`, and
 `FuseQDQToC7xLayerNorm` at the Relax IR level without DSP execution. These
-passes run unconditionally on every c_static target (not gated behind TIDL
+passes run unconditionally on every c_static_lib target (not gated behind TIDL
 offload, unlike e.g. `FuseQDQToTIDLMaxPool`) — despite the `_TIDL_ACT_OPS`
 name in the quantizer source, the kernels they emit (`c7x_int8_gelu`, etc.)
 are plain C7x kernels available on every board, including BeagleY-AI.
@@ -198,7 +198,7 @@ Two assertions: (1) top-1 prediction matches without MMALIB (validates import pi
 
 ## Prerequisites
 
-- TVM built with c_static backend (`TVM_HOME` set, `PYTHONPATH` includes `python/`)
+- TVM built with c_static_lib backend (`TVM_HOME` set, `PYTHONPATH` includes `python/`)
 - For DSP tests: TI C7000 CGT (`TI_CGT_C7000_PATH`)
 - For `c7x_dload` tests: firmware deployed on AM67A board (`deploy-c7x.sh`)
 - DSP runtime built: `cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host`

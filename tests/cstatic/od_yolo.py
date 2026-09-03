@@ -7,7 +7,7 @@ supporting YOLOv5 (via torch.hub), YOLOv8, and YOLOv11 (via ultralytics package)
 Features:
     - Automatic loading of YOLOv5, YOLOv8, and YOLOv11 models
     - PyTorch inference (default)
-    - TVM C Static compilation and inference (--tvm)
+    - TVM C Static Lib compilation and inference (--tvm)
     - Side-by-side comparison of PyTorch vs TVM results (--compare)
     - Batch testing of multiple YOLO variants
     - Comprehensive logging with adjustable verbosity levels
@@ -47,7 +47,7 @@ Command-Line Options:
     --parallel                 Run tests in parallel (only with --test-all)
     --workers N                Number of parallel workers (default: CPU count)
     --log-file PATH            CSV log file for appending results (with --test-all)
-    --tvm                      Use TVM compilation with C Static target
+    --tvm                      Use TVM compilation with C Static Lib target
     --compare                  Compare PyTorch vs TVM results
     --score-threshold FLOAT    Minimum confidence score for detections (default: 0.25)
     --verbose, -v              Enable verbose output with detailed logging
@@ -67,7 +67,7 @@ Supported Models:
 Note on TVM Support:
     TVM compilation extracts the core YOLO model without pre/post-processing wrappers.
     The compiled model produces raw detection outputs (no NMS) which are post-processed
-    in Python. Currently, only YOLOv5 successfully compiles with TVM C Static backend.
+    in Python. Currently, only YOLOv5 successfully compiles with TVM C Static Lib backend.
 """
 
 import argparse
@@ -101,7 +101,7 @@ DEFAULT_SCORE_THRESHOLD = 0.25  # YOLO default confidence threshold
 DEFAULT_IOU_THRESHOLD = 0.45  # YOLO default NMS IoU threshold
 IOU_THRESHOLD = 0.5  # For box matching in comparisons
 DEFAULT_INPUT_SHAPE = (1, 3, 640, 640)  # YOLOv5 default input size
-C_STATIC_TARGET = "c_static"
+C_STATIC_LIB_TARGET = "c_static_lib"
 LLVM_TARGET = "llvm"
 
 # Thread lock for CSV file writing
@@ -765,7 +765,7 @@ def run_inference_tvm(
     original_image_size: Optional[Tuple[int, int]] = None,
     version: str = "v5",
 ) -> Dict[str, torch.Tensor]:
-    """Run inference using TVM with C Static target for YOLO models
+    """Run inference using TVM with C Static Lib target for YOLO models
 
     Args:
         mod: TVM IRModule to execute
@@ -782,7 +782,7 @@ def run_inference_tvm(
     Raises:
         RuntimeError: If TVM compilation or execution fails
     """
-    logger.debug("  Compiling with TVM C Static backend...")
+    logger.debug("  Compiling with TVM C Static Lib backend...")
 
     # Add batch dimension if needed
     if image_tensor.ndim == 3:
@@ -795,9 +795,9 @@ def run_inference_tvm(
         image_tensor = F.resize(image_tensor, [640, 640])
 
     try:
-        # Compile and run on C Static target
+        # Compile and run on C Static Lib target
         tvm_output = compile_and_run_on_target(
-            target_string=C_STATIC_TARGET,
+            target_string=C_STATIC_LIB_TARGET,
             mod=mod,
             input=image_tensor.numpy(),
             verbose_output=False,
@@ -943,7 +943,7 @@ def main(
     Args:
         model_name: YOLO model variant name (e.g., 'yolov5s', 'yolo11n')
         image_url: URL or path to image, or None for default
-        use_tvm: Use TVM C Static compilation
+        use_tvm: Use TVM C Static Lib compilation
         compare: Compare PyTorch vs TVM results
         score_threshold: Minimum confidence score for detections
         iou_threshold: NMS IoU threshold
@@ -1475,7 +1475,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tvm",
         action="store_true",
-        help="Use TVM compilation with C Static target",
+        help="Use TVM compilation with C Static Lib target",
     )
     parser.add_argument(
         "--compare",

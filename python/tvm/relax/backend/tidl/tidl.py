@@ -14,12 +14,12 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""TIDL offload compiler for TVM/Relax c_static backend.
+"""TIDL offload compiler for TVM/Relax c_static_lib backend.
 
 Orchestrates the multi-phase pipeline:
   1. Partition — identify TIDL-supported subgraphs via pattern matching
   2. Import   — run TIDL compile-time import (produces net.bin / params.bin)
-  3. Lower    — replace TIDL functions with extern calls for c_static codegen
+  3. Lower    — replace TIDL functions with extern calls for c_static_lib codegen
 
 Phases 2-3 require the TIDL import library (.so); phase 1 is self-contained.
 """
@@ -857,7 +857,7 @@ class TIDLOffloadCompiler:
 
         Each ``Codegen="tidl"`` function is replaced with a TIR PrimFunc
         that calls ``tidl_subgraph_N_process(input_ptrs..., output_ptr)``
-        via ``call_extern``.  The c_static codegen then emits the
+        via ``call_extern``.  The c_static_lib codegen then emits the
         appropriate TIDL init/process/free lifecycle code.
 
         Subgraphs in ``failed_subgraphs`` are not lowered to TIDL stubs;
@@ -980,7 +980,7 @@ class TIDLOffloadCompiler:
         Returns
         -------
         mod : IRModule
-            Module ready for c_static codegen with TIDL subgraphs lowered
+            Module ready for c_static_lib codegen with TIDL subgraphs lowered
             to extern calls.
         artifacts : dict
             TIDL artifacts ``{sg_name: {"net_bin": path, "io_bin": path}}``.
@@ -1017,9 +1017,9 @@ class TIDLOffloadCompiler:
         params : dict, optional
             Named parameters to bind as constants.
         target : str, optional
-            TVM target string for c_static codegen.  If None, the default
-            is chosen based on *exec_mode*: ``"c_static -mcpu=c7x
-            -use-cpp-api=1"`` for c7x_dload, ``"c_static -mcpu=c7x"``
+            TVM target string for c_static_lib codegen.  If None, the default
+            is chosen based on *exec_mode*: ``"c_static_lib -mcpu=c7x
+            -use-cpp-api=1"`` for c7x_dload, ``"c_static_lib -mcpu=c7x"``
             for c7x_host.
         build_dir : str, optional
             Directory for cmake build output. If None, a temp dir is used.
@@ -1085,9 +1085,9 @@ class TIDLOffloadCompiler:
         artifacts = artifacts or {}
         if target is None:
             target = (
-                "c_static -mcpu=c7x -use-cpp-api=1"
+                "c_static_lib -mcpu=c7x -use-cpp-api=1"
                 if exec_mode == "c7x_dload"
-                else "c_static -mcpu=c7x"
+                else "c_static_lib -mcpu=c7x"
             )
 
         # 2. Compile to C via relax.build
@@ -1868,7 +1868,7 @@ def _strip_codegen_attr(func: relax.Function) -> relax.Function:
     the function is treated as a plain private Relax function by
     relax.build() — NOT as an external codegen function.
 
-    Setting Codegen="" (empty string) is not sufficient: the c_static
+    Setting Codegen="" (empty string) is not sufficient: the c_static_lib
     backend checks for a non-null Codegen attr and treats such functions
     as external, emitting packed function dispatch instead of inlining.
     """
@@ -2112,7 +2112,7 @@ def _lower_tidl_pass(
     # Fallback functions have no global_symbol (private) and are called by
     # main via regular Relax Call nodes.  Without inlining, relax.build
     # would lower those calls through the packed API
-    # (tir.anylist_setitem_call_packed) which codegen_c_static cannot emit.
+    # (tir.anylist_setitem_call_packed) which codegen_c_static_lib cannot emit.
     # Inlining eliminates the cross-function calls entirely.
     if fallback_funcs:
         result = relax.transform.ToNonDataflow()(result)

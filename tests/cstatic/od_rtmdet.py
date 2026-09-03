@@ -7,7 +7,7 @@ from the MMDetection framework.
 Features:
     - Automatic loading of RTMDet models (tiny, s, m, l, x variants)
     - PyTorch inference (default)
-    - TVM C Static compilation and inference (--tvm)
+    - TVM C Static Lib compilation and inference (--tvm)
     - Side-by-side comparison of PyTorch vs TVM results (--compare)
     - Batch testing of multiple RTMDet variants
     - Comprehensive logging with adjustable verbosity levels
@@ -44,7 +44,7 @@ Command-Line Options:
     --parallel                 Run tests in parallel (only with --test-all)
     --workers N                Number of parallel workers (default: CPU count)
     --log-file PATH            CSV log file for appending results (with --test-all)
-    --tvm                      Use TVM compilation with C Static target
+    --tvm                      Use TVM compilation with C Static Lib target
     --compare                  Compare PyTorch vs TVM results
     --score-threshold FLOAT    Minimum confidence score for detections (default: 0.25)
     --verbose, -v              Enable verbose output with detailed logging
@@ -95,7 +95,7 @@ DEFAULT_SCORE_THRESHOLD = 0.25  # Default confidence threshold
 DEFAULT_IOU_THRESHOLD = 0.45  # Default NMS IoU threshold
 IOU_THRESHOLD = 0.5  # For box matching in comparisons
 DEFAULT_INPUT_SHAPE = (1, 3, 640, 640)  # RTMDet default input size
-C_STATIC_TARGET = "c_static"
+C_STATIC_LIB_TARGET = "c_static_lib"
 LLVM_TARGET = "llvm"
 
 # Thread lock for CSV file writing
@@ -523,7 +523,7 @@ class RTMDetWrapper(nn.Module):
 
         Note:
             The nested tuple structure (cls_scores, bbox_preds) is flattened
-            to avoid complexity in TVM C Static compilation. Post-processing
+            to avoid complexity in TVM C Static Lib compilation. Post-processing
             code will reconstruct the nested structure.
         """
         # Backbone forward (extract multi-scale features)
@@ -726,7 +726,7 @@ def run_inference_tvm(
     compare_llvm: bool = False,
     original_image_size: Optional[Tuple[int, int]] = None,
 ) -> Dict[str, torch.Tensor]:
-    """Run inference using TVM with C Static target for RTMDet
+    """Run inference using TVM with C Static Lib target for RTMDet
 
     Args:
         mod: TVM IRModule to execute
@@ -742,7 +742,7 @@ def run_inference_tvm(
     Raises:
         RuntimeError: If TVM compilation or execution fails
     """
-    logger.debug("  Compiling with TVM C Static backend...")
+    logger.debug("  Compiling with TVM C Static Lib backend...")
 
     # Add batch dimension if needed
     if image_tensor.ndim == 3:
@@ -775,7 +775,7 @@ def run_inference_tvm(
         # - Saves all outputs to NPZ file
         # - Returns list of numpy arrays
         tvm_outputs = compile_and_run_on_target(
-            target_string=C_STATIC_TARGET,
+            target_string=C_STATIC_LIB_TARGET,
             mod=mod,
             input=image_tensor.numpy(),
             verbose_output=False,
@@ -950,7 +950,7 @@ def main(
     Args:
         model_name: RTMDet model variant name (e.g., 'rtmdet_s', 'rtmdet_m')
         image_url: URL or path to image, or None for default
-        use_tvm: Use TVM C Static compilation
+        use_tvm: Use TVM C Static Lib compilation
         compare: Compare PyTorch vs TVM results
         score_threshold: Minimum confidence score for detections
         iou_threshold: NMS IoU threshold
@@ -1007,7 +1007,7 @@ def main(
                 mod = prepare_model_for_tvm(model, DEFAULT_INPUT_SHAPE)
 
                 tvm_compile_success = True
-                logger.info("Running TVM inference with C Static backend...")
+                logger.info("Running TVM inference with C Static Lib backend...")
 
                 tvm_detections_dict = run_inference_tvm(
                     mod,
@@ -1446,7 +1446,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tvm",
         action="store_true",
-        help="Use TVM compilation with C Static target",
+        help="Use TVM compilation with C Static Lib target",
     )
     parser.add_argument(
         "--compare",

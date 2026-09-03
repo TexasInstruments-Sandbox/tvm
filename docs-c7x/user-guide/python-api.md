@@ -1,6 +1,6 @@
 # Python / C++ API Reference: `C7xVirtualMachine` / `c7x::Module`
 
-Arm-side inference API for TVM `c_static` modules running on the C7x DSP.
+Arm-side inference API for TVM `c_static_lib` modules running on the C7x DSP.
 Provides a `relax.VirtualMachine`-compatible interface in both Python and
 C++, routing inference to the DSP via the `c7x_compute` IPC service.
 
@@ -98,7 +98,7 @@ vm.is_loaded     # True if the module is currently loaded on the DSP (bool)
 C7xVirtualMachine(module_path, so_path="libc7x_arm_runtime.so")
 ```
 
-- `module_path`: path to `lib0.out` (the TVM c_static dynmod)
+- `module_path`: path to `lib0.out` (the TVM c_static_lib dynmod)
 - `so_path`: name or path of `libc7x_arm_runtime.so`. A bare name (the
   default) first checks the wheel's own bundled copy
   (`tvm.data.ti_dsp.paths.find_c7x_arm_runtime_so()`), then falls back to

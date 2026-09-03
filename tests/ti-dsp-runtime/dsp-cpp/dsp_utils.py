@@ -1,5 +1,5 @@
 """
-DSP compilation and execution utilities for TVM C static backend.
+DSP compilation and execution utilities for TVM C static lib backend.
 
 This module provides utilities for compiling TVM IRModules to C code for DSP,
 building executables for host emulation and TI DSP hardware, and running inference
@@ -197,7 +197,7 @@ def get_target_string(
     use_cpp_api: bool = False,
 ) -> str:
     """
-    Get the c_static target string for the given DSP execution mode.
+    Get the c_static_lib target string for the given DSP execution mode.
 
     Centralizes the mode-to-target mapping so that test files do not
     need to enumerate DSP modes individually.
@@ -208,12 +208,12 @@ def get_target_string(
         use_cpp_api: Append -use-cpp-api=1 flag
 
     Returns:
-        Target string, e.g. "c_static -mcpu=c7x -use-cpp-api=1"
+        Target string, e.g. "c_static_lib -mcpu=c7x -use-cpp-api=1"
     """
     if dsp_mode in _C7X_MODES:
-        target = "c_static -mcpu=c7x"
+        target = "c_static_lib -mcpu=c7x"
     else:
-        target = "c_static -mcpu=c66x"
+        target = "c_static_lib -mcpu=c66x"
     if profile_layers:
         target += " -profile-layers"
     if use_cpp_api:
@@ -466,19 +466,19 @@ def read_tensors_from_file(filename: str) -> List[np.ndarray]:
 
 def compile_for_dsp(
     mod: tvm.IRModule,
-    target_string: str = "c_static -mcpu=c66x",
+    target_string: str = "c_static_lib -mcpu=c66x",
     output_dir: Optional[Path] = None,
     relax_pipeline=None,
 ) -> Path:
     """
     Compile TVM IRModule to C code for DSP.
 
-    This function compiles a TVM IRModule using the c_static backend and exports
+    This function compiles a TVM IRModule using the c_static_lib backend and exports
     the generated files (lib0.c, devc.c, weights.bin) to the output directory.
 
     Args:
         mod: TVM IRModule to compile (should have parameters bound)
-        target_string: Target specification (default: "c_static -mcpu=c66x")
+        target_string: Target specification (default: "c_static_lib -mcpu=c66x")
         output_dir: Directory to store generated files.
                    If None, creates a temporary directory.
         relax_pipeline: Custom Relax compilation pipeline.
@@ -761,7 +761,7 @@ def build_dsp_c7x_host(
     """
     Build DSP executable for C7x host emulation using TI Host Emulation library.
 
-    This compiles TVM-generated C code (from c_static -mcpu=c7x) with system g++
+    This compiles TVM-generated C code (from c_static_lib -mcpu=c7x) with system g++
     and the TI C7000 Host Emulation library, producing an x86-64 executable that
     emulates C7x vector types and intrinsics.
 
@@ -1499,7 +1499,7 @@ def run_dsp_c66x(
 def compile_and_run_dsp(
     mod: tvm.IRModule,
     input_data: Union[np.ndarray, tuple],
-    target_string: str = "c_static -mcpu=c66x",
+    target_string: str = "c_static_lib -mcpu=c66x",
     execution_mode: str = "c66x_host",
     build_type: str = "Release",
     timeout_ms: int = 60000,
@@ -1527,7 +1527,7 @@ def compile_and_run_dsp(
     Args:
         mod: TVM IRModule to compile (should have parameters bound)
         input_data: Input data as numpy array or tuple of arrays.
-        target_string: Target specification (default: "c_static -mcpu=c66x")
+        target_string: Target specification (default: "c_static_lib -mcpu=c66x")
         execution_mode: "c66x_host", "c66x", "c7x_host", or "c7x_dload"
         build_type: Build type - "Release" (default) or "Debug".
         timeout_ms: Execution timeout for DSP hardware in milliseconds
@@ -1557,7 +1557,7 @@ def compile_and_run_dsp(
 
     # c7x_host mode always uses C7x code generation
     if execution_mode == "c7x_host" and "mcpu=c7x" not in target_string:
-        target_string = "c_static -mcpu=c7x"
+        target_string = "c_static_lib -mcpu=c7x"
 
     # Convert input_data to list of arrays if needed
     input_tensors: List[np.ndarray]

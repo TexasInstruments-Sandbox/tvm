@@ -20,7 +20,7 @@ PT2E ("Post-Training Export 2E") is PyTorch's graph-level quantization pipeline:
 a Quantizer subclass annotates an FX graph with quantization specs; prepare_pt2e
 inserts calibration observers at those points; after calibration, convert_pt2e
 replaces the observers with explicit Q/DQ (quantize/dequantize) nodes.  TVM then
-imports the Q/DQ graph and its c_static backend fuses the Q/DQ sequences with
+imports the Q/DQ graph and its c_static_lib backend fuses the Q/DQ sequences with
 MMALIB kernel calls.
 
 See docs/dsp/c7x_mma_quantizer.md for the full pipeline and usage examples.
@@ -194,7 +194,7 @@ class C7xMMAQuantizer(Quantizer):
     3. ``convert_pt2e`` replaces the observers with explicit Q/DQ (quantize /
        dequantize) nodes, producing a graph of the form
        ``q → dq → op → q → dq → ...``.
-    4. TVM imports the Q/DQ graph; its c_static backend fuses Q/DQ sequences with
+    4. TVM imports the Q/DQ graph; its c_static_lib backend fuses Q/DQ sequences with
        MMALIB kernel calls via passes: FuseMMALIBQDQConv2d, FuseMMALIBQDQDwConv2d,
        FuseMMALIBQDQFC, FuseInt8ResidualAdd.
 

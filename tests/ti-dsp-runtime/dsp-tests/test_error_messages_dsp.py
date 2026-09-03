@@ -2,7 +2,7 @@
 """
 Error message and compilation validation test for DSP targets.
 
-Tests that the C Static backend can compile models correctly and validates
+Tests that the C Static Lib backend can compile models correctly and validates
 basic error handling with DSP target settings.
 
 This test runs on host emulation only.
@@ -98,7 +98,7 @@ def test_simple_model_compiles_with_dsp_target(dsp_mode):
     input_data = np.random.rand(1, 3, 224, 224).astype(np.float32)
 
     # Should compile and run without error
-    target_string = "c_static -mcpu=c66x -use-cpp-api=0"
+    target_string = "c_static_lib -mcpu=c66x -use-cpp-api=0"
     results = compile_and_run_dsp(
         mod=mod,
         input_data=input_data,
@@ -131,7 +131,7 @@ def test_small_model_compiles_with_dsp_target(dsp_mode):
     input_data = np.random.rand(1, 10).astype(np.float32)
 
     # Should compile and run without error
-    target_string = "c_static -mcpu=c66x -use-cpp-api=0"
+    target_string = "c_static_lib -mcpu=c66x -use-cpp-api=0"
     results = compile_and_run_dsp(
         mod=mod,
         input_data=input_data,
@@ -163,7 +163,7 @@ def test_dsp_target_with_skip_runtime_checks(dsp_mode):
     input_data = np.random.rand(1, 10).astype(np.float32)
 
     # Test with skip-runtime-checks=1
-    target_string = "c_static -mcpu=c66x -use-cpp-api=0 -skip-runtime-checks=1"
+    target_string = "c_static_lib -mcpu=c66x -use-cpp-api=0 -skip-runtime-checks=1"
     results = compile_and_run_dsp(
         mod=mod,
         input_data=input_data,

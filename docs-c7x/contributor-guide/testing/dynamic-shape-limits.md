@@ -1,6 +1,6 @@
 # Dynamic Shape Limitations
 
-Tests for Relax IR dynamic features on the c_static backend with the
+Tests for Relax IR dynamic features on the c_static_lib backend with the
 C7x DSP runtime. These validate that models with runtime-determined
 shapes and conditional logic compile and execute correctly. Located at
 `tests/ti-dsp-runtime/dynamic-tests/`.
@@ -50,7 +50,7 @@ python tests/ti-dsp-runtime/dynamic-tests/test_if_dsp.py --dsp-mode c7x_host
 python tests/ti-dsp-runtime/dynamic-tests/test_dynamic_batch_dsp.py --dsp-mode c7x_host
 ```
 
-## How dynamic shapes work in c_static
+## How dynamic shapes work in c_static_lib
 
 The shape heap pipeline handles runtime dimension values:
 
@@ -73,10 +73,10 @@ itself with updated arguments until a termination condition is met.
 This requires `vm.builtin.invoke_closure` with a runtime function
 dispatch table.
 
-The c_static backend generates standalone C functions with no
+The c_static_lib backend generates standalone C functions with no
 inter-function call mechanism. Each Relax function becomes a single
 C function, and there is no function table or dispatch loop. This
-means tail-recursive patterns cannot be compiled to c_static.
+means tail-recursive patterns cannot be compiled to c_static_lib.
 
 This is a fundamental architectural constraint of the static C
 codegen, not a bug. Models that need iterative computation

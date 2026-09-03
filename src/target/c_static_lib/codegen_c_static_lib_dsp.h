@@ -18,7 +18,7 @@
  */
 
 /*!
- * \file codegen_c_static_dsp.h
+ * \file codegen_c_static_lib_dsp.h
  * \brief TI DSP-specific code generation extensions.
  *
  * This module provides helper functions for generating code specific to
@@ -28,10 +28,10 @@
  * - Layer-level cycle profiling infrastructure
  *
  * Design: Stateless helper class with static methods. State (layer counts,
- * profiled layer names) remains in CodeGenCStatic's DSPConfig struct.
+ * profiled layer names) remains in CodeGenCStaticLib's DSPConfig struct.
  */
-#ifndef TVM_TARGET_SOURCE_CODEGEN_CSTATIC_DSP_H_
-#define TVM_TARGET_SOURCE_CODEGEN_CSTATIC_DSP_H_
+#ifndef TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_DSP_H_
+#define TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_DSP_H_
 
 #include <tvm/ir/expr.h>
 #include <tvm/tir/stmt.h>
@@ -162,4 +162,4 @@ class DSPCodeGenExtension {
 }  // namespace codegen
 }  // namespace tvm
 
-#endif  // TVM_TARGET_SOURCE_CODEGEN_CSTATIC_DSP_H_
+#endif  // TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_DSP_H_

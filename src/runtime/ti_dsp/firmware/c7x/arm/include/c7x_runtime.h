@@ -1,5 +1,5 @@
 /*
- * C7x Arm Runtime — C++ inference API for TVM c_static modules on AM67A.
+ * C7x Arm Runtime — C++ inference API for TVM c_static_lib modules on AM67A.
  *
  * Provides a VirtualMachine-compatible interface that routes inference to the
  * C7x DSP via the c7x_compute IPC service.  Only depends on DLPack (no TVM
@@ -67,7 +67,7 @@ struct OutputTensor {
 class Module {
 public:
     /*
-     * Load a TVM c_static lib0.out for C7x inference.
+     * Load a TVM c_static_lib lib0.out for C7x inference.
      *
      * Opens a connection to the c7x_compute IPC service and DYN_LOADs the
      * module.  Connection and module handle are released on Close() or ~Module().

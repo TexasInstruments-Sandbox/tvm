@@ -12,7 +12,7 @@ Usage (c7x/MMALIB -- the common case, one call)::
     # from_exported_program) -- visualize_compile applies the compile
     # pipeline itself, cheaply, and needs the un-lowered module to do so.
     visualize_compile(
-        mod, "c_static -mcpu=c7x -mmalib=1", "/tmp/graph.html",
+        mod, "c_static_lib -mcpu=c7x -mmalib=1", "/tmp/graph.html",
         title="yolov8n MMALIB Offload",
         dsp_stdout=dsp_results.get("c7x_dload_stdout", ""),  # optional
     )
@@ -1113,7 +1113,7 @@ def visualize_compile(
         original module, not something already lowered.
     target : str or tvm.target.Target
         The same target used (or that will be used) for the real compile,
-        e.g. ``"c_static -mcpu=c7x -mmalib=1"``. c7x-only: the manifest this
+        e.g. ``"c_static_lib -mcpu=c7x -mmalib=1"``. c7x-only: the manifest this
         depends on (``EmitC7xLayerManifest``) only runs for c7x targets, so
         a non-c7x target still produces a graph (falling back to
         ``_extract_graph``'s plain heuristics) but with no cycle-count
@@ -1143,7 +1143,7 @@ def visualize_compile(
         from tvm.contrib.c7x.visualize import visualize_compile
 
         visualize_compile(
-            mod, "c_static -mcpu=c7x -mmalib=1", "/tmp/graph.html",
+            mod, "c_static_lib -mcpu=c7x -mmalib=1", "/tmp/graph.html",
             title="yolov8n MMALIB Offload",
             dsp_stdout=dsp_results.get("c7x_dload_stdout", ""),
         )

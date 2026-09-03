@@ -140,7 +140,7 @@ def compile_and_test(model, x, dsp_mode, test_name, apply_dequant=True):
         mod = relax.transform.RewriteDequantize()(mod)
         mod = relax.transform.DeadCodeElimination()(mod)
 
-    target_string = "c_static -mcpu=c7x"
+    target_string = "c_static_lib -mcpu=c7x"
     artifacts = Path(f"/tmp/xfmr_test_{test_name}_{dsp_mode}")
     artifacts.mkdir(parents=True, exist_ok=True)
     generated_dir = compile_for_dsp(mod, target_string, output_dir=artifacts)

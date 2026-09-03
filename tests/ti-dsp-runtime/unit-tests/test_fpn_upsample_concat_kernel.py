@@ -263,7 +263,7 @@ def _build_fpn_module_ex(C1, H, W, z1, s1, C2, z2, s2, s_out, z_out):
             # larger function, never itself a compiled function's own
             # top-level return value. Returning the raw 2-different-shape
             # tuple directly as this test module's own output hits an
-            # unrelated c_static/DLOAD limitation with multi-shape top-level
+            # unrelated c_static_lib/DLOAD limitation with multi-shape top-level
             # function outputs (confirmed via direct testing -- not
             # reproducible in the real yolov8n/yolo26n models, where this
             # exact kernel + tuple-output path is proven correct on real

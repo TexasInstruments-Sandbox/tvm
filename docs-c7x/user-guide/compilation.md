@@ -6,7 +6,7 @@ Compilation turns a PyTorch model -- quantized or plain float32 -- into
 a runnable artifact: a `lib0.out` DLOAD module for on-board deployment
 (`c7x_dload`), or a native executable for host emulation (`c7x_host`,
 no board needed). Four stages: PyTorch's own export, TVM's Relax import
-of that exported program into an `IRModule`, and TVM's `c_static`
+of that exported program into an `IRModule`, and TVM's `c_static_lib`
 backend compiling that `IRModule` to C source + a weights file (the
 public TVM APIs), then the TI toolchain building that C source into the
 final artifact (a native build -- not a TVM API, and the mechanics
@@ -20,7 +20,7 @@ flowchart TD
     R -->|"yes -- see Quantization"| T["PT2E: prepare_pt2e / calibrate /<br/>convert_pt2e, then re-export"]
     T --> S
     S --> A["Relax IRModule"]
-    A --> B["relax.build(mod, target)<br/>c_static -mcpu=c7x [-mmalib=1]"]
+    A --> B["relax.build(mod, target)<br/>c_static_lib -mcpu=c7x [-mmalib=1]"]
     B --> C["lib0.c / devc.c / weights.bin<br/>(export_library)"]
     C --> D["cl7x + lnk7x --dynamic=lib<br/>DLOAD linker script"]
     C --> E["g++ + TI C7000<br/>Host Emulation library"]
@@ -57,7 +57,7 @@ below, whether it came from a float or quantized model.
 ### Target string
 
 ```python
-target = tvm.target.Target("c_static -mcpu=c7x -mmalib=1")
+target = tvm.target.Target("c_static_lib -mcpu=c7x -mmalib=1")
 ```
 
 `mcpu` selects the DSP family (`c66x` or `c7x`); everything else is a
@@ -109,7 +109,7 @@ with target:
 
 - `exec_mode="compiled"` -- compiles the VM's own control flow to native
   code instead of interpreting bytecode (the default `"bytecode"` mode);
-  required for `c_static`'s fully-static, no-interpreter-loop model.
+  required for `c_static_lib`'s fully-static, no-interpreter-loop model.
 - `system_lib=True` -- packs the result as a statically-linked system
   library that auto-registers its functions, instead of a dynamically
   loaded module. Matches an embedded target with no shared-library
@@ -137,8 +137,8 @@ on the mode:
 - **`c7x_dload`**: the TI CGT C7000 compiler and a DLOAD linker script
   (`--dynamic=lib`) build `lib0.c` into a relocatable C7x ELF
   (`lib0.out`), with `weights.bin` embedded as a `.rodata.weights`
-  section. See [C Static Backend -- Building a DLOAD
-  Module](../contributor-guide/backend/c-static.md#building-a-dload-module)
+  section. See [C Static Lib Backend -- Building a DLOAD
+  Module](../contributor-guide/backend/c-static-lib.md#building-a-dload-module)
   for the two-stage link and the full end-to-end diagram.
 - **`c7x_host`**: system `g++`, plus TI's C7000 Host Emulation library
   (emulates C7x vector types/intrinsics on x86), build `lib0.c` into a
@@ -223,7 +223,7 @@ are picked up straight from `generated_dir` by the CMake build. See
 ## See Also
 
 - [Quantization](quantization.md) -- producing the input `IRModule`.
-- [C Static Backend](../contributor-guide/backend/c-static.md) --
+- [C Static Lib Backend](../contributor-guide/backend/c-static-lib.md) --
   DLOAD build internals, codegen architecture.
 - [MMALIB Integration](../contributor-guide/backend/mmalib-integration.md)
   -- what the default pipeline's MMALIB passes actually do.

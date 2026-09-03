@@ -149,7 +149,7 @@ def test_n_layers(dsp_mode, n_layers, seq_len=16, quantize=True):
         mod = relax.transform.DeadCodeElimination()(mod)
 
     q_label = "INT8" if quantize else "FP32"
-    target_string = "c_static -mcpu=c7x"
+    target_string = "c_static_lib -mcpu=c7x"
     artifacts = Path(f"/tmp/smollm_trunc_{q_label}_{dsp_mode}_{n_layers}L")
     artifacts.mkdir(parents=True, exist_ok=True)
     generated_dir = compile_for_dsp(mod, target_string, output_dir=artifacts)

@@ -26,7 +26,7 @@ Pipeline (all steps happen on the dev host except step 5):
      not random noise, unlike quantized/model_utils.py's
      create_quantized_resnet_model(), which only needs DSP-vs-CPU
      consistency for its own tests, not real classification accuracy.
-  3. Compile it for the C7x DSP with MMALIB offload (c_static backend) and
+  3. Compile it for the C7x DSP with MMALIB offload (c_static_lib backend) and
      build a DLOAD module (lib0.out).
   4. Cross-compile resnet18_board_runner.cpp against the already
      cross-compiled libc7x_arm_runtime.so.

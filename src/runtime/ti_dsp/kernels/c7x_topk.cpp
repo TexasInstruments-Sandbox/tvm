@@ -19,7 +19,7 @@
 
 /*
  * Top-k value+index selection along the innermost axis, batched over any
- * leading dimensions. Backs relax.topk for the c_static/C7x backend, which
+ * leading dimensions. Backs relax.topk for the c_static_lib/C7x backend, which
  * has no TVM runtime linked in and so cannot use topi's default
  * tvm.contrib.sort.topk (a packed-function call) -- see
  * ti_c7x_topk_legalize.py for how this kernel is wired in via call_extern.

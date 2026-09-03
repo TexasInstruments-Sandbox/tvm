@@ -1,6 +1,6 @@
 # MMALIB Integration Tests
 
-End-to-end tests for TVM c_static backend calling MMALIB functions
+End-to-end tests for TVM c_static_lib backend calling MMALIB functions
 directly on the C7x MMA accelerator (AM67A / J722S).
 
 See [MMALIB Test Suite](../../../docs-c7x/contributor-guide/testing/mmalib-suite.md)

@@ -43,7 +43,7 @@ extern "C" {
 /*!
  * \brief Maximum number of elements in a DSP array container.
  *
- * This limit is enforced at compile time by c_static backend.
+ * This limit is enforced at compile time by c_static_lib backend.
  * Models with more outputs will fail compilation with a clear error.
  */
 /* Raised from 8 to 128 to support KV cache models that return

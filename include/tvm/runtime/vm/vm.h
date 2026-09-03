@@ -139,7 +139,7 @@ class VirtualMachine : public ffi::ModuleObj {
   /*!
    * \brief Initialize allocators only (without loading functions).
    *
-   * Used by the c_static backend to set up memory allocators for
+   * Used by the c_static_lib backend to set up memory allocators for
    * statically-compiled code that doesn't need the full VM Init sequence.
    * \param devices The set of TVM devices.
    * \param alloc_types The allocator types for each device.

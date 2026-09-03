@@ -34,7 +34,7 @@ classification for this release, see
 
 | Target | Device | DSP |
 |--------|--------|-----|
-| `c_static -mcpu=c7x` | J722S / AM67A | C7™ DSP |
+| `c_static_lib -mcpu=c7x` | J722S / AM67A | C7™ DSP |
 
 Two boards are supported via `--board`/`--ddr` on the runtime and
 firmware build scripts (see the usage header in

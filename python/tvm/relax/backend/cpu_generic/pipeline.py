@@ -23,8 +23,8 @@ from tvm.ir.transform import PassContext
 
 
 def _is_c7x_target(target: tvm.target.Target) -> bool:
-    """True for a ``c_static -mcpu=c7x`` target (DSP vector pipeline)."""
-    return target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x"
+    """True for a ``c_static_lib -mcpu=c7x`` target (DSP vector pipeline)."""
+    return target.kind.name == "c_static_lib" and getattr(target, "mcpu", "") == "c7x"
 
 
 @tvm.transform.module_pass(opt_level=0, name="ConvertLayoutNHWC")
@@ -185,7 +185,7 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # Non-MMALIB path: convert to NHWC, default legalization.
     # relax.topk has no default TIR legalization on this backend (its only
     # CPU lowering is a packed-function call via DispatchSortScan, which
-    # c_static's pipeline never runs and whose standalone-C executables
+    # c_static_lib's pipeline never runs and whose standalone-C executables
     # couldn't satisfy anyway -- see ti_c7x_topk_legalize.py). Register the
     # C7x kernel-backed legalization for it on every c7x target, independent
     # of -mmalib=1.

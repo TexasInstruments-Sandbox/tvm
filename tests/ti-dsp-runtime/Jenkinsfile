@@ -251,10 +251,10 @@ pipeline {
                             # breaks yolov5n/yolov8n/yolov8s/yolo26n codegen; 8.4.14 doesn't.
                             uv pip install "ultralytics==8.4.14"
                             # tvm-ffi's checkout tracks public apache/tvm-ffi, which lacks
-                            # the c_static device mapping -- apply the vendored patch
-                            # (patches/tvm-ffi-c_static-device.patch, run via
-                            # patches/apply.sh) before installing it, or c_static targets
-                            # fail at tvm.device("c_static") with an unrecognized device.
+                            # the c_static_lib device mapping -- apply the vendored patch
+                            # (patches/tvm-ffi-c_static_lib-device.patch, run via
+                            # patches/apply.sh) before installing it, or c_static_lib targets
+                            # fail at tvm.device("c_static_lib") with an unrecognized device.
                             bash patches/apply.sh
                             uv pip install -e 3rdparty/tvm-ffi
                         '''
@@ -707,7 +707,7 @@ pipeline {
                         // InceptionV3/ResNeXt101 excluded here (but not from the
                         // --mmalib stage below): without MMALIB's grouped-conv
                         // path, ResNeXt101's 33 grouped convs fall back to the
-                        // plain scalar c_static path, which fails on real
+                        // plain scalar c_static_lib path, which fails on real
                         // c7x_dload hardware ("c7x: INFER failed: status=-11").
                         // Confirmed both models run cleanly on hardware with
                         // --mmalib; this is specific to the un-accelerated path.

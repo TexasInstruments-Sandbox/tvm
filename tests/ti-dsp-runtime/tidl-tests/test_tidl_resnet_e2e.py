@@ -3,7 +3,7 @@
 
 Builds ResNet-18 two ways and runs both on AM67A C7x hardware:
   1. TIDL-offloaded  -- conv/bn/relu subgraphs run on MMA via TIDL (int8)
-  2. Pure c_static   -- entire model runs as float32 on C7x scalar pipeline
+  2. Pure c_static_lib   -- entire model runs as float32 on C7x scalar pipeline
 
 Both outputs are compared against PyTorch for correctness, and cycle
 counts from the DSP's TSC counter are printed side-by-side.
@@ -146,7 +146,7 @@ class TestTIDLResNetE2E:
         """Build ResNet-18 with TIDL offloading (no hardware needed).
 
         Validates the full TIDL pipeline: prepare -> partition ->
-        tidl_import -> lower -> c_static codegen -> bridge -> dynmod.
+        tidl_import -> lower -> c_static_lib codegen -> bridge -> dynmod.
         """
         from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
@@ -300,7 +300,7 @@ class TestTIDLResNetE2E:
                 shutil.rmtree(str(result.build_dir), ignore_errors=True)
 
     def test_tidl_vs_tvm_cycles(self, tmp_path, dsp_mode):
-        """Compare TIDL-offloaded vs pure c_static cycle counts.
+        """Compare TIDL-offloaded vs pure c_static_lib cycle counts.
 
         Requires AM67A hardware with c7x_compute firmware running.
         """
@@ -350,7 +350,7 @@ class TestTIDLResNetE2E:
                 shutil.rmtree(str(tidl_result.gen_dir), ignore_errors=True)
                 shutil.rmtree(str(tidl_result.build_dir), ignore_errors=True)
 
-        # --- Non-TIDL (pure c_static) path ---
+        # --- Non-TIDL (pure c_static_lib) path ---
         mod_bound = relax.transform.BindParams(func_name="main", params=param_dict)(mod)
         target_string = get_target_string(dsp_mode, use_cpp_api=True)
         tvm_results = compile_and_run_dsp(

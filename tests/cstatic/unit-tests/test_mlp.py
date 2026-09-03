@@ -43,13 +43,13 @@ def create_mlp_model():
 
 # Parameters too large for source approach
 @pytest.mark.parametrize(
-    "target_c_static",
+    "target_c_static_lib",
     [
-        "c_static",
+        "c_static_lib",
     ],
 )
-def test_mlp_comparison(target_c_static):
-    """Test MLP model comparing llvm vs c_static targets."""
+def test_mlp_comparison(target_c_static_lib):
+    """Test MLP model comparing llvm vs c_static_lib targets."""
     mod = create_mlp_model()
     input_data = np.random.rand(1, 784).astype("float32")
 
@@ -57,19 +57,19 @@ def test_mlp_comparison(target_c_static):
     llvm_result = compile_and_run_on_target(
         target_string="llvm", mod=mod, input=input_data, entry_func_name="forward"
     )
-    c_static_result = compile_and_run_on_target(
-        target_string=target_c_static, mod=mod, input=input_data, entry_func_name="forward"
+    c_static_lib_result = compile_and_run_on_target(
+        target_string=target_c_static_lib, mod=mod, input=input_data, entry_func_name="forward"
     )
 
     # Handle multi-output case: extract first output if model returns multiple outputs
     if isinstance(llvm_result, list):
         llvm_result = llvm_result[0]
-    if isinstance(c_static_result, list):
-        c_static_result = c_static_result[0]
+    if isinstance(c_static_lib_result, list):
+        c_static_lib_result = c_static_lib_result[0]
 
     # Compare results
-    assert np.allclose(llvm_result, c_static_result, rtol=1e-3, atol=1e-5), (
-        f"Results differ for {target_c_static}. Max difference: {np.max(np.abs(llvm_result - c_static_result))}"
+    assert np.allclose(llvm_result, c_static_lib_result, rtol=1e-3, atol=1e-5), (
+        f"Results differ for {target_c_static_lib}. Max difference: {np.max(np.abs(llvm_result - c_static_lib_result))}"
     )
 
 

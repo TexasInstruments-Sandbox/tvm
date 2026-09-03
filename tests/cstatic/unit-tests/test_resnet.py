@@ -33,22 +33,22 @@ def create_resnet_model():
 
 
 # Parameters are too large to use the C source approach
-@pytest.mark.parametrize("target_c_static", ["c_static"])
-def test_resnet_comparison(target_c_static):
-    """Test ResNet-18 model comparing llvm vs c_static targets."""
+@pytest.mark.parametrize("target_c_static_lib", ["c_static_lib"])
+def test_resnet_comparison(target_c_static_lib):
+    """Test ResNet-18 model comparing llvm vs c_static_lib targets."""
     mod = create_resnet_model()
     input_data = np.random.rand(1, 3, 224, 224).astype("float32")
 
     # Get results from both targets
     llvm_result = compile_and_run_on_target(target_string="llvm", mod=mod, input=input_data)
 
-    c_static_result = compile_and_run_on_target(
-        target_string=target_c_static, mod=mod, input=input_data
+    c_static_lib_result = compile_and_run_on_target(
+        target_string=target_c_static_lib, mod=mod, input=input_data
     )
 
     # Compare results
-    assert np.allclose(llvm_result, c_static_result, rtol=1e-3, atol=1e-5), (
-        f"Results differ for {target_c_static}. Max difference: {np.max(np.abs(llvm_result - c_static_result))}"
+    assert np.allclose(llvm_result, c_static_lib_result, rtol=1e-3, atol=1e-5), (
+        f"Results differ for {target_c_static_lib}. Max difference: {np.max(np.abs(llvm_result - c_static_lib_result))}"
     )
 
 

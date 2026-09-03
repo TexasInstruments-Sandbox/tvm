@@ -25,7 +25,7 @@ te.ScanOp ("Only te.placeholder and te.compute are allowed for now"), so
 te.scan-based ops are unreachable from Relax. te.extern with an ir_builder-
 authored body is the alternative recurrence mechanism TVM itself uses for the
 same reason (see topi/scan.py's cumsum/cumprod) -- it lowers to a genuine TIR
-`for` loop that survives Relax's c_static build pipeline unchanged, instead of
+`for` loop that survives Relax's c_static_lib build pipeline unchanged, instead of
 unrolling into one op per timestep.
 """
 from tvm import te, tir

@@ -2,7 +2,7 @@
 Pytest configuration for dynamic shape / control flow tests.
 
 These tests validate Relax IR features (If expressions, dynamic shapes,
-tail-recursive loops) with the c_static backend on C7x targets.
+tail-recursive loops) with the c_static_lib backend on C7x targets.
 
 Usage:
     # C7x host emulation (x86, fast)
