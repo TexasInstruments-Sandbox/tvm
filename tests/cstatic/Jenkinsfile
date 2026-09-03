@@ -1,6 +1,6 @@
-// TVM C Static Backend Validation Pipeline
+// TVM C Static Lib Backend Validation Pipeline
 //
-// Builds TVM (2-pass: shared + static runtime) and runs the c_static
+// Builds TVM (2-pass: shared + static runtime) and runs the c_static_lib
 // backend unit test suite.  All tests run on x86 -- no hardware board
 // required.
 //
@@ -12,7 +12,7 @@
 //        git config --global http.proxy http://webproxy.ext.ti.com:80
 //        git config --global https.proxy http://webproxy.ext.ti.com:80
 //   4. Pre-cache torchvision model weights on the Jenkins node.
-//      The c_static tests load pretrained models (resnet18, vit_b_16,
+//      The c_static_lib tests load pretrained models (resnet18, vit_b_16,
 //      etc.) which torchvision downloads from download.pytorch.org on
 //      first use.  The Jenkins node cannot reach this URL through the
 //      corporate proxy, so cache ahead of time:
@@ -147,6 +147,12 @@ pipeline {
                                 --extra-index-url https://download.pytorch.org/whl/cpu
                             uv pip install "torchao==0.16.0" --extra-index-url https://download.pytorch.org/whl/cpu
                             uv pip install onnx Pillow opencv-python requests ultralytics seaborn matplotlib
+                            # tvm-ffi's checkout tracks public apache/tvm-ffi, which lacks
+                            # the c_static_lib device mapping -- apply the vendored patch
+                            # (patches/tvm-ffi-c_static_lib-device.patch, run via
+                            # patches/apply.sh) before installing it, or c_static_lib targets
+                            # fail at tvm.device("c_static_lib") with an unrecognized device.
+                            bash patches/apply.sh
                             uv pip install -e 3rdparty/tvm-ffi
                         '''
                     }
