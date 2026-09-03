@@ -42,11 +42,11 @@ class TestCompileWheelContents:
             "LLVM not enabled in libtvm.so — rebuild with USE_LLVM=ON"
         )
 
-    def test_c_static_target(self):
-        """c_static target must be registered."""
+    def test_c_static_lib_target(self):
+        """c_static_lib target must be registered."""
         import tvm
-        target = tvm.target.Target("c_static -mcpu=c7x")
-        assert target.kind.name == "c_static"
+        target = tvm.target.Target("c_static_lib -mcpu=c7x")
+        assert target.kind.name == "c_static_lib"
 
     def test_dsp_data_paths(self):
         """Bundled DSP data directory must exist with paths module."""

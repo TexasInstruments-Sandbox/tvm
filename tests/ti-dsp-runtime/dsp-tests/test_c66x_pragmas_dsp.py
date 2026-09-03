@@ -36,33 +36,33 @@ class TestC66xTargetParsing:
 
     def test_c66x_target_mcpu(self):
         """Verify mcpu attribute is correctly parsed for C66x target."""
-        target = tvm.target.Target("c_static -mcpu=c66x")
+        target = tvm.target.Target("c_static_lib -mcpu=c66x")
         assert target.attrs.get("mcpu") == "c66x"
 
     def test_c66x_alignment_64_bytes(self):
         """Verify C66x target uses 64-byte alignment (cache line aligned)."""
-        target = tvm.target.Target("c_static -mcpu=c66x")
+        target = tvm.target.Target("c_static_lib -mcpu=c66x")
         assert target.attrs.get("constants-byte-alignment") == 64
 
     def test_c7x_alignment_64_bytes(self):
         """Verify C7x target also uses 64-byte alignment."""
-        target = tvm.target.Target("c_static -mcpu=c7x")
+        target = tvm.target.Target("c_static_lib -mcpu=c7x")
         assert target.attrs.get("constants-byte-alignment") == 64
 
     def test_generic_alignment_16_bytes(self):
-        """Verify generic c_static target uses default 16-byte alignment."""
-        target = tvm.target.Target("c_static")
+        """Verify generic c_static_lib target uses default 16-byte alignment."""
+        target = tvm.target.Target("c_static_lib")
         assert target.attrs.get("constants-byte-alignment") == 16
 
     def test_c66x_with_device(self):
         """Verify C66x target with device attribute."""
-        target = tvm.target.Target("c_static -mcpu=c66x -device=awrl6844")
+        target = tvm.target.Target("c_static_lib -mcpu=c66x -device=awrl6844")
         assert target.attrs.get("mcpu") == "c66x"
         assert target.attrs.get("device") == "awrl6844"
 
     def test_c66x_default_optimizations(self):
         """Verify C66x target has default optimizations enabled."""
-        target = tvm.target.Target("c_static -mcpu=c66x")
+        target = tvm.target.Target("c_static_lib -mcpu=c66x")
         # Default optimizations for C66x
         assert target.attrs.get("skip-runtime-checks") == 1
         assert target.attrs.get("use-cpp-api") == 1
@@ -103,23 +103,23 @@ class TestC66xPragmaGeneration:
 
     def test_c66x_ti_compiler_guard(self):
         """Verify TI compiler version guard is present."""
-        code = self._build_simple_loop("c_static -mcpu=c66x")
+        code = self._build_simple_loop("c_static_lib -mcpu=c66x")
         assert "__TI_COMPILER_VERSION__" in code
 
     def test_c66x_c6x_header(self):
         """Verify c6x.h header is included for TI DSP target."""
-        code = self._build_simple_loop("c_static -mcpu=c66x")
+        code = self._build_simple_loop("c_static_lib -mcpu=c66x")
         assert "#include <c6x.h>" in code
 
     def test_generic_no_ti_headers(self):
-        """Verify generic c_static target does NOT emit TI-specific headers."""
-        code = self._build_simple_loop("c_static")
+        """Verify generic c_static_lib target does NOT emit TI-specific headers."""
+        code = self._build_simple_loop("c_static_lib")
         assert "#include <c6x.h>" not in code
         assert "__TI_COMPILER_VERSION__" not in code
 
     def test_c7x_has_ti_compiler_guard(self):
         """Verify C7x target also emits the TI compiler version guard."""
-        code = self._build_simple_loop("c_static -mcpu=c7x")
+        code = self._build_simple_loop("c_static_lib -mcpu=c7x")
         assert "__TI_COMPILER_VERSION__" in code
 
 
@@ -135,17 +135,17 @@ class TestDSPCodeGenFeatures:
         """Verify use-cpp-api generates AnyArray wrapper code."""
         # This is a codegen test, not execution test
         # When use-cpp-api=1, generated code should use AnyArray wrappers
-        target = tvm.target.Target("c_static -mcpu=c66x -use-cpp-api=1")
+        target = tvm.target.Target("c_static_lib -mcpu=c66x -use-cpp-api=1")
         assert target.attrs.get("use-cpp-api") == 1
 
     def test_skip_runtime_checks_attribute(self):
         """Verify skip-runtime-checks attribute is recognized."""
-        target = tvm.target.Target("c_static -mcpu=c66x -skip-runtime-checks=1")
+        target = tvm.target.Target("c_static_lib -mcpu=c66x -skip-runtime-checks=1")
         assert target.attrs.get("skip-runtime-checks") == 1
 
     def test_profile_layers_attribute(self):
         """Verify profile-layers attribute is recognized."""
-        target = tvm.target.Target("c_static -mcpu=c66x -profile-layers=1")
+        target = tvm.target.Target("c_static_lib -mcpu=c66x -profile-layers=1")
         assert target.attrs.get("profile-layers") == 1
 
 

@@ -18,14 +18,14 @@
  */
 
 /*!
- * \file codegen_c_static.h
+ * \file codegen_c_static_lib.h
  * \brief Generate C code to build a static binary for Relax VM execution.
  *
  * This is an adaptation derived from CodeGenC (the generic C backend) and
  * CodeGenCHost (the C backend for a host CPU).
  */
-#ifndef TVM_TARGET_SOURCE_CODEGEN_CSTATIC_H_
-#define TVM_TARGET_SOURCE_CODEGEN_CSTATIC_H_
+#ifndef TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_H_
+#define TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_H_
 
 #include <set>
 #include <string>
@@ -90,15 +90,15 @@ inline bool IsVMBuiltin(const std::string& func_name) {
   return func_name.find(kVMBuiltinPrefix) == 0;
 }
 
-// Forward declare ScopeGuard (defined after CodeGenCStatic)
+// Forward declare ScopeGuard (defined after CodeGenCStaticLib)
 class ScopeGuard;
 
 // Static C Backend - enables generation of static binaries for Relax VM execution
-class CodeGenCStatic final : public CodeGenC {
+class CodeGenCStaticLib final : public CodeGenC {
  public:
   // ScopeGuard needs access to protected BeginScope/EndScope
   friend class ScopeGuard;
-  CodeGenCStatic();
+  CodeGenCStaticLib();
   void Init(bool output_ssa, bool emit_asserts, bool emit_fwd_func_decl,
             const std::string& target_str, const std::unordered_set<std::string>& devices,
             bool profile_layers = false, bool skip_runtime_checks = false,
@@ -164,11 +164,11 @@ class CodeGenCStatic final : public CodeGenC {
 
  private:
   /*!
-   * \brief Error Handling Policy for CodeGenCStatic
+   * \brief Error Handling Policy for CodeGenCStaticLib
    *
    * This code generator employs a multi-layered error handling strategy:
    *
-   * 1. **Code Generator Internal Errors** (CodeGenCStatic methods):
+   * 1. **Code Generator Internal Errors** (CodeGenCStaticLib methods):
    *    - Use LOG(FATAL) for unrecoverable internal errors (invariant violations)
    *    - Use LOG(WARNING)/DLOG(WARNING) for recoverable issues with fallback behavior
    *    - Use ICHECK for precondition validation
@@ -378,7 +378,7 @@ class CodeGenCStatic final : public CodeGenC {
  */
 class ScopeGuard {
  public:
-  explicit ScopeGuard(CodeGenCStatic* codegen)
+  explicit ScopeGuard(CodeGenCStaticLib* codegen)
       : codegen_(codegen), scope_id_(codegen->BeginScope()) {}
 
   ~ScopeGuard() { codegen_->EndScope(scope_id_); }
@@ -391,11 +391,11 @@ class ScopeGuard {
   ScopeGuard& operator=(ScopeGuard&&) = delete;
 
  private:
-  CodeGenCStatic* codegen_;
+  CodeGenCStaticLib* codegen_;
   int scope_id_;
 };
 
 }  // namespace codegen
 }  // namespace tvm
 
-#endif  // TVM_TARGET_SOURCE_CODEGEN_CSTATIC_H_
+#endif  // TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_H_

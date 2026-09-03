@@ -1,8 +1,8 @@
 """
-Relax If expression test on c_static / C7x DSP.
+Relax If expression test on c_static_lib / C7x DSP.
 
 Validates that the Relax IR If expression (runtime conditional branch
-selection) compiles and executes correctly through the c_static backend
+selection) compiles and executes correctly through the c_static_lib backend
 on C7x host emulation and C7x DLOAD hardware.
 
 Model structure

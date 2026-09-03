@@ -2,13 +2,14 @@
 """TorchVision Semantic Segmentation Model Tester
 
 This script provides comprehensive testing and validation for TorchVision semantic segmentation
-models, with support for TVM compilation and comparison between PyTorch and TVM C Static backends.
+models, with support for TVM compilation and comparison between PyTorch and TVM C Static Lib
+backends.
 
 Features:
     - Automatic discovery of all semantic segmentation models in TorchVision
     - Automatic extraction of preprocessing transforms from model weights
     - PyTorch inference (default)
-    - TVM C Static compilation and inference (--tvm)
+    - TVM C Static Lib compilation and inference (--tvm)
     - Side-by-side comparison of PyTorch vs TVM results (--compare)
     - Batch testing of multiple models with filtering and limits
     - Segmentation visualization with PASCAL VOC colormap and legend
@@ -19,10 +20,10 @@ Usage Examples:
     # Test single model with PyTorch
     python seg_torchvision.py --model fcn_resnet50
 
-    # Test with TVM C Static compilation
+    # Test with TVM C Static Lib compilation
     python seg_torchvision.py --model deeplabv3_resnet50 --tvm
 
-    # Compare PyTorch vs TVM C Static
+    # Compare PyTorch vs TVM C Static Lib
     python seg_torchvision.py --model lraspp_mobilenet_v3_large --compare
 
     # Test multiple models in parallel with filtering
@@ -53,7 +54,7 @@ Command-Line Options:
         Examples: 'test_images/bird_0.jpg', 'https://example.com/image.jpg'
 
     --tvm
-        Run TVM C Static compilation and inference (implies --compare)
+        Run TVM C Static Lib compilation and inference (implies --compare)
         Default: False (PyTorch only)
 
     --compare
@@ -184,7 +185,7 @@ DEFAULT_IMAGE_URL = "test_images/bird_0.jpg"
 DEFAULT_COCO_MEAN = [0.485, 0.456, 0.406]
 DEFAULT_COCO_STD = [0.229, 0.224, 0.225]
 DEFAULT_INPUT_SIZE = 512
-C_STATIC_TARGET = "c_static"
+C_STATIC_LIB_TARGET = "c_static_lib"
 LLVM_TARGET = "llvm"
 
 # Comparison tolerances
@@ -413,7 +414,7 @@ def get_preprocessing_from_weight(weight: Any, model_name: str) -> Callable:
 
     Note: We always build custom preprocessing with explicit resize to 224x224
     rather than using weight.transforms(). This ensures:
-    1. Manageable model size for TVM C Static compilation
+    1. Manageable model size for TVM C Static Lib compilation
     2. Reasonable compilation times
     3. Consistent input dimensions across all models
 
@@ -807,7 +808,7 @@ def prepare_model_for_tvm(model: nn.Module, image_tensor: torch.Tensor) -> tvm.I
 def run_inference_tvm(
     relax_module: tvm.IRModule,
     image_tensor: torch.Tensor,
-    target: str = C_STATIC_TARGET,
+    target: str = C_STATIC_LIB_TARGET,
 ) -> Any:
     """Compile and run TVM inference
 
@@ -847,7 +848,7 @@ def run_pytorch_inference(model: nn.Module, image_tensor: torch.Tensor) -> Dict[
 
 def print_comparison_table(results: List[ComparisonResult]) -> None:
     """Print comparison table"""
-    print("\nComparison Table: PyTorch vs TVM C Static")
+    print("\nComparison Table: PyTorch vs TVM C Static Lib")
     print("-" * 100)
     print(
         f"{'Model':<30} {'Classes Match':<15} {'Pixel Acc':<15} {'Mean IoU':<15} {'Max Logit Diff':<15}"
@@ -944,7 +945,7 @@ def test_single_model(model_name: str, image_path: str, compare: bool = False) -
         if compare:
             # TVM inference
             relax_mod = prepare_model_for_tvm(model, image_tensor)
-            tvm_result = run_inference_tvm(relax_mod, image_tensor, C_STATIC_TARGET)
+            tvm_result = run_inference_tvm(relax_mod, image_tensor, C_STATIC_LIB_TARGET)
             result.tvm_inference_success = True
             result.tvm_compile_success = True
 
@@ -1172,7 +1173,7 @@ def main():
             relax_mod = prepare_model_for_tvm(model, image_tensor)
 
             logger.info("Running TVM inference...")
-            tvm_result = run_inference_tvm(relax_mod, image_tensor, C_STATIC_TARGET)
+            tvm_result = run_inference_tvm(relax_mod, image_tensor, C_STATIC_LIB_TARGET)
             tvm_logits = extract_segmentation_output(tvm_result)
             tvm_mask = logits_to_segmentation_mask(tvm_logits)
             tvm_classes = sorted(np.unique(tvm_mask).tolist())

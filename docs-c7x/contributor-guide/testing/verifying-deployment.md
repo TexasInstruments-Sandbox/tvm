@@ -144,7 +144,7 @@ test_c7x_runtime <lib0.out> <input.bin>
                  [--ref ref.bin] [--atol TOL]
 
 Required:
-  lib0.out      TVM c_static DLOAD module (output of build_dsp_dynmod())
+  lib0.out      TVM c_static_lib DLOAD module (output of build_dsp_dynmod())
   input.bin     Raw binary input tensor, flat row-major, no header
 
 Optional:
@@ -194,5 +194,5 @@ Results: 5 passed, 0 failed
 | AM67A (J722S) board | Running Linux (Yocto/Ubuntu) |
 | c7x_compute firmware | Running on DSP; check with `c7x_compute ping` |
 | `libc7x_arm_runtime.so` | Installed via `./build.sh deploy` |
-| `lib0.out` | TVM c_static module for C7x (DLOAD-compatible ELF) |
+| `lib0.out` | TVM c_static_lib module for C7x (DLOAD-compatible ELF) |
 | `aarch64-linux-gnu-g++` | Cross-compiler, for building on dev PC |

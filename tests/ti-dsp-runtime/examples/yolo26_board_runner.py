@@ -6,7 +6,7 @@ This script runs *on* the board (BeagleY-AI/AM67A), never on the dev host.
 `run_yolo26_detection.py` (the host-side driver) scp's everything this
 script needs into one directory before invoking it over SSH:
 
-  - the compiled model (``lib0.out``, a TVM c_static DLOAD module)
+  - the compiled model (``lib0.out``, a TVM c_static_lib DLOAD module)
   - one ``input_<name>.npy`` per image to run
   - a copy of ``c7x_runtime.py`` (the ctypes wrapper behind
     ``tvm.contrib.c7x.C7xVirtualMachine``), imported directly here instead of

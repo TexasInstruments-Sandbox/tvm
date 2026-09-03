@@ -105,7 +105,7 @@ case "$SUBCOMMAND" in
         if [ "$TVM_TIDL" != "ON" ]; then
             echo ""
             echo "NOTE: This firmware has no TIDL kernels. Compile models with"
-            echo "      '-tidl-kernels=0' in the c_static target so max_pool2d"
+            echo "      '-tidl-kernels=0' in the c_static_lib target so max_pool2d"
             echo "      lowers to c7x_int8_max_pool; the default emits"
             echo "      c7x_int8_max_pool_tidl, which is absent here and fails"
             echo "      to resolve at DLOAD load time."

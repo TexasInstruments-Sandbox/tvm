@@ -1,4 +1,4 @@
-# TIDL Subgraph Offloading for Relax c_static Backend
+# TIDL Subgraph Offloading for Relax c_static_lib Backend
 
 Offload supported subgraphs from TVM/Relax models to TI Deep Learning
 (TIDL) on the C7x MMA accelerator.  Non-TIDL ops remain in TVM and
@@ -53,8 +53,8 @@ imported, artifacts = compiler.tidl_import(partitioned)
 # 3. Lower: replace TIDL functions with TIR extern stubs
 lowered = compiler.lower_tidl(imported, artifacts)
 
-# 4. Compile: generate C code via c_static
-target = tvm.target.Target("c_static -mcpu=c7x")
+# 4. Compile: generate C code via c_static_lib
+target = tvm.target.Target("c_static_lib -mcpu=c7x")
 ex = relax.build(lowered, target=target,
                  exec_mode="compiled", system_lib=True)
 ex.export_library("model.tar", target=target)
@@ -396,7 +396,7 @@ Lowered IR (TIR stubs + remaining Relax ops)
     |
     v
 Phase 5: generate_bridge() + relax.build()
-    |  c_static codegen emits lib0.c
+    |  c_static_lib codegen emits lib0.c
     v
 lib0.c + weights.bin + tidl_bridge.c/h
     |
@@ -447,11 +447,11 @@ Located in `src/runtime/ti_dsp/tidl/`, adapted from neo-tvm:
 
 ### Code generation
 
-`CodeGenCStatic` handles `call_extern` in TIR PrimFuncs natively, so
+`CodeGenCStaticLib` handles `call_extern` in TIR PrimFuncs natively, so
 no C++ changes were needed for the `_process()` calls themselves.
 One target attribute was added for TIDL: `-tidl-runtime=1` (see
-`src/target/c_static/codegen_c_static.{h,cc}`,
-`codegen_c_static_wrapper.cc`). When set, `EmitDSPWrappers` emits an
+`src/target/c_static_lib/codegen_c_static_lib.{h,cc}`,
+`codegen_c_static_lib_wrapper.cc`). When set, `EmitDSPWrappers` emits an
 `extern "C" tidl_bridge_init_all()` declaration and calls it from
 `cg_main_dsp` before the first inference, so every TIDL subgraph is
 initialized eagerly instead of the model module returning garbage on

@@ -1,10 +1,10 @@
-"""End-to-end tests for C7xMMAQuantizer → TVM c_static MMALIB pipeline.
+"""End-to-end tests for C7xMMAQuantizer → TVM c_static_lib MMALIB pipeline.
 
 Validates the full flow:
   float PyTorch model
   → C7xMMAQuantizer (prepare_pt2e / calibrate / convert_pt2e)
   → from_exported_program (Relax QDQ IR)
-  → c_static -mcpu=c7x -mmalib=1   (FuseMMALIBQDQ* passes)
+  → c_static_lib -mcpu=c7x -mmalib=1   (FuseMMALIBQDQ* passes)
   → MMALIB kernel on c7x_host / c7x_dload
 
 Correctness: DSP int8 output is compared against the PyTorch quantized model

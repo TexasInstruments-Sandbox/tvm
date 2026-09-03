@@ -195,7 +195,7 @@ class TestSiluF32OutMovementOrdering:
         import tvm.target
         from tvm.relax.backend.cpu_generic.pipeline import legalize_passes
 
-        target = tvm.target.Target("c_static -mcpu=c7x -mmalib=1")
+        target = tvm.target.Target("c_static_lib -mcpu=c7x -mmalib=1")
         passes = legalize_passes(target)
         names = [type(p).__name__ for p in passes]
         # module_pass-decorated classes report their pass name via .info.name,

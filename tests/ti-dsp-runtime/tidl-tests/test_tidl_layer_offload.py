@@ -2113,7 +2113,7 @@ class TestLayerHardware:
         assert n >= 1
         assert np.isfinite(output).all()
 
-    @pytest.mark.skip(reason="pixel_shuffle has no TOPI lowering for c_static")
+    @pytest.mark.skip(reason="pixel_shuffle has no TOPI lowering for c_static_lib")
     def test_depth_to_space_hw(self, dsp_mode, tmp_path):
         """Depth-to-space (pixel shuffle factor=2) offloaded to TIDL on AM67A."""
         output, n = self._run(

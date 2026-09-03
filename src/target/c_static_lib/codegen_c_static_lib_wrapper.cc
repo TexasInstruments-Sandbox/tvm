@@ -18,10 +18,10 @@
  */
 
 /*!
- * \file codegen_c_static_wrapper.cc
+ * \file codegen_c_static_lib_wrapper.cc
  * \brief Implementation of wrapper function generator.
  */
-#include "codegen_c_static_wrapper.h"
+#include "codegen_c_static_lib_wrapper.h"
 
 #include <tvm/ffi/extra/module.h>
 #include <cstring>

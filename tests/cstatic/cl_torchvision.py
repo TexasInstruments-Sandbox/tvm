@@ -2,13 +2,13 @@
 """TorchVision Classification Model Tester
 
 This script provides comprehensive testing and validation for TorchVision classification models,
-with support for TVM compilation and comparison between PyTorch and TVM C Static backends.
+with support for TVM compilation and comparison between PyTorch and TVM C Static Lib backends.
 
 Features:
     - Automatic discovery of all ImageNet classification models in TorchVision
     - Automatic extraction of preprocessing transforms from model weights
     - PyTorch inference (default)
-    - TVM C Static compilation and inference (--tvm)
+    - TVM C Static Lib compilation and inference (--tvm)
     - Side-by-side comparison of PyTorch vs TVM results (--compare)
     - Batch testing of multiple models with filtering and limits
     - Configuration file support for reusable test setups
@@ -18,10 +18,10 @@ Usage Examples:
     # Test single model with PyTorch
     python cl_torchvision.py --model resnet50
 
-    # Test with TVM C Static compilation
+    # Test with TVM C Static Lib compilation
     python cl_torchvision.py --model resnet18 --tvm
 
-    # Compare PyTorch vs TVM C Static
+    # Compare PyTorch vs TVM C Static Lib
     python cl_torchvision.py --model mobilenet_v3_small --compare
 
     # Test multiple models with filtering
@@ -55,7 +55,7 @@ Command-Line Options:
     --parallel                 Run tests in parallel (only with --test-all)
     --workers N                Number of parallel workers (default: CPU count)
     --log-file PATH            CSV log file for appending results (with --test-all)
-    --tvm                      Use TVM compilation with C Static target
+    --tvm                      Use TVM compilation with C Static Lib target
     --compare                  Compare PyTorch vs TVM results (implies --tvm)
     --verbose, -v              Enable verbose output with detailed logging
     --quiet, -q                Enable quiet mode (minimal output)
@@ -143,7 +143,7 @@ DEFAULT_IMAGENET_STD = [0.229, 0.224, 0.225]
 DEFAULT_RESIZE_SIZE = 256
 DEFAULT_CROP_SIZE = 224
 DEFAULT_INPUT_SHAPE = (1, 3, 224, 224)
-C_STATIC_TARGET = "c_static"
+C_STATIC_LIB_TARGET = "c_static_lib"
 LLVM_TARGET = "llvm"
 
 # Comparison tolerances
@@ -594,7 +594,7 @@ def prepare_model_for_tvm(
 def run_inference_tvm(
     mod: tvm.IRModule, image_tensor: torch.Tensor, compare_llvm: bool = True
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Run inference using TVM with C Static target (optionally comparing with LLVM)
+    """Run inference using TVM with C Static Lib target (optionally comparing with LLVM)
 
     Args:
         mod: TVM IRModule to execute
@@ -631,41 +631,42 @@ def run_inference_tvm(
         else:
             llvm_result = llvm_result_raw
 
-    # Compile and run on C Static target
-    logger.debug("  Compiling for C Static target...")
-    c_static_result_raw = compile_and_run_on_target(
-        target_string=C_STATIC_TARGET, mod=mod, input=input_data
+    # Compile and run on C Static Lib target
+    logger.debug("  Compiling for C Static Lib target...")
+    c_static_lib_result_raw = compile_and_run_on_target(
+        target_string=C_STATIC_LIB_TARGET, mod=mod, input=input_data
     )
 
     # Handle multi-output models: extract primary output (classification logits)
     # Classification models should return single output, but some variants may have auxiliary outputs
-    if isinstance(c_static_result_raw, list):
+    if isinstance(c_static_lib_result_raw, list):
         logger.debug(
-            f"  Note: C Static returned {len(c_static_result_raw)} outputs, using first output"
+            f"  Note: C Static Lib returned {len(c_static_lib_result_raw)} outputs, "
+            "using first output"
         )
-        c_static_result = c_static_result_raw[0]
+        c_static_lib_result = c_static_lib_result_raw[0]
     else:
-        c_static_result = c_static_result_raw
+        c_static_lib_result = c_static_lib_result_raw
 
-    # Compare LLVM vs C Static if both were run
+    # Compare LLVM vs C Static Lib if both were run
     if compare_llvm:
         assert llvm_result is not None
-        max_diff = np.max(np.abs(llvm_result - c_static_result))
+        max_diff = np.max(np.abs(llvm_result - c_static_lib_result))
         matches = np.allclose(
-            llvm_result, c_static_result, rtol=RTOL_COMPARISON, atol=ATOL_COMPARISON
+            llvm_result, c_static_lib_result, rtol=RTOL_COMPARISON, atol=ATOL_COMPARISON
         )
 
-        logger.debug("  LLVM vs C Static comparison:")
+        logger.debug("  LLVM vs C Static Lib comparison:")
         logger.debug(f"    Max difference: {max_diff:.2e}")
         logger.debug(f"    Results match: {'✓' if matches else '✗'}")
 
         if not matches:
-            logger.warning("  LLVM and C Static results differ significantly!")
+            logger.warning("  LLVM and C Static Lib results differ significantly!")
 
     # Convert numpy result back to PyTorch
-    # c_static_result is now guaranteed to be a 2D array: (batch_size, num_classes)
+    # c_static_lib_result is now guaranteed to be a 2D array: (batch_size, num_classes)
     # For batch_size=1, we get the first (and only) batch element
-    outputs = torch.from_numpy(c_static_result[0])
+    outputs = torch.from_numpy(c_static_lib_result[0])
     probabilities = torch.nn.functional.softmax(outputs, dim=0)
 
     logger.debug("  TVM inference complete")
@@ -863,7 +864,7 @@ def _run_comparison(
 
 def _print_comparison_table(comparison_results: List[Dict[str, Any]]) -> None:
     """Print comparison table for multiple models with TVM status"""
-    logger.info("\nComparison Table: PyTorch vs TVM C Static")
+    logger.info("\nComparison Table: PyTorch vs TVM C Static Lib")
     logger.info(f"{'-' * 95}")
     logger.info(
         f"{'Model':<30s} {'Top-1':<10s} {'Top-5':<10s} {'TVM Compile':<15s} {'TVM Inference':<15s}"
@@ -937,8 +938,8 @@ def main(
         model_name: Name of the TorchVision model
         weight_name: Specific weight name or None for default
         image_url: URL or path to image, or None for default
-        use_tvm: Use TVM C Static compilation
-        compare: Compare PyTorch vs TVM C Static
+        use_tvm: Use TVM C Static Lib compilation
+        compare: Compare PyTorch vs TVM C Static Lib
 
     Returns:
         ModelTestResult with success=True if successful, success=False if failed
@@ -1138,8 +1139,8 @@ def test_multiple_models(
         image_url: URL or path to test image. If None, uses default cat image.
         max_models: Maximum number of models to test. If None, tests all models.
         model_filter: Optional list of model name substrings to filter by (e.g., ['resnet', 'efficientnet'])
-        use_tvm: Use TVM compilation with C Static target.
-        compare: Compare PyTorch and TVM C Static results.
+        use_tvm: Use TVM compilation with C Static Lib target.
+        compare: Compare PyTorch and TVM C Static Lib results.
         log_file: Optional path to CSV log file for appending results.
     """
     logger.debug("\nDiscovering TorchVision classification models...")
@@ -1324,8 +1325,8 @@ def test_multiple_models_parallel(
         image_url: URL or path to test image. If None, uses default cat image.
         max_models: Maximum number of models to test. If None, tests all models.
         model_filter: Optional list of model name substrings to filter by
-        use_tvm: Use TVM compilation with C Static target.
-        compare: Compare PyTorch and TVM C Static results.
+        use_tvm: Use TVM compilation with C Static Lib target.
+        compare: Compare PyTorch and TVM C Static Lib results.
         max_workers: Maximum number of parallel workers. If None, uses CPU count.
         log_file: Optional path to CSV log file for appending results.
 
@@ -1675,7 +1676,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tvm",
         action="store_true",
-        help="Use TVM compilation with C Static target (compares LLVM vs C Static)",
+        help="Use TVM compilation with C Static Lib target (compares LLVM vs C Static Lib)",
     )
     parser.add_argument(
         "--compare",

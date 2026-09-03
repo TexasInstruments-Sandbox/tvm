@@ -21,7 +21,7 @@ not an optional accuracy/size trade-off layered on top of it.
 Every quantized model in this repo (and both runnable examples) uses
 PyTorch's PT2E static quantization workflow with `C7xMMAQuantizer`, a TVM-
 supplied quantizer that annotates the exported graph with the quantization
-scheme the c_static/MMALIB backend expects:
+scheme the c_static_lib/MMALIB backend expects:
 
 ```python
 import torch
@@ -47,7 +47,7 @@ standard PT2E `prepare` / calibrate / `convert` sequence; `C7xMMAQuantizer`
 only decides *which* ops get annotated and with what quantization scheme, so
 that the resulting graph is one the backend can offload to MMALIB.
 
-`mod` is a regular Relax `IRModule` from here on -- compile it for `c_static
+`mod` is a regular Relax `IRModule` from here on -- compile it for `c_static_lib
 -mcpu=c7x -mmalib=1` the same way as any other model; see
 [Compilation](compilation.md) for that step.
 

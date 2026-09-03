@@ -177,7 +177,7 @@ estimated 64x speedup for this layer.
 Special case: guard against `x == 0` since `__recip_sqrt(0)` is
 undefined.
 
-**Status: DONE.** CodeGenCStatic now emits
+**Status: DONE.** CodeGenCStaticLib now emits
 `(x != 0.0f ? x * __recip_sqrt(x) : 0.0f)` for `sqrtf(x)` and
 `__abs(x)` for `fabsf(x)` when targeting C7x.
 
@@ -209,7 +209,7 @@ The `__recip()` intrinsic maps to VRCPSP (8 floats per cycle).
 Note: `__recip()` provides ~23 bits of precision (IEEE single has
 24 bits mantissa), adequate for ML inference but not bit-exact.
 
-**Status: DONE.** CodeGenCStatic now emits `(a) * __recip((b))` for
+**Status: DONE.** CodeGenCStaticLib now emits `(a) * __recip((b))` for
 float division when targeting C7x. Special case: `1.0f / sqrtf(x)`
 is detected and emitted as `__recip_sqrt((x))` directly.
 
@@ -234,7 +234,7 @@ CALL .B1 ||fmaxf||    ; scalar call
 **Fix:** Replace `fmax(x, 0.0f)` with `__max(x, 0.0f)` in TVM
 codegen. The `__max()` intrinsic maps to VMAXSP.
 
-**Status: DONE.** CodeGenCStatic now emits `__max((a), (b))` for
+**Status: DONE.** CodeGenCStaticLib now emits `__max((a), (b))` for
 float max and `__min((a), (b))` for float min when targeting C7x.
 
 Result: relu dropped from ~2.3K to ~0.9K cycles per call (58%),
@@ -252,7 +252,7 @@ total from 18K to 7.5K.
 | 6  | Streaming Engine for weight prefetch   | LOW         |            | SEE BELOW |
 | 7  | Eliminate VM runtime overhead           | ~1.2M       |            | NEXT   |
 
-Items 2-4 implemented in CodeGenCStatic (codegen_c_static.cc) by
+Items 2-4 implemented in CodeGenCStaticLib (codegen_c_static_lib.cc) by
 overriding VisitExpr_ for DivNode, MaxNode, MinNode, and CallNode.
 Total measured savings: ~93K cycles (items 2-4 combined).
 Accuracy impact: max diff vs PyTorch increased from ~1e-5 to ~1.4e-2
@@ -353,7 +353,7 @@ model on a bare-metal DSP target.
 ### 7. Eliminate VM Runtime Overhead — NEXT PRIORITY
 
 Replace the VM runtime calling convention with direct pointer
-passing in CodeGenCStatic for DSP targets. Two sub-tasks:
+passing in CodeGenCStaticLib for DSP targets. Two sub-tasks:
 
 **7a. Static workspace allocation**
 
@@ -397,7 +397,7 @@ from ~96K to ~5-10K (compute + minimal call overhead), saving
 This would bring the total from ~1.7M to ~500K, approaching the
 C66x baseline of ~600K.
 
-**Complexity:** High. Requires CodeGenCStatic changes to emit a
+**Complexity:** High. Requires CodeGenCStaticLib changes to emit a
 different calling convention when targeting DSP. The existing
 `skip-runtime-checks` infrastructure already eliminates some
 runtime validation; this extends that approach to eliminate the

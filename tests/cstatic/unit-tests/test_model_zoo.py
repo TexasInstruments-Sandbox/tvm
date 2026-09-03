@@ -1,5 +1,5 @@
 """
-Model zoo tests for the c_static backend.
+Model zoo tests for the c_static_lib backend.
 
 Parametrized tests covering 111 models across four categories:
 - TorchVision Classification (80 models)
@@ -7,7 +7,7 @@ Parametrized tests covering 111 models across four categories:
 - TorchVision Semantic Segmentation (6 models)
 - YOLO Object Detection (20 models: v5, v8, v11)
 
-Each test compiles for both LLVM (reference) and c_static, then asserts
+Each test compiles for both LLVM (reference) and c_static_lib, then asserts
 numerical agreement (rtol=1e-3, atol=5e-5).
 """
 
@@ -105,7 +105,7 @@ def _compare_outputs(llvm_result, cstatic_result, model_name):
         f"{model_name}: output count mismatch ({len(a_list)} vs {len(b_list)})"
     )
     for i, (a, b) in enumerate(zip(a_list, b_list)):
-        # atol=5e-5: LLVM JIT and c_static (GCC) use different FMA/op ordering,
+        # atol=5e-5: LLVM JIT and c_static_lib (GCC) use different FMA/op ordering,
         # causing up to ~3e-5 divergence near zero where rtol alone is insufficient.
         assert np.allclose(a, b, rtol=1e-3, atol=5e-5), (
             f"{model_name} output[{i}]: max diff {np.max(np.abs(a - b))}"
@@ -120,7 +120,7 @@ def _compare_outputs(llvm_result, cstatic_result, model_name):
 @pytest.mark.model_zoo
 @pytest.mark.parametrize("model_name", CLASSIFICATION_MODELS)
 def test_classification(model_name):
-    """Test TorchVision classification model: LLVM vs c_static."""
+    """Test TorchVision classification model: LLVM vs c_static_lib."""
     import torchvision.models as models
 
     torch_model = getattr(models, model_name)(weights="DEFAULT").eval()
@@ -137,7 +137,7 @@ def test_classification(model_name):
 
     input_data = np.random.rand(*input_shape).astype(np.float32)
     llvm_result = compile_and_run_on_target("llvm", mod, input_data)
-    cstatic_result = compile_and_run_on_target("c_static", mod, input_data)
+    cstatic_result = compile_and_run_on_target("c_static_lib", mod, input_data)
     _compare_outputs(llvm_result, cstatic_result, model_name)
 
 
@@ -149,7 +149,7 @@ def test_classification(model_name):
 @pytest.mark.model_zoo
 @pytest.mark.parametrize("model_name", DETECTION_MODELS)
 def test_detection(model_name):
-    """Test TorchVision single-stage detection model: LLVM vs c_static."""
+    """Test TorchVision single-stage detection model: LLVM vs c_static_lib."""
     from od_torchvision import prepare_model_for_tvm
     import torchvision.models.detection as det_models
 
@@ -165,7 +165,7 @@ def test_detection(model_name):
 
     input_data = np.random.rand(*input_shape).astype(np.float32)
     llvm_result = compile_and_run_on_target("llvm", mod, input_data)
-    cstatic_result = compile_and_run_on_target("c_static", mod, input_data)
+    cstatic_result = compile_and_run_on_target("c_static_lib", mod, input_data)
     _compare_outputs(llvm_result, cstatic_result, model_name)
 
 
@@ -177,7 +177,7 @@ def test_detection(model_name):
 @pytest.mark.model_zoo
 @pytest.mark.parametrize("model_name", SEGMENTATION_MODELS)
 def test_segmentation(model_name):
-    """Test TorchVision segmentation model: LLVM vs c_static."""
+    """Test TorchVision segmentation model: LLVM vs c_static_lib."""
     import torchvision.models.segmentation as seg_models
 
     torch_model = getattr(seg_models, model_name)(weights="DEFAULT").eval()
@@ -189,7 +189,7 @@ def test_segmentation(model_name):
 
     input_data = np.random.rand(*input_shape).astype(np.float32)
     llvm_result = compile_and_run_on_target("llvm", mod, input_data)
-    cstatic_result = compile_and_run_on_target("c_static", mod, input_data)
+    cstatic_result = compile_and_run_on_target("c_static_lib", mod, input_data)
     _compare_outputs(llvm_result, cstatic_result, model_name)
 
 
@@ -201,7 +201,7 @@ def test_segmentation(model_name):
 @pytest.mark.model_zoo
 @pytest.mark.parametrize("model_name", YOLO_MODELS)
 def test_yolo(model_name):
-    """Test YOLO detection model: LLVM vs c_static."""
+    """Test YOLO detection model: LLVM vs c_static_lib."""
     from od_yolo import load_yolo_model, prepare_model_for_tvm, detect_yolo_version
 
     version = detect_yolo_version(model_name)
@@ -215,5 +215,5 @@ def test_yolo(model_name):
 
     input_data = np.random.rand(*input_shape).astype(np.float32)
     llvm_result = compile_and_run_on_target("llvm", mod, input_data)
-    cstatic_result = compile_and_run_on_target("c_static", mod, input_data)
+    cstatic_result = compile_and_run_on_target("c_static_lib", mod, input_data)
     _compare_outputs(llvm_result, cstatic_result, model_name)

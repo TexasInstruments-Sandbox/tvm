@@ -2,13 +2,13 @@
 """TorchVision Object Detection Model Tester
 
 This script provides comprehensive testing and validation for TorchVision object detection models,
-with support for TVM compilation and comparison between PyTorch and TVM C Static backends.
+with support for TVM compilation and comparison between PyTorch and TVM C Static Lib backends.
 
 Features:
     - Automatic discovery of all COCO object detection models in TorchVision
     - Automatic extraction of preprocessing transforms from model weights
     - PyTorch inference (default)
-    - TVM C Static compilation and inference (--tvm)
+    - TVM C Static Lib compilation and inference (--tvm)
     - Side-by-side comparison of PyTorch vs TVM results (--compare)
     - Batch testing of multiple models with filtering and limits
     - Configuration file support for reusable test setups
@@ -19,10 +19,10 @@ Usage Examples:
     # Test single model with PyTorch
     python od_torchvision.py --model fasterrcnn_resnet50_fpn
 
-    # Test with TVM C Static compilation
+    # Test with TVM C Static Lib compilation
     python od_torchvision.py --model fasterrcnn_mobilenet_v3_large_fpn --tvm
 
-    # Compare PyTorch vs TVM C Static
+    # Compare PyTorch vs TVM C Static Lib
     python od_torchvision.py --model retinanet_resnet50_fpn --compare
 
     # Test multiple models with filtering
@@ -56,7 +56,7 @@ Command-Line Options:
     --parallel                 Run tests in parallel (only with --test-all)
     --workers N                Number of parallel workers (default: CPU count)
     --log-file PATH            CSV log file for appending results (with --test-all)
-    --tvm                      Use TVM compilation with C Static target
+    --tvm                      Use TVM compilation with C Static Lib target
     --compare                  Compare PyTorch vs TVM results (implies --tvm)
     --score-threshold FLOAT    Minimum confidence score for detections (default: 0.5)
     --verbose, -v              Enable verbose output with detailed logging
@@ -107,7 +107,7 @@ Architecture:
        - test_multiple_models() - Batch testing
 
 TVM Support for Single-Stage Detectors (SSD/SSDLite):
-    TVM C Static compilation is supported for single-stage detection models including:
+    TVM C Static Lib compilation is supported for single-stage detection models including:
     - SSD300_VGG16, SSD512_VGG16
     - SSDLite320_MobileNet_V3_Large
 
@@ -163,10 +163,10 @@ Expected Results:
     - SSD300_VGG16: Bird detection ~99.65% confidence
     - SSDLite320_MobileNet_V3_Large: Bird detection ~95.68% confidence
     - Compilation time: 3-5 minutes per model (first run)
-    - Inference: Fast execution via C Static binary
+    - Inference: Fast execution via C Static Lib binary
 
 TVM Support for Anchor-Free Detectors (FCOS):
-    TVM C Static compilation is also supported for anchor-free detectors:
+    TVM C Static Lib compilation is also supported for anchor-free detectors:
     - FCOS_ResNet50_FPN
 
     FCOS (Fully Convolutional One-Stage Object Detection) is an anchor-free
@@ -215,10 +215,10 @@ Expected Results:
     - FCOS_ResNet50_FPN: Typical detection confidence ~30-70%
     - Centerness weighting improves localization quality
     - Compilation time: Similar to SSD (~3-5 minutes)
-    - Inference: Fast execution via C Static binary
+    - Inference: Fast execution via C Static Lib binary
 
 TVM Support for RetinaNet:
-    TVM C Static compilation is also supported for RetinaNet detectors:
+    TVM C Static Lib compilation is also supported for RetinaNet detectors:
     - RetinaNet_ResNet50_FPN
     - RetinaNet_ResNet50_FPN_V2
 
@@ -254,7 +254,7 @@ Expected Results:
     - RetinaNet_ResNet50_FPN: Typical detection confidence ~90-95%
     - RetinaNet_ResNet50_FPN_V2: Similar performance with improved training
     - Compilation time: Similar to other models (~3-5 minutes)
-    - Inference: Fast execution via C Static binary
+    - Inference: Fast execution via C Static Lib binary
 
 Critical Implementation Notes - Coordinate Spaces and Label Indexing:
 
@@ -355,7 +355,7 @@ DEFAULT_MIN_SIZE = 800
 DEFAULT_MAX_SIZE = 1333
 DEFAULT_SCORE_THRESHOLD = 0.5
 DEFAULT_INPUT_SHAPE = (1, 3, 800, 800)
-C_STATIC_TARGET = "c_static"
+C_STATIC_LIB_TARGET = "c_static_lib"
 LLVM_TARGET = "llvm"
 
 # Comparison tolerances
@@ -1585,7 +1585,7 @@ def run_inference_tvm(
     iou_threshold: float = NMS_IOU_THRESHOLD,
     compare_llvm: bool = False,
 ) -> Dict[str, torch.Tensor]:
-    """Run inference using TVM with C Static target for detection models
+    """Run inference using TVM with C Static Lib target for detection models
 
     Pipeline (similar to od_yolo.py):
     1. Compile and run TVM inference → raw outputs (bbox_deltas, cls_logits)
@@ -1608,7 +1608,9 @@ def run_inference_tvm(
     """
     from tvm_utils import compile_and_run_on_target
 
-    logger.debug(f"  Compiling and running {components.architecture} model with TVM C Static...")
+    logger.debug(
+        f"  Compiling and running {components.architecture} model with TVM C Static Lib..."
+    )
 
     # Add batch dimension if needed
     if image_tensor.ndim == 3:
@@ -1623,9 +1625,9 @@ def run_inference_tvm(
         )
 
     try:
-        # Compile and run on C Static target
+        # Compile and run on C Static Lib target
         tvm_output = compile_and_run_on_target(
-            target_string=C_STATIC_TARGET,
+            target_string=C_STATIC_LIB_TARGET,
             mod=mod,
             input=image_tensor.numpy(),
             verbose_output=False,
@@ -1951,7 +1953,7 @@ def _run_comparison(
 
 def _print_comparison_table(comparison_results: List[Dict[str, Any]]) -> None:
     """Print comparison table for multiple object detection models with TVM status"""
-    logger.info("\nComparison Table: PyTorch vs TVM C Static")
+    logger.info("\nComparison Table: PyTorch vs TVM C Static Lib")
     logger.info(f"{'-' * 105}")
     logger.info(
         f"{'Model':<30s} {'Det Match':<12s} {'Box Match':<12s} {'Mean IoU':<12s} {'TVM Compile':<15s} {'TVM Inference':<15s}"
@@ -2040,8 +2042,8 @@ def main(
         model_name: Name of the TorchVision detection model
         weight_name: Specific weight name or None for default
         image_url: URL or path to image, or None for default
-        use_tvm: Use TVM C Static compilation
-        compare: Compare PyTorch vs TVM C Static
+        use_tvm: Use TVM C Static Lib compilation
+        compare: Compare PyTorch vs TVM C Static Lib
         score_threshold: Minimum confidence score for detections
         iou_threshold: NMS IoU threshold (only for TVM)
 
@@ -2334,8 +2336,8 @@ def test_multiple_models(
         image_url: URL or path to test image. If None, uses default image.
         max_models: Maximum number of models to test. If None, tests all models.
         model_filter: Optional list of model name substrings to filter by (e.g., ['fasterrcnn', 'retinanet'])
-        use_tvm: Use TVM compilation with C Static target.
-        compare: Compare PyTorch and TVM C Static results.
+        use_tvm: Use TVM compilation with C Static Lib target.
+        compare: Compare PyTorch and TVM C Static Lib results.
         log_file: Optional path to CSV log file for appending results.
         score_threshold: Minimum confidence score for detections.
         iou_threshold: NMS IoU threshold for TVM inference.
@@ -2540,8 +2542,8 @@ def test_multiple_models_parallel(
         image_url: URL or path to test image. If None, uses default image.
         max_models: Maximum number of models to test. If None, tests all models.
         model_filter: Optional list of model name substrings to filter by
-        use_tvm: Use TVM compilation with C Static target.
-        compare: Compare PyTorch and TVM C Static results.
+        use_tvm: Use TVM compilation with C Static Lib target.
+        compare: Compare PyTorch and TVM C Static Lib results.
         max_workers: Maximum number of parallel workers. If None, uses CPU count.
         log_file: Optional path to CSV log file for appending results.
         score_threshold: Minimum confidence score for detections.
@@ -2921,7 +2923,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tvm",
         action="store_true",
-        help="Use TVM compilation with C Static target (compares LLVM vs C Static)",
+        help="Use TVM compilation with C Static Lib target (compares LLVM vs C Static Lib)",
     )
     parser.add_argument(
         "--compare",

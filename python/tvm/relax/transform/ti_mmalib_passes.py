@@ -17,7 +17,7 @@
 # pylint: disable=invalid-name
 """Central registry for all MMALIB-specific pipeline passes.
 
-The c_static pipeline (pipeline.py) has three distinct MMALIB insertion
+The c_static_lib pipeline (pipeline.py) has three distinct MMALIB insertion
 points, each constrained to a specific position in the overall pass order:
 
   1. QDQ fusion — BEFORE FuseQDQToInt8Conv2D

@@ -18,8 +18,8 @@
  */
 
 /*!
- * \file codegen_c_static_wrapper.h
- * \brief Wrapper function generator for C static code generation.
+ * \file codegen_c_static_lib_wrapper.h
+ * \brief Wrapper function generator for C static lib code generation.
  *
  * This module generates C/C++ wrapper functions that provide convenient
  * interfaces to TIR-compiled functions. Two types of wrappers are supported:
@@ -34,8 +34,8 @@
  *    - Return error codes instead of exceptions
  *    - Compatible with TI C66x/C7x DSP targets
  */
-#ifndef TVM_TARGET_SOURCE_CODEGEN_CSTATIC_WRAPPER_H_
-#define TVM_TARGET_SOURCE_CODEGEN_CSTATIC_WRAPPER_H_
+#ifndef TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_WRAPPER_H_
+#define TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_WRAPPER_H_
 
 #include <cstdint>
 #include <map>
@@ -133,4 +133,4 @@ class WrapperGenerator {
 }  // namespace codegen
 }  // namespace tvm
 
-#endif  // TVM_TARGET_SOURCE_CODEGEN_CSTATIC_WRAPPER_H_
+#endif  // TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_WRAPPER_H_

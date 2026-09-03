@@ -1,6 +1,6 @@
 # MMALIB Test Suite
 
-End-to-end tests for TVM c_static backend calling MMALIB functions
+End-to-end tests for TVM c_static_lib backend calling MMALIB functions
 directly on the C7x MMA accelerator (AM67A / J722S). Located at
 `tests/ti-dsp-runtime/mmalib-tests/`.
 
@@ -51,7 +51,7 @@ pytest --rootdir=. mmalib-tests/ -m quick --dsp-mode=c7x_dload -v
 ## How it works
 
 Each DSP test creates a Relax IRModule, compiles with
-`c_static -mcpu=c7x -mmalib=1`, builds an executable (c7x_host or c7x_dload),
+`c_static_lib -mcpu=c7x -mmalib=1`, builds an executable (c7x_host or c7x_dload),
 runs it, and compares against a numpy float reference.
 
 ### Two code paths
@@ -99,7 +99,7 @@ when `-mmalib=1` is set.
 
 ## Prerequisites
 
-- TVM built with c_static backend
+- TVM built with c_static_lib backend
 - TI C7000 CGT with host emulation (`TI_CGT_C7000_PATH`)
 - MMALIB SDK at `/opt/ti/am67a/.../mmalib_11_02_00_06` (auto-detected)
 - DSP runtime built for host emulation:

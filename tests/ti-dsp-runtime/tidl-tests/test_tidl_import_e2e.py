@@ -15,7 +15,7 @@ build() internally runs every stage of the TIDL offloading flow:
                     net.bin + io.bin artifacts for each subgraph
   4. lower_tidl -- replace Codegen="tidl" functions with TIR extern
                    stubs (call_extern -> tidl_subgraph_N_process)
-  5. relax.build + export -- c_static codegen emits lib0.c + weights.bin
+  5. relax.build + export -- c_static_lib codegen emits lib0.c + weights.bin
   6. generate_bridge -- emit tidl_bridge.c with real TIDL API calls and
                         per-subgraph embedded artifact symbols
   7. _build_dynmod  -- cmake cross-compile via TI C7x toolchain,

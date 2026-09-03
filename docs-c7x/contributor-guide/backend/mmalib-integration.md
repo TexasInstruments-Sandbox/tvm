@@ -1,12 +1,12 @@
 # MMALIB Integration
 
-C wrappers that let TVM's `c_static` backend offload compute-intensive
+C wrappers that let TVM's `c_static_lib` backend offload compute-intensive
 Relax ops to the C7x MMA (Matrix Multiply Accelerator) coprocessor on
 AM67A (J722S) via TI's MMALIB library, plus the glue that lets the
 firmware and codegen link MMALIB without also requiring TIDL. Located
 at `src/runtime/ti_dsp/mmalib/`.
 
-Target string: `c_static -mcpu=c7x -mmalib=1`
+Target string: `c_static_lib -mcpu=c7x -mmalib=1`
 
 ## Files
 
@@ -48,7 +48,7 @@ Relax IR (R.matmul, R.nn.conv2d)
   │    → Float32 ops with no quantization → call_extern("mmalib_conv2d_i16" / "mmalib_matmul_i16")
   │    → Used for weight-only-quantized LLM inference (LegalizeMLPToMMALIBInt16)
   │
-  ▼  CodeGenCStatic
+  ▼  CodeGenCStaticLib
 Generated C code calling wrapper functions
   │
   ▼  Link against MMALIB
@@ -132,7 +132,7 @@ BeagleY-AI firmware is built `--tidl OFF --mmalib ON`:
 - **Codegen**: `FuseQDQToTIDLMaxPool` — the one pass that unconditionally
   emitted a TIDL-backed kernel even outside TIDL-offload paths — now reads
   a `tidl-kernels` target attr (default `true`, preserving prior
-  behavior). Passing `-tidl-kernels=0` in the `c_static` target string
+  behavior). Passing `-tidl-kernels=0` in the `c_static_lib` target string
   makes it emit `call_extern("c7x_int8_max_pool", ...)` (the scalar
   fallback in `tidl_maxpool_wrapper.cpp`) instead of
   `c7x_int8_max_pool_tidl`, so a model with `max_pool2d` still links

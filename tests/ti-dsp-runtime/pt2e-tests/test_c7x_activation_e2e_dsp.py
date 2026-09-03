@@ -4,7 +4,7 @@ Validates the full flow:
   float PyTorch model
   → C7xMMAQuantizer (prepare_pt2e / calibrate / convert_pt2e)
   → from_exported_program (Relax QDQ IR)
-  → c_static -mcpu=c7x -mmalib=1
+  → c_static_lib -mcpu=c7x -mmalib=1
       (FuseQDQToC7xActivation / FuseQDQToC7xAvgPool / FuseQDQToC7xLayerNorm)
   → c7x_int8_* kernel on c7x_host / c7x_dload
 

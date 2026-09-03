@@ -2,7 +2,7 @@
 """
 SmolLM-135M C7x test — float32 and INT8 weight-only quantization.
 
-Compiles SmolLM-135M-Instruct to the c_static C7x backend, builds for
+Compiles SmolLM-135M-Instruct to the c_static_lib C7x backend, builds for
 C7x host emulation or DLOAD hardware, and compares logits against the
 PyTorch reference.
 
@@ -320,7 +320,7 @@ def cmd_compile(args) -> int:
     # Step 2: TVM compile to C code
     target_string = get_target_string(args.dsp_mode, use_cpp_api=True)
     if args.dsp_mode == "c7x_host":
-        target_string = "c_static -mcpu=c7x"
+        target_string = "c_static_lib -mcpu=c7x"
     print(f"\n[2/3] TVM compile (target: {target_string}) ...")
     generated_dir = compile_for_dsp(tvm_mod, target_string, output_dir=artifacts_dir)
     print(f"  Generated files in: {generated_dir}")
@@ -1143,11 +1143,11 @@ def _compile_one_kvcache_mode(
         mod = relax.transform.RewriteDequantize()(mod)
         mod = relax.transform.DeadCodeElimination()(mod)
 
-    # SDPA fusion is now handled in the c_static pipeline (pipeline.py)
+    # SDPA fusion is now handled in the c_static_lib pipeline (pipeline.py)
     # for any GQA model with seq_q=1 on c7x. No explicit call needed here.
 
     # TVM compile
-    target_string = "c_static -mcpu=c7x"
+    target_string = "c_static_lib -mcpu=c7x"
     if profile_layers:
         target_string += " -profile-layers=1"
     label_dir = artifacts_dir / label

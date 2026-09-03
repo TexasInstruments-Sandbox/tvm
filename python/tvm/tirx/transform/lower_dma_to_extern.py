@@ -30,7 +30,7 @@ calls targeting the C7x DMA runtime functions:
 This must run AFTER LowerAsyncDMA and BEFORE LowerTVMBuiltin (which
 would otherwise lower these to device API packed calls).
 
-The c_static codegen handles call_extern natively via PrintCallExtern.
+The c_static_lib codegen handles call_extern natively via PrintCallExtern.
 """
 
 import tvm

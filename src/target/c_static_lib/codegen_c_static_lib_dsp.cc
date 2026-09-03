@@ -18,16 +18,16 @@
  */
 
 /*!
- * \file codegen_c_static_dsp.cc
+ * \file codegen_c_static_lib_dsp.cc
  * \brief Implementation of TI DSP-specific code generation extensions.
  */
-#include "codegen_c_static_dsp.h"
+#include "codegen_c_static_lib_dsp.h"
 
 #include <tvm/tir/expr.h>
 
 #include <algorithm>
 
-#include "codegen_c_static_templates.h"
+#include "codegen_c_static_lib_templates.h"
 
 namespace tvm {
 namespace codegen {

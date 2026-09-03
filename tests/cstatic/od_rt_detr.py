@@ -13,7 +13,7 @@ RT-DETR is a Vision Transformer-based real-time object detector that uses:
 Features:
     - Automatic loading of RT-DETR models from Ultralytics
     - PyTorch inference (default)
-    - TVM C Static compilation and inference (--tvm)
+    - TVM C Static Lib compilation and inference (--tvm)
     - Side-by-side comparison of PyTorch vs TVM results (--compare)
     - Batch testing of multiple RT-DETR variants
     - Comprehensive logging with adjustable verbosity levels
@@ -46,7 +46,7 @@ Command-Line Options:
     --image IMAGE              Path or URL to test image
     --test-all                 Test all available RT-DETR models (rtdetr-l and rtdetr-x)
     --log-file PATH            CSV log file for appending results (with --test-all)
-    --tvm                      Use TVM compilation with C Static target
+    --tvm                      Use TVM compilation with C Static Lib target
     --compare                  Compare PyTorch vs TVM results
     --score-threshold FLOAT    Minimum confidence score for detections (default: 0.3)
     --verbose, -v              Enable verbose output with detailed logging
@@ -103,7 +103,7 @@ DEFAULT_IMAGE_URL = "test_images/bird_0.jpg"
 DEFAULT_SCORE_THRESHOLD = 0.3  # RT-DETR default confidence threshold
 IOU_THRESHOLD = 0.5  # For box matching in comparisons
 DEFAULT_INPUT_SHAPE = (1, 3, 640, 640)  # RT-DETR default input size (same as YOLO)
-C_STATIC_TARGET = "c_static"
+C_STATIC_LIB_TARGET = "c_static_lib"
 LLVM_TARGET = "llvm"
 
 # Thread lock for CSV file writing
@@ -582,7 +582,7 @@ def run_inference_tvm(
     score_threshold: float = DEFAULT_SCORE_THRESHOLD,
     original_image_size: Optional[Tuple[int, int]] = None,
 ) -> Dict[str, torch.Tensor]:
-    """Run inference using TVM with C Static target for RT-DETR models
+    """Run inference using TVM with C Static Lib target for RT-DETR models
 
     Args:
         mod: TVM IRModule to execute
@@ -596,7 +596,7 @@ def run_inference_tvm(
     Raises:
         RuntimeError: If TVM compilation or execution fails
     """
-    logger.debug("  Compiling with TVM C Static backend...")
+    logger.debug("  Compiling with TVM C Static Lib backend...")
 
     # Add batch dimension if needed
     if image_tensor.ndim == 3:
@@ -612,9 +612,9 @@ def run_inference_tvm(
         # RT-DETR output shape
         # [batch, num_queries, num_classes + 4]
         # Typically: [1, 300, 84] where 84 = 4 (box) + 80 (COCO classes)
-        # Compile and run on C Static target
+        # Compile and run on C Static Lib target
         tvm_output = compile_and_run_on_target(
-            target_string=C_STATIC_TARGET,
+            target_string=C_STATIC_LIB_TARGET,
             mod=mod,
             input=image_tensor.numpy(),
             verbose_output=False,
@@ -757,7 +757,7 @@ def main(
     Args:
         model_name: RT-DETR model variant name (e.g., 'rtdetr-l', 'rtdetr-x')
         image_url: URL or path to image, or None for default
-        use_tvm: Use TVM C Static compilation
+        use_tvm: Use TVM C Static Lib compilation
         compare: Compare PyTorch vs TVM results
         score_threshold: Minimum confidence score for detections
 
@@ -1093,7 +1093,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tvm",
         action="store_true",
-        help="Use TVM compilation with C Static target",
+        help="Use TVM compilation with C Static Lib target",
     )
     parser.add_argument(
         "--compare",

@@ -11,7 +11,7 @@ runs on the board over SSH.
 Pipeline (all numbered steps below happen on the dev host except step 6):
 
   1. Quantize YOLO26n (PT2E int8, reusing quantized/model_utils.py)
-  2. Compile it for the C7x DSP with MMALIB offload (c_static backend).
+  2. Compile it for the C7x DSP with MMALIB offload (c_static_lib backend).
   3. Build a DLOAD module (lib0.out) with weights embedded in it.
   4. Load + preprocess the real test images (resize to the network's input
      size, matching how the model was calibrated -- no letterbox).
@@ -407,8 +407,8 @@ def main() -> int:
             # -profile-layers is a compile-time codegen flag baked into
             # lib0.out; --inference-only skips compilation entirely, so it
             # has no effect on the module reused here. Only emitted when
-            # profile_layers=True (see src/target/c_static/
-            # codegen_c_static_dsp.cc); check the generated source left
+            # profile_layers=True (see src/target/c_static_lib/
+            # codegen_c_static_lib_dsp.cc); check the generated source left
             # over from whatever compile produced this module, so the
             # warning fires only when there's an actual mismatch.
             lib0_c = args.build_dir / "lib0.c"

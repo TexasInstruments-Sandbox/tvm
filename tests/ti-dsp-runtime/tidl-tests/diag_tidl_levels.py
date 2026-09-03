@@ -430,7 +430,7 @@ void tidl_subgraph_0_process(void*, void*);
 
 
 def generate_model_code():
-    """Generate TVM c_static code for conv-relu-softmax."""
+    """Generate TVM c_static_lib code for conv-relu-softmax."""
     class M(nn.Module):
         def __init__(self):
             super().__init__()
@@ -457,7 +457,7 @@ def generate_model_code():
     )(mod)
     lowered = LowerTIDLToTIR()(partition_for_tidl(mod))
 
-    target = tvm.target.Target("c_static -mcpu=c7x")
+    target = tvm.target.Target("c_static_lib -mcpu=c7x")
     with tvm.transform.PassContext(opt_level=0):
         ex = relax.build(
             lowered, target=target, exec_mode="compiled", system_lib=True

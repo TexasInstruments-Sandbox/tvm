@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """RTMDet Object Detection with Pure PyTorch Implementation (No mmcv)
 
-This script demonstrates TVM C Static compilation for multi-output detection models
+This script demonstrates TVM C Static Lib compilation for multi-output detection models
 using the rtmdet Python package with exported .pth weights.
 
 IMPORTANT NOTES:
     - TVM compilation infrastructure: ✓ FULLY WORKING
       Successfully compiles and executes RTMDet with 6 outputs (3 cls_scores + 3 bbox_preds)
-      through C Static backend with proper tuple handling.
+      through C Static Lib backend with proper tuple handling.
 
     - Detection quality: ⚠ KNOWN ISSUE
       The rtmdet package has incompatibilities between its architecture and official
@@ -25,7 +25,7 @@ IMPORTANT NOTES:
 
 Features:
     - No mmcv._ext dependencies required (pure PyTorch with rtmdet package)
-    - TVM C Static compilation with multi-output tuple support
+    - TVM C Static Lib compilation with multi-output tuple support
     - PyTorch vs TVM inference comparison
     - Validates TVM infrastructure for 6-tensor FPN outputs
     - Lazy loading of rtmdet module (only imported when needed)
@@ -98,7 +98,7 @@ DEFAULT_IMAGE_URL = "test_images/bird_0.jpg"
 DEFAULT_SCORE_THRESHOLD = 0.25
 DEFAULT_IOU_THRESHOLD = 0.45
 DEFAULT_INPUT_SHAPE = (1, 3, 640, 640)
-C_STATIC_TARGET = "c_static"
+C_STATIC_LIB_TARGET = "c_static_lib"
 
 # COCO class names
 COCO_CLASSES = [
@@ -452,7 +452,7 @@ def run_inference_tvm(
     score_threshold: float = DEFAULT_SCORE_THRESHOLD,
     iou_threshold: float = DEFAULT_IOU_THRESHOLD,
 ) -> Dict[str, torch.Tensor]:
-    """Run inference using TVM with C Static target
+    """Run inference using TVM with C Static Lib target
 
     Args:
         mod: TVM IRModule to execute
@@ -463,12 +463,12 @@ def run_inference_tvm(
     Returns:
         Dictionary with 'boxes', 'labels', 'scores' tensors
     """
-    logger.debug("  Compiling with TVM C Static backend...")
+    logger.debug("  Compiling with TVM C Static Lib backend...")
 
     try:
-        # Compile and run on C Static target
+        # Compile and run on C Static Lib target
         tvm_outputs = compile_and_run_on_target(
-            target_string=C_STATIC_TARGET,
+            target_string=C_STATIC_LIB_TARGET,
             mod=mod,
             input=image_tensor.numpy(),
             verbose_output=False,
@@ -591,7 +591,7 @@ def main(
             logger.info("\nPreparing model for TVM compilation...")
             mod = prepare_model_for_tvm(model, DEFAULT_INPUT_SHAPE)
 
-            logger.info("Running TVM inference with C Static backend...")
+            logger.info("Running TVM inference with C Static Lib backend...")
             tvm_detections = run_inference_tvm(
                 mod, image_tensor, score_threshold, DEFAULT_IOU_THRESHOLD
             )
@@ -640,7 +640,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tvm",
         action="store_true",
-        help="Use TVM compilation with C Static target",
+        help="Use TVM compilation with C Static Lib target",
     )
     parser.add_argument(
         "--compare",

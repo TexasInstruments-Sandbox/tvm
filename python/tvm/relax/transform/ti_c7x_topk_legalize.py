@@ -14,14 +14,14 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Legalize relax.topk for the C7x/c_static backend.
+"""Legalize relax.topk for the C7x/c_static_lib backend.
 
 relax.topk has no default TIR legalization anywhere in this TVM fork --
 its only CPU-side lowering (``topi.topk``, python/tvm/topi/sort.py) is a
 runtime packed-function call (``tvm.contrib.sort.topk``), inserted by the
 ``DispatchSortScan`` pass as part of relax.build()'s *default* pipeline.
-c_static's own pipeline (cpu_generic/pipeline.py) never runs
-DispatchSortScan, and even if it did, c_static's standalone-C executables
+c_static_lib's own pipeline (cpu_generic/pipeline.py) never runs
+DispatchSortScan, and even if it did, c_static_lib's standalone-C executables
 have no TVM runtime to satisfy a packed call anyway. This module legalizes
 ``relax.topk`` directly to a ``call_extern`` into a hand-written C7x kernel
 (``src/runtime/ti_dsp/kernels/c7x_topk.cpp``), the same way MMALIB
@@ -77,7 +77,7 @@ def _te_c7x_topk(data: te.Tensor, k: int, dtype: str) -> list:
 
 
 def c7x_topk_legalize(bb: BlockBuilder, call: Call) -> Expr:
-    """``customize_legalize_map`` entry for ``relax.topk`` on C7x/c_static."""
+    """``customize_legalize_map`` entry for ``relax.topk`` on C7x/c_static_lib."""
     attrs = call.attrs
     data = call.args[0]
     sinfo = data.struct_info

@@ -17,7 +17,7 @@
 """TIDL backend for Relax BYOC partitioning and compilation.
 
 This package provides TIDL (TI Deep Learning) subgraph offloading for the
-TVM/Relax c_static backend targeting C7x DSP with MMA accelerator.
+TVM/Relax c_static_lib backend targeting C7x DSP with MMA accelerator.
 """
 
 # Re-export from canonical location (TIDL-independent, lives in tvm.contrib.c7x)

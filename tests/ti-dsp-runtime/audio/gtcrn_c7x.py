@@ -59,7 +59,7 @@ def load_model(checkpoint: str = "model_trained_on_dns3.tar") -> nn.Module:
 
     Earlier revisions of this module patched two upstream ops (nn.Unfold-based
     SFE, and the decoder's dilated ConvTranspose2d) to work around gaps in
-    TVM's torch->Relax->c_static pipeline. Both gaps are now fixed directly in
+    TVM's torch->Relax->c_static_lib pipeline. Both gaps are now fixed directly in
     TVM (conv2d_transpose dilation support in topi/nn/conv2d_transpose.py, and
     the index_tensor mixed basic+advanced indexing fix in
     base_fx_graph_translator.py's _index_tensor), so no model-side patching is
@@ -151,8 +151,8 @@ def main():
     print(f"torch.export with T={args.frames} frames ...")
     mod = export_and_bind(model, T=args.frames)
 
-    print("Compiling for c_static -mcpu=c7x ...")
-    generated_dir = dsp_utils.compile_for_dsp(mod, "c_static -mcpu=c7x")
+    print("Compiling for c_static_lib -mcpu=c7x ...")
+    generated_dir = dsp_utils.compile_for_dsp(mod, "c_static_lib -mcpu=c7x")
     print(f"Generated: {generated_dir}")
 
 

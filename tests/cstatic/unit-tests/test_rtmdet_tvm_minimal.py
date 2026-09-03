@@ -1,14 +1,14 @@
 """Pytest tests for RTMDet TVM compilation with flattened output structure
 
 This test suite validates TVM's ability to compile and execute multi-output object
-detection models using the C Static backend. It uses a mock RTMDet architecture that
+detection models using the C Static Lib backend. It uses a mock RTMDet architecture that
 returns 6 tensors (3 classification + 3 bounding box predictions across FPN levels).
 
 Test Coverage:
     - Output structure validation (tuple of 6 tensors with correct shapes)
     - TVM IR export from PyTorch via torch.export
     - Multi-output tuple detection and handling
-    - Full C Static backend compilation and execution
+    - Full C Static Lib backend compilation and execution
     - Output shape preservation through the compilation pipeline
 
 Architecture:
@@ -26,11 +26,12 @@ Usage:
     pytest test_rtmdet_tvm_minimal.py::TestTVMCompilation -v
 
     # Run single test
-    pytest test_rtmdet_tvm_minimal.py::TestTVMCompilation::test_full_compilation_with_c_static -v
+    pytest test_rtmdet_tvm_minimal.py::TestTVMCompilation::test_full_compilation_with_c_static_lib \
+        -v
 
 Context:
     This test infrastructure was developed to enable TVM compilation for RTMDet object
-    detection models, validating that the C Static backend can handle complex multi-output
+    detection models, validating that the C Static Lib backend can handle complex multi-output
     architectures common in modern detection models (YOLO, RT-DETR, etc.).
 
 See Also:
@@ -182,8 +183,8 @@ class TestTVMExport:
 class TestTVMCompilation:
     """Tests for full TVM compilation"""
 
-    def test_full_compilation_with_c_static(self):
-        """Test full TVM compilation with C Static backend"""
+    def test_full_compilation_with_c_static_lib(self):
+        """Test full TVM compilation with C Static Lib backend"""
         model = MockRTMDetWrapper()
         model.eval()
 
@@ -199,9 +200,9 @@ class TestTVMCompilation:
         # Create test input
         test_input = np.random.randn(1, 3, 640, 640).astype(np.float32)
 
-        # Compile and run on C Static target
+        # Compile and run on C Static Lib target
         outputs = compile_and_run_on_target(
-            target_string="c_static",
+            target_string="c_static_lib",
             mod=mod,
             input=test_input,
             verbose_output=False,
@@ -227,9 +228,9 @@ class TestTVMCompilation:
         # Create test input
         test_input = np.random.randn(1, 3, 640, 640).astype(np.float32)
 
-        # Compile and run on C Static target
+        # Compile and run on C Static Lib target
         outputs = compile_and_run_on_target(
-            target_string="c_static",
+            target_string="c_static_lib",
             mod=mod,
             input=test_input,
             verbose_output=False,
@@ -254,9 +255,9 @@ class TestTVMCompilation:
         # Create test input
         test_input = np.random.randn(1, 3, 640, 640).astype(np.float32)
 
-        # Compile and run on C Static target
+        # Compile and run on C Static Lib target
         outputs = compile_and_run_on_target(
-            target_string="c_static",
+            target_string="c_static_lib",
             mod=mod,
             input=test_input,
             verbose_output=False,

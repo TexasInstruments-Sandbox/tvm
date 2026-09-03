@@ -1,6 +1,6 @@
-# CStatic Backend Tests
+# CStaticLib Backend Tests
 
-Validation suite for the TVM C Static backend (`c_static` target).
+Validation suite for the TVM C Static Lib backend (`c_static_lib` target).
 
-See [C Static Test Suite](../../docs-c7x/contributor-guide/testing/c-static-suite.md)
+See [C Static Lib Test Suite](../../docs-c7x/contributor-guide/testing/c-static-lib-suite.md)
 in the docs site for the full reference.

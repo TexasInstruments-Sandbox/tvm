@@ -412,7 +412,7 @@ class FuseDequantizeMatmul:  # pylint: disable=too-few-public-methods
         use_extern = False
         target = tvm.target.Target.current()
         if target is not None:
-            is_c7x = target.kind.name == "c_static" and getattr(target, "mcpu", "") == "c7x"
+            is_c7x = target.kind.name == "c_static_lib" and getattr(target, "mcpu", "") == "c7x"
             use_extern = is_c7x
 
         # Phase 1: pattern-match and wrap into composite functions

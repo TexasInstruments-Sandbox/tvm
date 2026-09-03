@@ -18,16 +18,16 @@
  */
 
 /*!
- * \file codegen_c_static_templates.h
- * \brief String templates for C static code generation
+ * \file codegen_c_static_lib_templates.h
+ * \brief String templates for C static lib code generation
  *
- * This file contains string literal templates used by CodeGenCStatic
+ * This file contains string literal templates used by CodeGenCStaticLib
  * for emitting header declarations, helper functions, and other
  * boilerplate code. Separating these templates from the main code
  * generator improves readability and maintainability.
  */
-#ifndef TVM_TARGET_SOURCE_CODEGEN_C_STATIC_TEMPLATES_H_
-#define TVM_TARGET_SOURCE_CODEGEN_C_STATIC_TEMPLATES_H_
+#ifndef TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_TEMPLATES_H_
+#define TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_TEMPLATES_H_
 
 namespace tvm {
 namespace codegen {
@@ -382,7 +382,7 @@ extern "C" TVM_DSP_EXPORT void TVMPrintAllocSummary(void) {
  * Includes full TVM runtime headers with C++ exception/RTTI support.
  */
 constexpr const char* kStandardTVMHeaders = R"(
-// Custom backend for C Static code generation
+// Custom backend for C Static Lib code generation
 
 typedef unsigned long ulong;
 #include <tvm/runtime/logging.h>
@@ -484,4 +484,4 @@ inline int TVMBackendAnyListMoveFromPackedReturn(void* anylist, int index, TVMFF
 }  // namespace codegen
 }  // namespace tvm
 
-#endif  // TVM_TARGET_SOURCE_CODEGEN_C_STATIC_TEMPLATES_H_
+#endif  // TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_TEMPLATES_H_

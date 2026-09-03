@@ -35,7 +35,7 @@ from dsp_utils import compile_and_run_dsp, compare_results
 results = compile_and_run_dsp(
     mod=mod,
     input_data=input_data,  # numpy array or tuple of arrays
-    target_string="c_static -mcpu=c66x",
+    target_string="c_static_lib -mcpu=c66x",
     execution_mode="both",  # "host", "c66x", or "both"
     build_type="Release",   # "Release" or "Debug"
 )
@@ -107,7 +107,7 @@ cmake --build .
 
 ### Step 2: Generate TVM Model Code
 
-Use TVM's C static backend to compile your model:
+Use TVM's C static lib backend to compile your model:
 
 ```python
 import tvm
@@ -116,8 +116,8 @@ from tvm import relax
 # Load/compile your model to get an IRModule
 mod = ...
 
-# Build with c_static target for C66x
-target = tvm.target.Target("c_static -mcpu=c66x")
+# Build with c_static_lib target for C66x
+target = tvm.target.Target("c_static_lib -mcpu=c66x")
 with tvm.transform.PassContext(opt_level=3):
     ex = relax.build(mod, target, exec_mode="compiled", system_lib=True)
 
@@ -130,7 +130,7 @@ Or use `dsp_utils.py` which handles this automatically:
 
 ```python
 from dsp_utils import compile_for_dsp
-generated_dir = compile_for_dsp(mod, "c_static -mcpu=c66x")
+generated_dir = compile_for_dsp(mod, "c_static_lib -mcpu=c66x")
 ```
 
 ### Step 3: Build Host Emulation

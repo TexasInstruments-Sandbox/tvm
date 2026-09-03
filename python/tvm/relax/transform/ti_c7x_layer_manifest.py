@@ -24,8 +24,8 @@ but before ``finalize_passes`` injects ``relax.vm.alloc_tensor``/
 That placement was verified empirically against a real per-layer DSP
 profile (``-profile-layers`` on beagley-ai hardware): the manifest built at
 this point matches the runtime profiler's own layer list, because the C
-codegen's profiling instrumentation (``src/target/c_static/
-codegen_c_static.cc``) explicitly skips ``vm.builtin`` calls the same way --
+codegen's profiling instrumentation (``src/target/c_static_lib/
+codegen_c_static_lib.cc``) explicitly skips ``vm.builtin`` calls the same way --
 "Skip vm.builtin calls as they are just memory management operations". An
 earlier candidate (end of ``legalize_passes``) over-predicted: it still
 contained custom-PrimFunc reshape calls that ``RewriteDataflowReshape``

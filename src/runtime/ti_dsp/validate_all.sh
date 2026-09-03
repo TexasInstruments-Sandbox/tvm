@@ -223,7 +223,7 @@ fi
 
 echo "=== [4/5] Quantized MMALIB model tests (board=$TVM_BOARD) ==="
 # Deliberately MMALIB-only, not both suites -- the plain (non-MMALIB)
-# c_static path is exercised by the native Jenkinsfile's own nightly run
+# c_static_lib path is exercised by the native Jenkinsfile's own nightly run
 # instead; this Docker-based flow's job is validating the shipped wheel +
 # MMALIB offload against real hardware, not full test-suite duplication.
 mkdir -p "$TVM_HOME/results"

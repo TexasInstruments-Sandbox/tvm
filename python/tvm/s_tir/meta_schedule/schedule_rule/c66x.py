@@ -30,7 +30,7 @@ Example usage:
     from tvm import meta_schedule as ms
     from tvm.meta_schedule.schedule_rule.c66x import get_c66x_schedule_rules
 
-    target = tvm.target.Target("c_static -mcpu=c66x")
+    target = tvm.target.Target("c_static_lib -mcpu=c66x")
     rules = get_c66x_schedule_rules(target)
 
     # Use rules in tuning
@@ -122,7 +122,7 @@ def get_c66x_schedule_rules(
     Parameters
     ----------
     target : Optional[Target]
-        The c_static target. If None, uses default C66x cache sizes.
+        The c_static_lib target. If None, uses default C66x cache sizes.
     dtype_bytes : int
         Size of data type in bytes (default: 4 for float32).
 
@@ -133,7 +133,7 @@ def get_c66x_schedule_rules(
 
     Example
     -------
-    >>> target = tvm.target.Target("c_static -mcpu=c66x")
+    >>> target = tvm.target.Target("c_static_lib -mcpu=c66x")
     >>> rules = get_c66x_schedule_rules(target)
     >>> # rules can be used with meta_schedule.TuneConfig
     """
@@ -206,7 +206,7 @@ def get_c66x_multi_level_tiling(
     Parameters
     ----------
     target : Optional[Target]
-        The c_static target. If None, uses default C66x cache sizes.
+        The c_static_lib target. If None, uses default C66x cache sizes.
     dtype_bytes : int
         Size of data type in bytes (default: 4 for float32).
     structure : str

@@ -3,7 +3,7 @@
 Test suite for FCN ResNet-50 semantic segmentation model on TVM targets.
 
 This module tests the Fully Convolutional Network (FCN) with ResNet-50 backbone
-for semantic segmentation tasks. The tests compare execution between LLVM and CStatic targets.
+for semantic segmentation tasks. The tests compare execution between LLVM and CStaticLib targets.
 
 FCN Model Architecture:
 - Uses ResNet-50 as the backbone for feature extraction
@@ -30,7 +30,7 @@ Output Content Details:
 
 Key Features Tested:
 - Dynamic input shapes (224x224, 320x240, 480x640)
-- Cross-target consistency (LLVM vs CStatic)
+- Cross-target consistency (LLVM vs CStaticLib)
 - Proper output shape validation
 - Numerical accuracy comparison
 - Segmentation visualization with PASCAL VOC color mapping
@@ -226,7 +226,7 @@ def extract_segmentation_output(result: Union[Tuple[Any, ...], Dict[str, Any], A
 
 def compare_segmentation_results(
     llvm_result: Union[Tuple[Any, ...], Dict[str, Any], Any],
-    c_static_result: Union[Tuple[Any, ...], Dict[str, Any], Any],
+    c_static_lib_result: Union[Tuple[Any, ...], Dict[str, Any], Any],
     rtol: float = 1e-3,
     atol: float = 1e-5,
 ) -> bool:
@@ -239,7 +239,7 @@ def compare_segmentation_results(
 
     Args:
         llvm_result: Output from LLVM target execution
-        c_static_result: Output from C_Static target execution
+        c_static_lib_result: Output from C_Static_Lib target execution
         rtol: Relative tolerance for numpy.allclose
         atol: Absolute tolerance for numpy.allclose
 
@@ -248,16 +248,16 @@ def compare_segmentation_results(
     """
     # Extract main segmentation outputs (first element of tuple for TVM results)
     llvm_seg = extract_segmentation_output(llvm_result)
-    c_static_seg = extract_segmentation_output(c_static_result)
+    c_static_lib_seg = extract_segmentation_output(c_static_lib_result)
 
     # Verify shapes match before comparing values
-    if llvm_seg.shape != c_static_seg.shape:
-        print(f"Shape mismatch: LLVM {llvm_seg.shape} vs C_Static {c_static_seg.shape}")
+    if llvm_seg.shape != c_static_lib_seg.shape:
+        print(f"Shape mismatch: LLVM {llvm_seg.shape} vs C_Static_Lib {c_static_lib_seg.shape}")
         return False
 
     # Compare segmentation logits elementwise with tolerance for numerical precision
     try:
-        return np.allclose(llvm_seg, c_static_seg, rtol=rtol, atol=atol)
+        return np.allclose(llvm_seg, c_static_lib_seg, rtol=rtol, atol=atol)
     except Exception as e:
         print(f"Comparison failed: {e}")
         return False
@@ -441,7 +441,7 @@ def generate_segmentation_visualization(
     Args:
         result: Segmentation result from model execution
         input_size: Input image dimensions (height, width)
-        target_name: Name of the target (e.g., "llvm", "c_static")
+        target_name: Name of the target (e.g., "llvm", "c_static_lib")
         test_name: Name of the test for file naming
     """
     try:
@@ -470,15 +470,15 @@ def generate_segmentation_visualization(
 # Test multiple input sizes to verify dynamic shape handling
 @pytest.mark.slow
 @pytest.mark.parametrize(
-    "input_size,target_c_static",
+    "input_size,target_c_static_lib",
     [
-        ((224, 224), "c_static"),
-        ((320, 240), "c_static"),
+        ((224, 224), "c_static_lib"),
+        ((320, 240), "c_static_lib"),
     ],
 )
-def test_segmentation_dynamic_shapes(input_size: Tuple[int, int], target_c_static: str) -> None:
+def test_segmentation_dynamic_shapes(input_size: Tuple[int, int], target_c_static_lib: str) -> None:
     """
-    Test FCN segmentation model with dynamic shapes comparing LLVM vs CStatic targets.
+    Test FCN segmentation model with dynamic shapes comparing LLVM vs CStaticLib targets.
 
     This test verifies that the FCN model produces consistent results across different
     input resolutions and compilation targets. FCN is fully convolutional, so it can
@@ -487,7 +487,7 @@ def test_segmentation_dynamic_shapes(input_size: Tuple[int, int], target_c_stati
     Test Process:
     1. Create FCN model compiled for specific input size
     2. Load and preprocess test image to target size
-    3. Execute on both LLVM (reference) and CStatic (target) backends
+    3. Execute on both LLVM (reference) and CStaticLib (target) backends
     4. Compare numerical outputs for consistency
     """
     print(f"Testing with input size: {input_size}")
@@ -501,34 +501,34 @@ def test_segmentation_dynamic_shapes(input_size: Tuple[int, int], target_c_stati
         target_string="llvm", mod=mod, input=input_data
     )
 
-    # Execute model on CStatic backend (target implementation)
-    c_static_result = compile_and_run_on_target(  # type: ignore
-        target_string=target_c_static, mod=mod, input=input_data
+    # Execute model on CStaticLib backend (target implementation)
+    c_static_lib_result = compile_and_run_on_target(  # type: ignore
+        target_string=target_c_static_lib, mod=mod, input=input_data
     )
 
     # Compare segmentation outputs between targets
     # Only the first output needs to be compared. The second output is an aux output.
-    results_match = compare_segmentation_results(llvm_result[0], c_static_result[0])
+    results_match = compare_segmentation_results(llvm_result[0], c_static_lib_result[0])
 
     # Generate visualizations for both targets
     generate_segmentation_visualization(llvm_result[0], input_size, "llvm", "dynamic_shapes")
     generate_segmentation_visualization(
-        c_static_result[0], input_size, "c_static", "dynamic_shapes"
+        c_static_lib_result[0], input_size, "c_static_lib", "dynamic_shapes"
     )
 
     if not results_match:
         # Extract segmentation maps for detailed error reporting
         llvm_seg = extract_segmentation_output(llvm_result[0])
-        c_static_seg = extract_segmentation_output(c_static_result[0])
+        c_static_lib_seg = extract_segmentation_output(c_static_lib_result[0])
         max_diff = (
-            np.max(np.abs(llvm_seg - c_static_seg))
-            if llvm_seg.shape == c_static_seg.shape
+            np.max(np.abs(llvm_seg - c_static_lib_seg))
+            if llvm_seg.shape == c_static_lib_seg.shape
             else float("inf")
         )
 
         raise AssertionError(
-            f"Results differ for {target_c_static} with input size {input_size}. "
-            f"LLVM shape: {llvm_seg.shape}, C_Static shape: {c_static_seg.shape}, "
+            f"Results differ for {target_c_static_lib} with input size {input_size}. "
+            f"LLVM shape: {llvm_seg.shape}, C_Static_Lib shape: {c_static_lib_seg.shape}, "
             f"Max difference: {max_diff}"
         )
 

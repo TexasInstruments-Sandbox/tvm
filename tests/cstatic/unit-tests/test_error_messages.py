@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
-Test error message generation in C Static backend
+Test error message generation in C Static Lib backend
 
-This test verifies that the C Static backend generates descriptive error messages
+This test verifies that the C Static Lib backend generates descriptive error messages
 when shape mismatches occur, including:
 - Function name context
 - Parameter location
@@ -55,7 +55,7 @@ class SimpleModel:
 @pytest.mark.xfail(reason="Runtime shape checks not yet generating descriptive messages")
 def test_shape_mismatch_error_message():
     """
-    Test that C Static backend generates descriptive error messages for shape mismatches.
+    Test that C Static Lib backend generates descriptive error messages for shape mismatches.
 
     This test:
     1. Compiles a model expecting (1, 3, 224, 224) input
@@ -63,7 +63,7 @@ def test_shape_mismatch_error_message():
     3. Verifies the error message contains helpful information
     """
     print("\n" + "=" * 70)
-    print("TEST: Shape Mismatch Error Message (C Static Backend)")
+    print("TEST: Shape Mismatch Error Message (C Static Lib Backend)")
     print("=" * 70)
 
     mod = SimpleModel
@@ -75,7 +75,7 @@ def test_shape_mismatch_error_message():
     wrong_shape_input = np.random.rand(1, 3, 288, 288).astype(np.float32)
     # Should raise an error with descriptive message
     with pytest.raises(Exception) as exc_info:
-        compile_and_run_on_target(target_string="c_static -skip-runtime-checks=0", mod=mod, input=wrong_shape_input)
+        compile_and_run_on_target(target_string="c_static_lib -skip-runtime-checks=0", mod=mod, input=wrong_shape_input)
 
     error_message = str(exc_info.value)
 
@@ -133,7 +133,7 @@ class SmallModel:
 @pytest.mark.xfail(reason="Runtime shape checks not yet generating descriptive messages")
 def test_ndim_mismatch_error_message():
     """
-    Test that C Static backend generates descriptive error messages for dimension mismatches.
+    Test that C Static Lib backend generates descriptive error messages for dimension mismatches.
 
     This test:
     1. Compiles a model expecting 2D input (1, 10)
@@ -141,7 +141,7 @@ def test_ndim_mismatch_error_message():
     3. Verifies the error message mentions dimension count
     """
     print("\n" + "=" * 70)
-    print("TEST: Dimension Count Mismatch Error Message (C Static Backend)")
+    print("TEST: Dimension Count Mismatch Error Message (C Static Lib Backend)")
     print("=" * 70)
 
     mod = SmallModel
@@ -153,7 +153,7 @@ def test_ndim_mismatch_error_message():
     wrong_ndim_input = np.random.rand(1, 1, 10).astype(np.float32)
 
     with pytest.raises(Exception) as exc_info:
-        compile_and_run_on_target(target_string="c_static -skip-runtime-checks=0", mod=mod, input=wrong_ndim_input)
+        compile_and_run_on_target(target_string="c_static_lib -skip-runtime-checks=0", mod=mod, input=wrong_ndim_input)
 
     error_message = str(exc_info.value)
 
@@ -197,7 +197,7 @@ def test_error_message_has_context():
     - Annotation details
     """
     print("\n" + "=" * 70)
-    print("TEST: Error Message Context Information (C Static Backend)")
+    print("TEST: Error Message Context Information (C Static Lib Backend)")
     print("=" * 70)
 
     mod = SimpleModel
@@ -209,7 +209,7 @@ def test_error_message_has_context():
     wrong_input = np.random.rand(1, 3, 288, 288).astype(np.float32)
 
     with pytest.raises(Exception) as exc_info:
-        compile_and_run_on_target(target_string="c_static -skip-runtime-checks=0", mod=mod, input=wrong_input)
+        compile_and_run_on_target(target_string="c_static_lib -skip-runtime-checks=0", mod=mod, input=wrong_input)
 
     error_message = str(exc_info.value)
 
@@ -252,7 +252,7 @@ def test_wrapper_function_context():
     is working and adds wrapper context to errors.
     """
     print("\n" + "=" * 70)
-    print("TEST: Wrapper Function Context (C Static Backend)")
+    print("TEST: Wrapper Function Context (C Static Lib Backend)")
     print("=" * 70)
 
     mod = SimpleModel
@@ -262,7 +262,7 @@ def test_wrapper_function_context():
     wrong_input = np.random.rand(1, 3, 288, 288).astype(np.float32)
 
     with pytest.raises(Exception) as exc_info:
-        compile_and_run_on_target(target_string="c_static -skip-runtime-checks=0", mod=mod, input=wrong_input)
+        compile_and_run_on_target(target_string="c_static_lib -skip-runtime-checks=0", mod=mod, input=wrong_input)
 
     error_message = str(exc_info.value)
 
@@ -290,7 +290,7 @@ def test_wrapper_function_context():
 if __name__ == "__main__":
     # Run tests individually for easier debugging
     print("\n" + "=" * 70)
-    print("C Static Backend Error Message Tests")
+    print("C Static Lib Backend Error Message Tests")
     print("=" * 70)
     print("\nTip: Set CSTATIC_KEEP_TEMP=1 to keep generated files for debugging")
     print("=" * 70)

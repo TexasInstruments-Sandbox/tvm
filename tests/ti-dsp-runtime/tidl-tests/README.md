@@ -1,13 +1,13 @@
 # TIDL Offloading Tests
 
-Tests for TIDL subgraph offloading in the TVM/Relax c_static backend.
+Tests for TIDL subgraph offloading in the TVM/Relax c_static_lib backend.
 
 ## Tests
 
 | Test | Count | What it tests | Requirements |
 |------|-------|---------------|--------------|
 | `test_tidl_partition.py` | 17 | Pattern matching, partitioning, constraints | TVM only |
-| `test_tidl_codegen.py` | 12 | Lowering pass, TIR stubs, c_static codegen, bridge generation (single + multi-subgraph, stub + real) | TVM only |
+| `test_tidl_codegen.py` | 12 | Lowering pass, TIR stubs, c_static_lib codegen, bridge generation (single + multi-subgraph, stub + real) | TVM only |
 | `test_tidl_relax_import.py` | 18 | FFI load, init, AllowNode, tidl_import() pipeline | `tidl_model_import_relax.so` + c7x-mma-tidl tree |
 | `test_tidl_layer_offload.py` | 103 | Per-layer offload validation: pattern matching (Level 1, 61 tests) and hardware inference (Level 4, 42 tests) covering all supported layer types | Level 1: TVM only; Level 4: `.so` + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_new_ops.py` | 4 | Newer composite ops (softmax, multiply, permute_dims, concat) through full build + AM67A pipeline | `.so` + `TI_CGT_C7000_PATH` + AM67A |
@@ -15,7 +15,7 @@ Tests for TIDL subgraph offloading in the TVM/Relax c_static backend.
 | `test_tidl_import_e2e.py` | 2 | `compiler.build()` one-call pipeline -> deploy -> run on AM67A (single-subgraph ConvReluSoftmax + multi-subgraph 2-conv model) | `.so` + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_resnet_e2e.py` | 3 | ResNet-18 TIDL build pipeline validation, hardware correctness, cycle comparison | `.so` + `TI_CGT_C7000_PATH` (build test); + AM67A (hardware tests) |
 | `test_tidl_mv2_e2e.py` | 2 | MobileNetV2 TIDL build + hardware correctness -- calibration infrastructure check against ResNet-18's Bug 4 | `.so` + `TI_CGT_C7000_PATH` (build test); + AM67A (correctness test) |
-| `test_yolo_dsp.py` | 6 | YOLOv5/YOLOv8 (n, s) c_static DSP and TIDL offloading tests | `TI_CGT_C7000_PATH`; TIDL variants need `.so` + AM67A |
+| `test_yolo_dsp.py` | 6 | YOLOv5/YOLOv8 (n, s) c_static_lib DSP and TIDL offloading tests | `TI_CGT_C7000_PATH`; TIDL variants need `.so` + AM67A |
 | `diag_tidl_levels.py` | -- | Standalone multi-level TIDL init debug script | `TI_CGT_C7000_PATH` + artifacts + AM67A |
 
 ```bash

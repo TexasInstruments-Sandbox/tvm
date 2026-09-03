@@ -6,7 +6,7 @@ Tests multi-output tuple handling on DSP (host emulation and DLOAD).
 This validates the DSP runtime's make_tuple implementation and
 Model::InferMulti() API for models that return multiple tensors.
 
-The c_static backend supports multi-element make_tuple in C++ API mode,
+The c_static_lib backend supports multi-element make_tuple in C++ API mode,
 enabling multi-output models on C7x hardware.
 
 Usage:

@@ -131,7 +131,7 @@ def run_and_check(
 
     The compiled target includes ``-mmalib=1`` which activates the
     FuseMMALIBQDQConv2d / FuseMMALIBQDQDwConv2d / FuseMMALIBQDQFC /
-    FuseInt8ResidualAdd fusion passes in the c_static backend.
+    FuseInt8ResidualAdd fusion passes in the c_static_lib backend.
 
     Correctness is checked as ``max(|dsp_output - ref|) <= max_diff``.
     The default ``max_diff=2`` allows ±1 LSB of int8 arithmetic rounding
@@ -147,7 +147,7 @@ def run_and_check(
         cycles_key:   name under which to store the cycle count
         max_diff:     maximum tolerated per-element absolute difference
     """
-    # -mmalib=1 activates the FuseMMALIBQDQ* passes in the c_static backend.
+    # -mmalib=1 activates the FuseMMALIBQDQ* passes in the c_static_lib backend.
     target = get_target_string(dsp_mode, use_cpp_api=True) + " -mmalib=1"
     results = compile_and_run_dsp(
         mod=mod,

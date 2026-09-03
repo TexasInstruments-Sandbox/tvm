@@ -53,22 +53,22 @@ def create_matmul_model():
 
 
 @pytest.mark.parametrize(
-    "target_c_static", ["c_static"]
+    "target_c_static_lib", ["c_static_lib"]
 )
-def test_matmul_comparison(target_c_static):
-    """Test matmul model comparing llvm vs c_static targets."""
+def test_matmul_comparison(target_c_static_lib):
+    """Test matmul model comparing llvm vs c_static_lib targets."""
     mod = create_matmul_model()
     input_data = np.random.rand(16, 16).astype(np.float32)
 
     # Get results from both targets
     llvm_result = compile_and_run_on_target(target_string="llvm", mod=mod, input=input_data)
-    c_static_result = compile_and_run_on_target(
-        target_string=target_c_static, mod=mod, input=input_data
+    c_static_lib_result = compile_and_run_on_target(
+        target_string=target_c_static_lib, mod=mod, input=input_data
     )
 
     # Compare results
-    assert np.allclose(llvm_result, c_static_result, rtol=1e-3, atol=1e-5), (
-        f"Results differ for {target_c_static}. Max difference: {np.max(np.abs(llvm_result - c_static_result))}"
+    assert np.allclose(llvm_result, c_static_lib_result, rtol=1e-3, atol=1e-5), (
+        f"Results differ for {target_c_static_lib}. Max difference: {np.max(np.abs(llvm_result - c_static_lib_result))}"
     )
 
 

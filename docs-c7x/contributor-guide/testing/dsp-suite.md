@@ -1,7 +1,7 @@
 # DSP Test Suite
 
 Pytest-based tests for running TVM-compiled models on TI DSP targets.
-Tests compile models with the `c_static` backend, build for the selected
+Tests compile models with the `c_static_lib` backend, build for the selected
 execution mode, run inference, and compare results against a PyTorch
 reference. Located at `tests/ti-dsp-runtime/dsp-tests/`.
 
@@ -232,7 +232,7 @@ Shared model creation functions:
 
 ### `dsp_utils.py` (in `../dsp-cpp/`)
 DSP compilation and execution utilities:
-- `get_target_string()`: Map mode to c_static target string
+- `get_target_string()`: Map mode to c_static_lib target string
 - `assert_dsp_comparison()`: Assert DSP results match reference
 - `compile_and_run_dsp()`: End-to-end compile, build, and run
 - `compare_results()`: Compare DSP output against reference
@@ -319,7 +319,7 @@ The build subdirectory is named after the execution mode: `build-c7x_host`,
 
 ## Requirements
 
-- TVM with c_static backend
+- TVM with c_static_lib backend
 - PyTorch and torchvision for model creation and reference inference
 - **c66x_host**: No additional requirements (system gcc)
 - **c66x**: AWRL6844 board with XDS110 debug probe, TI C6000 compiler

@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-"""Unit tests for TIDL lowering and c_static code generation (Phase 4).
+"""Unit tests for TIDL lowering and c_static_lib code generation (Phase 4).
 
 Tests verify that:
 - The LowerTIDLToTIR pass correctly replaces Codegen='tidl' functions
   with TIR PrimFuncs containing call_extern
 - The generated C code contains TIDL extern function calls
-- The lowered module can be built through the c_static pipeline
+- The lowered module can be built through the c_static_lib pipeline
 """
 
 import os
@@ -49,8 +49,8 @@ def _partition_and_lower(mod):
     return lowered
 
 
-def _build_and_get_source(mod, target_str="c_static -mcpu=c7x"):
-    """Build a module through c_static and return all generated C source.
+def _build_and_get_source(mod, target_str="c_static_lib -mcpu=c7x"):
+    """Build a module through c_static_lib and return all generated C source.
 
     Since commit [codegen] Split lib0.c into main + kernels, the codegen
     emits lib0.c (entry wrappers) and lib1.c (kernel functions).  The
@@ -173,12 +173,12 @@ class TestLowerTIDLToTIR:
 
 
 # ---------------------------------------------------------------------------
-# Tests: c_static code generation
+# Tests: c_static_lib code generation
 # ---------------------------------------------------------------------------
 
 
 class TestTIDLCodegen:
-    """Test that the c_static codegen produces TIDL extern calls."""
+    """Test that the c_static_lib codegen produces TIDL extern calls."""
 
     def test_extern_call_in_generated_code(self):
         """Generated C code should contain tidl_subgraph_0_process call."""
@@ -194,14 +194,14 @@ class TestTIDLCodegen:
         )
 
     def test_builds_without_error(self):
-        """Partition + lower + c_static build should succeed."""
+        """Partition + lower + c_static_lib build should succeed."""
         mod = _export_and_bind(
             ConvReluModel,
             {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
         )
         lowered = _partition_and_lower(mod)
 
-        target = tvm.target.Target("c_static -mcpu=c7x")
+        target = tvm.target.Target("c_static_lib -mcpu=c7x")
         with tvm.transform.PassContext(opt_level=0):
             # Should not raise
             ex = relax.build(lowered, target=target)

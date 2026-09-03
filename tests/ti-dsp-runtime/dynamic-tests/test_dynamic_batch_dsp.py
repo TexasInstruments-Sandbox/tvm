@@ -1,8 +1,8 @@
 """
-Dynamic shape tests on c_static / C7x DSP.
+Dynamic shape tests on c_static_lib / C7x DSP.
 
 Validates that symbolic shape dimensions compile and execute correctly
-through the c_static backend on C7x host emulation and C7x DLOAD hardware.
+through the c_static_lib backend on C7x host emulation and C7x DLOAD hardware.
 
 Models
 ------

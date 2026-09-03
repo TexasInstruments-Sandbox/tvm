@@ -1,8 +1,8 @@
 """
-Utility functions for TVM CStatic testing framework.
+Utility functions for TVM CStaticLib testing framework.
 
 This module provides utilities for processing Relax IR modules and compiling/running
-them on different targets, with special support for CStatic target compilation and
+them on different targets, with special support for CStaticLib target compilation and
 execution through generated C++ code.
 """
 
@@ -33,7 +33,7 @@ _DEFAULT_CPP_DIR = _MODULE_DIR / "cpp"
 @contextmanager
 def temporary_cpp_workspace(base_cpp_dir: str | Path | None = None, cleanup: bool = True):
     """
-    Create a temporary workspace for CStatic compilation and execution.
+    Create a temporary workspace for CStaticLib compilation and execution.
 
     This context manager creates a unique temporary directory for each test execution,
     enabling parallel test execution without race conditions. The workspace is populated
@@ -170,7 +170,7 @@ def compile_and_run_on_target(
     Compile a Relax module for a target and run it with given input.
 
     This function handles two execution paths:
-    - c_static target: Exports to C++, compiles with CMake/make, runs binary,
+    - c_static_lib target: Exports to C++, compiles with CMake/make, runs binary,
       and loads outputs from NPZ file
     - Other targets: Uses TVM VirtualMachine for execution
 
@@ -178,7 +178,7 @@ def compile_and_run_on_target(
     the Relax IR module's return type.
 
     Args:
-        target_string: Target specification (e.g., "c_static", "llvm")
+        target_string: Target specification (e.g., "c_static_lib", "llvm")
         mod: TVM IRModule containing the Relax function to execute
         input: Input data as numpy array or tuple of numpy arrays for multiple inputs
         verbose_output: Enable verbose compilation output with instrumentation
@@ -188,10 +188,10 @@ def compile_and_run_on_target(
         - Single np.ndarray if model has one output
         - List[np.ndarray] if model has multiple outputs
 
-        This behavior is consistent across both c_static and VM execution paths.
+        This behavior is consistent across both c_static_lib and VM execution paths.
 
     Note:
-        For CStatic targets, this function:
+        For CStaticLib targets, this function:
         1. Creates a unique temporary workspace (enables parallel test execution)
         2. Copies template files (CMakeLists.txt, main.cpp) to workspace
         3. Exports the compiled module to a tar file
@@ -209,10 +209,10 @@ def compile_and_run_on_target(
 
     logger.debug(f"Compiling for target: {target_string}")
 
-    # For c_static host builds, disable use-cpp-api if not explicitly set.
+    # For c_static_lib host builds, disable use-cpp-api if not explicitly set.
     # The use-cpp-api=1 default generates code using tvm::dsp::vm::AnyArray
     # which is only compatible with the DSP runtime, not the standard TVM runtime.
-    if target_string.startswith("c_static") and "-use-cpp-api" not in target_string:
+    if target_string.startswith("c_static_lib") and "-use-cpp-api" not in target_string:
         target_string = target_string + " -use-cpp-api=0"
         logger.debug(f"Disabled use-cpp-api for host build: {target_string}")
 
@@ -241,9 +241,9 @@ def compile_and_run_on_target(
     #   print(mod.type_key)
     #   print(mod.get_source())
 
-    if target_string.startswith("c_static"):
-        # CStatic target: Export to C++, compile and run as native binary
-        logger.debug("Using C Static backend - creating temporary workspace")
+    if target_string.startswith("c_static_lib"):
+        # CStaticLib target: Export to C++, compile and run as native binary
+        logger.debug("Using C Static Lib backend - creating temporary workspace")
         # Use temporary workspace for parallel test execution
         with temporary_cpp_workspace() as cpp_dir:
             logger.debug(f"Workspace created at: {cpp_dir}")
@@ -323,12 +323,12 @@ def compile_and_run_on_target(
             binary_path = cpp_dir / "cg_static"
             if not binary_path.exists():
                 raise FileNotFoundError(
-                    f"CStatic binary '{binary_path}' not found. "
+                    f"CStaticLib binary '{binary_path}' not found. "
                     f"Build process may have failed. Check {log_path} for details."
                 )
 
             # Run the binary (outputs written to NPZ file)
-            logger.debug("Executing C Static binary...")
+            logger.debug("Executing C Static Lib binary...")
             cmd_result = subprocess.run(
                 ["./cg_static"],
                 cwd=str(cpp_dir),
@@ -340,7 +340,9 @@ def compile_and_run_on_target(
 
             # Check if the binary failed and include stderr in the exception
             if cmd_result.returncode != 0:
-                error_msg = f"C Static binary execution failed (exit code {cmd_result.returncode})"
+                error_msg = (
+                    f"C Static Lib binary execution failed (exit code {cmd_result.returncode})"
+                )
                 if cmd_result.stderr:
                     # Strip "Error: " prefix if present for cleaner error messages
                     stderr_msg = cmd_result.stderr.strip()

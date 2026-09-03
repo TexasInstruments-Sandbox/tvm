@@ -20,12 +20,12 @@
 /*!
  * \file weight_packer.cc
  * \brief Export VM constants/weights to an external binary file and generate
- *        C++ loader code for the c_static backend.
+ *        C++ loader code for the c_static_lib backend.
  *
  * This is a standalone utility that reads the public `constants` vector from
  * VMExecutable and serializes it using the same binary format as
  * SaveConstantSection, but to an external file rather than the embedded
- * bytecode stream.  Keeping this in c_static avoids modifying the core
+ * bytecode stream.  Keeping this in c_static_lib avoids modifying the core
  * executable.h/cc files.
  */
 #include <dmlc/memory_io.h>
@@ -194,13 +194,13 @@ static void SaveConstantSectionToFileAligned(const std::vector<ffi::Any>& consta
 static void GenerateConstantLoaderCode(std::ostream& os,
                                        const std::string& filename) {
   std::string basename = filename.substr(filename.find_last_of("/\\") + 1);
-  // NOTE: The generated code below is compiled as part of the c_static binary,
+  // NOTE: The generated code below is compiled as part of the c_static_lib binary,
   // NOT as part of TVM itself.  For DSP targets, the DSP runtime provides its
   // own TVMGetConstants() in constants_loader.cpp, so this generated code is
   // only used for generic host-emulation builds.
   os << R"(
 // Auto-generated constant loader for external binary file.
-// This file is compiled into the c_static deployment binary.
+// This file is compiled into the c_static_lib deployment binary.
 // For DSP targets, the DSP runtime provides its own TVMGetConstants().
 #include <dmlc/memory_io.h>
 #include <tvm/ffi/any.h>

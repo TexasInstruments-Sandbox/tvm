@@ -3,7 +3,7 @@
 Test suite for Vision Transformer (ViT-B/16) image classification model on TVM targets.
 
 This module tests the Vision Transformer Base model with 16x16 patch size for image
-classification tasks. The tests compare execution between LLVM and CStatic targets.
+classification tasks. The tests compare execution between LLVM and CStaticLib targets.
 
 ViT-B/16 Model Architecture:
 - Input: 224x224 RGB images
@@ -33,7 +33,7 @@ Output Content Details:
 
 Key Features Tested:
 - Image classification accuracy on real images
-- Cross-target consistency (LLVM vs CStatic)
+- Cross-target consistency (LLVM vs CStaticLib)
 - Top-5 prediction comparison between targets
 - Numerical accuracy comparison with tight tolerances
 - Proper handling of ImageNet preprocessing (normalization, cropping)
@@ -47,7 +47,7 @@ Model Characteristics:
 - Pre-trained on ImageNet with sophisticated data augmentation
 
 Expected Behavior:
-- Both LLVM and CStatic targets should predict the same top class
+- Both LLVM and CStaticLib targets should predict the same top class
 - Numerical outputs should match within rtol=1e-3, atol=1e-5
 - Model correctly classifies test images (e.g., dog.jpg -> dog breeds)
 
@@ -201,9 +201,9 @@ def decode_prediction(logits, top_k=5):
 
 # Parameters are too large to use the C source approach
 @pytest.mark.slow
-@pytest.mark.parametrize("target_c_static", ["c_static"])
-def test_vitb16_comparison(target_c_static):
-    """Test ViT-B/16 model comparing llvm vs c_static targets."""
+@pytest.mark.parametrize("target_c_static_lib", ["c_static_lib"])
+def test_vitb16_comparison(target_c_static_lib):
+    """Test ViT-B/16 model comparing llvm vs c_static_lib targets."""
     mod = create_vitb16_model()
     # create_vitb16_model() will call pytest.skip() if conversion fails
     # so we only reach here if successful
@@ -215,9 +215,9 @@ def test_vitb16_comparison(target_c_static):
     print("Running on LLVM target...")
     llvm_result = compile_and_run_on_target(target_string="llvm", mod=mod, input=input_data)
 
-    print("Running on CStatic target...")
-    c_static_result = compile_and_run_on_target(
-        target_string=target_c_static, mod=mod, input=input_data
+    print("Running on CStaticLib target...")
+    c_static_lib_result = compile_and_run_on_target(
+        target_string=target_c_static_lib, mod=mod, input=input_data
     )
 
     # Handle multi-output case: if result is a list, take the first output
@@ -225,9 +225,9 @@ def test_vitb16_comparison(target_c_static):
     if isinstance(llvm_result, list):
         print(f"  Note: Model returned {len(llvm_result)} outputs, using first output")
         llvm_result = llvm_result[0]
-    if isinstance(c_static_result, list):
-        print(f"  Note: Model returned {len(c_static_result)} outputs, using first output")
-        c_static_result = c_static_result[0]
+    if isinstance(c_static_lib_result, list):
+        print(f"  Note: Model returned {len(c_static_lib_result)} outputs, using first output")
+        c_static_lib_result = c_static_lib_result[0]
 
     # Decode predictions for both targets
     print("\n LLVM Target Predictions:")
@@ -235,33 +235,35 @@ def test_vitb16_comparison(target_c_static):
     for i, (label, prob, idx) in enumerate(llvm_predictions):
         print(f"  {i + 1}. {label} (class {idx}): {prob:.4f}")
 
-    print("\n CStatic Target Predictions:")
-    c_static_predictions = decode_prediction(c_static_result, top_k=5)
-    for i, (label, prob, idx) in enumerate(c_static_predictions):
+    print("\n CStaticLib Target Predictions:")
+    c_static_lib_predictions = decode_prediction(c_static_lib_result, top_k=5)
+    for i, (label, prob, idx) in enumerate(c_static_lib_predictions):
         print(f"  {i + 1}. {label} (class {idx}): {prob:.4f}")
 
     # Show top prediction comparison
     llvm_top = llvm_predictions[0]
-    c_static_top = c_static_predictions[0]
+    c_static_lib_top = c_static_lib_predictions[0]
 
     print("\n Top Predictions:")
     print(f"   LLVM: {llvm_top[0]} ({llvm_top[2]}) - {llvm_top[1]:.4f}")
-    print(f"   CStatic:  {c_static_top[0]} ({c_static_top[2]}) - {c_static_top[1]:.4f}")
+    print(
+        f"   CStaticLib:  {c_static_lib_top[0]} ({c_static_lib_top[2]}) - {c_static_lib_top[1]:.4f}"
+    )
 
-    if llvm_top[2] == c_static_top[2]:
+    if llvm_top[2] == c_static_lib_top[2]:
         print("   Pass: Both targets predict the same class!")
     else:
         print("   Fail: Different top predictions between targets")
 
     # Compare numerical results
-    max_diff = np.max(np.abs(llvm_result - c_static_result))
+    max_diff = np.max(np.abs(llvm_result - c_static_lib_result))
     print("\n Numerical comparison:")
     print(f"   Max difference: {max_diff:.2e}")
     print(f"   Relative difference: {max_diff / np.max(np.abs(llvm_result)):.2e}")
 
     # Assert results are close enough
-    assert np.allclose(llvm_result, c_static_result, rtol=1e-3, atol=1e-5), (
-        f"Results differ for {target_c_static}. Max difference: {max_diff}"
+    assert np.allclose(llvm_result, c_static_lib_result, rtol=1e-3, atol=1e-5), (
+        f"Results differ for {target_c_static_lib}. Max difference: {max_diff}"
     )
 
     print("   Pass: Numerical results match within tolerance!")

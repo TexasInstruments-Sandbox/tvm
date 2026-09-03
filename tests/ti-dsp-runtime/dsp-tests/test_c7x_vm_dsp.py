@@ -101,7 +101,7 @@ def _has_c7x_firmware() -> bool:
 def _compile_mlp_lib0() -> Path:
     """Compile a small MLP to lib0.out and return its path."""
     tvm_mod, _, _ = create_mlp_model(input_size=64, hidden_size=32, output_size=8)
-    target = "c_static -mcpu=c7x -use-cpp-api=1"
+    target = "c_static_lib -mcpu=c7x -use-cpp-api=1"
     gen_dir = Path(tempfile.mkdtemp(prefix="c7x_vm_test_"))
     compile_for_dsp(tvm_mod, target_string=target, output_dir=gen_dir)
     build_dir = Path(tempfile.mkdtemp(prefix="c7x_vm_build_"))
@@ -120,7 +120,7 @@ def _compile_mlp_lib0_no_io_meta() -> Path:
     shape) so DYN_LOAD_RESP reports io_input_bytes=io_output_bytes=0 and
     capacity is entirely up to c7x_client_reserve_io()."""
     tvm_mod, _, _ = create_mlp_model(input_size=64, hidden_size=32, output_size=8)
-    target = "c_static -mcpu=c7x -use-cpp-api=1"
+    target = "c_static_lib -mcpu=c7x -use-cpp-api=1"
     gen_dir = Path(tempfile.mkdtemp(prefix="c7x_vm_test_noiometa_"))
     compile_for_dsp(tvm_mod, target_string=target, output_dir=gen_dir)
     io_meta = gen_dir / "tvm_dsp_io_meta.bin"
@@ -1036,7 +1036,7 @@ class TestCapacityOverrun:
 # INFER_LARGE (>4 inputs) — D9 descriptor-region-at-front-of-input_buf
 #
 # Not covered here: a synthetic N-separate-input model (no weights, plain
-# relax.op.add chain) hits a pre-existing TVM c_static/VMShapeLower failure
+# relax.op.add chain) hits a pre-existing TVM c_static_lib/VMShapeLower failure
 # ("ERROR: Inference failed (5)") that reproduces identically under c7x_host
 # with as few as 2 inputs -- i.e. it is unrelated to INFER_LARGE, DLOAD, or
 # this plan's dmabuf changes; every model in the regression set with a real

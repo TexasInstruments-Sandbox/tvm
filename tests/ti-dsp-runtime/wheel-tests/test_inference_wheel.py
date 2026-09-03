@@ -202,7 +202,7 @@ class TestInferenceWheelE2E:
 
         # DSP module
         gen_dir = Path(tempfile.mkdtemp(prefix="wheel_e2e_gen_"))
-        compile_for_dsp(tvm_mod, "c_static -mcpu=c7x -use-cpp-api=1", output_dir=gen_dir)
+        compile_for_dsp(tvm_mod, "c_static_lib -mcpu=c7x -use-cpp-api=1", output_dir=gen_dir)
         build_dir = Path(tempfile.mkdtemp(prefix="wheel_e2e_build_"))
         weights = gen_dir / "weights.bin"
         lib0 = build_dsp_dynmod(

@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Test that use-cpp-api=1 codegen works for non-DSP c_static targets.
+"""Test that use-cpp-api=1 codegen works for non-DSP c_static_lib targets.
 
 Verifies that the anylist compact-form intrinsics preserved by
 LowerTVMBuiltin (when use-cpp-api is set) are correctly handled by
-the c_static codegen regardless of whether a DSP mcpu is specified.
+the c_static_lib codegen regardless of whether a DSP mcpu is specified.
 
 This is a codegen-only test: it checks the generated C++ source but
 does not compile or run it (the AnyArray API requires the DSP runtime
@@ -52,7 +52,7 @@ class MatmulModule:
 
 
 def _build_and_get_source(mod, target_str):
-    """Build a module through c_static and return the generated lib0.c source.
+    """Build a module through c_static_lib and return the generated lib0.c source.
 
     Uses exec_mode="compiled" so that Relax VM operations (alloc_storage,
     alloc_tensor, etc.) are compiled to TIR as anylist_setitem_call_packed
@@ -86,13 +86,13 @@ def test_use_cpp_api_codegen_no_dsp():
     """use-cpp-api=1 without DSP mcpu must produce AnyArray-based code.
 
     LowerTVMBuiltin preserves anylist intrinsics when use-cpp-api is
-    set.  The c_static codegen must handle these regardless of whether
+    set.  The c_static_lib codegen must handle these regardless of whether
     dsp_.enabled is true.  Before the fix, the codegen guarded this
     path on dsp_.enabled, causing the preserved intrinsics to fall
     through unhandled for non-DSP targets.
     """
     mod = _prepare_model()
-    source = _build_and_get_source(mod, "c_static -use-cpp-api=1")
+    source = _build_and_get_source(mod, "c_static_lib -use-cpp-api=1")
 
     assert source, "codegen produced empty output"
     assert "AnyArray" in source, (
@@ -104,7 +104,7 @@ def test_use_cpp_api_codegen_no_dsp():
 def test_use_cpp_api_disabled_no_anyarray():
     """use-cpp-api=0 must NOT produce AnyArray code (expanded path)."""
     mod = _prepare_model()
-    source = _build_and_get_source(mod, "c_static -use-cpp-api=0")
+    source = _build_and_get_source(mod, "c_static_lib -use-cpp-api=0")
 
     assert source, "codegen produced empty output"
     assert "AnyArray" not in source, (

@@ -33,7 +33,7 @@
                  +------------------+------------------+
                                     |
                 +---------------------------------------+
-                |            CodeGenCStatic             |
+                |            CodeGenCStaticLib             |
                 |           (C/C++ emission)            |
                 +---------------------------------------+
                                     |
@@ -48,7 +48,7 @@
                 +---------------------------------------+
 ```
 
-**Note:** the `c_static` backend generates self-contained C/C++ code
+**Note:** the `c_static_lib` backend generates self-contained C/C++ code
 that compiles with any toolchain. The "static" means no shared library
 dependencies at runtime -- it does NOT mean static shapes.
 
@@ -74,7 +74,7 @@ the dev host:
 ```
  Dev Host (x86 Linux)                    AM67A / J722S Board
  ─────────────────────                   ─────────────────────
- relax.build(mod, target="c_static
+ relax.build(mod, target="c_static_lib
              -mcpu=c7x")
         |
         v
@@ -112,8 +112,8 @@ compile -> deploy -> run walkthroughs of both.
 
 | Component | Location | Description |
 |-----------|----------|-------------|
-| C Static Backend | `src/target/c_static/` | C/C++ code generator for Relax VM; emits wrapper functions, weight serialisation, register file management. [Docs](backend/c-static.md) |
-| DSP Code Extensions | `src/target/c_static/codegen_c_static_dsp.{h,cc}` | TI-specific: compiler pragmas (`MUST_ITERATE`, `UNROLL`), per-layer cycle profiling, C7x vector type emission |
+| C Static Lib Backend | `src/target/c_static_lib/` | C/C++ code generator for Relax VM; emits wrapper functions, weight serialisation, register file management. [Docs](backend/c-static-lib.md) |
+| DSP Code Extensions | `src/target/c_static_lib/codegen_c_static_lib_dsp.{h,cc}` | TI-specific: compiler pragmas (`MUST_ITERATE`, `UNROLL`), per-layer cycle profiling, C7x vector type emission |
 | C7x DMA Scheduler | `python/tvm/relax/transform/schedule_c7x_dma.py` | TIR pass: H-tiling with `cache_read` into `global.l2sram`, software pipeline annotations, async DMA prefetch |
 | MMALIB Passes | `python/tvm/relax/transform/ti_mmalib_*.py` | QDQ pattern fusion (conv2d/depthwise/FC/residual-add, int8+int16) and L2 DMA injection for direct MMA coprocessor offload via `-mmalib=1`. See [MMALIB Integration](backend/mmalib-integration.md). |
 

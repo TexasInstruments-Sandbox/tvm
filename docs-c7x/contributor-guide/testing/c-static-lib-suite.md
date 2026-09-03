@@ -1,7 +1,7 @@
-# C Static Test Suite
+# C Static Lib Test Suite
 
-Validation suite for the TVM C Static backend (`c_static` target).
-Compiles models for both LLVM (reference) and c_static, then compares
+Validation suite for the TVM C Static Lib backend (`c_static_lib` target).
+Compiles models for both LLVM (reference) and c_static_lib, then compares
 outputs within tolerance (rtol=1e-3, atol=1e-5). Located at
 `tests/cstatic/`.
 
@@ -31,7 +31,7 @@ CSTATIC_KEEP_TEMP=1 pytest --rootdir=. unit-tests/test_resnet.py -v
    cd build
    cmake -G Ninja .. && ninja           # Pass 1: shared libs (for Python)
    cmake -DBUILD_STATIC_RUNTIME=ON ..
-   ninja tvm_runtime                    # Pass 2: libtvm_runtime.a (for c_static)
+   ninja tvm_runtime                    # Pass 2: libtvm_runtime.a (for c_static_lib)
    cd ..
    ```
 
@@ -93,10 +93,10 @@ Common options: `--tvm`, `--compare`, `--test-all`, `--parallel`.
 
 Each test:
 1. Creates or loads a model (PyTorch or TVM IR)
-2. Compiles for **LLVM** (reference) and **c_static** (target under test)
-3. For c_static: exports to C, builds with CMake in an isolated temp dir,
+2. Compiles for **LLVM** (reference) and **c_static_lib** (target under test)
+3. For c_static_lib: exports to C, builds with CMake in an isolated temp dir,
    runs the binary, loads outputs from NPZ
-4. Asserts numerical match between LLVM and c_static outputs
+4. Asserts numerical match between LLVM and c_static_lib outputs
 
 The C++ build template is in `cpp/` (CMakeLists.txt + main.cpp).
 Each test gets its own `/tmp/cpp_cstatic_XXXXX/` workspace for safe
