@@ -33,7 +33,6 @@ def default_tir_pipeline():
         pass_ctx = tvm.transform.PassContext.current()
         config = pass_ctx.config
         passes = [
-            tir.transform.AddNoAlias(),  # Add restrict qualifiers for pointer aliasing
             tir.transform.CanonicalizeLoop(),
             tir.transform.LowerCrossThreadReduction(),
             tir.transform.LowerInitBlock(),
@@ -46,14 +45,11 @@ def default_tir_pipeline():
             tir.transform.UnifyThreadBinding(),
             tir.transform.LowerMatchBuffer(),
             tir.transform.Simplify(),
-            tir.transform.SimplifyPowerTwo(),  # Replace pow(x, 2) with x * x
             tir.transform.InjectPermutedLayout(),
             tir.transform.AnnotateIrregularLoop(),
             tir.transform.InjectSoftwarePipeline(),
             tir.transform.TransformMmaBufferLayout(),
             tir.transform.LowerOpaqueBlock(),
-            tir.transform.HoistReductionInit(),  # After LowerOpaqueBlock when conditional is exposed
-            tir.transform.PromoteReductionAccumulator(),  # Convert memory accum to register accum
             tir.transform.FlattenBuffer(),
             tir.transform.BF16ComputeLegalize(),
             tir.transform.NarrowDataType(32),

@@ -78,6 +78,19 @@ def library_dispatch_passes(target: tvm.target.Target):  # pylint: disable=unuse
 def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
     """The default legalization passes for CPU backend."""
     is_c7x = _is_c7x_target(target)
+    if not is_c7x:
+        # Non-C7x targets keep the upstream default CPU legalization order.
+        # The C7x QDQ-fusion passes below emit ``call_extern("c7x_int8_*")``
+        # kernels that only the TI DSP runtime exports; running them for other
+        # cpu_generic targets (e.g. llvm/c) produces unresolved symbols.
+        return [
+            tvm.relax.transform.LegalizeOps(),
+            tvm.relax.transform.AnnotateTIROpPattern(),
+            tvm.relax.transform.FoldConstant(),
+            tvm.relax.transform.FuseOps(),
+            tvm.relax.transform.FuseTIR(),
+        ]
+
     passes = []
 
     # MMALIB QDQ fusion runs FIRST — matches the original PT2E QDQ pattern
