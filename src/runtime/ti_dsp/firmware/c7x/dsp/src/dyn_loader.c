@@ -409,6 +409,7 @@ static const DspSymEntry dsp_syms[] = {
     /* TVM DMA runtime */
     SYM(tvm_dsp_dma_copy),
     SYM(tvm_dsp_dma_wait),
+    SYM(tvm_dsp_report_error),
     /* TVM kernels */
     SYM(c7x_int8_residual_add_relu),
     SYM(c7x_int16_residual_add_relu),

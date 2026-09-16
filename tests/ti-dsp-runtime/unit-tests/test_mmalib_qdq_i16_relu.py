@@ -126,6 +126,7 @@ class TestConv2dI16Relu:
         new_mod = tvm.relax.transform.FuseMMALIBQDQConv2dI16()(mod)
         text = new_mod.script()
         assert "mmalib_conv2d_i16" in text
+        assert "tvm_dsp_report_error" in text
         assert "R.nn.relu" not in text
         lo, hi = _clip_bounds(text)
         assert "0" in lo and "32768" not in lo
@@ -138,6 +139,7 @@ class TestDwConv2dI16Relu:
         new_mod = tvm.relax.transform.FuseMMALIBQDQDwConv2dI16()(mod)
         text = new_mod.script()
         assert "mmalib_depthwise_conv2d_i16" in text
+        assert "tvm_dsp_report_error" in text
         assert "R.nn.relu" not in text
         lo, hi = _clip_bounds(text)
         assert "0" in lo and "32768" not in lo

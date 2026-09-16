@@ -100,7 +100,7 @@ def _mmalib_matmul_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
 
     def te_mmalib_matmul(a: te.Tensor, b: te.Tensor) -> te.Tensor:
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return _call_extern_checked(
                 "int32",
                 "mmalib_matmul_i16",
                 ins[0].data,
@@ -257,7 +257,7 @@ def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
         shift_t: te.Tensor,
     ) -> te.Tensor:
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return _call_extern_checked(
                 "int32",
                 "mmalib_conv2d_i16",
                 ins[0].data,  # input
@@ -365,6 +365,35 @@ def _scale_shift_or_none(rescale: np.ndarray):
         return _float_to_scale_shift(rescale)
     except ValueError:
         return None, None
+
+
+def _call_extern_checked(dtype: str, op_name: str, *args):
+    """Emit ``call_extern(dtype, op_name, ...)`` and fail loudly on non-zero status.
+
+    The offload kernels (MMALIB/TIDL/SDPA/residual-add) return an int32
+    status (0 == success).  Previously that status was discarded, so an OOM
+    or init failure silently produced stale/partial output.  This wraps the
+    call in a ``let`` + ``if`` that reports the error through the firmware's
+    exported ``tvm_dsp_report_error``.
+    """
+    call = tir.call_extern(dtype, op_name, *args)
+    status = tir.Var("status", "int64")
+    return tir.LetStmt(
+        status,
+        tir.Cast("int64", call),
+        tir.IfThenElse(
+            status != 0,
+            tir.Evaluate(
+                tir.call_extern(
+                    "int32",
+                    "tvm_dsp_report_error",
+                    tir.StringImm(op_name),
+                    tir.Cast("int32", status),
+                )
+            ),
+            None,
+        ),
+    )
 
 
 # Shape-only ops that PT2E/ATen's conv-bias decomposition may interpose

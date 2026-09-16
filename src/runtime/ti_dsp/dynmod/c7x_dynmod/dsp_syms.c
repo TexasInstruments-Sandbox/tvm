@@ -112,6 +112,7 @@ __declspec(dllexport) void tvm_dsp_cache_writeback() {}
 __declspec(dllexport) void tvm_dsp_cache_invalidate() {}
 __declspec(dllexport) void tvm_dsp_cache_writeback_invalidate() {}
 __declspec(dllexport) void tvm_dsp_log() {}
+__declspec(dllexport) int32_t tvm_dsp_report_error() { return 0; }
 __declspec(dllexport) void tvm_dsp_get_free_memory() {}
 
 /* ========================================================================

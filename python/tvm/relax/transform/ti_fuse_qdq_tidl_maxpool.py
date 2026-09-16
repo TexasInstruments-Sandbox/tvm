@@ -49,6 +49,7 @@ import logging
 
 import tvm
 from tvm import relax, te, tir
+from .ti_mmalib_legalize import _call_extern_checked
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
@@ -192,7 +193,7 @@ class _MaxPoolLowerer(PyExprMutator):
 
         def te_max_pool(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return _call_extern_checked(
                     "int32",
                     kernel_name,
                     ins[0].data,

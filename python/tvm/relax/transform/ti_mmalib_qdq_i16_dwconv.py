@@ -45,7 +45,7 @@ from tvm.ir.transform import PassContext
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import propagate_span
-from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor, _scale_shift_or_none
+from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor, _scale_shift_or_none, _call_extern_checked
 from .ti_mmalib_qdq_dwconv import (
     _check_dwconv2d_geometry,
     _MMALIBQDQDwConvLowerer,
@@ -294,7 +294,7 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
             shift_t: te.Tensor,
         ) -> te.Tensor:
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return _call_extern_checked(
                     "int32",
                     "mmalib_depthwise_conv2d_i16",
                     ins[0].data,  # input  [1, C, H_in, W_in], int16

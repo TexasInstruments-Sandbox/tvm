@@ -43,6 +43,7 @@ import numpy as np
 
 import tvm
 from tvm import relax, te, tir
+from .ti_mmalib_legalize import _call_extern_checked
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
@@ -444,7 +445,7 @@ class _ResidualAddLowerer(PyExprMutator):
 
         def te_residual_add(x_t, skip_t, params_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return _call_extern_checked(
                     "int32",
                     extern_name,
                     ins[0].data,
