@@ -1,0 +1,9 @@
+{
+  "name": "relax-c7x",
+  "description": "TVM compilation and deployment skills for TI C7x DSP (AM67A/J722S): c_static_lib backend, DSP runtime, firmware, operators, TIDL offload, and MMALIB offload",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ajay Jayaraj",
+    "email": "ajayj@ti.com"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "skills-c7x",
+  "owner": {
+    "name": "Ajay Jayaraj",
+    "email": "ajayj@ti.com"
+  },
+  "plugins": [
+    {
+      "name": "relax-c7x",
+      "source": "./relax-c7x",
+      "description": "TVM Relax C7x DSP skills: build, c_static_lib backend, DSP runtime, firmware, TIDL/MMALIB offload, testing, model workflow, and Relax/TIR passes"
+    }
+  ]
+}

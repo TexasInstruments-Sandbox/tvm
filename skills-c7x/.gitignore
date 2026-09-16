@@ -1,0 +1,2 @@
+# Claude Code plugin metadata is JSON; track it despite the repo-wide *.json ignore.
+!*.json
