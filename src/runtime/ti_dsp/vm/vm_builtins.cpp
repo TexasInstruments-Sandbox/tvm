@@ -180,8 +180,10 @@ TVMDSPShape* TVMDSPBuiltinMakeShape(TVMDSPNDArray* heap, int32_t ndim,
     return nullptr;
   }
 
+  int64_t heap_len = 0;
   if (heap != nullptr) {
     heap_data = static_cast<int64_t*>(heap->data);
+    heap_len = TVMDSPNDArrayNumElements(heap);
   }
 
   for (int32_t i = 0; i < ndim; i++) {
@@ -193,6 +195,11 @@ TVMDSPShape* TVMDSPBuiltinMakeShape(TVMDSPNDArray* heap, int32_t ndim,
     } else if (code == kMakeShapeLoadShape) {
       if (heap_data == nullptr) {
         tvm_dsp_log("ERROR: make_shape requires heap for LoadShape\n");
+        return nullptr;
+      }
+      if (val < 0 || val >= heap_len) {
+        tvm_dsp_log("ERROR: make_shape heap index %lld out of range [0, %lld)\n",
+                    static_cast<long long>(val), static_cast<long long>(heap_len));
         return nullptr;
       }
       shape_data[i] = heap_data[val];
@@ -232,8 +239,10 @@ int TVMDSPBuiltinMatchShape(const TVMFFIAny* input, TVMDSPNDArray* heap,
     return -1;
   }
 
+  int64_t heap_len = 0;
   if (heap != nullptr) {
     heap_data = static_cast<int64_t*>(heap->data);
+    heap_len = TVMDSPNDArrayNumElements(heap);
   }
 
   for (int32_t i = 0; i < ndim; i++) {
@@ -255,6 +264,11 @@ int TVMDSPBuiltinMatchShape(const TVMFFIAny* input, TVMDSPNDArray* heap,
           tvm_dsp_log("ERROR: match_shape StoreToHeap requires heap\n");
           return -1;
         }
+        if (val < 0 || val >= heap_len) {
+          tvm_dsp_log("ERROR: match_shape heap index %lld out of range [0, %lld)\n",
+                      static_cast<long long>(val), static_cast<long long>(heap_len));
+          return -1;
+        }
         heap_data[val] = input_shape[i];
         break;
 
@@ -265,6 +279,11 @@ int TVMDSPBuiltinMatchShape(const TVMFFIAny* input, TVMDSPNDArray* heap,
       case kMatchShapeAssertEqualToLoad:
         if (heap_data == nullptr) {
           tvm_dsp_log("ERROR: match_shape AssertEqualToLoad requires heap\n");
+          return -1;
+        }
+        if (val < 0 || val >= heap_len) {
+          tvm_dsp_log("ERROR: match_shape heap index %lld out of range [0, %lld)\n",
+                      static_cast<long long>(val), static_cast<long long>(heap_len));
           return -1;
         }
         if (input_shape[i] != heap_data[val]) {

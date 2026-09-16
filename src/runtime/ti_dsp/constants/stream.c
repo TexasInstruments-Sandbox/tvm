@@ -32,7 +32,7 @@ void TVMDSPStreamInit(TVMDSPStream* stream, const void* data, size_t size) {
 }
 
 int TVMDSPStreamRead(TVMDSPStream* stream, void* buf, size_t size) {
-  if (stream->pos + size > stream->size) {
+  if (size > stream->size - stream->pos) {
     return -1;  /* Would read past end */
   }
 
@@ -42,7 +42,7 @@ int TVMDSPStreamRead(TVMDSPStream* stream, void* buf, size_t size) {
 }
 
 const void* TVMDSPStreamPeek(TVMDSPStream* stream, size_t size) {
-  if (stream->pos + size > stream->size) {
+  if (size > stream->size - stream->pos) {
     return NULL;  /* Would read past end */
   }
 
@@ -50,7 +50,7 @@ const void* TVMDSPStreamPeek(TVMDSPStream* stream, size_t size) {
 }
 
 int TVMDSPStreamSkip(TVMDSPStream* stream, size_t size) {
-  if (stream->pos + size > stream->size) {
+  if (size > stream->size - stream->pos) {
     return -1;  /* Would skip past end */
   }
 

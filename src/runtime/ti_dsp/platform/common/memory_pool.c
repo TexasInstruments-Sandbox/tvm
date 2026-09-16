@@ -93,6 +93,15 @@ void* tvm_dsp_memory_pool_alloc(TVMDSPMemoryPoolDesc* pool, size_t size, size_t 
     return NULL;
   }
 
+  /* Reject requests larger than the pool up front.  size is model-controlled
+   * (a negative dimension cast to size_t arrives here as a huge value), and a
+   * huge size would overflow the align_up() arithmetic below, letting the
+   * bump allocator hand back a near-zero block that the caller then fills at
+   * the full requested size. */
+  if (size > pool->size) {
+    return NULL;
+  }
+
   /* Enforce minimum alignment */
   if (alignment < sizeof(void*)) {
     alignment = sizeof(void*);
