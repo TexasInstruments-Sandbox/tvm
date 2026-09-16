@@ -24,6 +24,23 @@ Start with these two docs before touching C7x code:
 - `docs-c7x/contributor-guide/architecture-overview.md`
 - `docs-c7x/user-guide/getting-started.md`
 
+## C7x Skills
+
+Specialized agent skills live under `skills-c7x/relax-c7x/skills/`. Each is
+a subsystem-scoped Markdown reference; read the matching one before working
+in that area (they add pass-level and runtime-level detail beyond this file):
+
+- `build` — TVM core / DSP runtime / firmware / DLOAD build, env setup
+- `cstatic` — `c_static_lib` backend, codegen, target options, pass order
+- `dsp-runtime` — DSP runtime library, memory pools, Model API
+- `firmware` — `c7x_compute` firmware, DLOAD linker, IPC, deploy, memory layout
+- `dsp-ops` — operator kernels, DMA tiling, quantization math
+- `tidl-offload` — TIDL subgraph partitioning + bridge generation
+- `mmalib-offload` — MMALIB QDQ fusion, int16 offload, MMA wrappers
+- `testing` — pytest fixtures, profiling, debugging references
+- `model-workflow` — export → quantize → offload → compile → verify
+- `relax-passes` — writing Relax/TIR passes (DFPattern, mutators, call_extern)
+
 ## Repository map (C7x-specific)
 
 Compiler (TVM Python + C++):
