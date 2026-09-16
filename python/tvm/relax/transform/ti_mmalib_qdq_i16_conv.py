@@ -57,6 +57,7 @@ from .ti_mmalib_legalize import (
     _check_conv2d_mmalib_constraints,
     _float_to_scale_shift,
     _resolve_constant_tensor,
+    _scale_shift_or_none,
 )
 from .ti_mmalib_qdq_fusion import _MMALIBQDQLowerer as _I8Lowerer
 
@@ -415,8 +416,14 @@ class _MMALIB_QDQI16Conv2dLowerer(PyExprMutator):
             bias_i64 = np.zeros(C_out, dtype=np.int64)
 
         # Per-channel requantization scale and shift (same formula as int8)
+        if w_scale_np.size != C_out:
+            logger.warning("Per-tensor weight scale is not supported for MMALIB int16 conv2d; declining")
+            return super().visit_call_(call)
         combined_rescale = dw_scale / o_scale_val
-        scale_u8, shift_u8 = _float_to_scale_shift(combined_rescale)
+        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
+        if scale_u8 is None:
+            logger.warning("Rescale out of range for MMALIB int16 conv2d; declining")
+            return super().visit_call_(call)
 
         kernel_relax = relax.Constant(w_i16_np)
         bias_relax = relax.Constant(bias_i64)
@@ -484,8 +491,11 @@ class _MMALIB_QDQI16Conv2dLowerer(PyExprMutator):
         # highlights would come up empty.
         result = propagate_span(result, roles["conv_call"])
         if has_relu:
-            # Clip to int16 range rather than int8 range
-            result = relax.op.clip(result, relax.PrimValue(-32768), relax.PrimValue(32767))
+            # int16 is symmetric (o_zp=0, validated in the check function); the
+            # MMALIB kernel saturates but does not apply ReLU.  Clip at the
+            # output zero-point to zero negative pre-activations (the previous
+            # [-32768, 32767] clip was a full-range no-op that dropped ReLU).
+            result = relax.op.clip(result, relax.PrimValue(0), relax.PrimValue(32767))
 
         self.count += 1
         logger.info(

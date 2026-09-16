@@ -42,7 +42,7 @@ from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_constants import MMA_SIZE_I8, MMA_SIZE_I16
-from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor
+from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor, _scale_shift_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -390,8 +390,14 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
             bias_i32 = (bias_i32 + np.round(o_zp_val / combined_rescale_for_ozp)).astype(np.int32)
 
         # Requantization scale
+        if w_scale_np.size != N_out:
+            logger.warning("Per-tensor weight scale is not supported for MMALIB FC; declining")
+            return super().visit_call_(call)
         combined_rescale = d_scale_val * w_scale_np[:N_out] / o_scale_val
-        scale_u8, shift_u8 = _float_to_scale_shift(combined_rescale)
+        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
+        if scale_u8 is None:
+            logger.warning("Rescale out of range for MMALIB FC; declining")
+            return super().visit_call_(call)
 
         # Build relax constants (weight passed as-is, no reorder needed)
         weight_relax = relax.Constant(w_int8_np)
@@ -745,8 +751,14 @@ class _MMALIB_QDQI16FCLowerer(PyExprMutator):
         else:
             bias_i64 = np.zeros(N_out, dtype=np.int64)
 
+        if w_scale_np.size != N_out:
+            logger.warning("Per-tensor weight scale is not supported for MMALIB int16 FC; declining")
+            return super().visit_call_(call)
         combined_rescale = dw_scale / o_scale_val
-        scale_u8, shift_u8 = _float_to_scale_shift(combined_rescale)
+        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
+        if scale_u8 is None:
+            logger.warning("Rescale out of range for MMALIB int16 FC; declining")
+            return super().visit_call_(call)
 
         weight_relax = relax.Constant(w_i16_np)
         bias_relax = relax.Constant(bias_i64)

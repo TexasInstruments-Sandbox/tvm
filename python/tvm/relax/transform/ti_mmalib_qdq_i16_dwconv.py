@@ -45,7 +45,7 @@ from tvm.ir.transform import PassContext
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import propagate_span
-from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor
+from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor, _scale_shift_or_none
 from .ti_mmalib_qdq_dwconv import (
     _check_dwconv2d_geometry,
     _MMALIBQDQDwConvLowerer,
@@ -268,8 +268,14 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
             bias_i64 = np.zeros(channels, dtype=np.int64)
 
         # Per-channel requantization: same formula as int8
+        if w_scale_np.size != channels:
+            logger.warning("Per-tensor weight scale is not supported for MMALIB int16 dwconv2d; declining")
+            return super().visit_call_(call)
         combined_rescale = dw_scale / o_scale_val
-        scale_u8, shift_u8 = _float_to_scale_shift(combined_rescale)
+        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
+        if scale_u8 is None:
+            logger.warning("Rescale out of range for MMALIB int16 dwconv2d; declining")
+            return super().visit_call_(call)
 
         # Natural-order int16 weights [C, KH*KW], flattened to [C*KH*KW].
         # The C wrapper reorders at runtime via reorderWeights_exec.
@@ -340,8 +346,11 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
         # highlights would come up empty.
         result = propagate_span(result, roles["conv_call"])
         if has_relu:
-            # Clip to int16 range (not int8)
-            result = relax.op.clip(result, relax.PrimValue(-32768), relax.PrimValue(32767))
+            # int16 is symmetric (o_zp=0, validated in the check function); the
+            # MMALIB kernel saturates but does not apply ReLU.  Clip at the
+            # output zero-point to zero negative pre-activations (the previous
+            # [-32768, 32767] clip was a full-range no-op that dropped ReLU).
+            result = relax.op.clip(result, relax.PrimValue(0), relax.PrimValue(32767))
 
         self.count += 1
         logger.info(

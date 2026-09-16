@@ -316,17 +316,26 @@ def _float_to_scale_shift(rescale: np.ndarray):
 
     MMALIB's matrixMatrixMultiplyBias expects signed int8 scale values
     (confirmed by MMALIB test case 8 which declares scale as int8_t).
+
+    Raises ValueError if any channel's rescale is outside the representable
+    range [2^-31, 127].  The previous behavior silently emitted scale=0/
+    shift=0 for non-positive values (all-zero output) or scale=1/shift=0 for
+    tiny values (~1.0 rescale), yielding silently wrong results.
     """
+    min_rescale = 2.0**-31
+    max_rescale = 127.0
+
     n_channels = rescale.shape[0]
     scale_out = np.zeros(n_channels, dtype=np.uint8)
     shift_out = np.zeros(n_channels, dtype=np.uint8)
 
     for ch in range(n_channels):
         r = float(rescale[ch])
-        if r <= 0:
-            scale_out[ch] = 0
-            shift_out[ch] = 0
-            continue
+        if not (min_rescale <= r <= max_rescale):
+            raise ValueError(
+                f"rescale[{ch}]={r} is outside the representable range "
+                f"[{min_rescale}, {max_rescale}]"
+            )
 
         best_err = float("inf")
         best_s, best_sh = 1, 0
@@ -348,6 +357,14 @@ def _float_to_scale_shift(rescale: np.ndarray):
         shift_out[ch] = best_sh
 
     return scale_out, shift_out
+
+
+def _scale_shift_or_none(rescale: np.ndarray):
+    """Like _float_to_scale_shift, but returns (None, None) instead of raising."""
+    try:
+        return _float_to_scale_shift(rescale)
+    except ValueError:
+        return None, None
 
 
 # Shape-only ops that PT2E/ATen's conv-bias decomposition may interpose

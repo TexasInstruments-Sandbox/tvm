@@ -44,7 +44,7 @@ from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import propagate_span
-from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor
+from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor, _scale_shift_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -427,8 +427,14 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
             bias_i32 = (bias_i32 + np.round(o_zp_val / combined_rescale_for_ozp)).astype(np.int32)
 
         # Requantization scale
+        if w_scale_np.size != channels:
+            logger.warning("Per-tensor weight scale is not supported for MMALIB dwconv2d; declining")
+            return super().visit_call_(call)
         combined_rescale = d_scale_val * w_scale_np[:channels] / o_scale_val
-        scale_u8, shift_u8 = _float_to_scale_shift(combined_rescale)
+        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
+        if scale_u8 is None:
+            logger.warning("Rescale out of range for MMALIB dwconv2d; declining")
+            return super().visit_call_(call)
 
         # Pass natural-order weights [C, 1, KH, KW] flattened to [C * KH * KW].
         # The C wrapper calls reorderWeights_exec at runtime.
