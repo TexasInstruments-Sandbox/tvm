@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIRMWARE_NAME="c7x_compute.out"
 
 # Use the common deploy script
-DEPLOY_SCRIPT="${SCRIPT_DIR}/../../deploy-c7x.sh"
+DEPLOY_SCRIPT="${SCRIPT_DIR}/../deploy-c7x.sh"
 
 SUBCOMMAND=""
 TVM_BOARD=""
