@@ -96,10 +96,30 @@ def _check_sdpa_decode(ctx) -> bool:
     if len(q_shape) != 4 or q_shape[0] != 1 or q_shape[2] != 1:
         return False
 
-    # GQA: num_q_heads must be a multiple of num_kv_heads
+    # GQA: num_q_heads must be a positive multiple of num_kv_heads.
     num_q_heads = q_shape[1]
     num_kv_heads = k_shape[1]
+    if num_q_heads <= 0 or num_kv_heads <= 0:
+        return False
     if num_q_heads % num_kv_heads != 0:
+        return False
+
+    # The device kernel uses fixed stack buffers: scores[1024], and
+    # q_regs[16]/out_regs[16] sized for head_dim/8 <= 16 vectors.  Reject
+    # shapes that would overflow them, and require head_dim to be a multiple
+    # of the 8-lane vector width used by the streaming engine.
+    max_cache_len = k_shape[2]
+    head_dim = k_shape[3]
+    if max_cache_len <= 0 or max_cache_len > 1024:
+        return False
+    if head_dim <= 0 or head_dim > 128 or head_dim % 8 != 0:
+        return False
+    if q_shape[3] != head_dim:
+        return False
+
+    # The kernel unconditionally reads mask[pos]; require a real mask tensor.
+    mask = ctx.annotated_expr.get("mask")
+    if not isinstance(getattr(mask, "struct_info", None), relax.TensorStructInfo):
         return False
 
     return True

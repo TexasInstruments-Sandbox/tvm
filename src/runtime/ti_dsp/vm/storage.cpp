@@ -38,6 +38,7 @@
 #include "../cpp/scope_guard.h"
 #include "../cpp/typed_handle.h"
 
+#include <cstdint>
 #include <cstring>
 
 /*
@@ -149,8 +150,46 @@ TVMDSPNDArray* TVMDSPStorageAllocNDArray(TVMDSPStorage* storage, int64_t offset,
     return nullptr;
   }
 
-  /* Validate offset */
+  /* Validate ndim and shape pointer. */
+  if (ndim < 0 || ndim > TVM_DSP_NDARRAY_MAX_NDIM) {
+    return nullptr;
+  }
+  if (ndim > 0 && shape == nullptr) {
+    return nullptr;
+  }
+
+  /* Validate offset. */
   if (offset < 0 || static_cast<size_t>(offset) > storage->buffer.size) {
+    return nullptr;
+  }
+
+  /* Validate the full tensor extent against the storage buffer.  shape is
+   * model-controlled, so guard negative dims and integer overflow in the
+   * numel / byte-size computation before trusting it for bounds. */
+  int64_t numel = 1;
+  for (int32_t i = 0; i < ndim; i++) {
+    if (shape[i] < 0 || (shape[i] != 0 && numel > INT64_MAX / shape[i])) {
+      return nullptr;
+    }
+    numel *= shape[i];
+  }
+
+  size_t elem_bytes;
+  if (dtype.code == kDLUInt && dtype.bits == 1 && dtype.lanes == 1) {
+    elem_bytes = 1;  /* uint1 is stored as a full byte */
+  } else if (dtype.bits == 0) {
+    return nullptr;
+  } else {
+    elem_bytes = static_cast<size_t>((dtype.bits * dtype.lanes + 7) / 8);
+  }
+
+  if (static_cast<uint64_t>(numel) * elem_bytes > SIZE_MAX) {
+    return nullptr;
+  }
+  size_t nbytes = static_cast<size_t>(numel) * elem_bytes;
+  /* offset <= buffer.size was validated above, so this subtraction is safe
+   * and avoids overflow in offset + nbytes for very large nbytes. */
+  if (nbytes > storage->buffer.size - static_cast<size_t>(offset)) {
     return nullptr;
   }
 

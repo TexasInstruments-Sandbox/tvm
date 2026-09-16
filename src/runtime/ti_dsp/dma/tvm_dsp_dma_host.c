@@ -42,6 +42,9 @@ int tvm_dsp_dma_copy(int queue_id, void* dst, const void* src,
                      int size, int bypass_cache) {
   (void)queue_id;
   (void)bypass_cache;
+  if (dst == NULL || src == NULL || size <= 0) {
+    return -1;
+  }
   memcpy(dst, src, (size_t)size);
   return 0;
 }

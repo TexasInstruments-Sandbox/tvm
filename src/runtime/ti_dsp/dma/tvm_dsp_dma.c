@@ -256,6 +256,15 @@ int tvm_dsp_dma_copy(int queue_id, void *dst, const void *src,
         return -1;  /* firmware must call tvm_dsp_dma_init() first */
     }
 
+    if (dst == NULL || src == NULL) {
+        DMA_TRACE("[DMA] ERROR: null dst/src\r\n");
+        return -1;
+    }
+    if (size <= 0) {
+        DMA_TRACE("[DMA] ERROR: bad size %d\r\n", size);
+        return -1;
+    }
+
     DMA_TRACE("[DMA] copy: dst=%p src=%p size=%d q=%d\r\n", dst, src, size, queue_id);
     DMA_TRACE("[DMA]   dst_phys=0x%llx src_phys=0x%llx\r\n",
               virt_to_phys(dst), virt_to_phys(src));
@@ -282,6 +291,13 @@ int tvm_dsp_dma_copy(int queue_id, void *dst, const void *src,
     block_size = 0x8000;  /* 32768 */
     while (block_size > 1 && (size % block_size) != 0) {
         block_size >>= 1;
+    }
+    /* num_blocks is uint16_t (max 0xFFFF).  Reject transfers whose block
+     * count would overflow it -- e.g. an odd size > 0xFFFF would otherwise
+     * wrap to a tiny count and silently transfer only part of the buffer. */
+    if (size / block_size > 0xFFFF) {
+        DMA_TRACE("[DMA] ERROR: size %d too large for 16-bit block count\r\n", size);
+        return -1;
     }
     num_blocks = (uint16_t)(size / block_size);
 
