@@ -50,6 +50,7 @@ from .ti_mmalib_legalize import (
     _check_conv2d_mmalib_constraints,
     _float_to_scale_shift,
     _resolve_constant_tensor,
+    _scale_shift_or_none,
 )
 
 logger = logging.getLogger(__name__)
@@ -425,8 +426,14 @@ class _MMALIBQDQLowerer(PyExprMutator):
             bias_i32 = (bias_i32 + np.round(o_zp_val / combined_rescale_for_ozp)).astype(np.int32)
 
         # Requantization scale
+        if w_scale_np.size != C_out:
+            logger.warning("Per-tensor weight scale is not supported for MMALIB conv2d; declining")
+            return super().visit_call_(call)
         combined_rescale = d_scale_val * w_scale_np[:C_out] / o_scale_val
-        scale_u8, shift_u8 = _float_to_scale_shift(combined_rescale)
+        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
+        if scale_u8 is None:
+            logger.warning("Rescale out of range for MMALIB conv2d; declining")
+            return super().visit_call_(call)
 
         # Build relax constants
         kernel_relax = relax.Constant(w_int8_np)
