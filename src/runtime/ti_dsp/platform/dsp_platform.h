@@ -247,6 +247,7 @@ void tvm_dsp_cache_writeback_invalidate(void* addr, size_t size);
  * \param ... Format arguments.
  */
 void tvm_dsp_log(const char* fmt, ...);
+int32_t tvm_dsp_report_error(const char* op, int32_t status);
 
 #ifdef __cplusplus
 }

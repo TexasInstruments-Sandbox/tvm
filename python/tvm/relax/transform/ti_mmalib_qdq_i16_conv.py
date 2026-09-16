@@ -55,6 +55,7 @@ from tvm.relax.expr_functor import PyExprMutator, mutator
 from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_legalize import (
     _check_conv2d_mmalib_constraints,
+    _call_extern_checked,
     _float_to_scale_shift,
     _resolve_constant_tensor,
     _scale_shift_or_none,
@@ -438,7 +439,7 @@ class _MMALIB_QDQI16Conv2dLowerer(PyExprMutator):
             shift_t: te.Tensor,
         ) -> te.Tensor:
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return _call_extern_checked(
                     "int32",
                     "mmalib_conv2d_i16",
                     ins[0].data,  # input

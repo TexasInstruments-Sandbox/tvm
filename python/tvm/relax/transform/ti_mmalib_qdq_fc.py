@@ -42,7 +42,7 @@ from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_constants import MMA_SIZE_I8, MMA_SIZE_I16
-from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor, _scale_shift_or_none
+from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor, _scale_shift_or_none, _call_extern_checked
 
 logger = logging.getLogger(__name__)
 
@@ -413,7 +413,7 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
             shift_t: te.Tensor,
         ) -> te.Tensor:
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return _call_extern_checked(
                     "int32",
                     "mmalib_matmul_bias_i8",
                     ins[0].data,
@@ -773,7 +773,7 @@ class _MMALIB_QDQI16FCLowerer(PyExprMutator):
             shift_t: te.Tensor,
         ) -> te.Tensor:
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return _call_extern_checked(
                     "int32",
                     "mmalib_matmul_bias_i16",
                     ins[0].data,  # input  [M, K], int16

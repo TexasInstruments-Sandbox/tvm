@@ -48,6 +48,7 @@ from tvm.relax.expr_functor import PyExprMutator, mutator
 from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_legalize import (
     _check_conv2d_mmalib_constraints,
+    _call_extern_checked,
     _float_to_scale_shift,
     _resolve_constant_tensor,
     _scale_shift_or_none,
@@ -588,7 +589,7 @@ class _MMALIBQDQLowerer(PyExprMutator):
             ]
             if groups is not None:
                 args.append(groups)
-            return tir.call_extern(*args)
+            return _call_extern_checked(*args)
 
         def te_mmalib_conv2d(data_t, weight_t, bias_t, scale_t, shift_t):
             return te.extern(

@@ -19,6 +19,7 @@ import logging
 
 import tvm
 from tvm import relax, te, tir
+from .ti_mmalib_legalize import _call_extern_checked
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
@@ -238,7 +239,7 @@ class _SDPADecodeLowerer(PyExprMutator):
 
         def _te_sdpa(qt, kt, vt, mt, _nqh=nqh, _nkvh=nkvh, _hd=hd, _mcl=mcl):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return _call_extern_checked(
                     "int32", "c7x_sdpa_decode",
                     ins[0].data, ins[1].data, ins[2].data,
                     ins[3].data, outs[0].data,

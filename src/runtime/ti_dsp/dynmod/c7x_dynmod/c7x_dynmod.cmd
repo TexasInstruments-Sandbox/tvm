@@ -189,6 +189,7 @@ SECTIONS
 --import=tvm_dsp_cache_invalidate
 --import=tvm_dsp_cache_writeback_invalidate
 --import=tvm_dsp_log
+--import=tvm_dsp_report_error
 --import=tvm_dsp_get_free_memory
 
 /* TVM constants */

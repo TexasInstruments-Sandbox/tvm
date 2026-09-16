@@ -296,3 +296,8 @@ void tvm_dsp_oom_record(size_t requested, size_t free_at_fail, size_t pool_size)
   g_oom_record.free_at_fail = free_at_fail;
   g_oom_record.pool_size = pool_size;
 }
+
+int32_t tvm_dsp_report_error(const char* op, int32_t status) {
+  tvm_dsp_log("ERROR: %s failed with status %d\n", op, (int)status);
+  return status;
+}

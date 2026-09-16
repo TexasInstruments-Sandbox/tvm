@@ -58,6 +58,7 @@ import numpy as np
 
 import tvm
 from tvm import relax, te, tir
+from .ti_mmalib_legalize import _call_extern_checked
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.expr_functor import PyExprMutator, mutator
@@ -235,7 +236,7 @@ class _MMALIBInt16FCMutator(PyExprMutator):
         # 2. MMALIB matmulBias_i16: per-channel shift, scale=1, bias=0
         def te_mmalib_bias_i16(data_t, w_t, bias_t, scale_t, shift_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return _call_extern_checked(
                     "int32",
                     "mmalib_matmul_bias_i16",
                     ins[0].data,
