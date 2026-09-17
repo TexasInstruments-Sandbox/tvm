@@ -20,4 +20,16 @@ PyTorch Frontends for constructing Relax programs, with the model importers
 from .exported_program_translator import from_exported_program
 from .fx_translator import from_fx
 from .dynamo import relax_dynamo, dynamo_capture_subgraphs
-from .c7x_mma_quantizer import C7xMMAQuantizer
+
+
+def __getattr__(name):
+    # C7xMMAQuantizer pulls in torchao at module import time, and torchao is an
+    # optional dependency of the torch frontend.  Importing
+    # tvm.relax.frontend.torch must not require torchao (upstream only requires
+    # torch); only using the quantizer should.  Lazily resolve the symbol so a
+    # missing torchao surfaces at the point of use instead of at import.
+    if name == "C7xMMAQuantizer":
+        from .c7x_mma_quantizer import C7xMMAQuantizer
+
+        return C7xMMAQuantizer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

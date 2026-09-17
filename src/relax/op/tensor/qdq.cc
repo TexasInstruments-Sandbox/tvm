@@ -82,11 +82,13 @@ StructInfo InferStructInfoQuantize(const Call& call, const BlockBuilder& ctx) {
 
   // Check datatype of zero_point param: int8, uint8, float8 types
   if (zp_sinfo->dtype != DataType::Int(8) && zp_sinfo->dtype != DataType::UInt(8) &&
-      zp_sinfo->dtype != DataType::Float8E4M3FN() && zp_sinfo->dtype != DataType::Float8E4M3FNUZ() &&
-      zp_sinfo->dtype != DataType::Float8E5M2() && zp_sinfo->dtype != DataType::Float8E5M2FNUZ()) {
+      zp_sinfo->dtype != DataType::Float(16) && zp_sinfo->dtype != DataType::Float8E4M3FN() &&
+      zp_sinfo->dtype != DataType::Float8E4M3FNUZ() && zp_sinfo->dtype != DataType::Float8E5M2() &&
+      zp_sinfo->dtype != DataType::Float8E5M2FNUZ()) {
     ctx->ReportFatal(Diagnostic::Error(call)
-                     << "zero_point param datatype should be one of [int8, uint8, float8e4m3fn, "
-                     << "float8e4m3fnuz, float8e5m2, float8e5m2fnuz], but got " << zp_sinfo->dtype);
+                     << "zero_point param datatype should be one of [int8, uint8, float16, "
+                     << "float8e4m3fn, float8e4m3fnuz, float8e5m2, float8e5m2fnuz], but got "
+                     << zp_sinfo->dtype);
   }
 
   // Helper to check if a tensor is broadcastable (scalar or 1-element tensor).
@@ -123,8 +125,15 @@ StructInfo InferStructInfoQuantize(const Call& call, const BlockBuilder& ctx) {
       }
     };
 
-    check_param_size(scale_sinfo, input_sinfo, "scale");
-    check_param_size(zp_sinfo, input_sinfo, "zero_point");
+    // Only size-check per-channel params.  In the mixed case (per-channel
+    // scale + scalar zero-point, or vice versa) the scalar must skip
+    // check_param_size, which reads GetShape().value()[0] of a 0-d tensor.
+    if (!is_broadcastable(scale_sinfo)) {
+      check_param_size(scale_sinfo, input_sinfo, "scale");
+    }
+    if (!is_broadcastable(zp_sinfo)) {
+      check_param_size(zp_sinfo, input_sinfo, "zero_point");
+    }
   }
 
   auto output_sinfo = ffi::make_object<TensorStructInfoNode>(*input_sinfo.get());
@@ -217,7 +226,8 @@ StructInfo InferStructInfoDequantize(const Call& call, const BlockBuilder& ctx) 
       input_sinfo->dtype != DataType::Int(16) && input_sinfo->dtype != DataType::UInt(16) &&
       input_sinfo->dtype != DataType::Int(32) && input_sinfo->dtype != DataType::Float8E4M3FN() &&
       input_sinfo->dtype != DataType::Float8E4M3FNUZ() && input_sinfo->dtype != DataType::Float8E5M2() &&
-      input_sinfo->dtype != DataType::Float8E5M2FNUZ()) {
+      input_sinfo->dtype != DataType::Float8E5M2FNUZ() && input_sinfo->dtype != DataType::Float(16) &&
+      input_sinfo->dtype != DataType::Float(32)) {
     ctx->ReportFatal(Diagnostic::Error(call)
                      << "Unsupported input datatype for operation: " << input_sinfo->dtype);
   }
@@ -232,10 +242,10 @@ StructInfo InferStructInfoDequantize(const Call& call, const BlockBuilder& ctx) 
 
   // Check datatype of zero_point param: int8, uint8, int32
   if (zp_sinfo->dtype != DataType::Int(8) && zp_sinfo->dtype != DataType::UInt(8) &&
-      zp_sinfo->dtype != DataType::Int(32)) {
+      zp_sinfo->dtype != DataType::Int(32) && zp_sinfo->dtype != DataType::Float(16)) {
     ctx->ReportFatal(Diagnostic::Error(call)
-                     << "zero_point param datatype should be one of [int8, uint8, int32], but got "
-                     << zp_sinfo->dtype);
+                     << "zero_point param datatype should be one of [int8, uint8, int32, "
+                     << "float16], but got " << zp_sinfo->dtype);
   }
 
   // Helper to check if a tensor is broadcastable (scalar or 1-element tensor).
@@ -272,8 +282,15 @@ StructInfo InferStructInfoDequantize(const Call& call, const BlockBuilder& ctx) 
       }
     };
 
-    check_param_size(scale_sinfo, input_sinfo, "scale");
-    check_param_size(zp_sinfo, input_sinfo, "zero_point");
+    // Only size-check per-channel params.  In the mixed case (per-channel
+    // scale + scalar zero-point, or vice versa) the scalar must skip
+    // check_param_size, which reads GetShape().value()[0] of a 0-d tensor.
+    if (!is_broadcastable(scale_sinfo)) {
+      check_param_size(scale_sinfo, input_sinfo, "scale");
+    }
+    if (!is_broadcastable(zp_sinfo)) {
+      check_param_size(zp_sinfo, input_sinfo, "zero_point");
+    }
   }
 
   auto output_sinfo = ffi::make_object<TensorStructInfoNode>(*input_sinfo.get());

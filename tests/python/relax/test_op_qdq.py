@@ -105,5 +105,58 @@ def test_qdq_float8_e5m2_op_infer_struct_info_symbolic():
     )
 
 
+def test_qdq_mixed_per_channel_scale_scalar_zp():
+    """Per-channel scale + scalar zero-point must not crash size checking."""
+    bb = relax.BlockBuilder()
+    x = relax.Var("x", R.Tensor((2, 3), "float32"))
+    dx = relax.Var("dx", R.Tensor((2, 3), "uint8"))
+    s = relax.Var("s", R.Tensor([3], "float32"))  # per-channel
+    zp = relax.Var("zp", R.Tensor((), "int8"))  # scalar
+    _check_inference(
+        bb, relax.op.quantize(x, s, zp, 1, "int8"), relax.TensorStructInfo((2, 3), "int8")
+    )
+    _check_inference(
+        bb,
+        relax.op.dequantize(dx, s, zp, 1, "float32"),
+        relax.TensorStructInfo((2, 3), "float32"),
+    )
+
+
+def test_qdq_fp16_zero_point():
+    """A float16 zero-point is an accepted dtype (upstream behavior)."""
+    bb = relax.BlockBuilder()
+    x = relax.Var("x", R.Tensor((2, 3), "float32"))
+    dx = relax.Var("dx", R.Tensor((2, 3), "uint8"))
+    s = relax.Var("s", R.Tensor([3], "float32"))
+    zp = relax.Var("zp", R.Tensor([3], "float16"))
+    _check_inference(
+        bb, relax.op.quantize(x, s, zp, 1, "int8"), relax.TensorStructInfo((2, 3), "int8")
+    )
+    _check_inference(
+        bb,
+        relax.op.dequantize(dx, s, zp, 1, "float32"),
+        relax.TensorStructInfo((2, 3), "float32"),
+    )
+
+
+def test_qdq_dequantize_fp16_fp32_input():
+    """float16/float32 dequantize inputs are accepted (upstream behavior)."""
+    bb = relax.BlockBuilder()
+    s = relax.Var("s", R.Tensor((), "float32"))
+    zp = relax.Var("zp", R.Tensor((), "int8"))
+    dx16 = relax.Var("dx16", R.Tensor((2, 3), "float16"))
+    dx32 = relax.Var("dx32", R.Tensor((2, 3), "float32"))
+    _check_inference(
+        bb,
+        relax.op.dequantize(dx16, s, zp, -1, "float32"),
+        relax.TensorStructInfo((2, 3), "float32"),
+    )
+    _check_inference(
+        bb,
+        relax.op.dequantize(dx32, s, zp, -1, "float32"),
+        relax.TensorStructInfo((2, 3), "float32"),
+    )
+
+
 if __name__ == "__main__":
     tvm.testing.main()
