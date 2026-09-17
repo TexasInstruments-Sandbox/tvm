@@ -572,16 +572,22 @@ endif()
 # tvm-ffi needs a small local patch upstream doesn't carry (see
 # patches/apply.sh) -- applied here too so a bare cmake/ninja build picks
 # it up even without going through build_all.sh or the Jenkins pipeline.
-execute_process(
-  COMMAND bash ${CMAKE_SOURCE_DIR}/patches/apply.sh
-  RESULT_VARIABLE TVM_PATCH_APPLY_RESULT
-  OUTPUT_VARIABLE TVM_PATCH_APPLY_OUTPUT
-  ERROR_VARIABLE TVM_PATCH_APPLY_OUTPUT
-)
-if(NOT TVM_PATCH_APPLY_RESULT EQUAL 0)
-  message(FATAL_ERROR "patches/apply.sh failed:\n${TVM_PATCH_APPLY_OUTPUT}")
+# Only meaningful when the submodule is a git checkout; tarball/sdist
+# builds (or a vendored copy without .git) have no such checkout, and the
+# patch step must not fail those builds.
+if(EXISTS ${CMAKE_SOURCE_DIR}/3rdparty/tvm-ffi/.git)
+  execute_process(
+    COMMAND bash ${CMAKE_SOURCE_DIR}/patches/apply.sh
+    RESULT_VARIABLE TVM_PATCH_APPLY_RESULT
+    OUTPUT_VARIABLE TVM_PATCH_APPLY_OUTPUT
+    ERROR_VARIABLE TVM_PATCH_APPLY_OUTPUT
+  )
+  if(NOT TVM_PATCH_APPLY_RESULT EQUAL 0)
+    message(WARNING "patches/apply.sh failed (continuing without the tvm-ffi patch):\n${TVM_PATCH_APPLY_OUTPUT}")
+  else()
+    message(STATUS "${TVM_PATCH_APPLY_OUTPUT}")
+  endif()
 endif()
-message(STATUS "${TVM_PATCH_APPLY_OUTPUT}")
 
 add_subdirectory(3rdparty/tvm-ffi)
 

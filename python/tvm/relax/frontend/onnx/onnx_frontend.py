@@ -679,70 +679,16 @@ class BinaryBase(OnnxOpConverter):
         rhs_dtype = rhs.struct_info.dtype if hasattr(rhs, 'struct_info') else None
 
         if lhs_dtype and rhs_dtype and lhs_dtype != rhs_dtype:
-            # Separate rank tables for int and float types
-            INT_DTYPE_ORDER = {
-                "int8": (1, True),      # (width, is_signed)
-                "int16": (2, True),
-                "int32": (3, True),
-                "int64": (4, True),
-                "uint8": (1, False),
-                "uint16": (2, False),
-                "uint32": (3, False),
-                "uint64": (4, False),
-            }
-            FLOAT_DTYPE_ORDER = {
-                "float16": 1,
-                "float32": 2,
-                "float64": 3,
-            }
-
-            lhs_info = INT_DTYPE_ORDER.get(lhs_dtype) or FLOAT_DTYPE_ORDER.get(lhs_dtype)
-            rhs_info = INT_DTYPE_ORDER.get(rhs_dtype) or FLOAT_DTYPE_ORDER.get(rhs_dtype)
-
-            if not lhs_info or not rhs_info:
+            # Resolve a common dtype using NumPy's promotion rules, which
+            # match ONNX's implicit promotion for binary ops: same-width
+            # signed/unsigned widen (int32+uint32 -> int64, int64+uint64 ->
+            # float64), and integer/float mixes promote to float.
+            try:
+                target_dtype = _np.promote_types(lhs_dtype, rhs_dtype).name
+            except TypeError:
                 raise ValueError(
                     f"Unsupported dtype combination: {lhs_dtype} and {rhs_dtype}"
                 )
-
-            # Check if mixing int and float
-            lhs_is_int = lhs_dtype in INT_DTYPE_ORDER
-            rhs_is_int = rhs_dtype in INT_DTYPE_ORDER
-
-            if lhs_is_int != rhs_is_int:
-                raise ValueError(
-                    f"Cannot mix integer and float types: {lhs_dtype} vs {rhs_dtype}"
-                )
-
-            if lhs_is_int:
-                # Handle signed/unsigned promotion
-                lhs_width, lhs_signed = lhs_info
-                rhs_width, rhs_signed = rhs_info
-
-                if lhs_signed == rhs_signed:
-                    # Both same signedness, promote to wider
-                    target_dtype = lhs_dtype if lhs_width >= rhs_width else rhs_dtype
-                elif lhs_signed:
-                    # lhs signed, rhs unsigned: lhs must be wider to safely hold rhs values
-                    if lhs_width >= rhs_width:
-                        target_dtype = lhs_dtype
-                    else:
-                        raise ValueError(
-                            f"Cannot safely promote {lhs_dtype} (signed) to {rhs_dtype} (unsigned): "
-                            f"range mismatch. Consider explicit cast."
-                        )
-                else:
-                    # rhs signed, lhs unsigned
-                    if rhs_width >= lhs_width:
-                        target_dtype = rhs_dtype
-                    else:
-                        raise ValueError(
-                            f"Cannot safely promote {rhs_dtype} (signed) to {lhs_dtype} (unsigned): "
-                            f"range mismatch. Consider explicit cast."
-                        )
-            else:
-                # Both float, promote to wider
-                target_dtype = lhs_dtype if lhs_info >= rhs_info else rhs_dtype
-
             if lhs_dtype != target_dtype:
                 lhs = relax.op.astype(lhs, target_dtype)
             if rhs_dtype != target_dtype:

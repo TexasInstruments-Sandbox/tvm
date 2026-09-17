@@ -383,6 +383,33 @@ def test_binary(op_name: str):
     verify_binary_scalar(op_name)
 
 
+@pytest.mark.parametrize(
+    "lhs_dtype, rhs_dtype, out_dtype, expected",
+    [
+        # Same-width signed/unsigned must widen, not silently overflow to signed.
+        (TensorProto.INT32, TensorProto.UINT32, TensorProto.INT64, "int64"),
+        (TensorProto.INT64, TensorProto.UINT64, TensorProto.DOUBLE, "float64"),
+        # Integer + float mixes promote to float (NumPy/ONNX semantics).
+        (TensorProto.INT32, TensorProto.FLOAT, TensorProto.DOUBLE, "float64"),
+    ],
+)
+def test_binary_dtype_promotion(lhs_dtype, rhs_dtype, out_dtype, expected):
+    """Mismatched operand dtypes promote per NumPy, not to the signed type."""
+    node = helper.make_node("Add", ["a", "b"], ["c"])
+    graph = helper.make_graph(
+        [node],
+        "dtype_promotion_test",
+        inputs=[
+            helper.make_tensor_value_info("a", lhs_dtype, [2, 3]),
+            helper.make_tensor_value_info("b", rhs_dtype, [2, 3]),
+        ],
+        outputs=[helper.make_tensor_value_info("c", out_dtype, [2, 3])],
+    )
+    model = helper.make_model(graph, producer_name="dtype_promotion_test")
+    mod = from_onnx(model, keep_params_in_input=True)
+    assert mod["main"].ret_struct_info.dtype == expected
+
+
 @pytest.mark.parametrize("int_mode", [True, False])
 def test_mod(int_mode: bool):
     if int_mode:

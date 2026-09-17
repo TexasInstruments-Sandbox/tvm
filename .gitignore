@@ -302,3 +302,9 @@ packaging/ti_dsp/staging/
 
 # Internal-only project instructions, not for external distribution
 CLAUDE.md
+
+.ssh
+results/
+docs/plans
+.codewhale/
+/build
