@@ -22,6 +22,21 @@ DSP_KEEP_TEMP=1 pytest --rootdir=. dsp-tests/test_conv2d_dsp.py -v \
 # Then inspect /tmp/dsp_test_conv2d_dsp_*/lib0.c
 ```
 
+## Board validation from the container
+
+When running `c7x_dload` tests via `docker/bash.sh`, always pass
+`--net=host`. Non-interactive `docker/bash.sh` invocations default to Docker's
+bridge network, and bridge NAT intermittently drops the `ssh`/`scp`
+connections the harness makes to the target — surfacing as `scp`/`ssh` rc=255
+or `Connection reset by peer` that looks exactly like a board or code failure
+but isn't. A quick isolation check: run `ssh root@<board> 'echo ok'` directly
+from the host shell (not the container); if it's stable there, the container's
+network is the problem, not the board.
+
+The container's `HOME` is the bind-mounted repo path, so its `~/.ssh` is the
+repo's `.ssh/`. Board SSH auth (`config`, key, `known_hosts`) must live there
+for the harness's `ssh`/`scp` to work; keep `.ssh/` gitignored.
+
 ## DSP Trace Output
 
 Always use `c7x_compute trace` on the board to read DSP printf/trace output:
@@ -64,6 +79,7 @@ and the board's own hostname if you're not on am67a):
 | Build failure (cl7x) | Missing TI_CGT_C7000_PATH | Export env var |
 | Linker: unresolved symbol | New runtime API not in firmware exports | Add to `dyn_loader.c`, rebuild firmware |
 | `c7x: INFER failed: status=-11 return_value=-1` with a clean, specific `ERROR: OOM in DDR pool: requested X, free Y / Z` message | Genuine DDR heap exhaustion, hit inside `cg_main_dsp` (the OOM log is unconditional) | Grow `DDR_C7X_1_LOCAL_HEAP` in `linker_c75_freertos.cmd` if MMU-mapped headroom exists (check `mmu_armv8_r13` in `c75ss0.syscfg`), or reduce peak workspace |
+| `scp`/`ssh` rc=255 or `Connection reset by peer` on `c7x_dload` (transport failure, not a model/code failure) | Docker bridge NAT — the test ran from a non-interactive `docker/bash.sh` without `--net=host` | Re-run with `docker/bash.sh --net=host ...`; confirm by checking the same `ssh`/`scp` from the host shell is stable |
 | Same `status=-11 return_value=-1`, but **zero printf/profile output at all** (not even `TVMPrintLayerProfile`'s unconditional "Total: X cycles" line), even with `-profile-layers` compiled in and the symbol resolving | Not diagnosed by the OOM path — `cg_main_dsp` returns `-1` from somewhere else with no logging. See "Debugging a Silent `-1` Failure" below before assuming it's DMA or a compute kernel bug — a real instance of this traced all the way to the DSP-side response containing a correct nonzero `printf_size`, meaning the bug was in the ARM client (`c7x_compute_client.cpp`, `sync_output_from_device()`) not reading/syncing it, not on the DSP side at all |
 
 ## Debugging a Silent `-1` Failure (no printf, no crash)
@@ -143,3 +159,10 @@ of connecting or failing fast even right after a fresh reboot. It's a real
 DSP hang, not a "wait longer after reboot" timing issue -- the power cycle
 in step 3 reliably clears it because it resets state a soft `reboot` leaves
 alone.
+
+A subtler variant: the DSP can **appear** recovered after a soft `reboot` --
+`c7x_compute status` connects and resets `Jobs`, and a single small model may
+run fine -- but a multi-model run wedges it again mid-sweep: Linux/SSH stay
+up, `c7x_compute` goes silent between models, and per-model retries fail the
+same way. Treat "reboot -> one model passes -> the next model wedges" like
+the hard-hang signature and power-cycle before re-running the suite.

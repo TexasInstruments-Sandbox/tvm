@@ -16,6 +16,9 @@ build/
 build-*/
 !.github/actions/build-*/
 !.github/actions/build-*/action.yml
+# The skills-c7x "build" skill directory is named "build" and would be
+# swallowed by the `build/` rule above; keep it tracked.
+!skills-c7x/relax-c7x/skills/build/
 .venv-ci-c7x/
 .ccache/
 develop-eggs/

@@ -139,6 +139,33 @@ pytest --rootdir=. dsp-tests/test_conv2d_dsp.py -v \
 BOARD_HOSTNAME=beagley-ai pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_dload -v
 ```
 
+### Quantized MMALIB smoke test (beagley-ai)
+
+9-model INT8-quantized TorchVision sweep with MMALIB offload -- the board
+regression check for quantization/MMALIB/codegen changes. Run from
+`tests/ti-dsp-runtime`, on a power-cycled board with firmware deployed, via
+`docker/bash.sh --net=host` (see `relax-c7x:build`):
+
+```bash
+python -m pytest --rootdir=. \
+  quantized/test_quantized_resnet.py \
+  quantized/test_quantized_mobilenet_v2.py \
+  quantized/test_quantized_mobilenet_v3.py \
+  quantized/test_quantized_googlenet.py \
+  quantized/test_quantized_shufflenet_v2.py \
+  quantized/test_quantized_inception_v3.py \
+  quantized/test_quantized_resnext101.py \
+  'quantized/test_quantized_torchvision.py::test_quantized_torchvision_dsp[resnet50]' \
+  'quantized/test_quantized_torchvision.py::test_quantized_torchvision_dsp[densenet121]' \
+  --dsp-mode=c7x_dload --mmalib --board beagley-ai -v
+```
+
+Covers ResNet-18, MobileNetV2, MobileNetV3-Large, GoogLeNet, ShuffleNetV2,
+InceptionV3, ResNeXt-101, ResNet-50, DenseNet-121 (~20 min). Prereqs:
+pretrained weights cached under the container's `~/.cache/torch/hub/checkpoints`
+(network works with `--net=host`), `requests` + `pillow` in the venv (the
+torchvision sweep imports them), firmware deployed.
+
 ## Cycle Counts and Profiling
 
 **Total cycles**: `dsp_results["c7x_dload_cycles"]` — extracted from `c7x_compute` stdout. Use `record_cycles(name, cycles)` → writes `results/cycles.csv`.
