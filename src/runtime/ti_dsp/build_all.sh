@@ -77,8 +77,13 @@ mkdir -p "$TVM_BUILD_DIR"
 cp cmake/config.cmake "$TVM_BUILD_DIR/"
 ( cd "$TVM_BUILD_DIR" && cmake -G Ninja "${CCACHE_ARGS[@]}" .. && ninja )
 
-echo "=== [3/5] DSP runtime (c7x_host, board=$TVM_BOARD) ==="
-( cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host --board "$TVM_BOARD" "${DDR_ARGS[@]}" )
+echo "=== [3/5] DSP runtime (c7x_host, board-independent emulation) ==="
+# c7x_host is host emulation and does not depend on board identity; build it
+# into the unsuffixed build-c7x-host dir that the test harness
+# (tests/ti-dsp-runtime/dsp-cpp/CMakeLists.txt) looks for.  Passing --board
+# here would suffix the dir (build-c7x-host-<board>-<ddr>) and leave the
+# tests unable to find libtvm_dsp_runtime_c7x_host.a.
+( cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host )
 
 echo "=== [4/5] DSP runtime (c7x, board=$TVM_BOARD) ==="
 ( cd src/runtime/ti_dsp && bash build_runtime.sh c7x --board "$TVM_BOARD" "${DDR_ARGS[@]}" )

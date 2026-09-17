@@ -125,8 +125,8 @@ build_x86() {
     # --- Validate ---
     check_file "$TVM_HOME/build/libtvm.so" \
         "Build TVM first: cd build && cmake -G Ninja .. && ninja"
-    check_file "$DSP_RT/build-c7x-host${RUNTIME_SUFFIX}/libtvm_dsp_runtime_c7x_host.a" \
-        "Build DSP runtime: bash build_runtime.sh c7x_host --board $BOARD --ddr $DDR"
+    check_file "$DSP_RT/build-c7x-host/libtvm_dsp_runtime_c7x_host.a" \
+        "Build DSP runtime: bash build_runtime.sh c7x_host"
     check_file "$DSP_RT/build-c7x${RUNTIME_SUFFIX}/libtvm_dsp_runtime_c7x.a" \
         "Build DSP runtime: bash build_runtime.sh c7x --board $BOARD --ddr $DDR"
     check_file "$DSP_RT/firmware/c7x/dsp/build${FW_SUFFIX}/c7x_compute.out" \
@@ -177,7 +177,7 @@ build_x86() {
     touch "$DATA/__init__.py"
 
     # DSP runtime libraries
-    cp "$DSP_RT/build-c7x-host${RUNTIME_SUFFIX}/libtvm_dsp_runtime_c7x_host.a" "$DATA/lib/"
+    cp "$DSP_RT/build-c7x-host/libtvm_dsp_runtime_c7x_host.a" "$DATA/lib/"
     cp "$DSP_RT/build-c7x${RUNTIME_SUFFIX}/libtvm_dsp_runtime_c7x.a" "$DATA/lib/"
 
     # Firmware
