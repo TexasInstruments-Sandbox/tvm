@@ -112,5 +112,20 @@ def test_use_cpp_api_disabled_no_anyarray():
     )
 
 
+def test_export_library_accepts_string_target():
+    """export_library normalizes a string target before reading target.keys."""
+    mod = _prepare_model()
+    with tvm.transform.PassContext(opt_level=0):
+        ex = relax.build(
+            mod, target=tvm.target.Target("c_static_lib -use-cpp-api=1"), exec_mode="compiled"
+        )
+    with tempfile.TemporaryDirectory() as td:
+        tar_path = os.path.join(td, "model.tar")
+        # Passing the target as a plain string must not crash (it used to
+        # dereference `.keys` on the str).
+        ex.export_library(tar_path, target="c_static_lib -use-cpp-api=1")
+        assert os.path.exists(tar_path)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
