@@ -22,10 +22,19 @@ import math
 
 from tvm import s_tir, te, tirx, topi
 from tvm.ir import Call
+from tvm.target import Target
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr
 from .common import _call_topi_without_attr, register_legalize
+
+
+def _is_c7x_target() -> bool:
+    """True when the active pass target is ``c_static_lib -mcpu=c7x``."""
+    target = Target.current(allow_none=True)
+    if target is None:
+        return False
+    return target.kind.name == "c_static_lib" and getattr(target, "mcpu", "") == "c7x"
 
 
 @register_legalize("relax.nn.conv1d")
@@ -144,10 +153,11 @@ def _nn_conv1d_transpose(bb: BlockBuilder, call: Call) -> Expr:
             data, kernel, strides, padding, out_dtype, output_padding, groups
         )
 
-    # Use direct implementation for non-grouped conv1d_transpose
-    # This avoids intermediate pad buffer with conditional branches that
-    # block software pipelining on DSP targets
-    if call.attrs.groups == 1:
+    # On C7x, use the direct/optimized non-grouped implementations: they
+    # avoid an intermediate pad buffer whose conditional branches block
+    # software pipelining on DSP targets.  Other targets keep the upstream
+    # grouped path below.
+    if _is_c7x_target() and call.attrs.groups == 1:
         # Check if we can use the optimized version (in_width=1, stride=1)
         # This eliminates the inner dw loop entirely for 16x speedup
         data_shape = call.args[0].struct_info.shape

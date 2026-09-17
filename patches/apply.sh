@@ -8,18 +8,14 @@
 #
 # On a persistent workspace (e.g. Jenkins with CLEAN_WORKSPACE=false, or a
 # long-lived local checkout), the submodule's on-disk state can diverge from
-# what this patch expects in two independent ways that both look the same
-# from the outside ("does not apply ... may have diverged upstream"):
-#   1. An older/differently-named version of this same patch is still
-#      applied as an *uncommitted* working-tree diff, left over from a build
-#      that ran before this patch's content last changed.
-#   2. The submodule is checked out on a stale commit altogether (e.g. left
-#      over from before this repo moved to the patch-based approach), with a
-#      differently-named version of the same change baked directly into
-#      that commit's history instead of as a diff.
-# Recover by discarding any uncommitted diff and resyncing to the exact
-# commit this repo's gitlink pins -- the same two steps a fresh checkout
-# already gets for free -- then retrying once before giving up.
+# what this patch expects: an older/differently-named version of this same
+# patch may still be applied as an *uncommitted* working-tree diff, or the
+# submodule may be checked out on a stale commit altogether.  Recover by
+# resyncing the submodule to the exact commit this repo's gitlink pins --
+# the same step a fresh checkout already gets for free -- then retrying once
+# before giving up.  This never discards uncommitted submodule edits itself;
+# `git submodule update` will refuse loudly (and this script will abort) if
+# such edits conflict with the resync, rather than silently wiping them.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,8 +34,7 @@ elif git -C "$TVM_FFI_DIR" apply --check "$PATCH" 2>/dev/null; then
     git -C "$TVM_FFI_DIR" apply "$PATCH"
     echo "patches/apply.sh: applied $(basename "$PATCH")"
 else
-    echo "patches/apply.sh: stale submodule state detected -- discarding local diff, resyncing to the pinned commit, and retrying" >&2
-    git -C "$TVM_FFI_DIR" checkout -- .
+    echo "patches/apply.sh: stale submodule state detected -- resyncing to the pinned commit, and retrying" >&2
     git -C "$REPO_DIR" submodule update -- 3rdparty/tvm-ffi
     if git -C "$TVM_FFI_DIR" apply --check "$PATCH" 2>/dev/null; then
         git -C "$TVM_FFI_DIR" apply "$PATCH"

@@ -253,6 +253,26 @@ def test_conv1d_transpose():
     tvm.ir.assert_structural_equal(mod, Expected)
 
 
+def test_conv1d_transpose_direct_path_gated_to_c7x():
+    """The pad-free direct kernel is c7x-only; other targets use the upstream
+    grouped kernel (which has an intermediate data_pad buffer)."""
+    # fmt: off
+    @I.ir_module
+    class Conv1dTransposeGroups1:
+        @R.function
+        def main(x: R.Tensor((2, 16, 28), "float32"), w: R.Tensor((16, 32, 3), "float32")):
+            gv = R.nn.conv1d_transpose(x, w, strides=2, padding=1, dilation=1, output_padding=1, groups=1)
+            return gv
+    # fmt: on
+
+    mod = LegalizeOps()(Conv1dTransposeGroups1)
+    assert "data_pad" in mod.script()
+
+    with tvm.target.Target("c_static_lib -mcpu=c7x"):
+        mod_c7x = LegalizeOps()(Conv1dTransposeGroups1)
+    assert "data_pad" not in mod_c7x.script()
+
+
 def test_conv2d():
     # fmt: off
     @tvm.script.ir_module
