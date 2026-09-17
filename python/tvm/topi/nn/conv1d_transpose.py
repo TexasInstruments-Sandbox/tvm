@@ -241,6 +241,27 @@ def conv1d_transpose_ncw_optimized(data, kernel, stride, padding, out_dtype, out
     _, channels_out, kernel_width = kernel.shape
     channels_out = simplify(channels_out)
 
+    # This kernel assumes stride=1 and in_width=1: it reads the sole input
+    # element data[b, dc, 0] directly.  Guard against anything else rather
+    # than silently computing wrong values.
+    if stride != 1:
+        raise ValueError(
+            "conv1d_transpose_ncw_optimized requires stride=1; "
+            "use conv1d_transpose_ncw_direct for stride > 1"
+        )
+    try:
+        in_width_val = int(in_width)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "conv1d_transpose_ncw_optimized requires a static in_width=1; "
+            "use conv1d_transpose_ncw_direct for dynamic shapes"
+        )
+    if in_width_val != 1:
+        raise ValueError(
+            "conv1d_transpose_ncw_optimized requires in_width=1; "
+            "use conv1d_transpose_ncw_direct otherwise"
+        )
+
     # Calculate padding amounts
     pad_left, pad_right = get_pad_tuple1d(padding, (kernel_width,))
     pad_left_trans = kernel_width - 1 - pad_left

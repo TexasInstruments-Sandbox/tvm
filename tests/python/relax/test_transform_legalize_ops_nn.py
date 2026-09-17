@@ -271,6 +271,21 @@ def test_conv1d_transpose_direct_path_gated_to_c7x():
     assert "data_pad" not in mod_c7x.script()
 
 
+def test_conv1d_transpose_optimized_guards_shape():
+    """The optimized conv1d_transpose kernel only handles stride=1, in_width=1."""
+    from tvm import te, topi
+
+    kernel = te.placeholder((16, 32, 3), dtype="float32")
+
+    data_wide = te.placeholder((1, 16, 4), dtype="float32")
+    with pytest.raises(ValueError):
+        topi.nn.conv1d_transpose_ncw_optimized(data_wide, kernel, 1, 1, "float32", 0)
+
+    data_unit = te.placeholder((1, 16, 1), dtype="float32")
+    with pytest.raises(ValueError):
+        topi.nn.conv1d_transpose_ncw_optimized(data_unit, kernel, 2, 1, "float32", 0)
+
+
 def test_conv2d_transpose_dilation_rejected_unless_c7x():
     """Dilated conv2d_transpose is a c7x extension; other targets leave the
     op unlegalized rather than emitting the fork's dilated path."""

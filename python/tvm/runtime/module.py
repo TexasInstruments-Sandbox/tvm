@@ -289,6 +289,10 @@ class Module(_Module):
 
                 # If we are dealing with the c_static_lib target, export weights to binary
                 target = kwargs.get('target', None) if kwargs else None
+                if target is not None:
+                    from tvm.target import Target
+
+                    target = Target(target)
                 if target and 'c_static_lib' in target.keys:
                     path_bin = os.path.join(workspace_dir, f"{pack_lib_prefix}weights.bin")
                     with open(path_cc, "w") as f:
@@ -310,8 +314,10 @@ class Module(_Module):
             opts = options + ["-I" + path for path in find_include_path()]
             kwargs.update({"options": opts})
 
-        if file_name.endswith(".tar"):
-            return fcompile(file_name, files)
+        # `target` is consumed above for the weights-vs-C decision and must
+        # not be forwarded to fcompile (e.g. tar(output, files) accepts no
+        # keyword arguments).
+        kwargs.pop("target", None)
 
         return fcompile(file_name, files, **kwargs)
 
