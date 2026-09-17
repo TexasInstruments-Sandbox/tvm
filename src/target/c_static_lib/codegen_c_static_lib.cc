@@ -712,6 +712,11 @@ void CodeGenCStaticLib::PrintCallPacked(const CallNode* op) {
   // condition reader for Relax If expressions.  The condition tensor is always
   // a 0-d bool produced by astype(..., "bool"); reading as int8_t handles
   // both kDLBool (bits=1) and kDLUInt/kDLInt (bits=8).
+  //
+  // Guarded: the argument slot may carry a non-tensor or a tensor whose data
+  // pointer is NULL (e.g. an upstream alloc_tensor failure).  The generic FFI
+  // path reports an error in that case; the direct path must fail the same way
+  // instead of dereferencing an unchecked pointer.
   if (func_name->value == "vm.builtin.read_if_cond") {
     int64_t begin = op->args[2].as<IntImmNode>()->value;
     int64_t end = op->args[3].as<IntImmNode>()->value;
@@ -720,9 +725,25 @@ void CodeGenCStaticLib::PrintCallPacked(const CallNode* op) {
     this->PrintIndent();
     this->stream << "// [Direct] vm.builtin.read_if_cond\n";
     this->PrintIndent();
-    this->stream << this->stack_name_ << "[" << num_args << "].v_int64 = "
-                 << "((int8_t*)((DLTensor*)UnwrapObjectRefArg(" << args_stack
-                 << "[" << begin << "]))->data)[0] != 0;\n";
+    this->stream << "{\n";
+    {
+      ScopeGuard scope(this);
+      this->PrintIndent();
+      this->stream << "TVMFFIAny* __cond_arg = &" << args_stack << "[" << begin << "];\n";
+      this->PrintIndent();
+      this->stream << "if (__cond_arg->type_index != kTVMFFITensor || "
+                      "__cond_arg->v_ptr == NULL) return -1;\n";
+      this->PrintIndent();
+      this->stream << "DLTensor* __cond_tensor = "
+                      "(DLTensor*)UnwrapObjectRefArg(*__cond_arg);\n";
+      this->PrintIndent();
+      this->stream << "if (__cond_tensor->data == NULL) return -1;\n";
+      this->PrintIndent();
+      this->stream << this->stack_name_ << "[" << num_args << "].v_int64 = "
+                   << "((int8_t*)__cond_tensor->data)[0] != 0;\n";
+    }
+    this->PrintIndent();
+    this->stream << "}\n";
     return;
   }
 
@@ -1254,6 +1275,21 @@ bool CodeGenCStaticLib::EmitAnylistVMBuiltinCall(const CallNode* call) {
   return EmitDirectVMBuiltinCallClean(pattern);
 }
 
+[[noreturn]] void CodeGenCStaticLib::UnhandledAnylistVMBuiltin(const CallNode* call) {
+  std::string name = "<unknown>";
+  if (call->args.size() > 2) {
+    if (const auto* fn = call->args[2].as<StringImmNode>()) {
+      name = fn->value;
+    }
+  }
+  LOG(FATAL) << "c_static_lib: VM builtin \"" << name
+             << "\" has no compact-form handler under -use-cpp-api. "
+             << "The DSP runtime only implements the vm.builtin.* ops emitted by "
+             << "the Relax VM codegen; this builtin should have been eliminated "
+             << "by the lowering pipeline. Disable -use-cpp-api (to fall back to "
+             << "the generic FFI dispatch path) or extend EmitAnylistVMBuiltinCall.";
+}
+
 /*!
  * \brief Emit direct VM builtin call using clean AnyArray API
  *
@@ -1570,6 +1606,7 @@ void CodeGenCStaticLib::VisitStmt_(const SeqStmtNode* op) {
         if (call && (call->op.same_as(builtin::anylist_setitem_call_packed()) ||
                      call->op.same_as(builtin::anylist_setitem_call_cpacked()))) {
           if (EmitAnylistVMBuiltinCall(call)) continue;
+          UnhandledAnylistVMBuiltin(call);
         }
       }
     }
@@ -1597,6 +1634,7 @@ void CodeGenCStaticLib::VisitStmt_(const EvaluateNode* op) {
       (call->op.same_as(builtin::anylist_setitem_call_packed()) ||
        call->op.same_as(builtin::anylist_setitem_call_cpacked()))) {
     if (EmitAnylistVMBuiltinCall(call)) return;
+    UnhandledAnylistVMBuiltin(call);
   }
 
   // Clean TIR kernel call setup when C++ API is enabled
