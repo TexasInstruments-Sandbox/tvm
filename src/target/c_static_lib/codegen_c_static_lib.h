@@ -348,6 +348,16 @@ class CodeGenCStaticLib final : public CodeGenC {
    */
   bool EmitAnylistVMBuiltinCall(const CallNode* call);
 
+  /*!
+   * \brief Fail with an actionable message when a preserved anylist
+   *        VM builtin has no compact-form handler.
+   *
+   * The base CodeGenC class has no handler for anylist_setitem_call_*
+   * (it normally only receives them after LowerTVMBuiltin expansion), so
+   * falling through would produce a cryptic "Unresolved call" error.
+   */
+  [[noreturn]] void UnhandledAnylistVMBuiltin(const CallNode* call);
+
   void PrintCallPacked(const CallNode* op);
   std::string GetPackedName(const CallNode* op);
   void PrintGetFuncFromBackend(const std::string& func_name, const std::string& packed_func_name);
