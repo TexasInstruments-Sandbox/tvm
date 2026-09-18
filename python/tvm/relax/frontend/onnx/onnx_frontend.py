@@ -689,6 +689,21 @@ class BinaryBase(OnnxOpConverter):
                 raise ValueError(
                     f"Unsupported dtype combination: {lhs_dtype} and {rhs_dtype}"
                 )
+            # Warn when this promotion is lossy rather than just widening:
+            # two integer operands promoted to a float target (e.g.
+            # int64+uint64 -> float64) lose exact-integer representation
+            # for magnitudes beyond the target float's mantissa, with no
+            # other signal that this happened.
+            if (
+                _np.dtype(lhs_dtype).kind in "iu"
+                and _np.dtype(rhs_dtype).kind in "iu"
+                and _np.dtype(target_dtype).kind == "f"
+            ):
+                warnings.warn(
+                    f"ONNX binary op promotes integer operands {lhs_dtype} and "
+                    f"{rhs_dtype} to {target_dtype}; values beyond the target "
+                    "type's exact-integer range will lose precision."
+                )
             if lhs_dtype != target_dtype:
                 lhs = relax.op.astype(lhs, target_dtype)
             if rhs_dtype != target_dtype:
