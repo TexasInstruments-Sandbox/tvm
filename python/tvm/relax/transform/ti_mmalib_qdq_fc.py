@@ -372,24 +372,8 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
 
         # --- Compute MMALIB parameters ---
 
-        # Per-channel weight sum for zero-point correction
-        weight_sum = w_int8_np.astype(np.int32).sum(axis=1)
-        zp_correction = (np.int32(-d_zp_val) * weight_sum).astype(np.int32)
-
-        # Bias in accumulator scale
-        if bias_np is not None:
-            dw_scale = d_scale_val * w_scale_np[:N_out]
-            bias_accum = np.round(bias_np[:N_out] / dw_scale).astype(np.int32)
-        else:
-            bias_accum = np.zeros(N_out, dtype=np.int32)
-
-        bias_i32 = (bias_accum + zp_correction).astype(np.int32)
-
-        if o_zp_val != 0:
-            combined_rescale_for_ozp = d_scale_val * w_scale_np[:N_out] / o_scale_val
-            bias_i32 = (bias_i32 + np.round(o_zp_val / combined_rescale_for_ozp)).astype(np.int32)
-
-        # Requantization scale
+        # Validate the requantization rescale *before* any accumulator-scale
+        # folding (see the identical guard in ti_mmalib_qdq_fusion.py).
         if w_scale_np.size != N_out:
             logger.warning("Per-tensor weight scale is not supported for MMALIB FC; declining")
             return super().visit_call_(call)
@@ -398,6 +382,28 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
         if scale_u8 is None:
             logger.warning("Rescale out of range for MMALIB FC; declining")
             return super().visit_call_(call)
+
+        # Per-channel weight sum for zero-point correction
+        weight_sum = w_int8_np.astype(np.int32).sum(axis=1)
+        zp_correction = (np.int32(-d_zp_val) * weight_sum).astype(np.int32)
+
+        # Bias in accumulator scale
+        if bias_np is not None:
+            dw_scale = d_scale_val * w_scale_np[:N_out]
+            bias_accum_f = np.round(bias_np[:N_out] / dw_scale)
+            if not np.all(np.isfinite(bias_accum_f)) or np.any(
+                np.abs(bias_accum_f) > np.iinfo(np.int32).max
+            ):
+                logger.warning("Bias fold overflows int32 accumulator for MMALIB FC; declining")
+                return super().visit_call_(call)
+            bias_accum = bias_accum_f.astype(np.int32)
+        else:
+            bias_accum = np.zeros(N_out, dtype=np.int32)
+
+        bias_i32 = (bias_accum + zp_correction).astype(np.int32)
+
+        if o_zp_val != 0:
+            bias_i32 = (bias_i32 + np.round(o_zp_val / combined_rescale)).astype(np.int32)
 
         # Build relax constants (weight passed as-is, no reorder needed)
         weight_relax = relax.Constant(w_int8_np)
@@ -744,21 +750,24 @@ class _MMALIB_QDQI16FCLowerer(PyExprMutator):
 
         # --- Compute MMALIB int16 parameters ---
 
-        dw_scale = d_scale_val * w_scale_np[:N_out]
-        # Bias in int64 accumulator scale (wider than int8's int32)
-        if bias_np is not None:
-            bias_i64 = np.round(bias_np[:N_out] / dw_scale).astype(np.int64)
-        else:
-            bias_i64 = np.zeros(N_out, dtype=np.int64)
-
+        # Validate the requantization rescale before the bias fold, matching
+        # the int8 path above. (Bias is int64 here, so it has ample headroom;
+        # the reorder still declines degenerate rescale before any folding.)
         if w_scale_np.size != N_out:
             logger.warning("Per-tensor weight scale is not supported for MMALIB int16 FC; declining")
             return super().visit_call_(call)
+        dw_scale = d_scale_val * w_scale_np[:N_out]
         combined_rescale = dw_scale / o_scale_val
         scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
         if scale_u8 is None:
             logger.warning("Rescale out of range for MMALIB int16 FC; declining")
             return super().visit_call_(call)
+
+        # Bias in int64 accumulator scale (wider than int8's int32)
+        if bias_np is not None:
+            bias_i64 = np.round(bias_np[:N_out] / dw_scale).astype(np.int64)
+        else:
+            bias_i64 = np.zeros(N_out, dtype=np.int64)
 
         weight_relax = relax.Constant(w_i16_np)
         bias_relax = relax.Constant(bias_i64)

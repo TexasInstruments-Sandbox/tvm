@@ -409,24 +409,8 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
 
         # --- Compute MMALIB parameters ---
 
-        # Per-channel weight sum for zero-point correction (depthwise: sum over 1*KH*KW)
-        weight_sum = w_int8_np.astype(np.int32).reshape(channels, -1).sum(axis=1)
-        zp_correction = (np.int32(-d_zp_val) * weight_sum).astype(np.int32)
-
-        # Bias in accumulator scale
-        if bias_np is not None:
-            dw_scale = d_scale_val * w_scale_np[:channels]
-            bias_accum = np.round(bias_np[:channels] / dw_scale).astype(np.int32)
-        else:
-            bias_accum = np.zeros(channels, dtype=np.int32)
-
-        bias_i32 = (bias_accum + zp_correction).astype(np.int32)
-
-        if o_zp_val != 0:
-            combined_rescale_for_ozp = d_scale_val * w_scale_np[:channels] / o_scale_val
-            bias_i32 = (bias_i32 + np.round(o_zp_val / combined_rescale_for_ozp)).astype(np.int32)
-
-        # Requantization scale
+        # Validate the requantization rescale *before* any accumulator-scale
+        # folding (see the identical guard in ti_mmalib_qdq_fusion.py).
         if w_scale_np.size != channels:
             logger.warning("Per-tensor weight scale is not supported for MMALIB dwconv2d; declining")
             return super().visit_call_(call)
@@ -435,6 +419,28 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
         if scale_u8 is None:
             logger.warning("Rescale out of range for MMALIB dwconv2d; declining")
             return super().visit_call_(call)
+
+        # Per-channel weight sum for zero-point correction (depthwise: sum over 1*KH*KW)
+        weight_sum = w_int8_np.astype(np.int32).reshape(channels, -1).sum(axis=1)
+        zp_correction = (np.int32(-d_zp_val) * weight_sum).astype(np.int32)
+
+        # Bias in accumulator scale
+        if bias_np is not None:
+            dw_scale = d_scale_val * w_scale_np[:channels]
+            bias_accum_f = np.round(bias_np[:channels] / dw_scale)
+            if not np.all(np.isfinite(bias_accum_f)) or np.any(
+                np.abs(bias_accum_f) > np.iinfo(np.int32).max
+            ):
+                logger.warning("Bias fold overflows int32 accumulator for MMALIB dwconv2d; declining")
+                return super().visit_call_(call)
+            bias_accum = bias_accum_f.astype(np.int32)
+        else:
+            bias_accum = np.zeros(channels, dtype=np.int32)
+
+        bias_i32 = (bias_accum + zp_correction).astype(np.int32)
+
+        if o_zp_val != 0:
+            bias_i32 = (bias_i32 + np.round(o_zp_val / combined_rescale)).astype(np.int32)
 
         # Pass natural-order weights [C, 1, KH, KW] flattened to [C * KH * KW].
         # The C wrapper calls reorderWeights_exec at runtime.
