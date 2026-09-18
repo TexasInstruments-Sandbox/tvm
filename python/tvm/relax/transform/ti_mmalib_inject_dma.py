@@ -39,6 +39,7 @@ from tvm import tir
 from tvm.ir import PointerType, PrimType
 
 from .ti_mmalib_constants import MMA_SIZE_I8
+from .ti_mmalib_legalize import _call_extern_checked
 
 logger = logging.getLogger(__name__)
 
@@ -63,26 +64,47 @@ _SUPPORTED = {
 def _find_mmalib_call(body):
     """Find a call_extern to an MMALIB function in the statement tree.
 
-    Returns (Evaluate stmt, Call node, extern name) or (None, None, None).
+    Matches both a bare ``Evaluate(call_extern(...))`` and the status-checked
+    form emitted by ``_call_extern_checked`` (``LetStmt(status, Cast(...,
+    call_extern(...)), IfThenElse(...))``) -- MMALIB legalization wraps its
+    calls in the latter to report kernel failures instead of discarding the
+    status, so a matcher that only recognized the bare form would silently
+    stop finding any MMALIB call to inject DMA for.
+
+    Returns (Call node, extern name, checked) or (None, None, None).
+    `checked` is True when the call was found in the status-checked form,
+    meaning any rewrite of its args must go back through
+    `_call_extern_checked` rather than a bare `Evaluate` to preserve the
+    error check.
     """
-    result = [None, None, None]
+    call_node = None
+    extern_name = None
+    checked = False
     op_call_extern = tvm.ir.Op.get("tir.call_extern")
 
     def _visit(node):
-        if result[0] is not None:
+        nonlocal call_node, extern_name, checked
+        if call_node is not None:
             return
         if isinstance(node, tir.Evaluate):
             call = node.value
-            if isinstance(call, tir.Call) and call.op.same_as(op_call_extern):
-                if len(call.args) > 0 and isinstance(call.args[0], tir.StringImm):
-                    name = call.args[0].value
-                    if name in _SUPPORTED:
-                        result[0] = node
-                        result[1] = call
-                        result[2] = name
+        elif isinstance(node, tir.LetStmt):
+            call = node.value.value if isinstance(node.value, tir.Cast) else node.value
+        else:
+            return
+        if (
+            isinstance(call, tir.Call)
+            and call.op.same_as(op_call_extern)
+            and len(call.args) > 0
+            and isinstance(call.args[0], tir.StringImm)
+            and call.args[0].value in _SUPPORTED
+        ):
+            call_node = call
+            extern_name = call.args[0].value
+            checked = isinstance(node, tir.LetStmt)
 
     tir.stmt_functor.post_order_visit(body, _visit)
-    return result[0], result[1], result[2]
+    return call_node, extern_name, checked
 
 
 def _extract_dims_conv2d_i8(call_args):
@@ -259,7 +281,7 @@ def _extract_dims_fc_i16(call_args):
 
 def _inject_dma(func, l2_budget):
     """Transform a MMALIB PrimFunc to prefetch data into L2 via DMA."""
-    _, call_node, extern_name = _find_mmalib_call(func.body)
+    call_node, extern_name, checked = _find_mmalib_call(func.body)
     if call_node is None:
         return func
 
@@ -493,12 +515,16 @@ def _inject_dma(func, l2_budget):
     dma_wait = tir.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)
     stmts.append(tir.Evaluate(dma_wait))
 
-    # Modified MMALIB call with L2 pointers
+    # Modified MMALIB call with L2 pointers. Preserve the status-check
+    # wrapper (_call_extern_checked) if the original call had one, or its
+    # error reporting is silently lost.
     new_args = list(call_node.args)
     for arg_idx, (l2_var, _) in l2_vars.items():
         new_args[arg_idx] = l2_var
-    new_call = tir.Call(call_node.dtype, call_node.op, new_args)
-    stmts.append(tir.Evaluate(new_call))
+    if checked:
+        stmts.append(_call_extern_checked(call_node.dtype, extern_name, *new_args[1:]))
+    else:
+        stmts.append(tir.Evaluate(tir.Call(call_node.dtype, call_node.op, new_args)))
 
     # Build body: SeqStmt wrapped in Allocate nodes
     body = tir.SeqStmt(stmts)
