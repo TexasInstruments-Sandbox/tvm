@@ -438,7 +438,20 @@ def _call_extern_checked(dtype: str, op_name: str, *args):
     status (0 == success).  Previously that status was discarded, so an OOM
     or init failure silently produced stale/partial output.  This wraps the
     call in a ``let`` + ``if`` that reports the error through the firmware's
-    exported ``tvm_dsp_report_error``.
+    exported ``tvm_dsp_report_error`` and then aborts the enclosing PrimFunc
+    via ``tvm_throw_last_error`` -- the same builtin lower_l2sram_alloc.py
+    uses for its own tvm_l2_alloc null-check, confirmed (by inspecting
+    generated code) to compile to a plain early ``return -1;`` here, not
+    the packed-call "set the return value" path ``tir.ret`` would take.
+    Without this, the wrapper function fell through to its own
+    unconditional ``return 0`` on the very next line: it reported the
+    error but still told the caller the call succeeded, so execution
+    went on to consume whatever stale or partial output the failed kernel
+    left. The generated driver (lib0.c) already checks and propagates a
+    non-zero return from this wrapper the same way it does for the
+    L2-alloc failure paths (``if (__call_ret != 0) return __call_ret;``),
+    so aborting here is sufficient to turn the failure into a real,
+    surfaced ModelError instead of a log line next to garbage output.
     """
     call = tir.call_extern(dtype, op_name, *args)
     status = tir.Var("status", "int64")
@@ -447,13 +460,18 @@ def _call_extern_checked(dtype: str, op_name: str, *args):
         tir.Cast("int64", call),
         tir.IfThenElse(
             status != 0,
-            tir.Evaluate(
-                tir.call_extern(
-                    "int32",
-                    "tvm_dsp_report_error",
-                    tir.StringImm(op_name),
-                    tir.Cast("int32", status),
-                )
+            tir.SeqStmt(
+                [
+                    tir.Evaluate(
+                        tir.call_extern(
+                            "int32",
+                            "tvm_dsp_report_error",
+                            tir.StringImm(op_name),
+                            tir.Cast("int32", status),
+                        )
+                    ),
+                    tir.Evaluate(tir.tvm_throw_last_error()),
+                ]
             ),
             None,
         ),
