@@ -411,6 +411,13 @@ if(TVM_DSP_BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests)
             add_test(NAME test_typed_handle COMMAND test_typed_handle)
         endif()
 
+        # Storage AllocNDArray overflow/bounds-check test
+        if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_storage.cpp)
+            add_executable(test_storage tests/test_storage.cpp)
+            target_link_libraries(test_storage tvm_dsp_runtime)
+            add_test(NAME test_storage COMMAND test_storage)
+        endif()
+
         # Constants parser test
         if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_constants.c)
             add_executable(test_constants tests/test_constants.c)
@@ -531,6 +538,7 @@ if(TVM_DSP_BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests)
             add_c66x_test(test_fixed_vector tests/test_fixed_vector.cpp)
             add_c66x_test(test_result tests/test_result.cpp)
             add_c66x_test(test_typed_handle tests/test_typed_handle.cpp)
+            add_c66x_test(test_storage tests/test_storage.cpp)
         else()
             message(WARNING "AWRL6844 board support not found at ${RADAR_CPP_DIR}/awrl6844, skipping C66x tests")
         endif()
@@ -573,10 +581,14 @@ if(TVM_DSP_BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests)
         endif()
 
     elseif(TVM_DSP_TARGET STREQUAL "c7x")
-        # C7x tests - need board support and linker script
-        # Note: C7x test infrastructure requires MCU+ SDK and J722S board support
-        # For now, we just configure the library build; tests can be added when
-        # board support files are available.
+        # No standalone C7x test executables: linking one needs a full
+        # board memory-map linker script (DDR/L2 heap regions, etc.) that
+        # doesn't exist anywhere in this repo. Real on-hardware test
+        # execution instead goes through the DLOAD path -- a relocatable
+        # module built by dsp_utils.build_dsp_dynmod() and loaded into the
+        # already-running c7x_compute firmware -- which needs no such
+        # script because it borrows the firmware's already-initialized
+        # runtime instead of defining its own.
 
         # MCU+ SDK includes
         if(DEFINED MCU_PLUS_SDK_PATH AND EXISTS "${MCU_PLUS_SDK_PATH}")
@@ -602,54 +614,7 @@ if(TVM_DSP_BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests)
             )
         endif()
 
-        # C7x linker configuration
-        set(CMAKE_EXE_LINKER_FLAGS "" CACHE STRING "" FORCE)
-        set(CMAKE_EXE_LINKER_FLAGS_RELEASE "" CACHE STRING "" FORCE)
-        set(CMAKE_EXE_LINKER_FLAGS_DEBUG "" CACHE STRING "" FORCE)
-
-        # Linker command file
-        set(C7X_LINKER_CMD_FILE "${CMAKE_CURRENT_SOURCE_DIR}/platform/c7x/j722s/linker_c7x.cmd")
-
-        # Base linker flags (C7x requires -z flag)
-        set(C7X_BASE_LINK_FLAGS "--rom_model --reread_libs --warn_sections")
-        set(C7X_BASE_LINK_FLAGS "${C7X_BASE_LINK_FLAGS} ${C7X_LINKER_CMD_FILE}")
-        if(DEFINED TI_CGT_C7000_PATH)
-            set(C7X_BASE_LINK_FLAGS "${C7X_BASE_LINK_FLAGS} -l${TI_CGT_C7000_PATH}/lib/rts7524_le.lib")
-            set(C7X_BASE_LINK_FLAGS "${C7X_BASE_LINK_FLAGS} -l${TI_CGT_C7000_PATH}/lib/libc.a")
-        endif()
-
-        # SDK libraries
-        if(DEFINED MCU_PLUS_SDK_PATH AND EXISTS "${MCU_PLUS_SDK_PATH}")
-            if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR NOT CMAKE_BUILD_TYPE)
-                set(SDK_PROFILE "debug")
-            else()
-                set(SDK_PROFILE "release")
-            endif()
-
-            set(SDK_NORTOS_LIB "${MCU_PLUS_SDK_PATH}/source/kernel/nortos/lib")
-            set(SDK_DRIVERS_LIB "${MCU_PLUS_SDK_PATH}/source/drivers/lib")
-            set(SDK_BOARD_LIB "${MCU_PLUS_SDK_PATH}/source/board/lib")
-
-            set(C7X_BASE_LINK_FLAGS "${C7X_BASE_LINK_FLAGS} -i${SDK_NORTOS_LIB}")
-            set(C7X_BASE_LINK_FLAGS "${C7X_BASE_LINK_FLAGS} -i${SDK_DRIVERS_LIB}")
-            set(C7X_BASE_LINK_FLAGS "${C7X_BASE_LINK_FLAGS} -i${SDK_BOARD_LIB}")
-        endif()
-
-        # Function to add a C7x test executable
-        function(add_c7x_test TEST_NAME TEST_SOURCE)
-            if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_SOURCE})
-                add_executable(${TEST_NAME}_c7x ${TEST_SOURCE})
-                target_link_libraries(${TEST_NAME}_c7x tvm_dsp_runtime)
-                set(TEST_LINK_FLAGS "-m ${CMAKE_CURRENT_BINARY_DIR}/${TEST_NAME}_c7x.map ${C7X_BASE_LINK_FLAGS}")
-                set_target_properties(${TEST_NAME}_c7x PROPERTIES
-                    LINK_FLAGS "${TEST_LINK_FLAGS}"
-                    SUFFIX ".out"
-                )
-                message(STATUS "C7x test executable: ${TEST_NAME}_c7x.out")
-            endif()
-        endfunction()
-
-        message(STATUS "C7x build configured. Test executables require MCU+ SDK board support files.")
+        message(STATUS "C7x build configured (library only; see note above on test execution).")
     endif()
 endif()
 
