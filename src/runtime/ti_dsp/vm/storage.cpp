@@ -183,7 +183,13 @@ TVMDSPNDArray* TVMDSPStorageAllocNDArray(TVMDSPStorage* storage, int64_t offset,
     elem_bytes = static_cast<size_t>((dtype.bits * dtype.lanes + 7) / 8);
   }
 
-  if (static_cast<uint64_t>(numel) * elem_bytes > SIZE_MAX) {
+  /* Check via division (which cannot itself overflow) whether numel *
+   * elem_bytes would exceed SIZE_MAX, rather than computing the product
+   * in uint64_t first and comparing -- for numel near INT64_MAX and
+   * elem_bytes > 1, that product can wrap past UINT64_MAX and come back
+   * around to a small value, silently defeating the check. */
+  if (elem_bytes != 0 &&
+      static_cast<uint64_t>(numel) > static_cast<uint64_t>(SIZE_MAX) / elem_bytes) {
     return nullptr;
   }
   size_t nbytes = static_cast<size_t>(numel) * elem_bytes;
