@@ -34,7 +34,7 @@ import logging
 import numpy as np
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
@@ -42,7 +42,11 @@ from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_constants import MMA_SIZE_I8, MMA_SIZE_I16
-from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor, _scale_shift_or_none, _call_extern_checked
+from .ti_mmalib_legalize import (
+    _call_extern_checked,
+    _resolve_constant_tensor,
+    _validate_and_fold_bias,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -372,38 +376,23 @@ class _MMALIBQDQFCLowerer(PyExprMutator):
 
         # --- Compute MMALIB parameters ---
 
-        # Validate the requantization rescale *before* any accumulator-scale
-        # folding (see the identical guard in ti_mmalib_qdq_fusion.py).
-        if w_scale_np.size != N_out:
-            logger.warning("Per-tensor weight scale is not supported for MMALIB FC; declining")
-            return super().visit_call_(call)
-        combined_rescale = d_scale_val * w_scale_np[:N_out] / o_scale_val
-        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
-        if scale_u8 is None:
-            logger.warning("Rescale out of range for MMALIB FC; declining")
-            return super().visit_call_(call)
-
         # Per-channel weight sum for zero-point correction
         weight_sum = w_int8_np.astype(np.int32).sum(axis=1)
         zp_correction = (np.int32(-d_zp_val) * weight_sum).astype(np.int32)
 
-        # Bias in accumulator scale
-        if bias_np is not None:
-            dw_scale = d_scale_val * w_scale_np[:N_out]
-            bias_accum_f = np.round(bias_np[:N_out] / dw_scale)
-            if not np.all(np.isfinite(bias_accum_f)) or np.any(
-                np.abs(bias_accum_f) > np.iinfo(np.int32).max
-            ):
-                logger.warning("Bias fold overflows int32 accumulator for MMALIB FC; declining")
-                return super().visit_call_(call)
-            bias_accum = bias_accum_f.astype(np.int32)
-        else:
-            bias_accum = np.zeros(N_out, dtype=np.int32)
-
-        bias_i32 = (bias_accum + zp_correction).astype(np.int32)
-
-        if o_zp_val != 0:
-            bias_i32 = (bias_i32 + np.round(o_zp_val / combined_rescale)).astype(np.int32)
+        folded = _validate_and_fold_bias(
+            w_scale_np,
+            N_out,
+            bias_np,
+            d_scale_val,
+            o_scale_val,
+            zp_correction=zp_correction,
+            o_zp_val=o_zp_val,
+            op_name="MMALIB FC",
+        )
+        if folded is None:
+            return super().visit_call_(call)
+        scale_u8, shift_u8, bias_i32 = folded
 
         # Build relax constants (weight passed as-is, no reorder needed)
         weight_relax = relax.Constant(w_int8_np)
@@ -750,24 +739,22 @@ class _MMALIB_QDQI16FCLowerer(PyExprMutator):
 
         # --- Compute MMALIB int16 parameters ---
 
-        # Validate the requantization rescale before the bias fold, matching
-        # the int8 path above. (Bias is int64 here, so it has ample headroom;
-        # the reorder still declines degenerate rescale before any folding.)
-        if w_scale_np.size != N_out:
-            logger.warning("Per-tensor weight scale is not supported for MMALIB int16 FC; declining")
+        # Bias is int64 here (wider than int8's int32), so no overflow
+        # check is needed -- but the weight-scale size and rescale range
+        # must still be validated before the bias fold (see the shared
+        # helper's docstring).
+        folded = _validate_and_fold_bias(
+            w_scale_np,
+            N_out,
+            bias_np,
+            d_scale_val,
+            o_scale_val,
+            bias_dtype=np.int64,
+            op_name="MMALIB int16 FC",
+        )
+        if folded is None:
             return super().visit_call_(call)
-        dw_scale = d_scale_val * w_scale_np[:N_out]
-        combined_rescale = dw_scale / o_scale_val
-        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
-        if scale_u8 is None:
-            logger.warning("Rescale out of range for MMALIB int16 FC; declining")
-            return super().visit_call_(call)
-
-        # Bias in int64 accumulator scale (wider than int8's int32)
-        if bias_np is not None:
-            bias_i64 = np.round(bias_np[:N_out] / dw_scale).astype(np.int64)
-        else:
-            bias_i64 = np.zeros(N_out, dtype=np.int64)
+        scale_u8, shift_u8, bias_i64 = folded
 
         weight_relax = relax.Constant(w_i16_np)
         bias_relax = relax.Constant(bias_i64)

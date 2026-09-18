@@ -47,11 +47,10 @@ from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_legalize import (
-    _check_conv2d_mmalib_constraints,
     _call_extern_checked,
-    _float_to_scale_shift,
+    _check_conv2d_mmalib_constraints,
     _resolve_constant_tensor,
-    _scale_shift_or_none,
+    _validate_and_fold_bias,
 )
 
 logger = logging.getLogger(__name__)
@@ -406,45 +405,23 @@ class _MMALIBQDQLowerer(PyExprMutator):
 
         # --- Compute MMALIB parameters ---
 
-        # Validate the requantization rescale *before* any accumulator-scale
-        # folding. A collapsed input/weight scale (e.g. float32 eps for a
-        # constant tensor) makes dw_scale tiny, so bias/dw_scale overflows
-        # int32 and combined_rescale falls below the representable floor.
-        # Declining here avoids the overflow entirely instead of emitting a
-        # RuntimeWarning and then discarding a garbage bias afterward.
-        if w_scale_np.size != C_out:
-            logger.warning("Per-tensor weight scale is not supported for MMALIB conv2d; declining")
-            return super().visit_call_(call)
-        combined_rescale = d_scale_val * w_scale_np[:C_out] / o_scale_val
-        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
-        if scale_u8 is None:
-            logger.warning("Rescale out of range for MMALIB conv2d; declining")
-            return super().visit_call_(call)
-
         # Per-channel weight sum for zero-point correction
         weight_sum = w_int8_np.astype(np.int32).reshape(C_out, -1).sum(axis=1)
-
-        # Zero-point correction folded into bias
         zp_correction = (np.int32(-d_zp_val) * weight_sum).astype(np.int32)
 
-        # Bias in accumulator scale
-        if bias_np is not None:
-            dw_scale = d_scale_val * w_scale_np[:C_out]
-            bias_accum_f = np.round(bias_np[:C_out] / dw_scale)
-            if not np.all(np.isfinite(bias_accum_f)) or np.any(
-                np.abs(bias_accum_f) > np.iinfo(np.int32).max
-            ):
-                logger.warning("Bias fold overflows int32 accumulator for MMALIB conv2d; declining")
-                return super().visit_call_(call)
-            bias_accum = bias_accum_f.astype(np.int32)
-        else:
-            bias_accum = np.zeros(C_out, dtype=np.int32)
-
-        bias_i32 = (bias_accum + zp_correction).astype(np.int32)
-
-        # Output zero-point correction
-        if o_zp_val != 0:
-            bias_i32 = (bias_i32 + np.round(o_zp_val / combined_rescale)).astype(np.int32)
+        folded = _validate_and_fold_bias(
+            w_scale_np,
+            C_out,
+            bias_np,
+            d_scale_val,
+            o_scale_val,
+            zp_correction=zp_correction,
+            o_zp_val=o_zp_val,
+            op_name="MMALIB conv2d",
+        )
+        if folded is None:
+            return super().visit_call_(call)
+        scale_u8, shift_u8, bias_i32 = folded
 
         # Build relax constants
         kernel_relax = relax.Constant(w_int8_np)

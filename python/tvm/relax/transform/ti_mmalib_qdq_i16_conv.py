@@ -54,11 +54,10 @@ from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_legalize import (
-    _check_conv2d_mmalib_constraints,
     _call_extern_checked,
-    _float_to_scale_shift,
+    _check_conv2d_mmalib_constraints,
     _resolve_constant_tensor,
-    _scale_shift_or_none,
+    _validate_and_fold_bias,
 )
 from .ti_mmalib_qdq_fusion import _MMALIBQDQLowerer as _I8Lowerer
 
@@ -409,22 +408,22 @@ class _MMALIB_QDQI16Conv2dLowerer(PyExprMutator):
 
         # --- Compute MMALIB int16 parameters ---
 
-        # Bias in accumulator scale (int64 for int16 accumulators)
-        dw_scale = d_scale_val * w_scale_np[:C_out]
-        if bias_np is not None:
-            bias_i64 = np.round(bias_np[:C_out] / dw_scale).astype(np.int64)
-        else:
-            bias_i64 = np.zeros(C_out, dtype=np.int64)
-
-        # Per-channel requantization scale and shift (same formula as int8)
-        if w_scale_np.size != C_out:
-            logger.warning("Per-tensor weight scale is not supported for MMALIB int16 conv2d; declining")
+        # Bias is int64 here (wider than int8's int32), so no overflow
+        # check is needed -- but the weight-scale size and rescale range
+        # must still be validated before the bias fold (see the shared
+        # helper's docstring).
+        folded = _validate_and_fold_bias(
+            w_scale_np,
+            C_out,
+            bias_np,
+            d_scale_val,
+            o_scale_val,
+            bias_dtype=np.int64,
+            op_name="MMALIB int16 conv2d",
+        )
+        if folded is None:
             return super().visit_call_(call)
-        combined_rescale = dw_scale / o_scale_val
-        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
-        if scale_u8 is None:
-            logger.warning("Rescale out of range for MMALIB int16 conv2d; declining")
-            return super().visit_call_(call)
+        scale_u8, shift_u8, bias_i64 = folded
 
         kernel_relax = relax.Constant(w_i16_np)
         bias_relax = relax.Constant(bias_i64)

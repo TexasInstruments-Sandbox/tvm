@@ -22,19 +22,11 @@ import math
 
 from tvm import s_tir, te, tirx, topi
 from tvm.ir import Call
-from tvm.target import Target
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr
+from ..ti_c7x_target_utils import is_c7x_target as _is_c7x_target
 from .common import _call_topi_without_attr, register_legalize
-
-
-def _is_c7x_target() -> bool:
-    """True when the active pass target is ``c_static_lib -mcpu=c7x``."""
-    target = Target.current(allow_none=True)
-    if target is None:
-        return False
-    return target.kind.name == "c_static_lib" and getattr(target, "mcpu", "") == "c7x"
 
 
 @register_legalize("relax.nn.conv1d")
