@@ -583,7 +583,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/3rdparty/tvm-ffi/.git)
     ERROR_VARIABLE TVM_PATCH_APPLY_OUTPUT
   )
   if(NOT TVM_PATCH_APPLY_RESULT EQUAL 0)
-    message(WARNING "patches/apply.sh failed (continuing without the tvm-ffi patch):\n${TVM_PATCH_APPLY_OUTPUT}")
+    message(FATAL_ERROR "patches/apply.sh failed to apply the tvm-ffi patch:\n${TVM_PATCH_APPLY_OUTPUT}")
   else()
     message(STATUS "${TVM_PATCH_APPLY_OUTPUT}")
   endif()

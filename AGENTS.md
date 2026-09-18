@@ -48,6 +48,8 @@ Compiler (TVM Python + C++):
 - `src/target/c_static_lib/` — the `c_static_lib` backend: Relax VM → C/C++
   codegen. `codegen_c_static_lib_dsp.{h,cc}` holds TI-specific pragmas
   (`MUST_ITERATE`, `UNROLL`), per-layer profiling, and C7x vector-type emission.
+  ("Static" means no `.so` dependencies — self-contained executables — not
+  static shapes.)
 - `python/tvm/relax/transform/` — Relax/TIR passes:
   - `schedule_c7x_dma.py` — H-tiling DMA scheduler (`cache_read` →
     `global.l2sram`, software-pipeline annotations, async prefetch).
@@ -91,7 +93,15 @@ export TVM_HOME=$(pwd)                      # repo root
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS   # required for c7x
 export MCU_PLUS_SDK_PATH=...                # required for c7x cross-compile
+# Or export PSDK_INSTALL_PATH=... and let MCU_PLUS_SDK_PATH/MMALIB_PATH derive
+# from it (see src/runtime/ti_dsp/cmake/boards.cmake). Neither has a default —
+# an unset SDK root fails at cmake configure with a clear error, not a
+# silently wrong SDK.
 ```
+
+Use `uv` for Python package management, not `pip`. **Gotcha:** `uv` can
+upgrade `tvm-ffi` to an incompatible PyPI wheel; if tests start failing with
+`ForeignFunctionError`, run `cd 3rdparty/tvm-ffi && uv pip install .`.
 
 ### Canonical full build (Docker)
 
@@ -138,6 +148,11 @@ bash build_runtime.sh all        # c66x + c7x + c7x_host
 - `j722s-evm` → firmware default (`--tidl ON`, which forces `--mmalib ON`).
 
 `build_all.sh` and the wheel build apply this convention automatically.
+
+The runtime library and firmware are built by independent CMake invocations
+and statically linked — **the runtime and firmware builds must use identical
+`--board`/`--ddr`**, or DMA addressing silently corrupts at runtime with no
+build error.
 
 ## Target strings
 
@@ -204,12 +219,23 @@ Also:
 - The root `conftest.py` handles sharding for the *upstream* `tests/` suite
   only; ti-dsp-runtime tests use their own `conftest.py`.
 
-### Critical: never parallelize `c7x_dload`
+Don't pipe long-running build/test commands through `tail`/`head` (without
+`-f`) — it buffers everything and only prints at EOF, so a multi-minute
+hardware run gives zero visibility until it finishes, and an early failure
+looks identical to a late one. Let output stream unfiltered, or use `tail -f`.
 
-**`c7x_dload` tests must never run in parallel or in the background.** The
-AM67A has a single DSP core; concurrent sessions cause DMA-BUF exhaustion and
-firmware hangs. The same rule applies to running the native and Docker Jenkins
+### Critical: never parallelize `c7x_dload` on the same board
+
+Boards are a shared resource with a single DSP core. **Never run two
+`c7x_dload` sessions against the *same board* concurrently** — conflicts
+cause DMA-BUF exhaustion and firmware hangs requiring a reboot or power
+cycle. The same rule applies to running the native and Docker Jenkins
 pipelines concurrently against the same physical board.
+
+Running a `c7x_dload` test in the background is fine — the constraint is
+per-board sequential access, not foreground-vs-background. If you don't know
+whether another session is already using a given board, treat it as busy
+and check first.
 
 ## Architecture
 
@@ -238,8 +264,30 @@ Runtime deployment flow: compile on the dev host → `scp lib0.out` to the board
 (C++), which talk to the `c7x_compute` firmware service over board-local rpmsg
 IPC. **Those APIs run on the board, not the dev host.**
 
+## Documentation
+
+The `docs-c7x/` site (MkDocs Material) is separate from upstream's Sphinx
+docs in `docs/`. Build/preview with an ephemeral env, not the repo's
+tvm-ffi-pinned `.venv`:
+
+```bash
+NO_MKDOCS_2_WARNING=1 uvx --with mkdocs-material --with-requirements docs-c7x/requirements.txt mkdocs build --strict
+NO_MKDOCS_2_WARNING=1 uvx --with mkdocs-material --with-requirements docs-c7x/requirements.txt mkdocs serve
+```
+
+Deploy: `mkdocs gh-deploy --remote-name gh-origin --remote-branch gh-pages`.
+**`--remote-name` must be `gh-origin`** (the `TexasInstruments-Sandbox/tvm`
+fork) — `origin` in this repo is upstream `apache/tvm`, and mkdocs' default
+`--remote-name origin` pushes there instead (403, no push access). Never
+point `--remote-branch` at a source branch. GitHub Pages must be enabled
+once via Settings -> Pages -> Source -> Deploy from a branch -> `gh-pages`.
+
 ## Conventions and gotchas
 
+- **State assumptions and ask if uncertain.** Write the minimum code needed;
+  avoid speculative abstractions. Touch only what the task requires and
+  match existing style. Plan before writing code; run a code review after.
+- Use `rg` (ripgrep), not `grep`, for codebase searches.
 - **Read `docs-c7x/` first.** Every subsystem has a dedicated doc under
   `docs-c7x/contributor-guide/{backend,dsp-runtime,firmware,testing}/` and
   `docs-c7x/user-guide/`. Update the relevant doc when you change behavior.
@@ -258,5 +306,33 @@ IPC. **Those APIs run on the board, not the dev host.**
   `docs-c7x/user-guide/python-api.md`.
 - **Board hostname convention:** `beagley-ai` maps to SSH host `beagley-ai`;
   anything else maps to `am67a`. Add an SSH-config alias if your board differs.
-- Keep C++/Python formatting consistent with the existing tree (`.clang-format`,
-  `ruff`/lint via the upstream tooling). Don't reformat unrelated files.
+- Keep C++/Python formatting consistent with the existing tree
+  (`.clang-format`, `ruff format .` / `ruff check .` / `ruff check --fix .`).
+  Run ruff and pyright on any Python files an agent generates. Don't
+  reformat unrelated files.
+
+## Commit messages
+
+Standard for any commit intended for upstream:
+
+- One logical change per commit — buildable and passing tests on its own.
+- Subject: imperative mood, `[Component] Short description` (matches TVM's
+  own convention), ~50-72 chars.
+- Body: explain *why*, not *what* — the diff already shows what changed.
+  Wrap at 80 cols, no markdown (bullets, backticks, bold). State the
+  technical rationale for non-obvious choices (a hidden constraint, a
+  workaround for a specific bug, behavior that would surprise a reader).
+- Fix commits: state only the problem and the fix. Skip how the bug was
+  found or the debugging path taken to isolate it.
+- Trailer: `Co-Authored-By: Claude Code`.
+
+Avoid:
+
+- Diary-style narration ("tried X, then switched to Y") — keep only the
+  rationale that survived, not the path taken to reach it.
+- In-progress/intermediate benchmark data — goes stale immediately and is
+  unreproducible without the exact harness/hardware/commit state.
+- Internal-only references (internal URLs, tracker/ticket IDs, internal
+  hostnames) that an external reader can't resolve or act on.
+- Hype language ("blazing fast", "huge win") — factual and neutral matches
+  upstream tone.
