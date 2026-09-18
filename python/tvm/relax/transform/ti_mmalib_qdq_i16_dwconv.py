@@ -45,7 +45,11 @@ from tvm.ir.transform import PassContext
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import propagate_span
-from .ti_mmalib_legalize import _float_to_scale_shift, _resolve_constant_tensor, _scale_shift_or_none, _call_extern_checked
+from .ti_mmalib_legalize import (
+    _call_extern_checked,
+    _resolve_constant_tensor,
+    _validate_and_fold_bias,
+)
 from .ti_mmalib_qdq_dwconv import (
     _check_dwconv2d_geometry,
     _MMALIBQDQDwConvLowerer,
@@ -260,22 +264,22 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
 
         # --- Compute MMALIB int16 parameters ---
 
-        # Bias in int64 accumulator scale (no ZP correction since d_zp=0)
-        dw_scale = d_scale_val * w_scale_np[:channels]
-        if bias_np is not None:
-            bias_i64 = np.round(bias_np[:channels] / dw_scale).astype(np.int64)
-        else:
-            bias_i64 = np.zeros(channels, dtype=np.int64)
-
-        # Per-channel requantization: same formula as int8
-        if w_scale_np.size != channels:
-            logger.warning("Per-tensor weight scale is not supported for MMALIB int16 dwconv2d; declining")
+        # Bias is int64 here (wider than int8's int32), so no overflow
+        # check is needed -- but the weight-scale size and rescale range
+        # must still be validated before the bias fold (see the shared
+        # helper's docstring). No ZP correction since d_zp=0.
+        folded = _validate_and_fold_bias(
+            w_scale_np,
+            channels,
+            bias_np,
+            d_scale_val,
+            o_scale_val,
+            bias_dtype=np.int64,
+            op_name="MMALIB int16 dwconv2d",
+        )
+        if folded is None:
             return super().visit_call_(call)
-        combined_rescale = dw_scale / o_scale_val
-        scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
-        if scale_u8 is None:
-            logger.warning("Rescale out of range for MMALIB int16 dwconv2d; declining")
-            return super().visit_call_(call)
+        scale_u8, shift_u8, bias_i64 = folded
 
         # Natural-order int16 weights [C, KH*KW], flattened to [C*KH*KW].
         # The C wrapper reorders at runtime via reorderWeights_exec.

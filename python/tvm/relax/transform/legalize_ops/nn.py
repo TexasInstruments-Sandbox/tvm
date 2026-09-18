@@ -16,24 +16,17 @@
 # under the License.
 # pylint: disable=invalid-name,unused-argument
 """Default legalization function for neural network operators."""
+
 import logging
 import math
 from typing import Optional
 
 from tvm import te, tir, topi
-from tvm.target import Target
 
 from ...block_builder import BlockBuilder
 from ...expr import Call, Expr
+from ..ti_c7x_target_utils import is_c7x_target as _is_c7x_target
 from .common import _call_topi_without_attr, register_legalize
-
-
-def _is_c7x_target() -> bool:
-    """True when the active pass target is ``c_static_lib -mcpu=c7x``."""
-    target = Target.current(allow_none=True)
-    if target is None:
-        return False
-    return target.kind.name == "c_static_lib" and getattr(target, "mcpu", "") == "c7x"
 
 
 @register_legalize("relax.nn.conv1d")
@@ -763,9 +756,9 @@ def _te_attention(
 
 @register_legalize("relax.nn.attention")
 def _nn_attention(bb: BlockBuilder, call: Call) -> Expr:
-    assert (
-        call.attrs.window_size is None
-    ), "Legalization for sliding-window attention is not supported yet."
+    assert call.attrs.window_size is None, (
+        "Legalization for sliding-window attention is not supported yet."
+    )
     return bb.call_te(
         _te_attention,
         call.args[0],
@@ -780,9 +773,9 @@ def _nn_attention(bb: BlockBuilder, call: Call) -> Expr:
 
 @register_legalize("relax.nn.attention_bias")
 def _nn_attention_bias(bb: BlockBuilder, call: Call) -> Expr:
-    assert (
-        call.attrs.window_size is None
-    ), "Legalization for sliding-window attention is not supported yet."
+    assert call.attrs.window_size is None, (
+        "Legalization for sliding-window attention is not supported yet."
+    )
     return bb.call_te(
         _te_attention,
         call.args[0],

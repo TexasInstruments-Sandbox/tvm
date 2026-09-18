@@ -20,11 +20,18 @@ import tvm
 from tvm import relax
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
+from tvm.relax.transform.ti_c7x_target_utils import is_c7x_target as _is_c7x_target
 
 
-def _is_c7x_target(target: tvm.target.Target) -> bool:
-    """True for a ``c_static_lib -mcpu=c7x`` target (DSP vector pipeline)."""
-    return target.kind.name == "c_static_lib" and getattr(target, "mcpu", "") == "c7x"
+def _annotate_fuse_tail():
+    """The AnnotateTIROpPattern -> FoldConstant -> FuseOps -> FuseTIR tail
+    shared by the c7x and non-c7x legalization paths, run after LegalizeOps."""
+    return [
+        tvm.relax.transform.AnnotateTIROpPattern(),
+        tvm.relax.transform.FoldConstant(),
+        tvm.relax.transform.FuseOps(),
+        tvm.relax.transform.FuseTIR(),
+    ]
 
 
 @tvm.transform.module_pass(opt_level=0, name="ConvertLayoutNHWC")
@@ -83,13 +90,7 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
         # The C7x QDQ-fusion passes below emit ``call_extern("c7x_int8_*")``
         # kernels that only the TI DSP runtime exports; running them for other
         # cpu_generic targets (e.g. llvm/c) produces unresolved symbols.
-        return [
-            tvm.relax.transform.LegalizeOps(),
-            tvm.relax.transform.AnnotateTIROpPattern(),
-            tvm.relax.transform.FoldConstant(),
-            tvm.relax.transform.FuseOps(),
-            tvm.relax.transform.FuseTIR(),
-        ]
+        return [tvm.relax.transform.LegalizeOps()] + _annotate_fuse_tail()
 
     passes = []
 
@@ -218,12 +219,7 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
         passes.append(
             tvm.relax.transform.LegalizeOps(customize_legalize_map=custom_legalize_map or None)
         )
-    passes += [
-        tvm.relax.transform.AnnotateTIROpPattern(),
-        tvm.relax.transform.FoldConstant(),
-        tvm.relax.transform.FuseOps(),
-        tvm.relax.transform.FuseTIR(),
-    ]
+    passes += _annotate_fuse_tail()
     # C7x DMA tiling: schedule conv2d PrimFuncs for L2 SRAM after fusion
     if is_c7x:
         l2_budget = int(target.attrs.get("l2-sram-size", 393216))

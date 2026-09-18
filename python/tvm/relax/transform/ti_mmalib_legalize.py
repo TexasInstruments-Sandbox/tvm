@@ -22,8 +22,11 @@ Provides:
     LegalizeOps(customize_legalize_map=...).
   - _check_conv2d_mmalib_constraints: shared eligibility check (used by
     both this module and ti_mmalib_qdq_fusion.py).
-  - _float_to_scale_shift: per-channel float→uint8 scale/shift conversion
-    (used by ti_mmalib_qdq_fusion.py).
+  - _validate_and_fold_bias: validates the weight-scale/rescale range and
+    folds the float bias into accumulator scale. The single shared entry
+    point behind all 6 int8/int16 conv2d/dwconv2d/FC QDQ lowerers
+    (ti_mmalib_qdq_fusion.py, ti_mmalib_qdq_dwconv.py, ti_mmalib_qdq_fc.py,
+    ti_mmalib_qdq_i16_conv.py, ti_mmalib_qdq_i16_dwconv.py).
 
 Data layout: NCHW throughout.
 MMALIB's conv kernel (convolveBias_row) operates on planar channel-first
@@ -32,6 +35,9 @@ When -mmalib=1 is set, the pipeline skips ConvertLayoutNHWC so that all
 ops (conv, relu, add, pool) stay in NCHW. Layout conversion happens at
 network I/O boundaries only.
 """
+
+import logging
+from typing import Union
 
 import numpy as np
 
@@ -43,6 +49,8 @@ from tvm.ir.transform import PassContext
 from .legalize_ops.linear_algebra import _matmul
 from .legalize_ops.nn import _nn_conv2d
 from .ti_c7x_span_utils import propagate_span
+
+logger = logging.getLogger(__name__)
 
 # =======================================================================
 # Int16 matmul legalization
@@ -365,6 +373,62 @@ def _scale_shift_or_none(rescale: np.ndarray):
         return _float_to_scale_shift(rescale)
     except ValueError:
         return None, None
+
+
+def _validate_and_fold_bias(
+    w_scale_np: np.ndarray,
+    n_channels: int,
+    bias_np,
+    d_scale_val: float,
+    o_scale_val: float,
+    zp_correction: Union[int, np.ndarray] = 0,
+    o_zp_val: int = 0,
+    bias_dtype: type = np.int32,
+    op_name: str = "MMALIB op",
+):
+    """Validate the weight-scale size and rescale range, then fold the
+    float bias into accumulator scale.
+
+    Order matters: both checks below must run *before* the bias fold. A
+    collapsed weight scale (e.g. float32 eps for a constant tensor) makes
+    dw_scale tiny, so bias/dw_scale can overflow int32 -- validating first
+    avoids emitting a RuntimeWarning and then discarding a garbage bias.
+    ``bias_dtype=np.int32`` (the int8 MMALIB kernels' accumulator) is the
+    only width where this overflow is a real risk, so the range check
+    below applies only then; ``np.int64`` (the int16 kernels') has ample
+    headroom for any bias/dw_scale ratio this pass produces.
+
+    Returns (scale_u8, shift_u8, bias_folded), or None to signal that the
+    caller should decline the fusion.
+    """
+    if w_scale_np.size != n_channels:
+        logger.warning("Per-tensor weight scale is not supported for %s; declining", op_name)
+        return None
+    dw_scale = d_scale_val * w_scale_np[:n_channels]
+    combined_rescale = dw_scale / o_scale_val
+    scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
+    if scale_u8 is None:
+        logger.warning("Rescale out of range for %s; declining", op_name)
+        return None
+
+    if bias_np is not None:
+        bias_accum_f = np.round(bias_np[:n_channels] / dw_scale)
+        if bias_dtype == np.int32 and (
+            not np.all(np.isfinite(bias_accum_f))
+            or np.any(np.abs(bias_accum_f) > np.iinfo(np.int32).max)
+        ):
+            logger.warning("Bias fold overflows int32 accumulator for %s; declining", op_name)
+            return None
+        bias_accum = bias_accum_f.astype(bias_dtype)
+    else:
+        bias_accum = np.zeros(n_channels, dtype=bias_dtype)
+
+    bias_folded = (bias_accum + zp_correction).astype(bias_dtype)
+
+    if o_zp_val != 0:
+        bias_folded = (bias_folded + np.round(o_zp_val / combined_rescale)).astype(bias_dtype)
+
+    return scale_u8, shift_u8, bias_folded
 
 
 def _call_extern_checked(dtype: str, op_name: str, *args):

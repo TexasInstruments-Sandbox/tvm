@@ -49,6 +49,7 @@ from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
 from tvm.relax.transform.ti_c7x_span_utils import find_composite_span, propagate_span
+from tvm.relax.transform.ti_c7x_target_utils import is_c7x_target
 
 logger = logging.getLogger(__name__)
 
@@ -323,9 +324,7 @@ class _DequantizeMatmulFuser(PyExprMutator):
         # scalar scale — broadcast it to shape [N] before passing.
         scale_sinfo = w_scale.struct_info
         if scale_sinfo.ndim == 0:
-            w_scale = self.builder_.emit(
-                relax.op.broadcast_to(w_scale, relax.ShapeExpr([N]))
-            )
+            w_scale = self.builder_.emit(relax.op.broadcast_to(w_scale, relax.ShapeExpr([N])))
 
         def te_vecmatmul(act_t, w_t, scale_t):
             def fcompute(ins, outs):
@@ -409,11 +408,7 @@ class FuseDequantizeMatmul:  # pylint: disable=too-few-public-methods
 
     def transform_module(self, mod: IRModule, _ctx: tvm.transform.PassContext) -> IRModule:
         # Detect C7x target for vectorized extern path
-        use_extern = False
-        target = tvm.target.Target.current()
-        if target is not None:
-            is_c7x = target.kind.name == "c_static_lib" and getattr(target, "mcpu", "") == "c7x"
-            use_extern = is_c7x
+        use_extern = is_c7x_target()
 
         # Phase 1: pattern-match and wrap into composite functions
         mod = relax.transform.FuseOpsByPattern(
