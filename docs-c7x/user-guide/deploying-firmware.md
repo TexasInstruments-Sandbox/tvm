@@ -188,7 +188,10 @@ latest firmware which handles clean shutdown.
 ### Dynamic module load fails
 1. Check trace for DLOAD errors: `c7x_compute trace | grep DLOAD`
 2. Verify module was built with DLOAD-compatible flags (relocatable ELF, exported `cg_main_dsp`)
-3. Check that module's imported symbols are in the firmware's export table (~116 symbols)
+3. Check that module's imported symbols are in the firmware's export table
+   (see [Firmware Architecture -- Dynamic Module Loading
+   (DLOAD)](../contributor-guide/firmware/architecture.md#dynamic-module-loading-dload)
+   for the current count)
 
 ### DMA-BUF exhaustion
 If repeated c7x_compute invocations fail with DMA-BUF errors, the host

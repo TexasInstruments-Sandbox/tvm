@@ -144,8 +144,8 @@ on the mode:
   (emulates C7x vector types/intrinsics on x86), build `lib0.c` into a
   native `cg_dsp` executable -- no DLOAD, no board. Requires
   `TI_CGT_C7000_PATH`. This is the fast, no-hardware iteration path; see
-  [DSP C++ Harness](../contributor-guide/testing/dsp-cpp-harness.md) for
-  the general host-emulation CMake pattern this builds on.
+  [DSP C++ Harness Build Reference](../contributor-guide/testing/verifying-deployment.md#dsp-c-harness-build-reference)
+  for the general host-emulation CMake pattern this builds on.
 
 Neither step is a TVM API call -- both are native builds this project's
 test harness automates (next section).
@@ -227,7 +227,7 @@ are picked up straight from `generated_dir` by the CMake build. See
   DLOAD build internals, codegen architecture.
 - [MMALIB Integration](../contributor-guide/backend/mmalib-integration.md)
   -- what the default pipeline's MMALIB passes actually do.
-- [DSP C++ Harness](../contributor-guide/testing/dsp-cpp-harness.md) --
+- [DSP C++ Harness Build Reference](../contributor-guide/testing/verifying-deployment.md#dsp-c-harness-build-reference) --
   the CMake build this project's helpers automate.
 - [Python / C++ API Reference](python-api.md) -- running the resulting
   module.

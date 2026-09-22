@@ -44,22 +44,20 @@ nav:
     - Backend:
       - C Static Lib Backend: contributor-guide/backend/c-static-lib.md
       - MMALIB Integration: contributor-guide/backend/mmalib-integration.md
+      - TIDL Integration: contributor-guide/backend/tidl-integration.md
+      - Authoring Passes: contributor-guide/backend/authoring-passes.md
+      - te.extern Lowering: contributor-guide/backend/te-extern-lowering.md
+      - CodeGenCStaticLib Internals: contributor-guide/backend/codegen-cstatic.md
+      - Extending Quantizer: contributor-guide/backend/extending-quantizer.md
+      - Debugging Passes: contributor-guide/backend/debugging-passes.md
     - DSP Runtime:
       - Runtime Internals: contributor-guide/dsp-runtime/internals.md
-      - C7x Memory Map Reference: contributor-guide/dsp-runtime/memory-map.md
     - Firmware:
       - Firmware Architecture: contributor-guide/firmware/architecture.md
       - Firmware Design Deep-Dive: contributor-guide/firmware/design-deep-dive.md
-      - ARM Host Client Internals: contributor-guide/firmware/arm-client-internals.md
-      - Per-Buffer dmabuf Design: contributor-guide/firmware/dmabuf-design.md
-    - Hardware Debug Scripts: contributor-guide/hardware-debug.md
     - Testing:
       - Overview: contributor-guide/testing/overview.md
-      - C Static Lib Suite: contributor-guide/testing/c-static-lib-suite.md
       - DSP Suite: contributor-guide/testing/dsp-suite.md
-      - DSP C++ Harness: contributor-guide/testing/dsp-cpp-harness.md
       - Verifying Your Deployment: contributor-guide/testing/verifying-deployment.md
-      - MMALIB Suite: contributor-guide/testing/mmalib-suite.md
       - PT2E Quantizer Suite: contributor-guide/testing/pt2e-suite.md
       - Quantized Model Sweep: contributor-guide/testing/quantized-sweep.md
-      - Dynamic Shape Limitations: contributor-guide/testing/dynamic-shape-limits.md

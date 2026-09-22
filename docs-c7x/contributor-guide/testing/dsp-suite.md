@@ -30,7 +30,227 @@ dsp-tests/
 └── test_segmentation_dsp.py             # TorchVision segmentation models
 ```
 
-## Test Descriptions
+## MMALIB Test Suite (merged from mmalib-suite.md)
+
+End-to-end tests for TVM c_static_lib backend calling MMALIB functions
+directly on the C7x MMA accelerator (AM67A / J722S). Located at
+`tests/ti-dsp-runtime/mmalib-tests/`.
+
+### Running MMALIB Tests
+
+```bash
+cd tests/ti-dsp-runtime
+export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+
+# Quick smoke tests (~2 min host emulation)
+pytest --rootdir=. mmalib-tests/ -m quick --dsp-mode=c7x_host -v
+
+# Full suite (all markers)
+pytest --rootdir=. mmalib-tests/ -v --dsp-mode=c7x_host
+
+# Hardware (AM67A board)
+pytest --rootdir=. mmalib-tests/ -m quick --dsp-mode=c7x_dload -v
+```
+
+### MMALIB Test Files
+
+#### Kernel unit tests (execution required)
+
+| File | Op | Dtype | Path | Description |
+|------|----|-------|------|-------------|
+| `test_mmalib_matmul_dsp.py` | matmul | int8 | legalize | Direct legalization via `LegalizeOps`, exact match |
+| `test_mmalib_matmul_i16_dsp.py` | matmul | int16 | legalize | Float→int16 dynamic quant + shift-based overflow prevention; used by SmolLM MLP offload |
+| `test_mmalib_conv2d_dsp.py` | conv2d | int16 | legalize | Direct int16 conv2d legalization, exact match |
+| `test_mmalib_conv2d_i8_dsp.py` | conv2d | int8 | QDQ | `FuseMMALIBQDQConv2d` — PT2E pattern with per-channel bias/scale/shift, ±2 tolerance |
+| `test_mmalib_conv2d_i16_dsp.py` | conv2d | int16 | QDQ | `FuseMMALIBQDQConv2dI16` — same PT2E pattern but int16, ±10 tolerance (Phase 2b) |
+| `test_mmalib_dwconv2d_i8_dsp.py` | depthwise conv2d | int8 | QDQ | `FuseMMALIBQDQDwConv2d` — depthwise (groups=C), 3×3/5×5/7×7, ±2 tolerance |
+| `test_mmalib_dwconv_i16_dsp.py` | depthwise conv2d | int16 | QDQ | `FuseMMALIBQDQDwConv2dI16` — int16 depthwise, **3×3 only** (MMALIB-882), ±5 tolerance (Phase 2c) |
+| `test_mmalib_fc_i8_dsp.py` | FC / linear | int8 | QDQ | `FuseMMALIBQDQFC` — matmul_bias_i8, per-channel scale/shift; 2D and 3D reshape variants |
+| `test_mmalib_fc_i16_dsp.py` | FC / linear | int16 | QDQ + direct | Direct `mmalib_matmul_bias_i16` wrapper tests (SmolLM dims) plus `FuseMMALIBQDQFCI16` PT2E QDQ fusion (Phase 2b) |
+| `test_mmalib_residual_add_i8_dsp.py` | residual add | int8 | QDQ | `FuseInt8ResidualAdd` — both `add(x,skip)` and `add(skip,x)` operand orders (Phase 2a) |
+| `test_mmalib_residual_add_i16_dsp.py` | residual add | int16 | QDQ | `FuseInt16ResidualAdd` — symmetric only (zp=0), both operand orders (Phase 2c) |
+| `test_mmalib_conv2d_i8_grouped_loop_dsp.py` | conv2d (grouped) | int8 | direct | Direct `call_extern` to `mmalib_conv2d_i8_grouped_loop` for ResNeXt101-32x8d's four stage shapes (stride 1/2), exact match (Step 13) |
+| `test_mmalib_qdq_grouped_conv2d_i8_dsp.py` | conv2d (grouped) | int8 | QDQ | `FuseMMALIBQDQConv2d` groups>1 path — PT2E pattern end-to-end via `-mmalib=1`, ±2 tolerance (Step 13) |
+| `test_mmalib_loop_only_chain_dsp.py` | conv2d (grouped) | int8 | direct | Regression: chains of `mmalib_conv2d_i8_grouped_loop` calls within one inference (2/3-call quick test, 16-call stress test), exact match (Step 13) |
+
+#### Pass-level unit tests (pure Python, no DSP required)
+
+| File | What it tests |
+|------|---------------|
+| `test_mmalib_inject_dma.py` | `InjectMMALIBDMA` guard bytes: verifies `pad_top` (not `stride_h`) is read from args[15] for i8 and i16 conv2d; fallback to 128 bytes when `pad_top == 0` |
+| `test_mmalib_fc_i16_dsp.py` *(guard test)* | `test_fuse_fc_i16_rejects_nonzero_o_zp` — verifies the i16 FC check function rejects patterns with non-zero output zero-point |
+
+### MMALIB Test Execution Paths
+
+**Legalize path** (`test_mmalib_matmul_dsp.py`, `test_mmalib_conv2d_dsp.py`,
+`test_mmalib_matmul_i16_dsp.py`): The `LegalizeOps` pass with a custom
+`legalize_map` replaces eligible float ops with `call_extern` to MMALIB
+wrappers. No quantization nodes in the graph.
+
+**QDQ fusion path** (files marked `QDQ` in the table above): The
+`FuseMMALIBQDQ*` passes run *before* `FuseQDQToInt8Conv2D` and match the
+intact PT2E QDQ pattern:
+```
+dequantize(data_int8/16) → op(_, dequantize(weight)) → [bias] → [relu] → quantize
+```
+The fused kernel receives compile-time-computed integer bias/scale/shift
+derived from the quantization parameters.
+
+**Direct call_extern path** (`test_mmalib_conv2d_i8_grouped_loop_dsp.py`,
+`test_mmalib_loop_only_chain_dsp.py`): builds `te.extern`/`tir.call_extern`
+calls to `mmalib_conv2d_i8_grouped_loop` by hand, bypassing both
+`LegalizeOps` and the QDQ fusion passes, to isolate ResNeXt101's
+grouped-conv kernel from the rest of the compiler pipeline.
+
+### MMALIB Tolerances
+
+| Dtype | Tolerance | Reason |
+|-------|-----------|--------|
+| int8 | ≤ 2 | uint8 scale/shift approximation; small K |
+| int16 | ≤ 5–10 | wider uint8 scale/shift approximation error for larger K |
+| int16 direct | ≤ 1 | per-row L1-norm shift, no requantization |
+
+### MMALIB Data Layout
+
+All ops use NCHW (planar channel-first). The pipeline skips NHWC conversion
+when `-mmalib=1` is set.
+
+### MMALIB Known Limitations
+
+- **INT16 depthwise**: only 3×3 kernels supported (`mmalib_depthwise_conv2d_i16`);
+  5×5 and 7×7 return `MMALIB_ERR_NOT_IMPLEMENTED` (tracked as MMALIB-882).
+- **INT16 QDQ activation quantization**: always symmetric (d_zp = 0 required).
+  Asymmetric activation quant (`d_zp ≠ 0`) is rejected by the i16 check
+  functions and falls through to float computation.
+
+---
+
+## C Static Lib Test Suite (merged from c-static-lib-suite.md)
+
+Validation suite for the TVM C Static Lib backend (`c_static_lib` target).
+Compiles models for both LLVM (reference) and c_static_lib, then compares
+outputs within tolerance (rtol=1e-3, atol=1e-5). Located at `tests/cstatic/`.
+
+### Quick Start
+
+```bash
+# From repo root
+export TVM_HOME=$(pwd)
+export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
+
+# Run quick tests in parallel (excludes slow and model_zoo)
+cd tests/cstatic
+pytest --rootdir=. unit-tests/ -m "not slow and not model_zoo" -n auto -v
+
+# Run all tests (including slow: ViT-B/16, segmentation; excludes model_zoo)
+pytest --rootdir=. unit-tests/ -m "not model_zoo" -v
+
+# Debug a failed test (preserve temp workspace)
+CSTATIC_KEEP_TEMP=1 pytest --rootdir=. unit-tests/test_resnet.py -v
+```
+
+### Prerequisites
+
+1. **TVM build (2-pass)**:
+   ```bash
+   mkdir -p build && cp cmake/config.cmake build/
+   cd build
+   cmake -G Ninja .. && ninja           # Pass 1: shared libs (for Python)
+   cmake -DBUILD_STATIC_RUNTIME=ON ..
+   ninja tvm_runtime                    # Pass 2: libtvm_runtime.a (for c_static_lib)
+   cd ..
+   ```
+
+2. **cnpy** (NumPy I/O for the C++ test harness):
+   ```bash
+   cd 3rdparty/cnpy
+   mkdir -p build && cd build && cmake .. && make -j$(nproc)
+   ```
+
+3. **Python dependencies**:
+   ```bash
+   uv pip install numpy pytest pytest-xdist torch torchvision onnx Pillow tqdm
+   uv pip install -e 3rdparty/tvm-ffi
+   ```
+
+### Unit Tests
+
+All automated tests are in `unit-tests/`:
+
+| File | What it tests | Marker |
+|------|---------------|--------|
+| `test_conv2d.py` | 2D convolution | quick |
+| `test_matmul.py` | Matrix multiplication (16x16) | quick |
+| `test_mlp.py` | Fully connected layers (784-256-10) | quick |
+| `test_resnet.py` | ResNet-18 (torchvision, ImageNet) | quick |
+| `test_rtmdet_tvm_minimal.py` | Multi-output (6-tensor tuple) | quick |
+| `test_error_messages.py` | Shape mismatch error handling | quick |
+| `test_use_cpp_api_codegen.py` | C++ API codegen flag verification | quick |
+| `test_vitb16.py` | Vision Transformer ViT-B/16 | slow |
+| `test_segmentation.py` | FCN ResNet-50 (dynamic shapes) | slow |
+| `test_model_zoo.py` | 111 TorchVision/YOLO models (classification, detection, segmentation, YOLO) | model_zoo |
+
+#### Running by category
+
+```bash
+pytest --rootdir=. unit-tests/ -m "not slow and not model_zoo"   # Quick only (~30s)
+pytest --rootdir=. unit-tests/ -m "slow and not model_zoo"       # Slow only (~5min)
+pytest --rootdir=. unit-tests/test_model_zoo.py                  # Model zoo only (111 models)
+pytest --rootdir=. unit-tests/ -m "not model_zoo" -n auto        # Quick + slow, parallel
+```
+
+### Standalone Model Scripts
+
+Interactive scripts for broader model coverage (not run by CI):
+
+| Script | Domain | Models |
+|--------|--------|--------|
+| `cl_torchvision.py` | Classification | ResNet, MobileNet, EfficientNet, ViT |
+| `od_torchvision.py` | Detection (COCO) | Faster R-CNN, RetinaNet, FCOS, SSD |
+| `od_yolo.py` | Detection (YOLO) | YOLOv5, YOLOv8, YOLOv11 |
+| `od_rtmdet.py` | Detection (RTMDet) | RTMDet via MMDetection (Docker) |
+| `od_rtmdet_pure.py` | Detection (RTMDet) | RTMDet via rtmdet package |
+| `od_rt_detr.py` | Detection (RT-DETR) | RT-DETR transformer detector |
+| `seg_torchvision.py` | Segmentation | FCN, DeepLabV3, LRASPP |
+
+Common options: `--tvm`, `--compare`, `--test-all`, `--parallel`.
+
+### How Tests Work
+
+Each test:
+1. Creates or loads a model (PyTorch or TVM IR)
+2. Compiles for **LLVM** (reference) and **c_static_lib** (target under test)
+3. For c_static_lib: exports to C, builds with CMake in an isolated temp dir,
+   runs the binary, loads outputs from NPZ
+4. Asserts numerical match between LLVM and c_static_lib outputs
+
+The C++ build template is in `cpp/` (CMakeLists.txt + main.cpp).
+Each test gets its own `/tmp/cpp_cstatic_XXXXX/` workspace for safe
+parallel execution.
+
+### Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `TVM_HOME` | Used by `cpp/CMakeLists.txt` to find TVM headers and libs |
+| `CSTATIC_KEEP_TEMP` | Set to `1` to preserve temp workspaces for debugging |
+
+### CI
+
+The Jenkinsfile in this directory runs the full suite:
+- 2-pass TVM build (shared + static runtime)
+- cnpy build
+- Quick tests in parallel (`-n auto`)
+- Slow tests (ViT, segmentation) unless `SKIP_SLOW_TESTS` is set
+- Model zoo tests (`test_model_zoo.py`) unless `SKIP_MODEL_ZOO` is set, with
+  per-category skips (`SKIP_CLASSIFICATION`, `SKIP_DETECTION`,
+  `SKIP_SEGMENTATION`, `SKIP_YOLO`)
+
+---
+
+## DSP Test Suite (Original dsp-tests/)
+
+### Test Descriptions
 
 | Test File | Description | Model Type |
 |-----------|-------------|------------|
@@ -52,7 +272,7 @@ dsp-tests/
 | `test_rtmdet_dsp.py` | Multi-output tuple handling validation | Conv2D (2 outputs) |
 | `test_segmentation_dsp.py` | LRASPP and DeepLabV3 MobileNetV3 segmentation | Conv2D, multi-output |
 
-## Execution Modes
+### Execution Modes
 
 All tests require `--dsp-mode` to select the execution target. There is
 no default.
@@ -67,9 +287,9 @@ no default.
 Not all modes are available for every test. Larger models that exceed
 C66x memory are restricted to `c66x_host` and `c7x_dload`.
 
-## Running Tests
+### Running Tests
 
-### Via pytest
+#### Via pytest
 
 ```bash
 # Set environment
@@ -102,7 +322,7 @@ pytest -v --dsp-mode=c7x_dload -m core
 pytest -v --dsp-mode=c66x_host -m "not c7x_only"
 ```
 
-### Test depth tiers
+#### Test depth tiers
 
 Three markers control which tests run at each pipeline stage:
 
@@ -115,7 +335,7 @@ Three markers control which tests run at each pipeline stage:
 `core` is a superset of `quick`, with the exception of the 2 unit
 tests in `test_mmalib_oc_tile_consistency.py`, which are `quick`-only.
 
-#### `quick` tests (both c66x and c7x, unless noted)
+##### `quick` tests (both c66x and c7x, unless noted)
 
 | Test | Model |
 |------|-------|
@@ -128,7 +348,7 @@ tests in `test_mmalib_oc_tile_consistency.py`, which are `quick`-only.
 | `test_mmalib_oc_tile_consistency` | MMALIB conv2d_i8 OC-tiling consistency |
 | `test_c7x_vm_dsp` (all) | c7x only |
 
-#### `core` tests added beyond `quick` (24 additional)
+##### `core` tests added beyond `quick` (24 additional)
 
 | Test | Architecture |
 |------|-------------|
@@ -138,7 +358,7 @@ tests in `test_mmalib_oc_tile_consistency.py`, which are `quick`-only.
 | `test_resnet_dsp` | both |
 | `test_classification_dsp` (8 models) | both |
 
-#### `c7x_only` tests (excluded from c66x stages)
+##### `c7x_only` tests (excluded from c66x stages)
 
 Tests marked `c7x_only` use models too large for C66x memory or exercise
 c7x-specific features. Jenkins c66x stages filter with `-m "not c7x_only"`:
@@ -151,7 +371,7 @@ c7x-specific features. Jenkins c66x stages filter with `-m "not c7x_only"`:
 | `test_segmentation_dsp.py` | LRASPP / DeepLabV3 |
 | `test_conv2d_cycle_breakdown.py` | Cycle profiling benchmark |
 
-### Jenkins pipeline commands
+#### Jenkins pipeline commands
 
 ```bash
 cd tests/ti-dsp-runtime
@@ -177,7 +397,7 @@ pytest --rootdir=. dsp-tests/ -m core              --dsp-mode=c7x_dload -v
 pytest --rootdir=. dsp-tests/                      --dsp-mode=c7x_dload -v
 ```
 
-### Via standalone script
+#### Via standalone script
 
 Each test file can also be run directly:
 
@@ -190,7 +410,7 @@ python test_resnet_dsp.py --dsp-mode c7x_dload --profile-layers
 python test_clista_dsp.py --dsp-mode c66x_host --save-artifacts /tmp/artifacts
 ```
 
-### Command-line options
+#### Command-line options
 
 | Option | Description |
 |--------|-------------|
@@ -204,9 +424,10 @@ python test_clista_dsp.py --dsp-mode c66x_host --save-artifacts /tmp/artifacts
 | `--mmalib` | Enable MMALIB acceleration for eligible conv2d/matmul ops |
 | `--board-target=HOST` | AM67A hostname for remote `test_c7x_vm_dsp` tests via SSH |
 
-## Key Components
+### Key Components
 
-### `conftest.py`
+#### `conftest.py`
+
 Pytest fixtures and configuration:
 - `dsp_mode`: Execution mode from `--dsp-mode` option (required)
 - `dsp_timeout`: Timeout from `--dsp-timeout` option
@@ -219,7 +440,8 @@ Pytest fixtures and configuration:
 - `board_target`: AM67A hostname from `--board-target` option (for remote c7x_vm tests)
 - `dsp_config`: Combined configuration dictionary
 
-### `model_utils.py`
+#### `model_utils.py`
+
 Shared model creation functions:
 - `torch_to_relax_with_params()`: Convert PyTorch model to TVM with bound parameters
 - `create_conv2d_model()`: Single Conv2D layer
@@ -230,7 +452,8 @@ Shared model creation functions:
 - `create_lenet_model()`: LeNet-5 CNN
 - `create_quantized_conv2d_stack_model()`: INT8 quantized conv2d stack
 
-### `dsp_utils.py` (in `../dsp-cpp/`)
+#### `dsp_utils.py` (in `../dsp-cpp/`)
+
 DSP compilation and execution utilities:
 - `get_target_string()`: Map mode to c_static_lib target string
 - `assert_dsp_comparison()`: Assert DSP results match reference
@@ -245,7 +468,7 @@ DSP compilation and execution utilities:
 - `run_dsp_c66x()`: Run on C66x hardware via CCS
 - `run_dsp_dload()`: Run on AM67A via c7x_compute CLI
 
-## Adding New Tests
+### Adding New Tests
 
 Use `get_target_string()` and `assert_dsp_comparison()` to avoid
 per-mode boilerplate:
@@ -279,7 +502,7 @@ def test_my_model(dsp_mode, dsp_timeout, use_cpp_api):
     assert_dsp_comparison(dsp_results, comparison)
 ```
 
-## Multi-Output Support
+### Multi-Output Support
 
 The DSP runtime supports models that return multiple outputs (tuples).
 `test_rtmdet_dsp.py` validates this:
@@ -288,7 +511,7 @@ The DSP runtime supports models that return multiple outputs (tuples).
 - `Model::InferMulti()` API returns all outputs
 - Output tensors written to `output.bin` in order
 
-## Debugging with DSP_KEEP_TEMP
+### Debugging with DSP_KEEP_TEMP
 
 Set `DSP_KEEP_TEMP=1` to preserve the temporary workspace after each test.
 The workspace is named after the test and timestamped for easy correlation:
@@ -317,7 +540,7 @@ artifacts in a single directory:
 The build subdirectory is named after the execution mode: `build-c7x_host`,
 `build-c7x_dload`, `build-c66x_host`, or `build-c66x`.
 
-## Requirements
+### Requirements
 
 - TVM with c_static_lib backend
 - PyTorch and torchvision for model creation and reference inference

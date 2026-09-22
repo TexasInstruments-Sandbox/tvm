@@ -1,14 +1,5 @@
 # Firmware Design Deep-Dive
 
-> **Memory layout sections below are stale.** This document predates the
-> per-buffer dmabuf change: the single 512 MB staging/result split described
-> here (`staging_buf`/`result_buf`, `C7X_RESULT_ADDR`, one whole-carveout
-> `DMA_BUF_IOCTL_SYNC` per inference) has been replaced by separate,
-> independently-synced dmabufs (`client->staging` for ELF/weights only,
-> `input_buf`/`output_buf` sized from `tvm_dsp_io_meta`, `printf_buf`). See
-> [ARM Host Client Internals](arm-client-internals.md) for the current
-> design. A full rewrite of this document is tracked separately.
-
 ## Overview
 
 The c7x-firmware is a host-DSP compute service for the TI AM67A (J722S)
@@ -61,23 +52,33 @@ For build instructions, deployment, CLI usage, and troubleshooting, see
 ### Component Roles
 
 **ARM Client / Library** (`arm/`): User-space Linux C++14 application
-that allocates a 512 MB shared buffer from the DMA heap, maps it into
-user space, stages data (ELF binaries, input tensors) into the buffer,
-and sends IPC commands to the DSP over RPMessage. The library provides
-a C API (`c7x_compute_client.h` with `extern "C"` linkage) and the
-CLI wraps it for interactive use. Resource management uses RAII
+that allocates four independent dmabufs from the DMA heap carveout --
+`staging` (480 MB, ELF + weights, fixed at the pool base) and
+`printf_buf` (64 KB) at `c7x_client_open()`, plus `input_buf`/`output_buf`
+(sized from the loaded module's `tvm_dsp_io_meta`, or via
+`c7x_client_reserve_io()`) at `c7x_client_dyn_load()` -- each with its own
+fd, `/dev/remoteprocN` attachment, and independent `DMA_BUF_IOCTL_SYNC`.
+See [ARM Host Client Internals](architecture.md#arm-host-client-internals)
+for the full buffer table and capacity-declaration semantics. The library
+provides a C API (`c7x_compute_client.h` with `extern "C"` linkage) and
+the CLI wraps it for interactive use. Resource management uses RAII
 wrappers (`raii.h`) for file descriptors, mmap regions, and FILE
 handles.
 
 **Compute Service** (`dsp/src/compute_service.c`): FreeRTOS task that
 blocks on `RPMessage_recv()`, dispatches messages by type, and sends
-responses. Handles PING, STATUS, DYN_LOAD, INFER, and DYN_UNLOAD
-commands. On DYN_UNLOAD, orchestrates TVM runtime cleanup
+responses. Handles PING, STATUS, SET_PRINTF_BUF, DYN_LOAD, MODEL_LOAD,
+INFER (and INFER_LARGE), MODEL_UNLOAD, and DYN_UNLOAD commands. Each
+INFER/INFER_LARGE request carries the sender's `input_dsp_addr`/
+`input_size`/`result_dsp_addr`/`result_size` -- the current `output_buf`
+window is tracked in `g_result_dsp_addr`/`g_result_size` since the
+output-placement code is too deep in the call chain to thread the
+request through. On DYN_UNLOAD, orchestrates TVM runtime cleanup
 (register file, model slot, constants) before freeing module memory.
 
 **Dynamic Loader** (`dsp/src/dyn_loader.c` + `dsp/src/dload/`): Wraps
 TI's DLOAD library to load relocatable C7x ELF modules into DDR at
-runtime. Provides a symbol export table (61 symbols) so loaded modules
+runtime. Provides a symbol export table (119 symbols) so loaded modules
 can call firmware-provided functions (C library, TVM runtime, math).
 
 **TVM Model Manager** (`dsp/src/tvm_model.c`): Manages model
@@ -117,21 +118,30 @@ Response types are `0x1000 | request_type`.
 | DYN_LOAD | 0x0010 | Host -> DSP | Load ELF module |
 | DYN_UNLOAD | 0x0012 | Host -> DSP | Unload module |
 | MODEL_LOAD | 0x0020 | Host -> DSP | Load weights/constants |
-| INFER | 0x0021 | Host -> DSP | Run inference |
-| INFER_LARGE | 0x0023 | Host -> DSP | Run inference with >4 inputs (descriptors in DDR) |
+| INFER | 0x0021 | Host -> DSP | Run inference (descriptors inline, fits 512-byte rpmsg) |
 | MODEL_UNLOAD | 0x0022 | Host -> DSP | Unload model weights |
+| INFER_LARGE | 0x0023 | Host -> DSP | Run inference with too many inputs to fit inline |
+| SET_PRINTF_BUF | 0x0030 | Host -> DSP | Rebind DSP printf to the client's `printf_buf` dmabuf |
 
 ### INFER Message Structure
 
-The INFER message carries tensor descriptors inline (up to 4 inputs):
+Since the per-buffer dmabuf change (protocol v3.0.0), every INFER/INFER_LARGE
+request carries the sender's `input_buf`/`output_buf` window explicitly --
+there is no fixed `C7X_RESULT_ADDR` anymore, since `output_buf` is a
+separate, independently-allocated dmabuf whose DSP address can differ
+per client:
 
 ```c
 struct c7x_msg_infer {
     struct c7x_msg_hdr hdr;
-    uint32_t module_handle;     // From DYN_LOAD response
-    uint32_t model_id;          // From MODEL_LOAD response
+    uint32_t module_handle;      // From DYN_LOAD response
+    uint32_t model_id;           // From MODEL_LOAD response
     uint32_t num_inputs;
-    uint32_t flags;
+    uint32_t flags;               // bits[15:0]=repeat count, bit16=KV_RESIDENT
+    uint64_t input_dsp_addr;     // Sender's input_buf base
+    uint64_t input_size;         // Sender's input_buf declared capacity
+    uint64_t result_dsp_addr;    // Sender's output_buf base
+    uint64_t result_size;        // Sender's output_buf declared capacity
     struct c7x_tensor_desc inputs[1]; // Variable-length
 };
 ```
@@ -142,9 +152,13 @@ dimensions). The INFER response includes output tensor descriptors
 written by the DSP, cycle count, and `printf_size` indicating the
 number of bytes of printf output in the shared memory printf buffer.
 
-For >4 inputs (e.g. KV-cache LLMs), descriptors are staged in DDR
-and `C7X_MSG_INFER_LARGE` is used instead — the message carries only
-`descs_addr` and `descs_size` pointers.
+When too many inputs to fit their descriptors inline in the 512-byte
+rpmsg buffer (e.g. KV-cache LLMs with 60+ tensors), the host writes the
+descriptor array into `input_buf` instead and sends the more compact
+`C7X_MSG_INFER_LARGE`, which carries `descs_addr`/`descs_size` (where the
+descriptor array landed in `input_buf`) alongside the same
+`input_dsp_addr`/`input_size`/`result_dsp_addr`/`result_size` fields as
+`c7x_msg_infer`.
 
 ### Wire Format Examples
 
@@ -161,69 +175,89 @@ Offset  Field           Value
  24-31  reserved        0
 ```
 
-**DYN_LOAD_RESP** (32 bytes):
+**DYN_LOAD_RESP** (68 bytes):
 
 ```
 Offset  Field           Value
   0     type            0x00001010  (C7X_MSG_DYN_LOAD_RESP)
   4     seq             <n>  (matches request)
-  8     len             32
+  8     len             68
  12     status          0   (C7X_STATUS_SUCCESS)
  16     module_handle   1   (opaque integer)
- 20     text_size       0
- 24     data_size       0
- 28     reserved        0
+ 20     text_size       0   (set by DLIF callbacks; currently always reported 0)
+ 24     data_size       0   (currently always reported 0)
+ 28     oom_requested   0   (status==ERR_NOMEM only; 0 otherwise)
+ 32     oom_free        0   (status==ERR_NOMEM only)
+ 36     oom_total       0   (status==ERR_NOMEM only)
+ 40     io_input_bytes  <bytes>  (from tvm_dsp_io_meta; 0 if module has none)
+ 48     io_output_bytes <bytes>
+ 56     io_num_inputs   <n>
+ 60     io_num_outputs  <n>
+ 64     io_flags        0   (bit0 = sizes exact, not just an upper bound)
 ```
 
-**INFER request** (single input = 112 bytes):
+**INFER request** (single input = 144 bytes):
+
+Addresses come from whichever `input_buf`/`output_buf` this client
+allocated at `c7x_client_dyn_load()` time -- there is no fixed constant
+to show here; `<input_buf.dsp_addr>` and `<output_buf.dsp_addr>` stand in
+for those per-session values.
 
 ```
-Offset  Field               Value
-  0     type                0x00000021  (C7X_MSG_INFER)
-  4     seq                 <n>
-  8     len                 112
- 12     status              0
- 16     module_handle       1
- 20     model_id            0  (0 = use embedded weights)
- 24     num_inputs          1
- 28     flags               0
- 32     inputs[0].data_addr 0xC0000000 + elf_size   (DSP virtual)
- 40     inputs[0].data_size <bytes>
- 48     inputs[0].ndim      4
- 52     inputs[0].dtype_code 2  (kDLFloat)
- 56     inputs[0].dtype_bits 32
- 60     inputs[0].reserved  0
- 64     inputs[0].shape[0]  1
- 72     inputs[0].shape[1]  3
- 80     inputs[0].shape[2]  224
- 88     inputs[0].shape[3]  224
- 96-111 (remaining shape)   0
+Offset  Field                Value
+  0     type                 0x00000021  (C7X_MSG_INFER)
+  4     seq                  <n>
+  8     len                  144
+ 12     status               0
+ 16     module_handle        1
+ 20     model_id             0  (0 = use embedded weights)
+ 24     num_inputs           1
+ 28     flags                0  (bits[15:0]=repeat count, bit16=KV_RESIDENT)
+ 32     input_dsp_addr       <input_buf.dsp_addr>
+ 40     input_size           <input_buf declared capacity>
+ 48     result_dsp_addr      <output_buf.dsp_addr>
+ 56     result_size          <output_buf declared capacity>
+ 64     inputs[0].data_addr  <input_buf.dsp_addr> + data_offset  (DSP virtual)
+ 72     inputs[0].data_size  <bytes>
+ 80     inputs[0].ndim       4
+ 84     inputs[0].dtype_code 2  (kDLFloat)
+ 88     inputs[0].dtype_bits 32
+ 92     inputs[0].reserved   0
+ 96     inputs[0].shape[0]   1
+104     inputs[0].shape[1]   3
+112     inputs[0].shape[2]   224
+120     inputs[0].shape[3]   224
+128-143 (remaining shape)    0
 ```
 
-**INFER_RESP** (single output = 152 bytes):
+**INFER_RESP** (single output = 148 bytes):
 
 ```
 Offset  Field                   Value
   0     type                    0x00001021  (C7X_MSG_INFER_RESP)
   4     seq                     <n>  (matches request)
-  8     len                     152
+  8     len                     148
  12     status                  0   (C7X_STATUS_SUCCESS)
  16     return_value            0   (cg_main_dsp return value)
  20     cycles                  <64-bit TSC delta>   (8 bytes)
  28     num_outputs             1
  32     printf_size             0   (or N if -profile-layers was set)
- 36     descs_addr              0   (0 = inline; non-zero = out-of-band)
+ 36     descs_addr              0   (0 = inline; non-zero = out-of-band, in output_buf)
  44     descs_size              0
- 48     reserved                0
- 52     outputs[0].data_addr    0xDE000000  (C7X_RESULT_ADDR)
- 60     outputs[0].data_size    <bytes>
- 68     outputs[0].ndim         2
- 72     outputs[0].dtype_code   2   (kDLFloat)
- 76     outputs[0].dtype_bits   32
- 80     outputs[0].reserved     0
- 84     outputs[0].shape[0]     1
- 92     outputs[0].shape[1]     1000
- 96-151 (remaining shape)       0
+ 48     oom_requested           0   (status==ERR_NOMEM only)
+ 52     oom_free                0   (status==ERR_NOMEM only)
+ 56     oom_total               0   (status==ERR_NOMEM only)
+ 60     result_required         0   (status==ERR_SIZE only: capacity the
+                                     overflowing tensor actually needed)
+ 68     outputs[0].data_addr    <output_buf.dsp_addr>
+ 76     outputs[0].data_size    <bytes>
+ 84     outputs[0].ndim         2
+ 88     outputs[0].dtype_code   2   (kDLFloat)
+ 92     outputs[0].dtype_bits   32
+ 96     outputs[0].reserved     0
+100     outputs[0].shape[0]     1
+108     outputs[0].shape[1]     1000
+116-147 (remaining shape)       0
 ```
 
 ---
@@ -251,35 +285,52 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.
 ### Phase 0: Connection Setup
 
 #### ARM — `c7x_client_open()`
-**Source:** `firmware/c7x/arm/src/c7x_compute_client.cpp:148`
+**Source:** `firmware/c7x/arm/src/c7x_compute_client.cpp:304`
 
 1. **Open RPMessage channel** via `rpmsg_open(C7X_DEVICE_ADDR, C7X_SERVICE_ENDPOINT, C7X_SERVICE_NAME)`.
    - `C7X_DEVICE_ADDR = "7e000000.dsp"` — stable device-tree address.
    - `C7X_SERVICE_ENDPOINT = 20` — the well-known endpoint announced by firmware.
 
-2. **Allocate shared DDR buffer** from the DMA heap carveout:
+2. **Protocol version handshake** via a PING round-trip, comparing the
+   firmware's major version against `C7X_SERVICE_VERSION` (currently
+   v3.0.0, the per-buffer dmabuf protocol). A major mismatch aborts
+   `open()` with an explicit message instead of failing later, deeper,
+   with something that reads like an unrelated bug.
+
+3. **Allocate the staging dmabuf first**, covering both the ELF/weights
+   staging region and the KV region (`C7X_STAGING_SIZE + C7X_KV_SIZE` =
+   480 MB) in one allocation. The carveout heap is `gen_pool_first_fit`,
+   so allocating this one first guarantees it lands at the pool's low
+   end -- its DSP address then equals the fixed `C7X_STAGING_ADDR`, which
+   is what keeps the DSP-side KV logic (still addressed at the fixed
+   `C7X_KV_ADDR`) working unchanged:
 
    ```c
    client->dma_heap_fd = open("/dev/dma_heap/carveout_vision_apps_shared-memories", ...);
-   ioctl(dma_heap_fd, DMA_HEAP_IOCTL_ALLOC, &heap_data);  // heap_data.len = C7X_SHARED_SIZE
-   mapped = mmap(NULL, C7X_SHARED_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, dma_buf_fd, 0);
-   client->staging_buf = mapped;                           // input side (offset 0)
-   client->result_buf  = mapped + C7X_STAGING_SIZE;       // output side (offset 480 MB)
+   alloc_dmabuf(client, C7X_STAGING_SIZE + C7X_KV_SIZE, &client->staging);
+   // client->staging.dsp_addr should now equal C7X_STAGING_ADDR
    ```
 
-3. **Attach buffer to DSP** via remoteproc ioctl — creates the DMA mapping
-   that makes the buffer visible to the C7x MMU:
+4. **Allocate the printf dmabuf** (64 KB, `client->printf_buf`) the same
+   way -- its own fd, `mmap`, and `/dev/remoteprocN` attachment.
 
-   ```c
-   int idx = find_remoteproc_index("7e000000.dsp");
-   client->rproc_fd = open("/dev/remoteproc0", O_RDONLY);  // must stay open!
-   ioctl(rproc_fd, RPROC_IOC_DMA_BUF_ATTACH, &phys_data);
-   client->phys_addr = phys_data.phys;  // = C7X_SHARED_PHYS_BASE = 0x900000000
-   ```
-   The DSP sees this region at virtual address `0xC0000000` (static MMU mapping).
+5. **Rebind DSP printf** to `client->printf_buf` via
+   `C7X_MSG_SET_PRINTF_BUF`, sent once here before any `DYN_LOAD`. Before
+   this rebind, the DSP's boot-time `shm_printf_init()` targets a scratch
+   address at the very top of the whole shared carveout
+   (`C7X_PRINTF_BUF_BOOT_ADDR`) -- nothing else claims that address until
+   the host starts allocating, so it's safe as a placeholder.
+
+`input_buf`/`output_buf` are **not** allocated here -- they're sized from
+the loaded module's declared I/O metadata at `DYN_LOAD` time (Phase 1),
+since that's the earliest point their required capacity is known. Each
+dmabuf gets its own `/dev/remoteprocN` attachment (`RPROC_IOC_DMA_BUF_ATTACH`)
+translating its physical address to a DSP virtual address via the linear
+carveout mapping; the underlying `rproc_fd` for each **must stay open**
+for the buffer to remain visible to the DSP.
 
 #### DSP — `compute_service_init()`
-**Source:** `firmware/c7x/dsp/src/compute_service.c:1159`
+**Source:** `firmware/c7x/dsp/src/compute_service.c:1553`
 
 The firmware was already started via `remoteproc`. On boot it:
 
@@ -287,7 +338,9 @@ The firmware was already started via `remoteproc`. On boot it:
 2. Announces `"rpmsg_chrdev"` to Linux — creates `/dev/rpmsg*` character device.
 3. Calls `dyn_loader_init()` to initialise the DLOAD ELF loader.
 4. Calls `tvm_model_init()` to initialise the weights/constants manager.
-5. Calls `shm_printf_init()` to redirect DSP `printf` to shared memory.
+5. Calls `shm_printf_init()` to redirect DSP `printf` to its boot-time
+   scratch address (`C7X_PRINTF_BUF_BOOT_ADDR`), rebound to the client's
+   real `printf_buf` once `SET_PRINTF_BUF` arrives.
 6. Sets `gServiceRunning = 1` and enters `compute_service_run()`.
 
 See §IPC Details for RPMessage configuration parameters and shutdown sequence.
@@ -297,12 +350,12 @@ See §IPC Details for RPMessage configuration parameters and shutdown sequence.
 ### Phase 1: Load ELF Module
 
 #### ARM — `c7x_client_dyn_load()`
-**Source:** `firmware/c7x/arm/src/c7x_compute_client.cpp:435`
+**Source:** `firmware/c7x/arm/src/c7x_compute_client.cpp:612`
 
 ```c
-// 1. Read ELF file into staging_buf (shared DDR, visible to DSP)
+// 1. Read ELF file into the staging dmabuf (shared DDR, visible to DSP)
 stage_file(client, elf_file, &file_size);
-sync_input_to_device(client);   // DMA_BUF_SYNC_END|SYNC_WRITE: flush ARM cache
+sync_input_to_device(client->staging);   // DMA_BUF_SYNC_END|SYNC_WRITE: flush ARM cache
 
 // 2. Build and send IPC message
 struct c7x_msg_dyn_load req = {
@@ -312,21 +365,41 @@ struct c7x_msg_dyn_load req = {
     .elf_size = file_size,
 };
 send_and_recv(client, &req, sizeof(req), &resp, sizeof(resp));
-
-// 3. Preserve in-place rodata: inputs must be staged after the ELF
 *handle_out = resp.module_handle;
-client->input_data_offset = file_size;
+
+// 3. Record the declared input_buf/output_buf capacity from tvm_dsp_io_meta
+//    (0 if the module has none), and grow input_buf/output_buf to at least
+//    that size if they aren't already -- the only reallocation this design
+//    performs, and only safe because no pointer into either buffer has
+//    been handed out yet for this load.
+client->io_input_bytes = resp.io_input_bytes;
+client->io_output_bytes = resp.io_output_bytes;
+ensure_io_capacity(client, resp.io_input_bytes, resp.io_output_bytes);
+
+// 4. Reserve the descriptor region at the front of input_buf, sized from
+//    the declared input count (or a small fallback if no io_meta) --
+//    tensor data for a normal INFER is staged right after it.
+client->input_data_offset = round_up_64(num_inputs_for_descs * sizeof(struct c7x_tensor_desc));
 ```
 
+A declaration `ensure_io_capacity()` can't fully satisfy only warns --
+it doesn't fail the load. `tvm_dsp_io_meta` is an upper bound over
+*calling conventions*, not a single call's real requirement (a
+KV-resident caller diverts its KV outputs to the fixed `C7X_KV_ADDR` and
+never touches `output_buf` for them, so it can need far less than the
+signature implies). The caller can still declare its real per-call need
+with `c7x_client_reserve_io()` before the first `CreateInput()`/`INFER`.
+
 #### DSP — `handle_dyn_load()`
-**Source:** `firmware/c7x/dsp/src/compute_service.c:143`
+**Source:** `firmware/c7x/dsp/src/compute_service.c:202`
 
 ```c
-// 1. Load ELF from staging buffer (phys 0x900000000 = DSP virt 0xC0000000)
+// 1. Load ELF from the staging buffer (fixed at C7X_STAGING_ADDR)
 dyn_loader_load(C7X_STAGING_ADDR, req->elf_size, &handle);
 //   DLOAD: parse ELF, allocate segments in DDR heap,
-//   apply C7x relocations, resolve 61 imported symbols.
-//   NOTE: .rodata segments are mapped IN-PLACE from staging_buf.
+//   apply C7x relocations, resolve imported symbols against the
+//   119-symbol firmware export table.
+//   NOTE: .rodata segments are mapped IN-PLACE from the staging buffer.
 
 // 2. Look up the TVM-generated entry point
 dyn_loader_query_symbol(handle, "cg_main_dsp", &sym_addr);
@@ -337,7 +410,14 @@ dyn_loader_query_symbol(handle, "_binary_weights_bin_start", &ws_addr);
 dyn_loader_query_symbol(handle, "_binary_weights_bin_size",  &wz_addr);
 tvm_model_load_weights(ws_addr, *(uint32_t*)wz_addr, &g_embedded_model_id);
 
-// 4. Save pool watermark for workspace reclaim after inference
+// 4. Check for embedded I/O metadata (tvm_dsp_io_meta) and report its
+//    declared input_buf/output_buf capacity in the response. A missing
+//    symbol, bad magic, or unsupported version reports zero -- treated
+//    as "no metadata" by the host, not an error.
+resp->io_input_bytes = resp->io_output_bytes = 0;
+// ... dyn_loader_query_symbol(handle, "_binary_tvm_dsp_io_meta_start", ...) ...
+
+// 5. Save pool watermark for workspace reclaim after inference
 tvm_dsp_save_infer_watermark();
 
 send_response(C7X_MSG_DYN_LOAD_RESP, ...);
@@ -348,53 +428,68 @@ send_response(C7X_MSG_DYN_LOAD_RESP, ...);
 ### Phase 2: Run Inference
 
 #### ARM — `c7x_client_infer()`
-**Source:** `firmware/c7x/arm/src/c7x_compute_client.cpp:691`
+**Source:** `firmware/c7x/arm/src/c7x_compute_client.cpp:1055` (thin wrapper
+around `c7x_client_infer_impl()` at line 779)
 
-**Step A — Stage input tensor data:**
+**Step A — Stage input tensor data into `input_buf`, after the descriptor region:**
 
 ```c
-// Inputs go AFTER the ELF to avoid corrupting DLOAD'd rodata
+// Zero-copy path: if inputs[i].data already falls within input_buf's
+// range (c7x::Module::CreateInput()), skip the memcpy and derive the DSP
+// address directly from the pointer offset instead.
 data_offset = client->input_data_offset;
 for (int i = 0; i < num_inputs; i++) {
-    memcpy(staging_buf + data_offset, inputs[i].data, inputs[i].data_size);
+    if (/* inputs[i].data is already inside input_buf */) {
+        data_addrs[i] = client->input_buf.dsp_addr + (inputs[i].data - input_base);
+        continue;
+    }
+    memcpy(input_base + data_offset, inputs[i].data, inputs[i].data_size);
+    data_addrs[i] = client->input_buf.dsp_addr + data_offset;
     data_offset += inputs[i].data_size;
 }
-sync_input_to_device(client);   // flush ARM cache → DDR
 ```
 
-**Step B — Build tensor descriptors with DSP virtual addresses:**
+KV-resident inputs (`data == NULL`, used with `C7X_INFER_FLAG_KV_RESIDENT`)
+skip staging entirely -- their address is derived from the fixed KV
+region layout (`C7X_KV_ADDR + kv_idx * C7X_KV_TENSOR_SIZE`) instead.
+
+**Step B — Choose INFER or INFER_LARGE and send:**
 
 ```c
-uint64_t cur_addr = C7X_STAGING_ADDR + client->input_data_offset;
-for (int i = 0; i < num_inputs; i++) {
-    desc_arr[i].data_addr = cur_addr;   // DSP sees this address
-    desc_arr[i].data_size = inputs[i].data_size;
-    // ... ndim, dtype, shape
-    cur_addr += inputs[i].data_size;
-}
-```
+// Inline INFER fits when the header (64 bytes) + N tensor descriptors
+// (80 bytes each) fits the 512-byte rpmsg buffer -- a handful of tensors.
+// Larger models (e.g. 60+ KV tensors) use INFER_LARGE instead, which
+// stages the descriptor array at the front of input_buf and sends a
+// compact fixed-size message referencing it via descs_addr/descs_size.
+sync_input_to_device(client->input_buf);
 
-**Step C — Send INFER (≤4 inputs inline) or INFER_LARGE (>4 inputs in DDR):**
-
-```c
-req->hdr.type      = C7X_MSG_INFER;
-req->module_handle = module_handle;
-req->model_id      = model_id;         // 0 → use embedded weights
-req->num_inputs    = num_inputs;
+req->hdr.type        = C7X_MSG_INFER;      // or C7X_MSG_INFER_LARGE
+req->module_handle   = module_handle;
+req->model_id        = model_id;           // 0 → use embedded weights
+req->num_inputs      = num_inputs;
+req->flags           = flags;              // bits[15:0]=repeat, bit16=KV_RESIDENT
+req->input_dsp_addr  = client->input_buf.dsp_addr;
+req->input_size      = client->input_buf.size;
+req->result_dsp_addr = client->output_buf.dsp_addr;
+req->result_size     = client->output_buf.size;
 for (int i = 0; i < num_inputs; i++)
-    req->inputs[i] = desc_arr[i];
+    req->inputs[i] = desc_arr[i];   // inline form only
 send_and_recv(client, req, req_size, resp, sizeof(resp_buf));
 ```
 
-**Steps D-F — Back from send_and_recv():**
+**Steps C-D — Back from `send_and_recv()`:**
 
 ```c
-sync_output_from_device(client);   // invalidate ARM cache (DMA_BUF_SYNC_READ)
+// Sync output_buf regardless of status -- an out-of-band descs_addr from
+// a KV-resident call can be present either way.
+sync_output_from_device(client->output_buf);
 
-// Convert DSP virtual addresses → ARM userspace pointers
+// Output tensor data_addr values are already DSP addresses inside THIS
+// client's output_buf, so no offset arithmetic against a shared constant
+// is needed -- just translate through output_buf's own mmap base.
 for (int i = 0; i < resp->num_outputs; i++) {
-    uint64_t offset = td_base[i].data_addr - C7X_RESULT_ADDR;
-    outputs[i].data = (uint8_t *)client->result_buf + offset;
+    uint64_t offset = td_base[i].data_addr - client->output_buf.dsp_addr;
+    outputs[i].data = (uint8_t *)client->output_buf.ptr() + offset;
 }
 
 // Read DSP printf output (layer profiles, if -profile-layers was set)
@@ -405,9 +500,24 @@ if (resp->printf_size > 0)
 ```
 
 #### DSP — `handle_infer()`
-**Source:** `firmware/c7x/dsp/src/compute_service.c:616`
+**Source:** `firmware/c7x/dsp/src/compute_service.c:826`
 
-**Steps A-B — Validate, resolve entry point, resolve constants, cache-invalidate inputs:**
+**Step A — Record the sender's buffer window, then validate:**
+
+```c
+// Every output-placement call below is too deep in the call chain to
+// thread the request through, so it reads these globals instead.
+g_result_dsp_addr = req->result_dsp_addr;
+g_result_size     = req->result_size;
+
+if (!host_window_ok(req->input_dsp_addr, req->input_size) ||
+    !host_window_ok(req->result_dsp_addr, req->result_size)) {
+    resp->hdr.status = C7X_STATUS_ERR_ADDR;   // window outside shared carveout
+    goto done;
+}
+```
+
+**Steps B-D — Resolve entry point, resolve constants, cache-invalidate inputs:**
 
 ```c
 if (g_cg_main_dsp == NULL)
@@ -426,7 +536,8 @@ for (i = 0; i < req->num_inputs; i++) {
 }
 ```
 
-**Step C — Call the TVM-generated entry point:**
+**Step E — Call the TVM-generated entry point** (optionally in a repeat
+loop, per `flags` bits[15:0], for profiling):
 
 ```c
 shm_printf_reset();
@@ -447,12 +558,15 @@ int cg_main_dsp(TVMFFIAny *inputs, int num_inputs,
                 TVMFFIAny *constants, TVMFFIAny *output);
 ```
 
-**Step D — Extract and stage output tensors:**
+**Step F — Extract and stage output tensors into the caller's `output_buf`
+(via `g_result_dsp_addr`/`g_result_size`):**
 
 ```c
 extract_infer_output(&output_any, resp);
-// kTVMFFITensor (single): copy to result_buf + CacheP_wb
-// kTVMFFIArray  (multi):  pack consecutively + CacheP_wb
+// kTVMFFITensor (single): copy to output_buf + CacheP_wb
+// kTVMFFIArray  (multi):  pack consecutively + CacheP_wb; too many to fit
+//                         inline writes the descriptor array into
+//                         output_buf too (resp->descs_addr != 0)
 
 resp->printf_size = shm_printf_finish();
 send_response(C7X_MSG_INFER_RESP, ...);
@@ -463,14 +577,19 @@ send_response(C7X_MSG_INFER_RESP, ...);
 ### Phase 3: Unload Module
 
 #### ARM — `c7x_client_dyn_unload()`
-**Source:** `firmware/c7x/arm/src/c7x_compute_client.cpp:477`
+**Source:** `firmware/c7x/arm/src/c7x_compute_client.cpp:745`
 
 ```c
 req.hdr.type      = C7X_MSG_DYN_UNLOAD;
 req.module_handle = handle;
 send_and_recv(client, &req, sizeof(req), &resp, sizeof(resp));
-client->input_data_offset = 0;   // next DYN_LOAD can use full staging buffer
 ```
+
+`input_buf`/`output_buf` are **not** freed or resized here -- they persist
+across load/unload cycles (only growing, never shrinking) so a
+back-to-back reload of a similarly-sized module doesn't pay a
+reallocation. `client->input_data_offset` and the capacity lock are reset
+so the next `DYN_LOAD` can re-declare them.
 
 #### DSP — `handle_dyn_unload()`
 
@@ -480,6 +599,7 @@ The DSP cleanup must follow a strict ordering — see §Dynamic Module Loading
 ```c
 tidl_bridge_cleanup();                // if the module has this symbol (TIDL): release DMA/IALG/MMA state first
 TVMDSPRegFileCleanup();               // drops refs to last inference outputs
+TVMDSPRegFileInit(NULL, 0);           // reset reg_file pointer before .bss is freed
 tvm_model_unload(g_embedded_model_id);// frees model slot before constants
 TVMDSPConstantsCleanup();             // frees constants memory pools
 dyn_loader_unload(req->module_handle);// frees .text/.data/.bss/.rodata
@@ -487,18 +607,26 @@ tvm_dsp_reset_pools();                // reclaim fragmented DDR heap
 g_cg_main_dsp = NULL;
 ```
 
+This ordering is unaffected by the per-buffer dmabuf change -- it's about
+the loaded module's own `.bss`-resident register file, not about which
+dmabuf holds inference data.
+
 ---
 
 ### Phase 4: Disconnect
 
 #### ARM — `c7x_client_close()`
 
-RAII destructors clean up in reverse order:
+RAII destructors clean up all four dmabufs (`staging`, `printf_buf`,
+`input_buf`, `output_buf`) and the RPMessage connection, each releasing
+its own fd, `/dev/remoteprocN` attachment, and mmap in reverse order:
 
 ```c
-close(rproc_fd)    // unregisters DMA buf attachment (DSP loses visibility)
-close(dma_buf_fd)  // releases dmabuf reference
-munmap(shared_buf, C7X_SHARED_SIZE)
+// Per DmaBuf, for each of staging / printf_buf / input_buf / output_buf:
+close(rproc_fd)    // unregisters that buffer's DMA attachment
+munmap(ptr, size)
+close(dmabuf_fd)   // releases the dmabuf reference
+
 close(dma_heap_fd)
 close(rpmsg_fd)
 ```
@@ -512,38 +640,47 @@ close(rpmsg_fd)
  ─────────                 ─────────────            ────────────
  c7x_client_open()
    open RPMsg fd
-   alloc DMA heap buf (512 MB)
-   mmap shared DDR
-   ioctl RPROC_DMA_BUF_ATTACH
+   PING version handshake
+   alloc staging dmabuf (480 MB, fixed at C7X_STAGING_ADDR)
+   alloc printf_buf dmabuf (64 KB)
+   ──── C7X_MSG_SET_PRINTF_BUF ────────────────────►
                                                     compute_service_init()
                                                       RPMessage_construct(ep=20)
                                                       RPMessage_announce("rpmsg_chrdev")
                                                       dyn_loader_init()
                                                       tvm_model_init()
-                                                      shm_printf_init()
+                                                      shm_printf_init() → boot scratch addr
                                                       → compute_service_run() loop
+                                                    handle_set_printf_buf()
+                                                      shm_printf_rebind(printf_buf)
+   ◄─── C7X_MSG_SET_PRINTF_BUF_RESP ────────────────
 
  c7x_client_dyn_load("lib0.out")
-   fread ELF → staging_buf
+   fread ELF → staging dmabuf
    DMA_BUF_SYNC_WRITE (flush)
    ──── C7X_MSG_DYN_LOAD ──────────────────────────►
                                                     handle_dyn_load()
                                                       dyn_loader_load(C7X_STAGING_ADDR)
                                                         parse ELF, alloc DDR segments
                                                         apply C7x relocations
-                                                        resolve 61 symbols
+                                                        resolve symbols (119-symbol table)
                                                       query_symbol("cg_main_dsp")
                                                       tvm_model_load_weights()
+                                                      read tvm_dsp_io_meta (if present)
                                                       tvm_dsp_save_infer_watermark()
    ◄─── C7X_MSG_DYN_LOAD_RESP ─────────────────────
-   handle=1, input_data_offset=elf_size
+   handle=1, io_input_bytes=N, io_output_bytes=M
+   ensure_io_capacity() → alloc/grow input_buf, output_buf
 
  c7x_client_infer(handle=1, model_id=0, ...)
-   memcpy inputs → staging_buf[elf_size..]
-   DMA_BUF_SYNC_WRITE (flush)
+   memcpy inputs → input_buf[input_data_offset..]
+   DMA_BUF_SYNC_WRITE (flush input_buf)
    ──── C7X_MSG_INFER ─────────────────────────────►
-        inputs[0].data_addr = 0xC0000000 + elf_size
+        input_dsp_addr=input_buf.dsp_addr, result_dsp_addr=output_buf.dsp_addr
+        inputs[0].data_addr = input_buf.dsp_addr + data_offset
                                                     handle_infer()
+                                                      g_result_dsp_addr = req->result_dsp_addr
+                                                      host_window_ok(input, result)
                                                       resolve g_cg_main_dsp
                                                       get_constants(model_id)
                                                       CacheP_inv(input regions)
@@ -555,13 +692,14 @@ close(rpmsg_fd)
                                                         ← TVM kernels execute ──►
                                                       end_cycles = __TSC
                                                       extract_infer_output()
+                                                        write into output_buf @ g_result_dsp_addr
                                                         CacheP_wb(output data)
                                                       shm_printf_finish()
    ◄─── C7X_MSG_INFER_RESP ────────────────────────
         cycles=N, num_outputs=1
-        outputs[0].data_addr = 0xDE000000
-   DMA_BUF_SYNC_READ (invalidate)
-   outputs[0].data = result_buf + offset
+        outputs[0].data_addr = output_buf.dsp_addr + offset
+   DMA_BUF_SYNC_READ (invalidate output_buf)
+   outputs[0].data = output_buf.ptr() + offset
 
  c7x_client_dyn_unload(handle=1)
    ──── C7X_MSG_DYN_UNLOAD ────────────────────────►
@@ -573,11 +711,13 @@ close(rpmsg_fd)
                                                       dyn_loader_unload()
                                                       tvm_dsp_reset_pools()
    ◄─── C7X_MSG_DYN_UNLOAD_RESP ───────────────────
-   input_data_offset = 0
+   input_buf/output_buf kept (only grow, never freed here)
 
  c7x_client_close()
-   close(rproc_fd)  ← unmaps DMA buf from DSP
-   munmap(shared_buf)
+   close each of staging/printf_buf/input_buf/output_buf:
+     close(rproc_fd)  ← unmaps that DMA buf from DSP
+     munmap(ptr)
+     close(dmabuf_fd)
 ```
 
 ---
@@ -625,23 +765,40 @@ identity-mapped on the DSP unless otherwise noted.
 
 #### Shared Compute Buffer (DMA heap carveout)
 
-| Region | DSP Virtual | Physical | Size | Cache | Purpose |
+Since the per-buffer dmabuf change (protocol v3.0.0), this 512 MB carveout
+is no longer one dmabuf split at fixed offsets -- it's independently
+allocated, independently-synced dmabufs, only two of which have a fixed
+address:
+
+| Buffer | DSP Virtual | Physical | Size | Cache | Purpose |
 |--------|-------------|----------|------|-------|---------|
-| Staging buffer | 0xC0000000 | 0x900000000 | 468 MB | Cached (MAIR7) | ELF modules + input tensors |
-| KV cache region | 0xDD400000 | 0x91D400000 | 12 MB | Cached (MAIR7) | Persistent KV cache across inferences, when `C7X_INFER_FLAG_KV_RESIDENT` is set |
-| Result buffer | 0xDE000000 | 0x91E000000 | 32 MB | Cached (MAIR7) | Inference output tensors |
-| Printf buffer | 0xDFFF0000 | 0x91FFF0000 | 64 KB | Cached (MAIR7) | DSP printf output (last 64 KB of result buffer) |
+| Staging (`client->staging`) | 0xC0000000 (`C7X_STAGING_ADDR`), fixed | 0x900000000 | 468 MB | Cached (MAIR7) | ELF modules (DLOAD) + weights (MODEL_LOAD) only -- **not** inference input tensors |
+| KV cache region | 0xDD400000 (`C7X_KV_ADDR`), fixed | 0x91D400000 | 12 MB | Cached (MAIR7) | Persistent KV cache across inferences, when `C7X_INFER_FLAG_KV_RESIDENT` is set. Reserved as part of the same 480 MB `client->staging` allocation, not a separate dmabuf |
+| Printf buffer (`client->printf_buf`) | Dynamic; boots to 0xDFFF0000 scratch until rebound | Dynamic | 64 KB | Cached (MAIR7) | DSP printf output. Its own dmabuf, rebound via `C7X_MSG_SET_PRINTF_BUF` right after `c7x_client_open()` |
+| Input buffer (`client->input_buf`) | Dynamic | Dynamic | Declared from `tvm_dsp_io_meta`, or via `c7x_client_reserve_io()` | Cached (MAIR7) | Inference input tensors + a descriptor region at the front. Grows (never shrinks) across loads |
+| Output buffer (`client->output_buf`) | Dynamic | Dynamic | Same sizing rule as `input_buf` | Cached (MAIR7) | Inference output tensors |
 
-This 512 MB region is the `vision_apps_shared-memories` DMA heap carveout,
-exclusively for host-DSP communication. The host allocates it via
+`client->staging` is allocated first (covering both the staging and KV
+regions, 480 MB in one dmabuf) precisely so the carveout's
+`gen_pool_first_fit` allocator packs it at the pool's low end -- that's
+what keeps `C7X_STAGING_ADDR`/`C7X_KV_ADDR` valid as fixed addresses
+without the host needing to steer the allocator (`gen_pool` has no such
+API). `printf_buf`, then `input_buf`/`output_buf`, are allocated
+afterward and pack into whatever's left above that 480 MB (roughly 32 MB,
+minus 64 KB for `printf_buf`).
+
+This carveout is the `vision_apps_shared-memories` DMA heap, exclusively
+for host-DSP communication. The host allocates each dmabuf via
 `/dev/dma_heap/carveout_vision_apps_shared-memories`, and the DSP MMU maps
-it at 0xC0000000 with write-back cached attributes (MAIR7, Outer Shareable).
+the whole carveout at 0xC0000000 with write-back cached attributes
+(MAIR7, Outer Shareable); each dmabuf's DSP virtual address is its
+physical address translated through that one linear mapping.
 
-(Confirmed current split against `common/c7x_compute_protocol.h`'s
-`C7X_STAGING_SIZE`/`C7X_KV_SIZE`/`C7X_RESULT_SIZE` defines: 468 + 12 + 32
-= 512 MB. The KV cache region was added after this document's original
-468 MB/8 MB staging/output split -- if you see "504 MB"/"8 MB" elsewhere,
-that's the pre-KV-cache split and is stale.)
+(468 + 12 + 32 = 512 MB against `common/c7x_compute_protocol.h`'s
+`C7X_STAGING_SIZE`/`C7X_KV_SIZE` defines and the ~32 MB remaining for
+`printf_buf`/`input_buf`/`output_buf`. The physical base above
+[0x900000000] is an 8 GB-board value (e.g. `j722s-evm`); 4 GB boards like
+BeagleY-AI use 0x8a0000000 instead, via `C7X_SHARED_PHYS_BASE`.)
 
 #### Extended DDR (above 4 GB, MMU-translated)
 
@@ -663,17 +820,23 @@ modules, and where the TVM runtime allocates workspace tensors during inference.
 
 ### Host-Side Allocation
 
-The host allocates the shared buffer at runtime from the DMA heap:
+The host allocates each dmabuf independently at runtime from the DMA
+heap, via the shared `alloc_dmabuf()` helper (`client->staging` and
+`client->printf_buf` at `c7x_client_open()`; `input_buf`/`output_buf`
+later, at `c7x_client_dyn_load()`):
 
 ```
-1. open("/dev/dma_heap/carveout_vision_apps_shared-memories")
-2. ioctl(fd, DMA_HEAP_IOCTL_ALLOC, {len=512MB}) -> dma_buf_fd
-3. mmap(NULL, 512MB, PROT_READ|PROT_WRITE, MAP_SHARED, dma_buf_fd, 0) -> userspace ptr
-4. ioctl(rproc_fd, RPROC_IOC_DMA_BUF_ATTACH) -> physical address (0x900000000)
+1. open("/dev/dma_heap/carveout_vision_apps_shared-memories")   -- once, shared
+2. ioctl(dma_heap_fd, DMA_HEAP_IOCTL_ALLOC, {len=<this buffer's size>}) -> dma_buf_fd
+3. mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED, dma_buf_fd, 0) -> userspace ptr
+4. open("/dev/remoteprocN")                                     -- own attachment per buffer
+5. ioctl(this_buf_rproc_fd, RPROC_IOC_DMA_BUF_ATTACH) -> physical address
+6. dsp_addr = phys_addr - C7X_SHARED_PHYS_BASE + C7X_SHARED_BASE
 ```
 
-The `rproc_fd` **must remain open** for the lifetime of the client — closing it
-destroys the DMA attachment and makes the shared buffer invisible to the DSP.
+Each buffer's `rproc_fd` **must remain open** for the lifetime of that
+buffer — closing it destroys that buffer's DMA attachment and makes it
+invisible to the DSP, independent of the other three buffers.
 
 ### Cache Coherency
 
@@ -699,29 +862,44 @@ All cached regions (MAIR7) use Outer Shareable for hardware cache coherency.
 
 | Resource | Size | Pool | Limit |
 |----------|------|------|-------|
-| lib0.out ELF (code + 46 MB weights) | ~47 MB | Staging buffer | 468 MB |
+| lib0.out ELF (code + 46 MB weights) | ~47 MB | `client->staging` | 468 MB |
 | DLOAD segments (relocated code+data) | ~47 MB | TVM DDR heap | 352 MiB |
 | Inference workspace (intermediate tensors) | ~10-20 MB | TVM DDR heap | ~305 MiB remaining |
-| Input tensor (1,3,224,224 float32) | 0.6 MB | Staging buffer | 468 MB |
-| Output tensor (1,1000 float32) | 4 KB | Result buffer | 32 MB |
+| Input tensor (1,3,224,224 float32) | 0.6 MB | `client->input_buf` | Declared from `tvm_dsp_io_meta` |
+| Output tensor (1,1000 float32) | 4 KB | `client->output_buf` | Declared from `tvm_dsp_io_meta` |
 
 ### Memory Address Map Summary
 
 ```
 Physical (ARM)           DSP Virtual         Content
 ─────────────────────    ─────────────────   ────────────────────────────────
-0x900000000              0xC0000000          staging_buf base (468 MB)
+0x900000000              0xC0000000          client->staging base (480 MB total,
+                                              fixed -- covers both regions below)
   + 0 .. elf_size          ..                ELF bytes (DLOAD in-place rodata)
-  + elf_size ..            ..                inference input tensors
-0x91D400000              0xDD400000          KV cache region base (12 MB, when
-                                              C7X_INFER_FLAG_KV_RESIDENT)
-0x91E000000              0xDE000000          result_buf base (32 MB)
-  + 0 ..                   ..                inference output tensors
-  + result_size - 64KB     0xDFFF0000        printf buffer (last 64 KB of result)
+  + elf_size ..            ..                weights (MODEL_LOAD), if not embedded
+0x91D400000              0xDD400000          KV cache region (12 MB, fixed, part of
+                                              the same staging dmabuf), when
+                                              C7X_INFER_FLAG_KV_RESIDENT
+(dynamic, packs above staging)               client->printf_buf (64 KB) -- own
+                                              dmabuf; boots to a scratch address at
+                                              carveout top (0xDFFF0000) until
+                                              SET_PRINTF_BUF rebinds it
+(dynamic, packs above the above)             client->input_buf -- own dmabuf, sized
+                                              from tvm_dsp_io_meta; descriptor
+                                              region at the front, then input
+                                              tensors
+(dynamic, packs above the above)             client->output_buf -- own dmabuf,
+                                              same sizing rule; output tensors
 0x882000000              0x102000000         TVM DDR heap (352 MiB)
   + 0 ..                   ..                DLOAD code/data segments
   + segment_end ..         ..                TVM workspace tensors
 ```
+
+Unlike the pre-v3.0.0 layout, `input_buf`/`output_buf`/`printf_buf` have
+no fixed address or size -- each session's actual addresses come back in
+`DYN_LOAD_RESP` (declared capacity) and are carried explicitly in every
+`INFER`/`INFER_LARGE` request's `input_dsp_addr`/`result_dsp_addr` fields,
+not derived from a shared constant.
 
 ---
 
@@ -737,14 +915,15 @@ The `dyn_loader.c` module provides:
 - **DLIF callbacks**: Firmware-side implementations of the DLOAD loader interface
   (`DLIF_allocate`, `DLIF_copy`, `DLIF_read`, etc.) that allocate from the TVM
   DDR heap via `tvm_dsp_alloc`
-- **Symbol export table**: 61 symbols (C library, TVM runtime, VM builtins, math)
-  made available to loaded modules at relocation time
-- **Load/unload API**: `dyn_loader_load()` takes an ELF from the shared input
-  buffer; `dyn_loader_unload()` frees all segments
+- **Symbol export table**: 119 symbols (C library, TVM runtime, VM builtins,
+  DSP kernels, MMALIB wrappers, math) made available to loaded modules at
+  relocation time
+- **Load/unload API**: `dyn_loader_load()` takes an ELF from the staging
+  buffer (`client->staging`); `dyn_loader_unload()` frees all segments
 
 ### Supported Relocations
 
-DLOAD handles 22 C7x-specific relocation types (defined in
+DLOAD handles 20 C7x-specific relocation types (defined in
 `dload/C70_DLOAD_REL/c70_reloc.c`), covering all relocations produced by the
 TI CGT C7000 compiler for position-dependent code with external symbol references.
 
@@ -857,11 +1036,14 @@ may change.
 
 ## Shared Memory Printf
 
-The DSP's `printf` output is redirected to a 64 KB region at the end of the
-output buffer in shared DDR. This replaces the previous approach of writing to
-the DebugP trace buffer (`trace0`), which was limited to ~2 KB and could not hold
-profile output for models with many layers (e.g. CLISTA-DoA produces ~12 KB of
-profile data for 156 layers).
+The DSP's `printf` output is redirected to a 64 KB region in shared DDR --
+its own independent dmabuf (`client->printf_buf`) since the per-buffer
+dmabuf change, rebound from its boot-time scratch address via
+`C7X_MSG_SET_PRINTF_BUF` once the host connects (see Phase 0 above). This
+replaces the older approach of writing to the DebugP trace buffer
+(`trace0`), which was limited to ~2 KB and could not hold profile output
+for models with many layers (e.g. CLISTA-DoA produces ~12 KB of profile
+data for 156 layers).
 
 ### Architecture
 
@@ -884,8 +1066,11 @@ Two output paths coexist:
 
 ### Buffer Layout
 
-The printf buffer occupies the last 64 KB of the result buffer
-(`C7X_PRINTF_BUF_ADDR` = result buffer end - 64 KB):
+`client->printf_buf` is a dedicated 64 KB dmabuf (`C7X_PRINTF_BUF_SIZE`).
+Before the host's first `SET_PRINTF_BUF`, the DSP targets a boot-time
+scratch address at the very top of the shared carveout
+(`C7X_PRINTF_BUF_BOOT_ADDR = C7X_SHARED_BASE + C7X_SHARED_SIZE - 64 KB` =
+0xDFFF0000) -- a placeholder nothing else claims that early:
 
 ```
 Offset  Size    Field
@@ -904,8 +1089,10 @@ No RPMsg is sent per printf call. The flow during inference is:
 2. **During inference**: DSP `printf` writes directly to SHM buffer via `memcpy`
 3. **After inference**: `shm_printf_finish()` calls `CacheP_wb()`, returns byte count
 4. **INFER response**: `resp->printf_size` carries the byte count in the single RPMsg
-5. **Host reads**: After `sync_output_from_device()`, host reads `printf_size` bytes
-   from `result_buf + printf_offset`
+5. **Host reads**: `printf_buf` gets its own `sync_output_from_device()`
+   call, independent of `output_buf`'s -- only when `resp->printf_size > 0`,
+   so a normal (non-profiling) inference skips that `DMA_BUF_IOCTL_SYNC`
+   entirely
 
 Buffer overflow is handled by silent truncation — excess data beyond the 64 KB
 text area is dropped without error.
@@ -916,10 +1103,13 @@ text area is dropped without error.
 
 | Decision | Rationale |
 |----------|-----------|
-| Separate staging/result halves of shared DDR | Avoids cache coherency races: ARM only writes to staging; DSP only writes to result |
-| `input_data_offset = elf_size` after DYN_LOAD | DLOAD maps `.rodata` in-place from staging; writing inputs at offset 0 would corrupt embedded weights |
-| `rproc_fd` held open for lifetime of `c7x_client` | Closing `rproc_fd` destroys the DMA attachment, making the buffer invisible to the DSP |
-| 61 imported symbols resolved at DLOAD time | Eliminates per-call FFI overhead; `cg_main_dsp` calls TVM runtime functions via direct function pointer |
+| Four independent dmabufs (`staging`, `printf_buf`, `input_buf`, `output_buf`) instead of one carveout-wide buffer | Each `DMA_BUF_IOCTL_SYNC` has no offset/length, so sync granularity is allocation granularity -- one dmabuf per purpose means a small inference doesn't pay for syncing the whole carveout, and `input_buf`/`output_buf` can be sized (and grown) per model instead of living inside a fixed split |
+| `staging` allocated first, covering both the staging and KV regions | The carveout heap is `gen_pool_first_fit`; allocating this one first guarantees it lands at the pool's low end, keeping `C7X_STAGING_ADDR`/`C7X_KV_ADDR` valid as fixed addresses without needing to steer the allocator |
+| `input_dsp_addr`/`result_dsp_addr` carried explicitly in every INFER/INFER_LARGE request | `input_buf`/`output_buf` have no fixed address once they're independent, per-session dmabufs -- the DSP can't assume a shared constant, so the sender's actual buffer window is part of the wire format |
+| `input_buf`/`output_buf` only grow, never shrink or move once capacity-locked | Avoids reallocating (and re-validating every outstanding pointer into) a buffer that's already been handed out for `CreateInput()`/an in-flight `INFER` |
+| Descriptor region reserved at the front of `input_buf`, sized from the declared input count | DLOAD maps `.rodata` in-place from `staging`; placing input data (and, for `INFER_LARGE`, the descriptor array) in the separate `input_buf` instead of after the ELF avoids ever touching embedded weights |
+| `rproc_fd` held open per dmabuf for the lifetime of that buffer | Closing a buffer's `rproc_fd` destroys only that buffer's DMA attachment, making it invisible to the DSP independent of the other three |
+| 119 imported symbols resolved at DLOAD time | Eliminates per-call FFI overhead; `cg_main_dsp` calls TVM runtime functions via direct function pointer |
 | `__TSC` (64-bit hardware TSC) for cycle counting | Available on C7x without kernel support; avoids FreeRTOS tick resolution limits; won't wrap at ~4.3s like a 32-bit counter |
 | Explicit `DMA_BUF_SYNC` ioctls despite MAIR7 Outer Shareable | ARM and DSP have separate cache hierarchies; explicit sync is required for correct coherency — hardware coherency at MAIR7 is between ARM cores, not between ARM and DSP |
 

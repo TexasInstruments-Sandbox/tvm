@@ -33,7 +33,7 @@
                  +------------------+------------------+
                                     |
                 +---------------------------------------+
-                |            CodeGenCStaticLib             |
+                |           CodeGenCStaticLib           |
                 |           (C/C++ emission)            |
                 +---------------------------------------+
                                     |
@@ -116,6 +116,7 @@ compile -> deploy -> run walkthroughs of both.
 | DSP Code Extensions | `src/target/c_static_lib/codegen_c_static_lib_dsp.{h,cc}` | TI-specific: compiler pragmas (`MUST_ITERATE`, `UNROLL`), per-layer cycle profiling, C7x vector type emission |
 | C7x DMA Scheduler | `python/tvm/relax/transform/schedule_c7x_dma.py` | TIR pass: H-tiling with `cache_read` into `global.l2sram`, software pipeline annotations, async DMA prefetch |
 | MMALIB Passes | `python/tvm/relax/transform/ti_mmalib_*.py` | QDQ pattern fusion (conv2d/depthwise/FC/residual-add, int8+int16) and L2 DMA injection for direct MMA coprocessor offload via `-mmalib=1`. See [MMALIB Integration](backend/mmalib-integration.md). |
+| C7x Activation/Pooling/Norm Passes | `python/tvm/relax/transform/ti_fuse_qdq_c7x_{activation,avgpool,layernorm}.py` | QDQ fusion into native C7x kernels (gelu/silu/hardsigmoid/hardswish, avg pool, layer_norm) — despite the `_TIDL_ACT_OPS` name in the quantizer, these are not TIDL library calls. `max_pool2d` is the one genuinely TIDL-backed op; see `ti_fuse_qdq_tidl_maxpool.py`. |
 
 ### Runtime
 
@@ -126,7 +127,6 @@ compile -> deploy -> run walkthroughs of both.
 | C7x Arm Runtime | `src/runtime/ti_dsp/firmware/c7x/arm/` | Arm-side shared library (`libc7x_arm_runtime.so`) backing the C++ `c7x::Module` / Python `C7xVirtualMachine` inference API. [API reference](../user-guide/python-api.md) · [build/deploy](../user-guide/deploying-firmware.md) |
 | MMALIB Wrappers | `src/runtime/ti_dsp/mmalib/` | C wrappers for 8 MMALIB kernels (conv2d/depthwise-conv2d/matmul/matmul_bias x int8/int16), linked into the C7x firmware and exported via DLOAD. [Docs](backend/mmalib-integration.md) |
 | DLOAD Infrastructure | `src/runtime/ti_dsp/dynmod/` | CMake build for C7x relocatable ELF modules (linker scripts, symbol exports) |
-| Deployment Scripts | `src/runtime/ti_dsp/scripts/` | `run_on_c75x.sh` (J722S) DSP debug/load script via JTAG. [Docs](hardware-debug.md) |
 
 ### Tests
 

@@ -41,8 +41,11 @@ extern "C" {
  *
  * Backed by TIDL_spatialMaxPool_ixX_oxX_init/exec which uses two Streaming
  * Engines and the 3-row vertical-max-plus-horizontal-shift trick to process
- * the pool in a single pass.  Expected ~30-60x faster than the plain-C
- * c7x_int8_max_pool fallback.
+ * the pool in a single pass. c7x_int8_max_pool (the fallback used when
+ * TIDL isn't linked) has its own SE-vectorized fast path now, not a plain
+ * scalar loop; TIDL is still faster but by a narrower margin than
+ * originally measured -- see test_maxpool_kernel.py for both kernels'
+ * current measured cycle counts on the ResNet-18 shape.
  *
  * The handle is cached after the first call for the given (C, H_in, W_in,
  * kH, kW, sH, sW, pH, pW) configuration; subsequent calls with identical

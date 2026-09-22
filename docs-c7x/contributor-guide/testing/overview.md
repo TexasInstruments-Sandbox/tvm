@@ -110,15 +110,3 @@ are further organised by architecture marker:
 See [DSP Test Suite](dsp-suite.md) for the full test catalogue,
 per-file timing, and standalone script usage.
 
-## History
-
-These tests were originally developed in a separate `tests/ti-dsp-runtime`
-repository and moved into the tvm repo for version consistency.  Key
-development milestones:
-
-- DSP runtime integration tests with golden verification
-- C66x (AWRL6844) hardware support via JTAG/CCS
-- pytest-based test infrastructure (dsp-tests/)
-- C7x (J722S/AM67A) support: MMU, cache coherency, DLOAD dynamic
-  module loading, remoteproc firmware
-- DMA tiling with UDMA/DRU subsystem

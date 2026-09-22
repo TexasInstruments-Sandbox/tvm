@@ -28,8 +28,13 @@
  *   simultaneous approach: two SE contexts deliver 32 int8 values/cycle from
  *   three consecutive input rows, vertical max is done in 2 __max() calls,
  *   and horizontal max for stride=2 uses two register shifts — no inner loop
- *   over kernel positions.  SA handles predicated strided output.  This is
- *   ~30–60× faster than the plain-C c7x_int8_max_pool scalar loop.
+ *   over kernel positions.  SA handles predicated strided output.  This was
+ *   ~30-60x faster than c7x_int8_max_pool's original plain-C scalar loop;
+ *   that kernel has since grown its own SE-vectorized fast path
+ *   (kernels/c7x_pool_relu.cpp), narrowing the gap to roughly 4-9x on the
+ *   ResNet-18 shape (see test_maxpool_kernel.py for both kernels' current
+ *   measured cycle counts) -- TIDL is still faster, just not by the
+ *   original margin.
  *
  *   The wrapper follows the same MMALIB wrapper pattern (mmalib_wrappers.cpp):
  *   runtime allocation via TVMBackendAllocWorkspace, RAII cleanup, static
@@ -90,10 +95,11 @@
  * Host Emu headers, not real firmware): this file also includes
  * kernel/dpl/DebugP.h, an MCU_PLUS_SDK/FreeRTOS-only header with no PC/x86-64
  * equivalent, and calls TIDL_spatialMaxPool_ixX_oxX_*, built only for the
- * C7x DSP target. Host builds fall back to the portable scalar
- * c7x_int8_max_pool below instead -- correct, just without the real TIDL
- * kernel's ~30-60x vectorized speedup, which only matters for cycle
- * measurement, not for the correctness testing c7x_host is used for. */
+ * C7x DSP target. Host builds fall back to c7x_int8_max_pool below
+ * instead -- correct, just without TIDL's further speedup over that
+ * kernel's own vectorized fast path (see the file header above), which
+ * only matters for cycle measurement, not for the correctness testing
+ * c7x_host is used for. */
 #if !defined(C7X_HOST_EMULATION)
 #define TIDL_MAXPOOL_USE_TIDL_KERNEL 1  /* enabled for testing with fixes */
 #endif
@@ -109,8 +115,9 @@
 #include "tidl_spatialMaxPool_ixX_oxX.h"
 #endif /* TIDL_MAXPOOL_USE_TIDL_KERNEL */
 
-/* Scalar C fallback — always available, used when TIDL kernel is disabled.
- * Path is relative to TVM_DSP_RUNTIME_DIR which is in the firmware include path. */
+/* Vectorized C7x fallback (own SE-based fast path, not a plain scalar loop)
+ * -- always available, used when TIDL kernel is disabled. Path is relative
+ * to TVM_DSP_RUNTIME_DIR which is in the firmware include path. */
 #include "kernels/c7x_pool_relu.h"
 
 extern "C" void* TVMBackendAllocWorkspace(int device_type, int device_id,

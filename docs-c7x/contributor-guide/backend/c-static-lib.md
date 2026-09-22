@@ -13,6 +13,10 @@ and C7x DSP processors.
 - [C66x DSP Quick Start](#c66x-dsp-quick-start)
 - [C7x DSP and DLOAD Deployment](#c7x-dsp-and-dload-deployment)
 - [C7x DMA Tiling](#c7x-dma-tiling)
+- [Pass Ordering (Critical)](#pass-ordering-critical)
+- [te.extern → call_extern → CodeGenCStaticLib Chain](#teextern-call_extern-codegencstaticlib-chain)
+- [DMA Injection Pipeline](#dma-injection-pipeline)
+- [ConstReachability and the Decline-Branch Helper](#constreachability-and-the-decline-branch-helper)
 - [Architecture](#architecture)
 - [C++ API for VM Operations](#c-api-for-vm-operations)
 - [Building and Testing](#building-and-testing)
@@ -36,7 +40,7 @@ Use the `c_static_lib` backend when you need:
 - Parameter serialization in binary or C source formats
 - Multi-input/multi-output model support
 - TI DSP support with cycle-accurate profiling
-- C++ API mode for reduced FFI overhead (12% faster on DSP)
+- C++ API mode for reduced FFI overhead (~12% faster on DSP)
 
 ## Target Configuration
 
@@ -62,8 +66,7 @@ ex = relax.build(mod, target=target)
 
 ### Target Attributes Reference
 
-See [Compilation -- Target Attributes
-Reference](../../user-guide/compilation.md#target-attributes-reference)
+See [Compilation — Target Attributes Reference](../../user-guide/compilation.md#target-attributes-reference)
 for the full attribute table (including `tidl-kernels`/`tidl-runtime`,
 not reproduced here).
 
@@ -80,15 +83,15 @@ The DSP runtime is a lightweight, self-contained C++14 library (~100 KB)
 designed for bare-metal and RTOS environments. Key differences from the
 standard TVM runtime:
 
-- **No VM class** -- c_static_lib emits direct function calls to builtin
+- **No VM class** — c_static_lib emits direct function calls to builtin
   stubs instead of bytecode interpretation
-- **Static memory pools** -- pre-allocated L2 SRAM (fast) and L3/DDR
+- **Static memory pools** — pre-allocated L2 SRAM (fast) and L3/DDR
   (main) pools with bump-pointer allocation; no `malloc()` at runtime
-- **No exceptions or RTTI** -- error handling via `ModelError` enum
+- **No exceptions or RTTI** — error handling via `ModelError` enum
   return codes, compatible with TI CGT compiler constraints
-- **C struct FFI** -- 16-byte `TVMFFIAny` with manual ref counting
+- **C struct FFI** — 16-byte `TVMFFIAny` with manual ref counting
   instead of C++ `tvm::ffi::Any` with smart pointers
-- **Platform abstraction** -- implementations for host emulation (PC),
+- **Platform abstraction** — implementations for host emulation (PC),
   C66x (AWRL6844), and C7x (AM67A/J722S)
 
 See [DSP Runtime Internals](../dsp-runtime/internals.md) for build
@@ -129,6 +132,7 @@ ex.export_library("model_lib.so")
 
 After compilation, you get:
 - `lib0.c` - Main computation kernels
+- `lib1.c` - Additional kernels (for large models, split for parallel build)
 - `lib0.h` - Header with function declarations
 - `weights.bin` - Model parameters (if binary mode)
 
@@ -178,8 +182,8 @@ export CCS_ROOT=/path/to/ccs
 
 # Build DSP runtime
 cd $TVM_HOME/src/runtime/ti_dsp
-mkdir build-c66x && cd build-c66x
-cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-awrl6844.cmake ..
+mkdir build && cd build
+cmake ..
 cmake --build .
 ```
 
@@ -221,13 +225,13 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.
 
 ```
   Dev Host                                   AM67A / J722S Board
- ─────────                                  ─────────────────────
+ ─────────                                  ────────────────────
 
  ┌────────────────────────┐
  │    TVM Compiler        │
  │    (Python)            │
  │                        │
- │  target = "c_static_lib    │
+ │ target = "c_static_lib │
  │           -mcpu=c7x"   │
  └──────────┬─────────────┘
             │
@@ -251,7 +255,7 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.
             │
             │  scp to AM67A
             │
-  ══════════╪═════════════════════════════════════════════════════
+  ══════════════════════════════════════════════════════════════════════════════
             │
             ▼
  ┌──────────┴─────────────┐          ┌────────────────────────────┐
@@ -264,7 +268,7 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.
  │                        │          │    resolve exported syms,  │
  │                        │          │    apply relocations       │
  │                        │          │                            │
- │  2. infer               ├─────────▶│  Call cg_main_dsp():       │
+ │  2. infer              ├─────────▶│  Call cg_main_dsp():       │
  │     --input X.bin      │          │    build DLTensors from    │
  │                        │◀─────────┤    shared DDR, run model,  │
  │                        │          │    write output to DDR     │
@@ -339,11 +343,13 @@ deployment as a single file (`lib0.out`). For ResNet-18, this produces a
 The build process uses a two-stage link with TI CGT C7000:
 
 **Stage 1** -- Build a pseudo-firmware (`dsp_syms.out`) containing stub
-`__declspec(dllexport)` declarations of the symbols the firmware
-exports (127 in the current symbol list, spanning the C library, TVM
-runtime, VM builtins, math, and MMALIB wrappers). This provides
-link-time symbol definitions so the TI linker can resolve references in
-`lib0.c` without the actual firmware binary.
+`__declspec(dllexport)` declarations of the symbols the firmware exports
+(spanning the C library, TVM runtime, VM builtins, math, and MMALIB
+wrappers -- see [Firmware Architecture -- Dynamic Module Loading
+(DLOAD)](../firmware/architecture.md#dynamic-module-loading-dload) for the
+current count). This provides link-time symbol definitions so the TI
+linker can resolve references in `lib0.c` without the actual firmware
+binary.
 
 **Stage 2** -- Compile `lib0.c` with the TI C++ compiler and link it
 against `dsp_syms.out` using the DLOAD linker script (`c7x_dynmod.cmd`):
@@ -406,19 +412,19 @@ pytest tests/ti-dsp-runtime/dsp-tests/test_conv2d_dsp.py -v --dsp-mode=c7x_dload
 pytest tests/ti-dsp-runtime/dsp-tests/test_resnet_dsp.py -v --dsp-mode=c7x_dload --use-cpp-api
 ```
 
-### Cross-Repository Structure
+### Components
 
-The C7x DLOAD flow spans two repositories:
+The C7x flow consists of the following components:
 
-| Component | Repository | Path |
-|-----------|-----------|------|
-| c_static_lib code generator | `tvm` | `src/target/c_static_lib/` |
-| TI DSP runtime | `tvm` | `src/runtime/ti_dsp/` |
-| `bin_to_asm.py` (weights embedder) | `tvm` | `src/runtime/ti_dsp/scripts/` |
-| DLOAD linker script + stubs | `tvm` | `src/runtime/ti_dsp/dynmod/c7x_dynmod/` |
-| C7x DLOAD build scripts (test harness) | `tests/ti-dsp-runtime` | `dsp-cpp/` |
-| DSP firmware + host CLI | `tvm` | `src/runtime/ti_dsp/firmware/c7x/` |
-| pytest integration tests | `tests/ti-dsp-runtime` | `dsp-tests/` |
+| Component | Path |
+|-----------|------|
+| c_static_lib code generator | `src/target/c_static_lib/` |
+| TI DSP runtime | `src/runtime/ti_dsp/` |
+| `bin_to_asm.py` (weights embedder) | `src/runtime/ti_dsp/scripts/` |
+| DLOAD linker script + stubs | `src/runtime/ti_dsp/dynmod/c7x_dynmod/` |
+| C7x DLOAD build scripts (test harness) | `dsp-cpp/` |
+| DSP firmware + host CLI | `src/runtime/ti_dsp/firmware/c7x/` |
+| pytest integration tests | `dsp-tests/` |
 
 ## C7x DMA Tiling
 
@@ -572,6 +578,278 @@ emulation and C7x hardware.
 | `src/tir/transforms/lower_async_dma.cc` | `LowerAsyncDMA` (upstream TVM, uses IdentifyMemCpy) |
 | `src/tir/analysis/identify_memcpy.cc` | `IdentifyMemCpy` (upstream TVM, contiguity proof) |
 
+## Pass Ordering (Critical)
+
+The pass ordering in `python/tvm/relax/backend/cpu_generic/pipeline.py`
+determines whether MMALIB offload works. **MMALIB QDQ fusion passes MUST
+run before the generic QDQ elimination passes** — otherwise the
+`quantize → dequantize` pairs between consecutive quantized layers are
+removed, destroying the pattern the MMALIB passes need to match.
+
+### Relax Legalization Pipeline (with `-mmalib=1`)
+
+```
+1.  [MMALIB] get_mmalib_qdq_passes()      ← MUST RUN FIRST; sees intact QDQ
+2.  CanonicalizeBindings + DCE            ← collapse PT2E tuple artifacts
+3.  EliminateQDQTransparent               ← remove dequant/quant around no-op ops
+                                             (max_pool2d, reshape, permute, flatten, cat)
+3a. FuseQDQToC7xActivation               ← gelu, silu, hardsigmoid, hardswish → c7x_int8_*
+3b. FuseQDQToC7xAvgPool                   ← global/spatial avg_pool2d → c7x_int8_*_avg_pool
+3c. FuseQDQToC7xLayerNorm                ← layer_norm → c7x_int8_layer_norm
+4.  FuseQDQToInt8Conv2D                   ← generic int8 conv for non-MMALIB ops
+5.  EliminateQDQRoundTrip                 ← remove float round-trip between layers
+6.  RewriteDequantize                     ← normalize weight-only quant pattern
+7.  DCE
+8.  [MMALIB] LegalizeMLPToMMALIBInt16     ← int16 MLP offload; before step 9
+9.  FuseDequantizeMatmul                  ← weight-only attention matmul
+10. [MMALIB] LegalizeOps(custom map)  |
+      [non-MMALIB] ConvertLayoutNHWC +   |  ← mutually exclusive branches
+                 LegalizeOps()         |
+11. AnnotateTIROpPattern + FoldConstant + FuseOps + FuseTIR   ← Relax → TIR
+12. ScheduleC7xDMATiling               ← non-MMALIB conv L2 tiling (TIR)
+```
+
+### TIR Pipeline (post-FuseTIR)
+
+```
+InjectMMALIBDMA         ← wraps MMALIB call_extern with L2 DMA
+ScheduleC7xDMATiling    ← DMA tiling for remaining non-MMALIB conv2d
+InjectSoftwarePipeline
+LowerOpaqueBlock
+FlattenBuffer
+LowerAsyncDMA
+LowerDMAToExtern        ← tir.dma_copy/wait → call_extern
+NarrowDataType(32)
+StorageRewrite
+LowerL2SramAlloc        ← Allocate(l2sram) → tvm_l2_alloc
+MakePackedAPI
+CodeGenCStaticLib
+```
+
+### Why MMALIB Passes Run First
+
+Between two consecutive quantized layers, the generic passes
+`FuseQDQToInt8Conv2D` and `EliminateQDQRoundTrip` remove the intermediate
+`quantize → dequantize` pair. This destroys the very pattern the MMALIB
+passes need to match (`dequantize → op → quantize`). Running MMALIB
+passes first means they see the intact graph PT2E produced, where every
+layer boundary still has explicit quantize/dequantize nodes.
+
+### Centralized Pass Registry
+
+All MMALIB pass construction lives in `ti_mmalib_passes.py` via three
+factory functions:
+
+- `get_mmalib_qdq_passes()` — the 8 int8 + int16 QDQ fusion passes, in
+  dependency order.
+- `get_mmalib_i16_fc_pass()` — `LegalizeMLPToMMALIBInt16` (the LLM path);
+  must run after `RewriteDequantize` and before `FuseDequantizeMatmul`.
+- `get_mmalib_legalize_map()` — the `{op: legalize_fn}` map handed to
+  `LegalizeOps` for the no-quantization int16 legalize path.
+
+`pipeline.py` calls these functions and is never edited directly when a new
+MMALIB pass is added — this avoids scattering `if
+target.attrs.get("mmalib")` checks throughout the general pipeline code.
+
+## te.extern → call_extern → CodeGenCStaticLib Chain
+
+Every C7x kernel dispatch follows the same four-step chain:
+
+```
+Relax op(s)
+  → FuseOpsByPattern (composite)
+  → PyExprMutator → builder_.call_te(te_fn, ...)
+  → te.extern → tir.call_extern
+  → CodeGenCStaticLib → C function call
+```
+
+### The Chain in Detail
+
+1. **Relax Pattern Match** — `FuseOpsByPattern` matches a QDQ pattern
+   (e.g., `dequantize → conv2d → quantize`) and creates a `Composite`
+   function.
+
+2. **Lowering via PyExprMutator** — A custom `PyExprMutator` subclass
+   extracts constants, folds quantization math at compile time, and calls
+   `builder_.call_te(te_kernel_fn, ...)`.
+
+3. **te.extern Emission** — `te.extern` creates an `ExternOp` that
+   lowers to a TIR `PrimFunc` containing a single
+   `tir.call_extern("int32", "kernel_name", ...)`.
+
+4. **CodeGenCStaticLib** — The base `CodeGenC::PrintCallExtern` prints
+   `call_extern` as a literal C function call:
+   `kernel_name(arg0, arg1, ...)`.
+
+### All te.extern Dispatch Sites
+
+| File | Extern name | Inputs | Output dtype |
+|------|-------------|--------|-------------|
+| `ti_mmalib_legalize.py` | `mmalib_matmul_i16` | `[a, b]` | int16 |
+| `ti_mmalib_legalize.py` | `mmalib_conv2d_i16` | `[data, weight]` | int16 |
+| `ti_mmalib_qdq_fusion.py` | `mmalib_conv2d_i8` | `[data, weight, bias, scale, shift]` | int8 |
+| `ti_mmalib_qdq_dwconv.py` | `mmalib_depthwise_conv2d_i8` | `[data, weight, bias, scale, shift]` | int8 |
+| `ti_mmalib_qdq_fc.py` | `mmalib_matmul_bias_i8` | `[data, weight, bias, scale, shift]` | int8 |
+| `ti_mmalib_i16_fc.py` | `mmalib_matmul_bias_i16` | `[data, weight, bias, scale, shift]` | int16 |
+| `ti_residual_add.py` | `c7x_int8_residual_add_relu` | `[x, skip, params]` | int8 |
+| `fuse_dequantize_matmul.py` | `c7x_dequantize_vecmatmul` | `[act, w, scale]` | float32 |
+| `ti_fuse_sdpa_decode.py` | `c7x_sdpa_decode` | `[q, k, v, mask]` | float32 |
+
+See [te-extern-lowering.md](te-extern-lowering.md) for the full compilation
+chain, parameter folding, and DMA injection details.
+
+### Two-Names Convention
+
+Every lowering pass uses two distinct names:
+- `extern_name`: The literal C symbol (e.g., `"mmalib_conv2d_i8"`) — must match
+  firmware DLOAD export table exactly.
+- `name_hint`: The `te.extern` `name=` (e.g., `"mmalib_conv2d"`) — only names
+  the generated TIR PrimFunc and loop variable.
+
+**Never reuse `extern_name` for `name_hint`** — it creates a local variable
+that shadows the function declaration and breaks the build.
+
+## DMA Injection Pipeline
+
+`InjectMMALIBDMA` (TIR pass, `ti_mmalib_inject_dma.py`) wraps each
+supported MMALIB `call_extern` with L2 SRAM staging. It runs after
+`FuseTIR` and before `ScheduleC7xDMATiling`.
+
+### Supported Kernels (7)
+
+- `mmalib_conv2d_i8`
+- `mmalib_conv2d_i8_grouped_loop`
+- `mmalib_conv2d_i16`
+- `mmalib_depthwise_conv2d_i8`
+- `mmalib_depthwise_conv2d_i16`
+- `mmalib_matmul_bias_i8`
+- `mmalib_matmul_bias_i16`
+
+**Not covered** (always read from DDR directly):
+- `mmalib_matmul_i8` / `mmalib_matmul_i16` (bias-less variants)
+- `c7x_int8_residual_add_relu` / `c7x_int16_residual_add_relu` (native C7x kernels)
+
+### Injected Structure
+
+```
+Allocate l2_guard[guard_bytes]              # prevents SE prefetch underflow
+  Allocate l2_input[input_bytes]
+    Allocate l2_weight[weight_bytes]        # omitted if weights don't fit L2
+      tvm_dsp_dma_copy(l2_input,  ddr_input,  input_bytes)
+      tvm_dsp_dma_copy(l2_weight, ddr_weight, weight_bytes)
+      tvm_dsp_dma_wait(...)
+      mmalib_*(l2_input, l2_weight, ...)
+```
+
+The guard allocation (`pad_top × W_in × elem_bytes`, min 128 bytes) bumps
+the L2 bump-pointer so the input buffer doesn't start at address 0 —
+otherwise the C7x streaming engine's backward-prefetch can underflow.
+
+### Output-Channel Tiling for Oversized Weights
+
+When a plain, ungrouped int8 conv2d's weight tensor doesn't fit the L2
+budget but its input does, `InjectMMALIBDMA` tiles the weight by output
+channel: emits a loop that DMAs one output-channel chunk at a time and
+calls `mmalib_conv2d_i8_sliced` once per chunk. Currently int8-only and
+only for ungrouped conv2d.
+
+### L2 SRAM Budget
+
+Default: 384 KB (half of 1.25 MB L2 SRAM, leaving room for double-buffering
+and other allocations). Configurable via `ScheduleC7xDMATiling(l2_budget)`.
+
+### File Inventory
+
+| File | Role |
+|------|------|
+| `python/tvm/relax/transform/ti_mmalib_inject_dma.py` | `InjectMMALIBDMA` TIR pass |
+| `python/tvm/tir/pipeline.py` | TIR pipeline wiring |
+| `python/tvm/tir/transform/lower_l2sram_alloc.py` | `LowerL2SramAlloc` pass |
+| `src/runtime/ti_dsp/dma/tvm_dsp_dma.h` | DMA API header |
+
+## ConstReachability and the Decline-Branch Helper
+
+Two related-but-distinct mechanisms, both driven by `bind_constants=False`
+(see [Authoring Passes](authoring-passes.md#the-bind_constants-parameter) for what that flag
+actually does):
+
+### ConstReachability: the real, demonstrated hazard
+
+`ConstReachability` (`ti_c7x_const_reachability.py`) answers "is this
+operand's value fully determined at compile time, with no runtime input?"
+The C7x QDQ-fusion passes run *before* `FoldConstant` on purpose — folding a
+weight's `dequantize(int8_const, scale_const)` too early would expand int8
+weights back to float32 in `weights.bin`. Running first means these passes
+still see plain `Var`s, not yet the `relax.Constant` nodes `FoldConstant`
+would otherwise have produced.
+
+That ordering has one demonstrated failure mode: if an *entire* matched
+subgraph happens to depend only on constants (e.g. a fixed
+continuous-position-bias table applied to a constant coordinate buffer, not
+the image), a pass can still wrap it in a `call_extern` to a C7x-only DSP
+kernel. `FoldConstant`, running later, tries to evaluate that call eagerly
+via a host LLVM JIT to fold it, can't resolve the DSP-only symbol, and
+segfaults instead of raising cleanly. `ConstReachability` lets a pass check
+reachability *before* choosing the extern path, so an all-constant match
+falls through to the portable/generic lowering instead.
+
+**Status: fixed and currently active**, not just a historical note — the
+guard (`self._const_reach.is_const(...)`) is live today in all three passes
+this shipped in (`be39717c39`, joining a pre-existing guard in
+`fuse_dequantize_matmul.py`): `ti_fuse_qdq_c7x_movement.py`,
+`ti_fuse_qdq_c7x_relu.py`, and `fuse_dequantize_matmul.py`. Regression
+coverage is two-layered: unit tests
+(`test_movement_pass.py::test_constant_tensor_input_declines_and_still_compiles`
+and the equivalents in `test_relu_pass.py`) assert the match declines *and*
+that the module still compiles cleanly through
+`LegalizeOps → FoldConstant → FuseOps → FuseTIR`; and the original
+real-world trigger — Swin's relative-position-bias table — is exercised
+end-to-end via `swin_b`/`swin_v2_{b,s,t}` in
+`quantized/test_quantized_torchvision.py`.
+
+### inline_declined_composite: defense-in-depth, not a fix for a reproduced crash
+
+When a lowerer declines a match (its check function returns `False`), the
+matched call is not automatically consumed — it remains as a `Call` to the
+composite `GlobalVar`. `FuseTIR`'s `TIRFuseMutator` fuses *every*
+`Primitive`-tagged `GlobalVar` still in the module regardless of whether
+anything still calls it, so a composite left un-consumed depends on legalizing
+and fusing cleanly entirely on its own.
+
+`inline_declined_composite` (`ti_c7x_composite_inline.py`) guards against
+that: it re-emits the composite's own body back into the caller, restoring
+the ungrouped ops `FuseOpsByPattern` started from, and the caller is expected
+to run `relax.transform.DeadCodeElimination()(mod)` afterward so the
+now-orphaned composite function is actually deleted (inlining only rewrites
+the call site). It's called from inside a lowerer's decline branch — it is a
+plain helper function, not a standalone pass:
+
+```python
+# Inside a PyExprMutator's decline branch (e.g. FuseQDQToC7xMovement)
+from tvm.relax.transform.ti_c7x_composite_inline import inline_declined_composite
+
+if not self._eligible(matched):
+    return inline_declined_composite(self.builder_, call, func)
+```
+
+This landed in `ti_fuse_qdq_c7x_movement.py` and `ti_fuse_qdq_c7x_relu.py`
+(commit `b64d0fa3bf`). **Important scope caveat**, added in a follow-up
+correction (`d1c0f41f27`): no model on this tree has been shown to *require*
+it. `bind_constants=False` maps to `lift_constant_=true` in `fuse_ops.cc`, so
+matched `relax.Constant` leaves are lifted to composite *parameters*, not
+embedded in the body — a declined composite left in place was measured to
+compile cleanly through `LegalizeOps`/`FoldConstant`/`FuseOps`/`FuseTIR`. This
+helper is defense-in-depth for the `TIRFuseMutator` invariant above, not a fix
+for a crash anyone reproduced on this path.
+
+The intermittent `"Relax.Constant is not supported in primitive functions"`
+crash these passes were *once* suspected of causing came from somewhere else
+entirely: a stale parameter index in `FunctionCreator::CreateFunction`
+(`src/relax/transform/fuse_ops.cc`) when splicing several partially-used
+tuple parameters, fixed in `6fe9a33f09`. **If that error reappears, capture
+the stack trace and rule this out before reaching for a decline-path
+change.**
+
 ## Architecture
 
 ### Directory Structure
@@ -585,7 +863,7 @@ src/target/c_static_lib/
 |-- codegen_c_static_lib_wrapper.h   # Wrapper generator class
 |-- codegen_c_static_lib_wrapper.cc  # C++ wrapper generation
 |-- codegen_c_static_lib_templates.h # Code templates (headers, helpers)
-|-- weight_packer.cc             # Weight/constant serialization to weights.bin
+|-- weight_packer.cc                 # Weight/constant serialization to weights.bin
 ```
 
 ### Modular Components
@@ -595,16 +873,6 @@ src/target/c_static_lib/
 | `CodeGenCStaticLib` | Core TIR-to-C code generation, inherits from CodeGenC |
 | `DSPCodeGenExtension` | Emit TI DSP pragmas, headers, profiling infrastructure |
 | `WrapperGenerator` | Generate C++ wrapper functions for exported functions |
-
-### Code Generation Flow
-
-1. **IR Analysis**: Examine TVM IR to detect function signatures and return types
-2. **VM Builtin Emission**: `EmitAnylistVMBuiltinCall` converts compact anylist intrinsics to C++ API
-3. **Register Allocation**: Calculate register file requirements per function
-4. **Parameter Processing**: Handle serialization (binary or source format)
-5. **DSP Optimization**: `DSPCodeGenExtension` emits TI-specific pragmas
-6. **Wrapper Generation**: `WrapperGenerator` creates C++ wrapper functions
-7. **Output**: Produce compilation units suitable for static binary generation
 
 ### Key Data Structures
 
@@ -635,16 +903,6 @@ The c_static_lib backend includes an optimized C++ API mode (`-use-cpp-api=1`) t
 bypasses the FFI layer for VM operations, providing significant performance gains
 on embedded targets.
 
-### Performance Benefits
-
-On CLISTA-DoA model (C66x DSP @ 450 MHz):
-
-| Metric | Improvement |
-|--------|-------------|
-| Cycle reduction | 12% (62K cycles) |
-| Memory reduction | 9% (1.8KB L2 peak) |
-| Code size | 22% reduction |
-
 ### How It Works
 
 The C++ API replaces verbose FFI dispatch sequences with direct function calls:
@@ -674,86 +932,21 @@ Both optimizations are **enabled by default** for all c_static_lib targets.
 
 ## Building and Testing
 
-### Build TVM with c_static_lib Backend
+Building TVM itself and the DSP runtime (host emulation, C66x, and C7x
+variants) is covered by AGENTS.md's Build section at the repository root
+(canonical Docker build) and by [DSP Runtime
+Internals](../dsp-runtime/internals.md) (native cmake build, per
+platform) -- not repeated here.
 
-```bash
-# Configure build
-mkdir -p build
-cp cmake/cstatic_config.cmake build/config.cmake
-cd build
+For running this backend's test suites -- prerequisites, the unit test
+table, and the pytest command reference for both `tests/cstatic/` and
+the MMALIB-specific suites -- see [DSP Suite](../testing/dsp-suite.md).
 
-# Build (requires LLVM 15+)
-cmake -G Ninja ..
-ninja
+## Related Documentation
 
-# Set up Python environment
-cd ..
-export TVM_HOME=$(pwd)
-export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
-```
-
-### Build Static Runtime (Optional)
-
-```bash
-# Enable static runtime in config
-# Set BUILD_STATIC_RUNTIME=ON in build/config.cmake
-cd build
-cmake -G Ninja ..
-ninja
-```
-
-### Run Tests
-
-```bash
-cd $TVM_HOME
-export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
-
-# C static lib backend tests
-pytest tests/cstatic/unit-tests/test_conv2d.py -v
-pytest tests/cstatic/unit-tests/test_resnet.py -v
-pytest tests/cstatic/unit-tests/test_matmul.py -v
-pytest tests/cstatic/unit-tests/test_mlp.py -v
-
-# DSP tests (host emulation)
-pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x_host
-
-# DSP tests (C66x hardware)
-pytest tests/ti-dsp-runtime/dsp-tests/ -v --dsp-mode=c66x
-```
-
-### Build DSP Runtime
-
-**Host emulation**:
-```bash
-cd $TVM_HOME/src/runtime/ti_dsp
-mkdir build && cd build
-cmake ..
-cmake --build .
-```
-
-**C66x hardware (AWRL6844)**:
-```bash
-cd $TVM_HOME/src/runtime/ti_dsp
-mkdir build-c66x && cd build-c66x
-cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-awrl6844.cmake ..
-cmake --build .
-```
-
-**C7x hardware (J722S/AM67A)**:
-```bash
-cd $TVM_HOME/src/runtime/ti_dsp
-mkdir build-c7x && cd build-c7x
-cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-j722s-c7x.cmake ..
-cmake --build .
-```
-
-### Verify Installation
-
-```bash
-# Run VM builtins test (host)
-./src/runtime/ti_dsp/build/test_vm_builtins
-
-# Run VM builtins test (C66x)
-$TVM_HOME/src/runtime/ti_dsp/scripts/run_on_c66x.sh \
-    src/runtime/ti_dsp/build-c66x/test_vm_builtins_c66x.out
-```
+- [MMALIB Integration](mmalib-integration.md) — QDQ offload pipeline, supported ops, testing
+- [te.extern Lowering](te-extern-lowering.md) — Full compilation chain, dispatch sites
+- [CodeGenCStaticLib Internals](codegen-cstatic.md) — Code generator architecture, DLOAD symbol resolution
+- [Authoring Passes](authoring-passes.md) — Writing new Relax/TIR passes for C7x
+- [Extending Quantizer](extending-quantizer.md) — Adding ops to C7xMMAQuantizer
+- [Debugging Passes](debugging-passes.md) — --dump-ir, TVM_LOG_DEBUG, composite inspection

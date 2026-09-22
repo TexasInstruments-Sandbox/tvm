@@ -164,12 +164,14 @@ All memory is pre-allocated at link time for deterministic behavior.
 ### Memory Pools
 
 **C66x (AWRL6844):**
+
 | Pool | Size | Use Case | Access Speed |
 |------|------|----------|--------------|
 | L2 (Fast) | 256KB | Storage ≤32KB, hot data | Fastest (L2 SRAM) |
 | L3 (Main) | 512KB | Storage >32KB, constants | Slower (L3 SRAM) |
 
 **C7x (J722S):**
+
 | Pool | Size | Use Case | Access Speed |
 |------|------|----------|--------------|
 | L2 (Fast) | 512KB | Storage ≤32KB, hot data | Fastest (L2 SRAM) |
@@ -222,10 +224,8 @@ linker-provided symbols.
 Note: these pool sizes describe the *standard runtime build* config
 (`platform/c7x/c7x_platform.h` fallbacks). The actual deployed firmware's
 unified DDR pool is larger (352 MiB) -- see
-[Firmware Design Deep-Dive](../firmware/design-deep-dive.md) -- and the
-standalone JTAG test harness uses yet another, independent memory map --
-see [C7x Memory Map Reference](memory-map.md). These are three distinct
-build targets; don't cross-check pool sizes between them.
+[Firmware Design Deep-Dive](../firmware/design-deep-dive.md). These are
+two distinct build targets; don't cross-check pool sizes between them.
 
 ## C7x MMU Configuration
 
@@ -245,10 +245,9 @@ MMU is already configured when `tvm_dsp_platform_init()` is called.
 3. **Boot Sequence**: MMU init must happen early in boot (before DDR is
    accessible), which is naturally handled by application boot code.
 
-See [C7x Memory Map Reference](memory-map.md) for the detailed
-register-level configuration (ECR registers, MAIR table, page table
-structure) used by the standalone JTAG test harness's reference
-implementation (`tests/ti-dsp-runtime/dsp-cpp/j722s/mmu.c`).
+See the standalone JTAG test harness's reference implementation
+(`tests/ti-dsp-runtime/dsp-cpp/j722s/mmu.c`) for the register-level
+configuration this involves.
 
 ## Tensor File I/O (Host Testing Only)
 
