@@ -298,9 +298,9 @@ once via Settings -> Pages -> Source -> Deploy from a branch -> `gh-pages`.
 - **DSP runtime constraints.** The runtime is C++14, no exceptions/RTTI, no
   `malloc()` in the hot path — error handling is a `ModelError` enum, memory is
   pre-allocated static pools (bump-pointer + free-list).
-- **Three distinct memory maps** exist (standard runtime, deployed firmware,
-  standalone JTAG harness). Don't cross-check pool sizes across them — see
-  `docs-c7x/contributor-guide/dsp-runtime/memory-map.md`.
+- **Two distinct memory maps** exist (standard runtime, deployed firmware).
+  Don't cross-check pool sizes across them — see
+  `docs-c7x/contributor-guide/dsp-runtime/internals.md`.
 - **Lifetime rules** for the board inference APIs (zero-copy output/pre-staged
   inputs are views into shared DDR) are a common bug source — see
   `docs-c7x/user-guide/python-api.md`.

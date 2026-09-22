@@ -1,6 +1,7 @@
 # C75x DSP Debug Scripts
 
-Scripts for loading and running programs on the J722S C75x DSP via JTAG.
-
-See [Hardware Debug Scripts](../../../../docs-c7x/contributor-guide/hardware-debug.md)
-in the docs site for the full reference.
+Standalone JTAG load/run scripts (`run_on_c75x.sh`, `load_and_run_c75x.js`)
+for the J722S C75x DSP, superseded by DLOAD/RPMessage deployment for
+day-to-day use -- see [Deploying
+Firmware](../../../../docs-c7x/user-guide/deploying-firmware.md) in the
+docs site.
