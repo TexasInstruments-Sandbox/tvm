@@ -156,6 +156,13 @@ def _check_conv2d_mmalib_constraints(
       - strides must be symmetric (strideX == strideY)
       - N must be 1
       - all shapes must be static
+      - row-kernel geometry: when stride>1, padding must be either zero or
+        exact "SAME"-derived padding; when stride==1, an unpadded
+        ("VALID") kernel wider than 1x1 is rejected unless the output size
+        already absorbs the padding-agnostic column count MMALIB computes
+        internally (see _check_conv2d_row_kernel_geometry below) — both
+        real MMALIB_CNN_convolveBias_row_ixX_ixX_oxX hardware constraints,
+        not a TVM-side choice
 
     allow_groups: when True, permits groups>1 for genuinely grouped
     (partial-channel) convolution — e.g. ResNeXt101's cardinality=32
@@ -183,11 +190,11 @@ def _check_conv2d_mmalib_constraints(
             return False
 
     data_layout = tir.layout(attrs.data_layout)
+    kernel_layout = tir.layout(attrs.kernel_layout)
 
     if attrs.groups != 1:
         if not allow_groups or attrs.groups <= 0:
             return False
-        kernel_layout = tir.layout(attrs.kernel_layout)
         c_in = int(data_sinfo.shape[data_layout.index_of("C")])
         c_out = int(kernel_sinfo.shape[kernel_layout.index_of("O")])
         if attrs.groups == c_in:
@@ -197,6 +204,94 @@ def _check_conv2d_mmalib_constraints(
 
     if int(data_sinfo.shape[data_layout.index_of("N")]) != 1:
         return False
+
+    KH = int(kernel_sinfo.shape[kernel_layout.index_of("H")])
+    KW = int(kernel_sinfo.shape[kernel_layout.index_of("W")])
+    H_in = int(data_sinfo.shape[data_layout.index_of("H")])
+    W_in = int(data_sinfo.shape[data_layout.index_of("W")])
+    if not _check_conv2d_row_kernel_geometry(attrs, KH, KW, H_in, W_in, strides[0]):
+        return False
+
+    return True
+
+
+def _check_conv2d_row_kernel_geometry(
+    attrs, KH: int, KW: int, H_in: int, W_in: int, stride: int
+) -> bool:
+    """MMALIB_CNN_convolveBias_row_ixX_ixX_oxX_init_checkParams's two
+    stride-dependent geometry rules (dilation is always 1x1 here per the
+    caller's own check).
+
+    stride>1: requires either padTop==0 or padBottom is either 0 or the
+    exact "SAME"-derived value (KH-1)//2. A 1x1 kernel with stride>1
+    additionally requires padLeft==padRight. AlexNet's conv1 (11x11,
+    stride 4, pad=2/2 symmetric) satisfies neither the general nor
+    1x1-specific rule -- exactly the geometry that produced
+    MMALIB_ERR_INVALID_DIMENSION (status 4) on real c7x_dload hardware.
+
+    stride==1: the vendor's own validColsOut is padding-agnostic
+    (``H_in*W_in - W_in*(KH-1) - (KW-1)``) while dst_addr->stride_y
+    (H_out*W_out) is computed *with* padding, so an unpadded ("VALID")
+    conv wider than 1x1 trips ``validColsOut > dst_addr->stride_y``
+    whenever H_in>KH (algebraically, the difference is
+    ``(KW-1)*(H_in-KH)``, positive for any real shrinking VALID conv) --
+    "SAME" padding or a 1x1 kernel always keep the difference <=0.
+    Confirmed against the vendor source and reproduced in isolation on
+    real c7x_dload hardware for Inception_v3's second stem conv
+    (32,149,149,32, 3x3, stride=1, pad=0), the exact geometry that
+    aborted the DSP before this check existed.
+    """
+    padding = [int(p) for p in attrs.padding]
+    if len(padding) == 2:
+        pad_top, pad_left = padding[0], padding[1]
+        pad_bottom, pad_right = padding[0], padding[1]
+    else:
+        pad_top, pad_left, pad_bottom, pad_right = padding
+
+    if stride > 1:
+        if not (pad_top == 0 or pad_bottom in (0, (KH - 1) // 2)):
+            logger.info(
+                "MMALIB conv2d decline: stride=%d requires padTop==0 or padBottom "
+                "in (0, (KH-1)//2=%d); got padTop=%d, padBottom=%d (KH=%d) -- "
+                "falling back to scalar path",
+                stride,
+                (KH - 1) // 2,
+                pad_top,
+                pad_bottom,
+                KH,
+            )
+            return False
+
+        if KH == 1 and KW == 1 and pad_left != pad_right:
+            logger.info(
+                "MMALIB conv2d decline: 1x1 kernel with stride=%d requires "
+                "padLeft==padRight; got padLeft=%d, padRight=%d -- falling back "
+                "to scalar path",
+                stride,
+                pad_left,
+                pad_right,
+            )
+            return False
+    else:
+        valid_cols_out = H_in * W_in - W_in * (KH - 1) - (KW - 1)
+        H_out = H_in + pad_top + pad_bottom - KH + 1
+        W_out = W_in + pad_left + pad_right - KW + 1
+        if valid_cols_out > H_out * W_out:
+            logger.info(
+                "MMALIB conv2d decline: stride=1 unpadded/under-padded %dx%d "
+                "kernel on H_in=%d,W_in=%d gives validColsOut=%d > "
+                "H_out*W_out=%d (H_out=%d,W_out=%d) -- falling back to "
+                "scalar path",
+                KH,
+                KW,
+                H_in,
+                W_in,
+                valid_cols_out,
+                H_out * W_out,
+                H_out,
+                W_out,
+            )
+            return False
 
     return True
 

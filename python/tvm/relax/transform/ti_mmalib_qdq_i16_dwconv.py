@@ -124,7 +124,11 @@ def _check_mmalib_qdq_dwconv2d_i16(ctx) -> bool:
     # Shared geometry constraints (groups==C_in, strides, dilation, N==1, static shapes).
     # INT16 depthwise: MMALIB only supports 3×3 kernels (MMALIB-882 tracks 5×5/7×7),
     # so allowed_kh_sizes=(3,).  max_kh_stride2 is irrelevant since kh is always 3.
-    return _check_dwconv2d_geometry(ctx, allowed_kh_sizes=(3,), max_kh_stride2=3)
+    # elem_size_bytes=2: the MMA-panel check is inert here (3*3*2=18 <= 32) but
+    # kept accurate in case allowed_kh_sizes ever widens (see MMALIB-882).
+    return _check_dwconv2d_geometry(
+        ctx, allowed_kh_sizes=(3,), max_kh_stride2=3, elem_size_bytes=2
+    )
 
 
 # =========================================================================
