@@ -68,12 +68,19 @@ _EXCLUDED_WEIGHT_SIZE = {"regnet_y_128gf", "vit_h_14", "vit_l_32", "vit_l_16"}
 # Not a weight-size problem -- these compile and run most of the way
 # through, then exhaust the 352 MiB TVM DDR pool (workspace + weights +
 # DLOAD segments, shared) at a late layer. Measured shortfall at the
-# first failing allocation: convnext_large 2.8 KB, efficientnet_b6
-# 2.74 MB, efficientnet_b7 43.6 KB, swin_b ~355 KB, swin_v2_b ~1.07 MB,
-# swin_v2_s ~54.6 KB, swin_v2_t ~376.6 KB. Not limited to one
-# architecture family -- the swin_* models are transformers, not CNNs.
-# See quantized/README.md.
+# first failing allocation: convnext_base ~0.2 KB (requested 0.2 MB,
+# 0.2 MB free of 369.1 MB -- the tightest margin in this set),
+# convnext_large 2.8 KB, efficientnet_b6 2.74 MB, efficientnet_b7
+# 43.6 KB, swin_b ~355 KB, swin_v2_b ~1.07 MB, swin_v2_s ~54.6 KB,
+# swin_v2_t ~376.6 KB. Not limited to one architecture family -- the
+# swin_* models are transformers, not CNNs. convnext_base only started
+# reaching this OOM once its 7x7 depthwise convs correctly declined
+# MMALIB offload (see ti_mmalib_qdq_dwconv.py's MMA-panel-fit check) and
+# fell back to the scalar path instead of aborting the DSP earlier on
+# an unsupported kernel geometry -- previously this OOM was unreachable,
+# masked by that abort. See quantized/README.md.
 _EXCLUDED_DDR_OOM = {
+    "convnext_base",
     "convnext_large",
     "efficientnet_b6",
     "efficientnet_b7",

@@ -44,6 +44,7 @@ from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import propagate_span
+from .ti_mmalib_constants import C7X_VEC_SIZE_BYTES
 from .ti_mmalib_legalize import (
     _call_extern_checked,
     _resolve_constant_tensor,
@@ -205,7 +206,9 @@ def _is_const_zero(expr) -> bool:
     return False
 
 
-def _check_dwconv2d_geometry(ctx, allowed_kh_sizes, max_kh_stride2=5) -> bool:
+def _check_dwconv2d_geometry(
+    ctx, allowed_kh_sizes, max_kh_stride2=5, elem_size_bytes: int = 1
+) -> bool:
     """Shared depthwise geometry validation used by both i8 and i16 check functions.
 
     Validates spatial/layout constraints that are identical across dtypes:
@@ -216,8 +219,22 @@ def _check_dwconv2d_geometry(ctx, allowed_kh_sizes, max_kh_stride2=5) -> bool:
       - dilation == 1x1
       - N == 1
       - all spatial shapes static
+      - kh*kw*elem_size_bytes fits in one MMA B-panel row
+        (MMALIB_CNN_convolve_col_smallNo_highPrecision_pointwisePost's
+        Ni*Fr*Fc*sizeof(dtype) <= MMA_SIZE_8_BIT check; Ni is always 1 for
+        depthwise). On this core (C7X_VEC_SIZE_BYTES=32), this is what
+        actually rejects a 7x7 kernel (49 > 32) even though 7 is in
+        `allowed_kh_sizes` -- ConvNeXt's depthwise convs are exactly this
+        shape and abort on real c7x_dload hardware with
+        MMALIB_ERR_NOT_IMPLEMENTED without this check.
+      - stride==2 requires (H_in + padTop + padBottom) even (same kernel's
+        checkParams). EfficientNet-b1/b3/b4/b5 hit one stride-2 5x5 layer
+        at an odd H_in+pad sum and abort the same way; b0/b2 don't.
 
     Dtype checks (int8 vs int16) and zero-point checks are left to callers.
+    `elem_size_bytes` is the kernel weight element size (1 for int8, 2 for
+    int16) -- the MMA-panel check above uses it regardless of dtype,
+    mirroring the vendor source's own unconditional `MMA_SIZE_8_BIT` use.
     """
     conv = ctx.annotated_expr["conv"]
     if not isinstance(conv, relax.Call):
@@ -261,6 +278,37 @@ def _check_dwconv2d_geometry(ctx, allowed_kh_sizes, max_kh_stride2=5) -> bool:
         return False
     for s in data_shape:
         if not isinstance(s, tir.IntImm):
+            return False
+
+    if kh * kw * elem_size_bytes > C7X_VEC_SIZE_BYTES:
+        logger.info(
+            "MMALIB dwconv2d decline: %dx%d kernel (Ni*Fr*Fc*%dB=%d) exceeds "
+            "the %dB MMA panel row width -- falling back to scalar path",
+            kh,
+            kw,
+            elem_size_bytes,
+            kh * kw * elem_size_bytes,
+            C7X_VEC_SIZE_BYTES,
+        )
+        return False
+
+    if strides[0] == 2:
+        H_in = int(data_shape[data_layout.index_of("H")])
+        padding = [int(p) for p in attrs.padding]
+        if len(padding) == 2:
+            pad_top, pad_bottom = padding[0], padding[0]
+        else:
+            pad_top, _pad_left, pad_bottom, _pad_right = padding
+        if (H_in + pad_top + pad_bottom) % 2 != 0:
+            logger.info(
+                "MMALIB dwconv2d decline: stride=2 requires H_in+padTop+padBottom "
+                "to be even; got H_in=%d, padTop=%d, padBottom=%d (sum=%d) -- "
+                "falling back to scalar path",
+                H_in,
+                pad_top,
+                pad_bottom,
+                H_in + pad_top + pad_bottom,
+            )
             return False
 
     return True
