@@ -1,0 +1,2270 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="te-extern-lowering.html">
+      
+      
+        <link rel="next" href="extending-quantizer.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>CodeGenCStaticLib Internals - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#codegencstaticlib-internals" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              CodeGenCStaticLib Internals
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/compilation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/python-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="c-static-lib.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Lib Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="mmalib-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="tidl-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TIDL Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="authoring-passes.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authoring Passes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="te-extern-lowering.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    te.extern Lowering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CodeGenCStaticLib Internals
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="codegen-cstatic.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CodeGenCStaticLib Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#class-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Class Hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#codegencstaticlib" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CodeGenCStaticLib
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CodeGenCStaticLib">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-responsibilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Responsibilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-data-structures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Data Structures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#code-generation-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Generation Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weight-serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weight Serialization
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dspcodegenextension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSPCodeGenExtension
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DSPCodeGenExtension">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ti-compiler-pragmas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TI Compiler Pragmas
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#headers-included" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Headers Included
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#profiling-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Profiling Infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c-api-mode-use-cpp-api1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C++ API Mode (-use-cpp-api=1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wrappergenerator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WrapperGenerator
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="WrapperGenerator">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cg_main_dsp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cg_main_dsp
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#responsibilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Responsibilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#symbol-resolution-with-dload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Resolution with DLOAD
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Symbol Resolution with DLOAD">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#header-visibility-preinclude" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Header Visibility: --preinclude
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dload-export-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DLOAD Export Table
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-stage-dload-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two-Stage DLOAD Build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output-file-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output File Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#target-options-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target Options Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="extending-quantizer.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Quantizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="debugging-passes.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging Passes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/design-deep-dive.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dsp-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/pt2e-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/quantized-sweep.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#class-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Class Hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#codegencstaticlib" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CodeGenCStaticLib
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CodeGenCStaticLib">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-responsibilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Responsibilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-data-structures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Data Structures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#code-generation-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code Generation Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weight-serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weight Serialization
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dspcodegenextension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DSPCodeGenExtension
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DSPCodeGenExtension">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ti-compiler-pragmas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TI Compiler Pragmas
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#headers-included" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Headers Included
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#profiling-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Profiling Infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c-api-mode-use-cpp-api1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        C++ API Mode (-use-cpp-api=1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wrappergenerator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WrapperGenerator
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="WrapperGenerator">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cg_main_dsp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cg_main_dsp
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#responsibilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Responsibilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#symbol-resolution-with-dload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbol Resolution with DLOAD
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Symbol Resolution with DLOAD">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#header-visibility-preinclude" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Header Visibility: --preinclude
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dload-export-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DLOAD Export Table
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-stage-dload-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two-Stage DLOAD Build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output-file-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output File Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#target-options-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target Options Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="codegencstaticlib-internals">CodeGenCStaticLib Internals</h1>
+<p>The <code>CodeGenCStaticLib</code> class and its helpers handle C/C++ code generation for the
+<code>c_static_lib</code> backend, with TI DSP-specific customizations for C7x deployment.</p>
+<h2 id="class-hierarchy">Class Hierarchy</h2>
+<p><code>CodeGenCStaticLib</code> is <code>final</code> — it has no subclasses. <code>DSPCodeGenExtension</code>
+and <code>WrapperGenerator</code> are separate, stateless helper classes with static
+methods; <code>CodeGenCStaticLib</code> delegates to them by composition, not
+inheritance:</p>
+<div class="highlight"><pre><span></span><code>CodeGenC (upstream TVM, src/target/source/codegen_c.h)
+    └── CodeGenCStaticLib final (src/target/c_static_lib/codegen_c_static_lib.{h,cc})
+          ├── delegates to → DSPCodeGenExtension  (src/target/c_static_lib/codegen_c_static_lib_dsp.{h,cc})
+          └── delegates to → WrapperGenerator     (src/target/c_static_lib/codegen_c_static_lib_wrapper.{h,cc})
+</code></pre></div>
+<h2 id="codegencstaticlib">CodeGenCStaticLib</h2>
+<p>Core TIR-to-C translation. Inherits from <code>CodeGenC</code> and overrides
+key methods for static library generation.</p>
+<h3 id="key-responsibilities">Key Responsibilities</h3>
+<ol>
+<li><strong>Function emission</strong> — Translates TIR <code>PrimFunc</code> to C functions</li>
+<li><strong>VM builtin handling</strong> — <code>EmitAnylistVMBuiltinCall</code> converts compact anylist
+   intrinsics to C++ API calls</li>
+<li><strong>Register allocation</strong> — Calculates register file requirements per function</li>
+<li><strong>Parameter processing</strong> — Handles serialization (binary or source format)</li>
+<li><strong>DSP extension delegation</strong> — Calls <code>DSPCodeGenExtension</code> for TI-specific emission</li>
+</ol>
+<h3 id="key-data-structures">Key Data Structures</h3>
+<div class="highlight"><pre><span></span><code><span class="c1">// Function metadata</span>
+<span class="k">struct</span><span class="w"> </span><span class="nc">CGFunctionInfo</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">max_register_index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">  </span><span class="c1">// Maximum register usage</span>
+<span class="w">    </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">num_args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">             </span><span class="c1">// Number of input arguments</span>
+<span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">returns_tuple</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">       </span><span class="c1">// Multi-output detection</span>
+<span class="w">    </span><span class="kt">int64_t</span><span class="w"> </span><span class="n">num_outputs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">          </span><span class="c1">// Number of outputs (N for tuple)</span>
+<span class="w">    </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">total_params</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">        </span><span class="c1">// Parameter count</span>
+<span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">was_private</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">         </span><span class="c1">// Visibility control</span>
+<span class="p">};</span>
+
+<span class="c1">// DSP configuration</span>
+<span class="k">struct</span><span class="w"> </span><span class="nc">DSPConfig</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">             </span><span class="c1">// Targeting TI DSP (C66x or C7x)</span>
+<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w"> </span><span class="n">mcpu</span><span class="p">;</span><span class="w">                 </span><span class="c1">// Target CPU (e.g., "c66", "c7x")</span>
+<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w"> </span><span class="n">device_name</span><span class="p">;</span><span class="w">          </span><span class="c1">// Device identifier for CCXML generation</span>
+<span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">profile_layers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">      </span><span class="c1">// Per-layer profiling</span>
+<span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">debug_alloc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">         </span><span class="c1">// Diagnostic allocation tracing</span>
+<span class="w">    </span><span class="kt">bool</span><span class="w"> </span><span class="n">tidl_runtime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">        </span><span class="c1">// Emit tidl_bridge_init_all() in cg_main_dsp</span>
+<span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">layer_call_index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">         </span><span class="c1">// Counter for profiled layer calls</span>
+<span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">alloc_storage_index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">      </span><span class="c1">// Counter for traced AllocStorage calls</span>
+<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&gt;</span><span class="w"> </span><span class="n">profiled_layer_names</span><span class="p">;</span>
+<span class="p">};</span>
+</code></pre></div>
+<h3 id="code-generation-flow">Code Generation Flow</h3>
+<ol>
+<li><strong>IR Analysis</strong> — Examine TVM IR to detect function signatures and return types</li>
+<li><strong>VM Builtin Emission</strong> — <code>EmitAnylistVMBuiltinCall</code> converts compact anylist intrinsics to C++ API</li>
+<li><strong>Register Allocation</strong> — Calculate register file requirements per function</li>
+<li><strong>Parameter Processing</strong> — Handle serialization (binary or source format)</li>
+<li><strong>DSP Optimization</strong> — <code>DSPCodeGenExtension</code> emits TI-specific pragmas</li>
+<li><strong>Wrapper Generation</strong> — <code>WrapperGenerator</code> creates C++ wrapper functions</li>
+<li><strong>Output</strong> — Produce compilation units suitable for static binary generation</li>
+</ol>
+<h3 id="weight-serialization">Weight Serialization</h3>
+<p><code>WeightPacker</code> (<code>src/target/c_static_lib/weight_packer.cc</code>) serializes model
+parameters (convolution filters, biases, batch norm statistics) into
+<code>weights.bin</code> using TVM's binary parameter format.</p>
+<p>For C7x DLOAD deployment, weights are embedded into the ELF via
+<code>bin_to_asm.py</code> → <code>.rodata.weights</code> section with symbols:
+- <code>_binary_weights_bin_start</code> — pointer to weights data
+- <code>_binary_weights_bin_end</code> — end marker
+- <code>_binary_weights_bin_size</code> — total size in bytes</p>
+<h2 id="dspcodegenextension">DSPCodeGenExtension</h2>
+<p>Emits TI DSP-specific code: compiler pragmas, headers, profiling infrastructure.</p>
+<h3 id="ti-compiler-pragmas">TI Compiler Pragmas</h3>
+<div class="highlight"><pre><span></span><code><span class="c1">// Loop optimization hints for C7x VLIW/SIMD</span>
+<span class="cp">#pragma MUST_ITERATE(1, , 1)   </span><span class="c1">// Minimum trip count, known trip count, multiple</span>
+<span class="cp">#pragma UNROLL(4)              </span><span class="c1">// Unroll factor</span>
+</code></pre></div>
+<p>Emitted automatically on loops meeting criteria (known trip count, no
+complex control flow).</p>
+<h3 id="headers-included">Headers Included</h3>
+<p>Via <code>kDSPHeaders</code> in <code>codegen_c_static_lib_templates.h</code>:
+- <code>c7x.h</code> / <code>c6x.h</code> — TI intrinsics
+- <code>tvm/runtime/crt/...</code> — CRT headers
+- <code>dma/tvm_dsp_dma.h</code> — DMA API (for DMA tiling)
+- <code>mmalib_wrappers.h</code> — MMALIB wrapper prototypes (via <code>--preinclude</code>)</p>
+<h3 id="profiling-infrastructure">Profiling Infrastructure</h3>
+<p>When <code>-profile-layers=1</code>:
+- Inserts cycle counter reads (<code>__TSC</code>) around each kernel
+- Emits <code>printf</code> with layer name, cycles, timestamp
+- Output redirected to shared memory buffer (last 64 KB of output buffer)
+- Host CLI reads and displays after inference</p>
+<h3 id="c-api-mode-use-cpp-api1">C++ API Mode (<code>-use-cpp-api=1</code>)</h3>
+<p>Replaces verbose FFI dispatch with direct C++ calls:</p>
+<p><strong>Before (FFI mode):</strong>
+<div class="highlight"><pre><span></span><code><span class="n">TVMBackendAnyListSetPackedArg</span><span class="p">(</span><span class="n">r</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="n">stack_ffi_any</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+<span class="n">SetFFIAnyInt</span><span class="p">(</span><span class="o">&amp;</span><span class="p">((</span><span class="n">stack_ffi_any</span><span class="p">)[</span><span class="mi">1</span><span class="p">]),</span><span class="w"> </span><span class="p">(</span><span class="kt">long</span><span class="p">)</span><span class="mi">0</span><span class="p">);</span>
+<span class="n">TVMBackendAnyListSetPackedArg</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="n">stack_ffi_any</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span>
+<span class="c1">// ... 4 more lines</span>
+<span class="n">TVMBackendAnyListMoveFromPackedReturn</span><span class="p">(</span><span class="n">r</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="n">stack_ffi_any</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+</code></pre></div></p>
+<p><strong>After (C++ API mode):</strong>
+<div class="highlight"><pre><span></span><code><span class="n">_r</span><span class="p">.</span><span class="n">SetNDArray</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="n">vm</span><span class="o">::</span><span class="n">AllocTensor</span><span class="p">(</span><span class="n">_r</span><span class="p">.</span><span class="n">GetStorage</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">_c</span><span class="p">.</span><span class="n">GetShape</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span><span class="w"> </span><span class="n">_c</span><span class="p">.</span><span class="n">GetDType</span><span class="p">(</span><span class="mi">6</span><span class="p">)));</span>
+</code></pre></div></p>
+<p>~12% cycle reduction, ~22% code size reduction on C66x.</p>
+<h2 id="wrappergenerator">WrapperGenerator</h2>
+<p>Generates <code>cg_main_dsp</code> entry point and I/O marshalling.</p>
+<h3 id="cg_main_dsp">cg_main_dsp</h3>
+<p>The firmware calls this function by name at load time (resolved via DLOAD
+symbol table). Signature:</p>
+<div class="highlight"><pre><span></span><code><span class="n">TVM_DSP_EXPORT</span><span class="w"> </span><span class="kt">int32_t</span><span class="w"> </span><span class="n">cg_main_dsp</span><span class="p">(</span>
+<span class="w">    </span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="n">args</span><span class="p">,</span><span class="w">       </span><span class="c1">// Packed input tensors</span>
+<span class="w">    </span><span class="kt">int32_t</span><span class="w"> </span><span class="n">num_args</span><span class="p">,</span><span class="w"> </span><span class="c1">// Number of inputs</span>
+<span class="w">    </span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="n">outputs</span><span class="p">,</span><span class="w">    </span><span class="c1">// Output tensor pointers</span>
+<span class="w">    </span><span class="kt">int32_t</span><span class="w"> </span><span class="n">num_outs</span><span class="w">  </span><span class="c1">// Number of outputs</span>
+<span class="p">);</span>
+</code></pre></div>
+<h3 id="responsibilities">Responsibilities</h3>
+<ol>
+<li><strong>Unpack inputs</strong> — Convert packed args to <code>DLTensor*</code></li>
+<li><strong>Allocate intermediates</strong> — Bump-pointer from L2/DDR pools</li>
+<li><strong>Call kernels in dependency order</strong> — Topological sort of PrimFuncs</li>
+<li><strong>Pack outputs</strong> — Return <code>DLTensor*</code> to caller</li>
+<li><strong>Handle multi-output</strong> — Tuple return via <code>outputs</code> array</li>
+</ol>
+<h2 id="symbol-resolution-with-dload">Symbol Resolution with DLOAD</h2>
+<p>The generated C code calls external symbols (MMALIB wrappers, DMA runtime,
+VM builtins) via <code>tir.call_extern</code>. <code>CodeGenC</code> base class prints these as
+literal C function calls:</p>
+<div class="highlight"><pre><span></span><code><span class="kt">void</span><span class="w"> </span><span class="nf">CodeGenC::PrintCallExtern</span><span class="p">(</span><span class="n">Type</span><span class="w"> </span><span class="n">ret_type</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">global_symbol</span><span class="p">,</span>
+<span class="w">                                </span><span class="k">const</span><span class="w"> </span><span class="n">Array</span><span class="o">&lt;</span><span class="n">PrimExpr</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">args</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">skip_first_arg</span><span class="p">,</span>
+<span class="w">                                </span><span class="n">std</span><span class="o">::</span><span class="n">ostream</span><span class="o">&amp;</span><span class="w"> </span><span class="n">os</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">os</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">global_symbol</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">"("</span><span class="p">;</span>
+<span class="w">  </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">skip_first_arg</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w"> </span><span class="o">++</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">this</span><span class="o">-&gt;</span><span class="n">PrintExpr</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="n">os</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="n">os</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">", "</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="n">os</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">")"</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>So <code>tir.call_extern("int32", "mmalib_conv2d_i8", a0, a1, ...)</code> becomes
+literally <code>mmalib_conv2d_i8(a0, a1, ...)</code> in the generated C.</p>
+<h3 id="header-visibility-preinclude">Header Visibility: --preinclude</h3>
+<p>The generated file <strong>does not</strong> include wrapper headers directly.
+Instead, the DSP-side build passes <code>--preinclude=mmalib_wrappers.h</code> to the
+TI compiler for every translation unit (<code>src/runtime/ti_dsp/dynmod/CMakeLists.txt</code>).
+Every generated <code>lib*.c</code> sees the wrapper prototypes without its own
+<code>#include</code> or <code>extern</code> line.</p>
+<h3 id="dload-export-table">DLOAD Export Table</h3>
+<p>Firmware exports its symbol table in
+<code>src/runtime/ti_dsp/firmware/c7x/dsp/src/dyn_loader.c</code> (see <a href="../firmware/architecture.html#dynamic-module-loading-dload">Firmware
+Architecture -- Dynamic Module Loading
+(DLOAD)</a> for the
+current count):</p>
+<div class="highlight"><pre><span></span><code><span class="cm">/* TVM DSP Runtime - C backend API */</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">TVMBackendAllocWorkspace</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">TVMBackendFreeWorkspace</span><span class="p">),</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">TVMBackendAnyListSetPackedArg</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">TVMBackendAnyListMoveFromPackedReturn</span><span class="p">),</span>
+<span class="c1">// ... grouped by comment into runtime API, kernels, TIDL-guarded, and</span>
+<span class="c1">// MMALIB-guarded blocks</span>
+
+<span class="cp">#ifdef USE_TI_MMALIB</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_conv2d_i8</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_conv2d_i8_sliced</span><span class="p">),</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_conv2d_i8_grouped_loop</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_conv2d_i16</span><span class="p">),</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_matmul_i8</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_matmul_i16</span><span class="p">),</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_depthwise_conv2d_i8</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_depthwise_conv2d_i16</span><span class="p">),</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_matmul_bias_i8</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_matmul_bias_i16</span><span class="p">),</span>
+<span class="cp">#endif</span>
+</code></pre></div>
+<p>The DLOAD module (<code>lib0.out</code>) is a separately-built relocatable ELF that
+calls these as <em>unresolved</em> external symbols. TVM's DLOAD dynamic loader
+resolves each against the firmware's export table at load time. No MMALIB
+code is statically linked into the module — only header declarations (via
+<code>--preinclude</code>) are needed to compile it.</p>
+<h2 id="two-stage-dload-build">Two-Stage DLOAD Build</h2>
+<p><strong>Stage 1 — Pseudo-firmware (<code>dsp_syms.out</code>)</strong>
+- Builds stub <code>__declspec(dllexport)</code> declarations for all exported symbols
+- Provides link-time definitions so TI linker resolves references in <code>lib0.c</code>
+- Stubs are empty functions — exist only to satisfy the linker</p>
+<p><strong>Stage 2 — DLOAD module (<code>lib0.out</code>)</strong>
+- Compiles <code>lib0.c</code> (and <code>lib1.c</code> if split) with <code>cl7x</code>
+- Links against <code>dsp_syms.out</code> using <code>c7x_dynmod.cmd</code> linker script
+- Key flags: <code>--dynamic=lib</code>, <code>--relocatable</code>, <code>--import=&lt;symbol&gt;</code>
+- Embeds <code>.rodata.weights</code> with <code>weights.bin</code></p>
+<h2 id="output-file-structure">Output File Structure</h2>
+<p>For large models, codegen splits output:
+- <code>lib0.c</code> — <code>cg_main_dsp</code> entry point, <code>__vmtir__main</code> orchestration
+- <code>lib1.c</code> — All kernel function bodies
+- Enables parallel compilation (<code>make -j2</code>), ~1.6x wall time reduction</p>
+<h2 id="target-options-reference">Target Options Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-mcpu=c7x</code></td>
+<td>—</td>
+<td>Target C7x DSP</td>
+</tr>
+<tr>
+<td><code>-use-cpp-api</code></td>
+<td><code>true</code></td>
+<td>Direct C++ calls instead of FFI dispatch</td>
+</tr>
+<tr>
+<td><code>-skip-runtime-checks</code></td>
+<td><code>true</code></td>
+<td>Skip tensor shape/type validation</td>
+</tr>
+<tr>
+<td><code>-profile-layers</code></td>
+<td><code>false</code></td>
+<td>Per-layer cycle profiling via DSP printf</td>
+</tr>
+<tr>
+<td><code>-constants-byte-alignment</code></td>
+<td><code>64</code></td>
+<td>Cache-line aligned constant arrays</td>
+</tr>
+<tr>
+<td><code>-params-in-binary</code></td>
+<td><code>true</code></td>
+<td>Weights in binary file vs C source</td>
+</tr>
+<tr>
+<td><code>-mmalib</code></td>
+<td><code>false</code></td>
+<td>Enable MMALIB kernel offload</td>
+</tr>
+<tr>
+<td><code>-tidl-kernels</code></td>
+<td><code>true</code></td>
+<td>Use TIDL-backed kernels (max_pool)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="related-files">Related Files</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src/target/c_static_lib/codegen_c_static_lib.h/cc</code></td>
+<td>Core code generator</td>
+</tr>
+<tr>
+<td><code>src/target/c_static_lib/codegen_c_static_lib_dsp.h/cc</code></td>
+<td>DSP extension (pragmas, profiling)</td>
+</tr>
+<tr>
+<td><code>src/target/c_static_lib/codegen_c_static_lib_wrapper.h/cc</code></td>
+<td>Wrapper generator</td>
+</tr>
+<tr>
+<td><code>src/target/c_static_lib/codegen_c_static_lib_templates.h</code></td>
+<td>Code templates, headers</td>
+</tr>
+<tr>
+<td><code>src/target/c_static_lib/weight_packer.cc</code></td>
+<td>Weight serialization</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/scripts/bin_to_asm.py</code></td>
+<td>Weights embedder</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/dynmod/c7x_dynmod/</code></td>
+<td>DLOAD linker script + stubs</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/firmware/c7x/dsp/src/dyn_loader.c</code></td>
+<td>DLOAD symbol export table</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2324 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="authoring-passes.html">
+      
+      
+        <link rel="next" href="codegen-cstatic.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../img/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>te.extern Lowering - TVM for TI C7™ NPU</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Open Sans";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#teextern-pattern-for-c7x-kernel-dispatch" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-header__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TVM for TI C7™ NPU
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              te.extern Lowering
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../index.html" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/getting-started.html" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architecture-overview.html" class="md-tabs__link">
+          
+  
+  
+  Contributor Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../index.html" title="TVM for TI C7™ NPU" class="md-nav__button md-logo" aria-label="TVM for TI C7™ NPU" data-md-component="logo">
+      
+  <img src="../../img/ti_logo.png" alt="logo">
+
+    </a>
+    TVM for TI C7™ NPU
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/getting-started.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/deploying-firmware.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/quantization.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/compilation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compilation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples (YOLO26 & ResNet-18)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/python-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python / C++ API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributor Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="c-static-lib.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C Static Lib Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="mmalib-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="tidl-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TIDL Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="authoring-passes.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authoring Passes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    te.extern Lowering
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="te-extern-lowering.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    te.extern Lowering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-core-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Core Pattern
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#all-teextern-dispatch-sites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        All te.extern Dispatch Sites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-compilation-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Compilation Chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deep-dive-fc-lowering-ti_mmalib_qdq_fcpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deep Dive: FC Lowering (ti_mmalib_qdq_fc.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deep Dive: FC Lowering (ti_mmalib_qdq_fc.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#matched-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matched Patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#eligibility-check-_check_mmalib_qdq_fc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Eligibility Check (_check_mmalib_qdq_fc)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compile-time-parameter-folding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compile-Time Parameter Folding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#teextern-emission" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        te.extern Emission
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dma-injection-for-fc-layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DMA Injection for FC Layers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DMA Injection for FC Layers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dimension-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dimension Mapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-dma-fires" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When DMA Fires
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#injected-tir-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Injected TIR Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tir-pass-order-c_static-mcpuc7x-mmalib1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIR Pass Order (c_static -mcpu=c7x -mmalib=1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-implementation-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Implementation Details
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Key Implementation Details">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#shared-helpers-ti_mmalib_legalizepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared Helpers (ti_mmalib_legalize.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-names-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two-Names Convention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#constant-folding-with-bind_constants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Constant Folding with bind_constants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="codegen-cstatic.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CodeGenCStaticLib Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="extending-quantizer.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Quantizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="debugging-passes.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging Passes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Runtime
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    DSP Runtime
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dsp-runtime/internals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/architecture.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../firmware/design-deep-dive.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware Design Deep-Dive
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/overview.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/dsp-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DSP Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/verifying-deployment.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Your Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/pt2e-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PT2E Quantizer Suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/quantized-sweep.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantized Model Sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-core-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Core Pattern
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#all-teextern-dispatch-sites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        All te.extern Dispatch Sites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-compilation-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Compilation Chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deep-dive-fc-lowering-ti_mmalib_qdq_fcpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deep Dive: FC Lowering (ti_mmalib_qdq_fc.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deep Dive: FC Lowering (ti_mmalib_qdq_fc.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#matched-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matched Patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#eligibility-check-_check_mmalib_qdq_fc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Eligibility Check (_check_mmalib_qdq_fc)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compile-time-parameter-folding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compile-Time Parameter Folding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#teextern-emission" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        te.extern Emission
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dma-injection-for-fc-layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DMA Injection for FC Layers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DMA Injection for FC Layers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dimension-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dimension Mapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-dma-fires" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When DMA Fires
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#injected-tir-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Injected TIR Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tir-pass-order-c_static-mcpuc7x-mmalib1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIR Pass Order (c_static -mcpu=c7x -mmalib=1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-implementation-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Implementation Details
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Key Implementation Details">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#shared-helpers-ti_mmalib_legalizepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared Helpers (ti_mmalib_legalize.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-names-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two-Names Convention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#constant-folding-with-bind_constants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Constant Folding with bind_constants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="teextern-pattern-for-c7x-kernel-dispatch">te.extern Pattern for C7x Kernel Dispatch</h1>
+<p>How TVM maps Relax ops to optimized C7x kernels using <code>te.extern</code> and
+<code>tir.call_extern</code>. Covers every dispatch site, the full compilation
+chain, and the DMA injection layer.</p>
+<h2 id="the-core-pattern">The Core Pattern</h2>
+<p>Every C7x kernel dispatch follows the same four-step chain:</p>
+<div class="highlight"><pre><span></span><code>Relax op(s)
+  → FuseOpsByPattern (composite)
+  → PyExprMutator → builder_.call_te(te_fn, ...)
+  → te.extern → tir.call_extern
+  → CodeGenCStaticLib → C function call
+</code></pre></div>
+<p><code>te.extern</code> replaces what would otherwise be a loop nest with a single
+<code>fcompute</code> callback that emits one <code>tir.call_extern</code>. TVM is responsible
+for tiling, DMA transfers, and double buffering via the
+<code>InjectMMALIBDMA</code> and <code>ScheduleC7xDMATiling</code> passes; the external kernel
+handles the inner compute (MMA coprocessor programming) for each tile.</p>
+<div class="highlight"><pre><span></span><code><span class="n">te</span><span class="o">.</span><span class="n">extern</span><span class="p">(</span>
+    <span class="n">output_shape</span><span class="p">,</span>
+    <span class="p">[</span><span class="n">input_tensors</span><span class="p">],</span>
+    <span class="k">lambda</span> <span class="n">ins</span><span class="p">,</span> <span class="n">outs</span><span class="p">:</span> <span class="n">tir</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span><span class="s2">"int32"</span><span class="p">,</span> <span class="s2">"kernel_name"</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">),</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"..."</span><span class="p">,</span>
+    <span class="n">dtype</span><span class="o">=</span><span class="s2">"..."</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<h2 id="all-teextern-dispatch-sites">All te.extern Dispatch Sites</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Line</th>
+<th>Extern name</th>
+<th>Inputs</th>
+<th>Output dtype</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ti_mmalib_legalize.py</code></td>
+<td>~123</td>
+<td><code>mmalib_matmul_i16</code></td>
+<td><code>[a, b]</code></td>
+<td>int16</td>
+</tr>
+<tr>
+<td><code>ti_mmalib_legalize.py</code></td>
+<td>~386</td>
+<td><code>mmalib_conv2d_i16</code></td>
+<td><code>[data, weight]</code></td>
+<td>int16</td>
+</tr>
+<tr>
+<td><code>ti_mmalib_qdq_fusion.py</code></td>
+<td>~582</td>
+<td><code>mmalib_conv2d_i8</code></td>
+<td><code>[data, weight, bias, scale, shift]</code></td>
+<td>int8</td>
+</tr>
+<tr>
+<td><code>ti_mmalib_qdq_dwconv.py</code></td>
+<td>~523</td>
+<td><code>mmalib_depthwise_conv2d_i8</code></td>
+<td><code>[data, weight, bias, scale, shift]</code></td>
+<td>int8</td>
+</tr>
+<tr>
+<td><code>ti_mmalib_qdq_fc.py</code></td>
+<td>~425</td>
+<td><code>mmalib_matmul_bias_i8</code></td>
+<td><code>[data, weight, bias, scale, shift]</code></td>
+<td>int8</td>
+</tr>
+<tr>
+<td><code>ti_mmalib_i16_fc.py</code></td>
+<td>~251</td>
+<td><code>mmalib_matmul_bias_i16</code></td>
+<td><code>[data, weight, bias, scale, shift]</code></td>
+<td>int16</td>
+</tr>
+<tr>
+<td><code>ti_residual_add.py</code></td>
+<td>~459</td>
+<td><code>c7x_int8_residual_add_relu</code></td>
+<td><code>[x, skip, params]</code></td>
+<td>int8</td>
+</tr>
+<tr>
+<td><code>fuse_dequantize_matmul.py</code></td>
+<td>~343</td>
+<td><code>c7x_dequantize_vecmatmul</code></td>
+<td><code>[act, w, scale]</code></td>
+<td>float32</td>
+</tr>
+<tr>
+<td><code>ti_fuse_sdpa_decode.py</code></td>
+<td>~248</td>
+<td><code>c7x_sdpa_decode</code></td>
+<td><code>[q, k, v, mask]</code></td>
+<td>float32</td>
+</tr>
+</tbody>
+</table>
+<p>All files are under <code>python/tvm/relax/transform/</code>.</p>
+<h2 id="full-compilation-chain">Full Compilation Chain</h2>
+<div class="highlight"><pre><span></span><code>Relax IR
+  ↓ FuseMMALIBQDQFC / FuseMMALIBQDQConv2d / ...
+    FuseOpsByPattern marks composite: "mmalib.fc_i8_qdq_bias"
+  ↓ _MMALIBQDQFCLowerer (PyExprMutator)
+    - Extracts constants: weight_int8, bias_float, scales, zero_points
+    - Folds quantization math at compile time → bias_i32, scale_u8, shift_u8
+    - Calls builder_.call_te(te_mmalib_fc_i8, data, weight, bias, ...)
+  ↓ te.extern → ExternOp → TIR PrimFunc
+    T.evaluate(tir.call_extern("int32", "mmalib_matmul_bias_i8", ...))
+  ↓ InjectMMALIBDMA (TIR pass)
+    Wraps call_extern with L2 Allocate + DMA copy/wait if input fits
+  ↓ LowerL2SramAlloc
+    Allocate(scope="global.l2sram") → tvm_l2_alloc(nbytes)
+  ↓ LowerDMAToExtern
+    tir.dma_copy / tir.dma_wait → tir.call_extern("tvm_dsp_dma_copy", ...)
+  ↓ CodeGenCStaticLib
+    call_extern → C: mmalib_matmul_bias_i8(data-&gt;data, weight-&gt;data, ...)
+  ↓ cl7x + lnk7x --dynamic=lib
+    Resolves symbol from firmware DLOAD export table
+</code></pre></div>
+<h2 id="deep-dive-fc-lowering-ti_mmalib_qdq_fcpy">Deep Dive: FC Lowering (ti_mmalib_qdq_fc.py)</h2>
+<h3 id="matched-patterns">Matched Patterns</h3>
+<p>Four DFPatterns are registered, matched in order (longest/most-specific first):</p>
+<table>
+<thead>
+<tr>
+<th>Composite name</th>
+<th>Pattern</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mmalib.fc_i8_qdq_reshape_bias</code></td>
+<td>dequant → reshape → matmul → reshape → add → quantize</td>
+</tr>
+<tr>
+<td><code>mmalib.fc_i8_qdq_reshape</code></td>
+<td>dequant → reshape → matmul → reshape → quantize</td>
+</tr>
+<tr>
+<td><code>mmalib.fc_i8_qdq_bias</code></td>
+<td>dequant → matmul → add → quantize</td>
+</tr>
+<tr>
+<td><code>mmalib.fc_i8_qdq</code></td>
+<td>dequant → matmul → quantize</td>
+</tr>
+</tbody>
+</table>
+<p>The reshape variants handle 3D inputs from <code>aten.linear</code> which
+decomposes as reshape + matmul + reshape before quantize.</p>
+<h3 id="eligibility-check-_check_mmalib_qdq_fc">Eligibility Check (<code>_check_mmalib_qdq_fc</code>)</h3>
+<p>A pattern match is rejected if any of these fail:</p>
+<ul>
+<li><code>w_zp</code> is not a zero constant (requires zero-point-free weights)</li>
+<li>weight dtype is not <code>int8</code></li>
+<li>data dtype is not <code>int8</code> or is a constant (weights-only not supported here)</li>
+<li>weight shape is not 2D <code>[N_out, K]</code></li>
+<li><code>K % 64 != 0</code> or <code>N_out % 64 != 0</code> (MMA tile alignment)</li>
+<li><code>permute_dims</code> is not a standard last-two-dim transpose</li>
+<li>bias (if present) is not a compile-time constant</li>
+</ul>
+<h3 id="compile-time-parameter-folding">Compile-Time Parameter Folding</h3>
+<p>The lowerer extracts all constants and folds the quantization math before
+emitting <code>te.extern</code>. Nothing is computed at runtime.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Zero-point correction absorbed into bias</span>
+<span class="n">weight_sum</span> <span class="o">=</span> <span class="n">w_int8_np</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>      <span class="c1"># [N_out]</span>
+<span class="n">zp_correction</span> <span class="o">=</span> <span class="o">-</span><span class="n">d_zp_val</span> <span class="o">*</span> <span class="n">weight_sum</span>                    <span class="c1"># [N_out]</span>
+
+<span class="c1"># Bias converted to accumulator integer scale</span>
+<span class="n">dw_scale</span> <span class="o">=</span> <span class="n">d_scale_val</span> <span class="o">*</span> <span class="n">w_scale_np</span>                       <span class="c1"># per-channel</span>
+<span class="n">bias_accum</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">bias_float</span> <span class="o">/</span> <span class="n">dw_scale</span><span class="p">)</span>                 <span class="c1"># [N_out] int32</span>
+<span class="n">bias_i32</span> <span class="o">=</span> <span class="n">bias_accum</span> <span class="o">+</span> <span class="n">zp_correction</span>                     <span class="c1"># [N_out] int32</span>
+
+<span class="c1"># Output zero-point absorbed into bias too</span>
+<span class="k">if</span> <span class="n">o_zp_val</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">bias_i32</span> <span class="o">+=</span> <span class="nb">round</span><span class="p">(</span><span class="n">o_zp_val</span> <span class="o">/</span> <span class="p">(</span><span class="n">dw_scale</span> <span class="o">/</span> <span class="n">o_scale_val</span><span class="p">))</span>
+
+<span class="c1"># Requantization represented as uint8 fixed-point multiply-shift</span>
+<span class="n">combined_rescale</span> <span class="o">=</span> <span class="n">d_scale_val</span> <span class="o">*</span> <span class="n">w_scale_np</span> <span class="o">/</span> <span class="n">o_scale_val</span>
+<span class="n">scale_u8</span><span class="p">,</span> <span class="n">shift_u8</span> <span class="o">=</span> <span class="n">_float_to_scale_shift</span><span class="p">(</span><span class="n">combined_rescale</span><span class="p">)</span>
+<span class="c1"># → kernel does: out = clip((acc * scale_u8) &gt;&gt; shift_u8, -128, 127)</span>
+</code></pre></div>
+<h3 id="teextern-emission">te.extern Emission</h3>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">te_mmalib_fc_i8</span><span class="p">(</span><span class="n">data_t</span><span class="p">,</span> <span class="n">weight_t</span><span class="p">,</span> <span class="n">bias_t</span><span class="p">,</span> <span class="n">scale_t</span><span class="p">,</span> <span class="n">shift_t</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">fcompute</span><span class="p">(</span><span class="n">ins</span><span class="p">,</span> <span class="n">outs</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">tir</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span>
+            <span class="s2">"int32"</span><span class="p">,</span>
+            <span class="s2">"mmalib_matmul_bias_i8"</span><span class="p">,</span>
+            <span class="n">ins</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>   <span class="c1"># int8 activations  [M, K]</span>
+            <span class="n">ins</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>   <span class="c1"># int8 weights       [N_out, K]</span>
+            <span class="n">ins</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>   <span class="c1"># int32 bias         [N_out]</span>
+            <span class="n">ins</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>   <span class="c1"># uint8 scale        [N_out]</span>
+            <span class="n">ins</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>   <span class="c1"># uint8 shift        [N_out]</span>
+            <span class="n">outs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>  <span class="c1"># int8 output        [..., N_out]</span>
+            <span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">N_out</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">te</span><span class="o">.</span><span class="n">extern</span><span class="p">(</span>
+        <span class="n">data_shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">N_out</span><span class="p">],</span>
+        <span class="p">[</span><span class="n">data_t</span><span class="p">,</span> <span class="n">weight_t</span><span class="p">,</span> <span class="n">bias_t</span><span class="p">,</span> <span class="n">scale_t</span><span class="p">,</span> <span class="n">shift_t</span><span class="p">],</span>
+        <span class="n">fcompute</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">"mmalib_fc"</span><span class="p">,</span>           <span class="c1"># TIR PrimFunc name (different from extern!)</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="s2">"int8"</span><span class="p">,</span>
+    <span class="p">)</span>
+</code></pre></div>
+<p>Weight is passed in natural <code>[N_out, K]</code> layout. The wrapper accepts this
+directly without a reorder step (unlike depthwise conv which reorders at runtime).</p>
+<h2 id="dma-injection-for-fc-layers">DMA Injection for FC Layers</h2>
+<p><code>InjectMMALIBDMA</code> (<code>ti_mmalib_inject_dma.py</code>) explicitly supports
+<code>mmalib_matmul_bias_i8</code> in its <code>_SUPPORTED</code> set.</p>
+<h3 id="dimension-mapping">Dimension Mapping</h3>
+<p>FC has no spatial dimensions, so <code>_extract_dims_fc_i8</code> maps
+the flat <code>[M, K, N]</code> args into the shared conv-shaped slot names:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># call_extern args: (name, input, weights, bias, scale, shift, output, M, K, N)</span>
+<span class="p">{</span>
+    <span class="s2">"input_arg_idx"</span><span class="p">:</span>  <span class="mi">1</span><span class="p">,</span>   <span class="c1"># activations pointer</span>
+    <span class="s2">"weight_arg_idx"</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>   <span class="c1"># weight pointer</span>
+    <span class="s2">"c_in"</span><span class="p">:</span>  <span class="n">K</span><span class="p">,</span>            <span class="c1"># "channels in" = K</span>
+    <span class="s2">"h_in"</span><span class="p">:</span>  <span class="n">M</span><span class="p">,</span>            <span class="c1"># "height"      = M (batch)</span>
+    <span class="s2">"w_in"</span><span class="p">:</span>  <span class="mi">1</span><span class="p">,</span>
+    <span class="s2">"c_out"</span><span class="p">:</span> <span class="n">N</span><span class="p">,</span>
+    <span class="s2">"kh"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">"kw"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Buffer sizes:
+<div class="highlight"><pre><span></span><code>input_bytes  = K * M bytes   (activations)
+weight_bytes = N * K bytes   (weights)
+</code></pre></div></p>
+<h3 id="when-dma-fires">When DMA Fires</h3>
+<p>The pass skips DMA entirely if <code>input_bytes &gt; l2_budget</code> (default 384 KB):</p>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>M</th>
+<th>K</th>
+<th>N</th>
+<th>input KB</th>
+<th>weight KB</th>
+<th>DMA fires?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Decode (single token)</td>
+<td>1</td>
+<td>256</td>
+<td>512</td>
+<td>0.25</td>
+<td>128</td>
+<td>Yes — both</td>
+</tr>
+<tr>
+<td>Prefill seq=64</td>
+<td>64</td>
+<td>256</td>
+<td>512</td>
+<td>16</td>
+<td>128</td>
+<td>Yes — both</td>
+</tr>
+<tr>
+<td>Prefill seq=512</td>
+<td>512</td>
+<td>256</td>
+<td>512</td>
+<td>128</td>
+<td>128</td>
+<td>Yes — both</td>
+</tr>
+<tr>
+<td>Prefill seq=2048</td>
+<td>2048</td>
+<td>256</td>
+<td>512</td>
+<td>512</td>
+<td>128</td>
+<td><strong>No</strong> (&gt;384 KB)</td>
+</tr>
+</tbody>
+</table>
+<p>Weights are only cached if <code>input_bytes + weight_bytes &lt;= l2_budget</code>.</p>
+<h3 id="injected-tir-structure">Injected TIR Structure</h3>
+<p>When DMA fires, the single <code>call_extern</code> is wrapped:</p>
+<div class="highlight"><pre><span></span><code>Allocate l2_guard[int8, guard_bytes]        # SE backward-prefetch guard
+  Allocate l2_input[int8, input_bytes]
+    Allocate l2_weight[int8, weight_bytes]  # omitted if weights don't fit
+      Evaluate(tvm_dsp_dma_copy(0, l2_input,  ddr_input,  input_bytes,  0))
+      Evaluate(tvm_dsp_dma_copy(0, l2_weight, ddr_weight, weight_bytes, 0))
+      Evaluate(tvm_dsp_dma_wait(0, 0))      # block until complete
+      Evaluate(mmalib_matmul_bias_i8(l2_input, l2_weight, bias, scale, shift, ...))
+</code></pre></div>
+<p>The guard allocation (<code>pad_top * w_in * elem_bytes</code>, min 128 bytes)
+bumps the L2 bump pointer so the input buffer does not start at address 0
+of L2, preventing streaming-engine backward-prefetch underflow.</p>
+<p><code>LowerL2SramAlloc</code> later converts each <code>Allocate(scope="global.l2sram")</code>
+to a <code>tvm_l2_alloc(nbytes)</code> call.</p>
+<h2 id="tir-pass-order-c_static-mcpuc7x-mmalib1">TIR Pass Order (c_static -mcpu=c7x -mmalib=1)</h2>
+<div class="highlight"><pre><span></span><code>FuseMMALIBQDQFC / FuseMMALIBQDQConv2d / FuseMMALIBQDQDwConv2d
+FuseInt8ResidualAdd
+FuseQDQToInt8Conv2D
+EliminateQDQRoundTrip
+FuseDequantizeMatmul
+LegalizeOps
+FuseOps → FuseTIR
+InjectMMALIBDMA         ← wraps call_extern with L2 DMA
+ScheduleC7xDMATiling
+InjectSoftwarePipeline
+LowerOpaqueBlock
+FlattenBuffer
+LowerAsyncDMA
+LowerDMAToExtern        ← tir.dma_copy/wait → call_extern
+NarrowDataType(32)
+StorageRewrite
+LowerL2SramAlloc        ← Allocate(l2sram) → tvm_l2_alloc
+MakePackedAPI
+CodeGenCStaticLib
+</code></pre></div>
+<p>MMALIB fusion passes run before standard QDQ passes to capture the full
+<code>dequantize → op → quantize</code> graph before <code>FuseQDQToInt8Conv2D</code>
+collapses it.</p>
+<h2 id="key-implementation-details">Key Implementation Details</h2>
+<h3 id="shared-helpers-ti_mmalib_legalizepy">Shared Helpers (ti_mmalib_legalize.py)</h3>
+<ul>
+<li><code>_float_to_scale_shift(val)</code> — finds <code>s ∈ [0,255]</code>, <code>sh ∈ [0,31]</code> such that
+  <code>s × 2^(-sh) ≈ val</code>. Used for per-channel requantization.</li>
+<li><code>_resolve_constant_tensor(expr)</code> — unwraps <code>reshape</code>/<code>expand_dims</code>/<code>squeeze</code>/<code>astype</code>
+  chains around constants so bias/scale/zp are recognized even when PT2E wraps them.</li>
+</ul>
+<h3 id="two-names-convention">Two-Names Convention</h3>
+<p>Every lowering pass uses two distinct names:
+- <code>extern_name</code>: The literal C symbol (e.g., <code>"mmalib_conv2d_i8"</code>) — must match
+  firmware DLOAD export table exactly.
+- <code>name_hint</code>: The <code>te.extern</code> <code>name=</code> (e.g., <code>"mmalib_conv2d"</code>) — only names
+  the generated TIR PrimFunc and loop variable.</p>
+<p><strong>Never reuse <code>extern_name</code> for <code>name_hint</code></strong> — it creates a local variable
+that shadows the function declaration and breaks the build.</p>
+<h3 id="constant-folding-with-bind_constants">Constant Folding with bind_constants</h3>
+<p>Per <code>fuse_ops.cc</code> (<code>lift_constants = !bind_constants</code>), <code>bind_constants=False</code>
+<strong>lifts</strong> matched <code>relax.Constant</code> leaves out to become parameters of the
+composite function, passed in as call-site arguments — the composite body
+itself normally holds no <code>relax.Constant</code>. <code>bind_constants=True</code> (default)
+leaves them bound inside the composite body instead.</p>
+<p>Both the C7x activation passes (<code>FuseQDQToC7xActivation</code>, <code>FuseQDQToC7xAvgPool</code>,
+<code>FuseQDQToC7xLayerNorm</code>) and the MMALIB QDQ passes use <code>bind_constants=False</code>,
+then recover the constant values from the composite call's arguments via
+<code>_resolve_constant_tensor</code> (dereferencing through <code>PyExprMutator.lookup_binding</code>
+as needed) for compile-time folding — nothing here uses the <code>bind_constants=True</code>
+default.</p>
+<h2 id="related-files">Related Files</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_qdq_fusion.py</code></td>
+<td>Int8 conv2d lowering</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_qdq_dwconv.py</code></td>
+<td>Int8 depthwise lowering</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_qdq_fc.py</code></td>
+<td>Int8 + int16 FC lowering</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_qdq_i16_conv.py</code></td>
+<td>Int16 conv2d lowering</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_qdq_i16_dwconv.py</code></td>
+<td>Int16 depthwise lowering</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_i16_fc.py</code></td>
+<td>Weight-only LLM int16 FC lowering</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_legalize.py</code></td>
+<td>Shared helpers: <code>_float_to_scale_shift</code>, <code>_resolve_constant_tensor</code></td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_inject_dma.py</code></td>
+<td>L2 DMA prefetch (TIR pass)</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/transform/ti_residual_add.py</code></td>
+<td>Residual add lowering</td>
+</tr>
+<tr>
+<td><code>python/tvm/tir/pipeline.py</code></td>
+<td>TIR pipeline wiring</td>
+</tr>
+<tr>
+<td><code>src/target/source/codegen_c.cc</code></td>
+<td>Base <code>PrintCallExtern</code> — turns <code>call_extern</code> into C call</td>
+</tr>
+<tr>
+<td><code>src/target/c_static_lib/codegen_c_static_lib.cc</code></td>
+<td><code>CodeGenCStaticLib::PrintCallExtern</code> override, delegates to the base</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -9,10 +9,10 @@
       
       
       
-        <link rel="prev" href="../firmware/design-deep-dive.html">
+        <link rel="prev" href="mmalib-integration.html">
       
       
-        <link rel="next" href="dsp-suite.html">
+        <link rel="next" href="authoring-passes.html">
       
       
         
@@ -23,7 +23,7 @@
     
     
       
-        <title>Overview - TVM for TI C7™ NPU</title>
+        <title>TIDL Integration - TVM for TI C7™ NPU</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#testing-overview" class="md-skip">
+        <a href="#tidl-integration" class="md-skip">
           Skip to content
         </a>
       
@@ -109,7 +109,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Overview
+              TIDL Integration
             
           </span>
         </div>
@@ -626,6 +626,8 @@
                 
   
   
+    
+  
   
   
     
@@ -641,11 +643,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" checked>
         
           
           <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
@@ -666,7 +668,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -684,7 +686,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../backend/c-static-lib.html" class="md-nav__link">
+      <a href="c-static-lib.html" class="md-nav__link">
         
   
   
@@ -712,7 +714,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../backend/mmalib-integration.html" class="md-nav__link">
+      <a href="mmalib-integration.html" class="md-nav__link">
         
   
   
@@ -737,10 +739,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../backend/tidl-integration.html" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TIDL Integration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="tidl-integration.html" class="md-nav__link md-nav__link--active">
         
   
   
@@ -756,6 +785,114 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Operations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#firmware-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Firmware Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -768,7 +905,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../backend/authoring-passes.html" class="md-nav__link">
+      <a href="authoring-passes.html" class="md-nav__link">
         
   
   
@@ -796,7 +933,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../backend/te-extern-lowering.html" class="md-nav__link">
+      <a href="te-extern-lowering.html" class="md-nav__link">
         
   
   
@@ -824,7 +961,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../backend/codegen-cstatic.html" class="md-nav__link">
+      <a href="codegen-cstatic.html" class="md-nav__link">
         
   
   
@@ -852,7 +989,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../backend/extending-quantizer.html" class="md-nav__link">
+      <a href="extending-quantizer.html" class="md-nav__link">
         
   
   
@@ -880,7 +1017,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../backend/debugging-passes.html" class="md-nav__link">
+      <a href="debugging-passes.html" class="md-nav__link">
         
   
   
@@ -1123,8 +1260,6 @@
                 
   
   
-    
-  
   
   
     
@@ -1140,11 +1275,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
         
           
           <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
@@ -1165,7 +1300,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1180,37 +1315,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Overview
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="overview.html" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../testing/overview.html" class="md-nav__link">
         
   
   
@@ -1226,120 +1334,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#directory-structure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Directory Structure
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#test-tiers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Test Tiers
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#jenkins-pipeline-commands" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Jenkins Pipeline Commands
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Jenkins Pipeline Commands">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#required-environment-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Required environment setup
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#c66x-host-stage-no-hardware" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        c66x host stage (no hardware)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#c7x-host-stage-no-hardware-needs-ti_cgt_c7000_path" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        c7x host stage (no hardware, needs TI_CGT_C7000_PATH)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#c7x-board-stage-am67a-required-never-run-in-background-or-in-parallel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        c7x board stage (AM67A required; never run in background or in parallel)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dsp-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        DSP Tests
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1352,7 +1346,7 @@
   
   
     <li class="md-nav__item">
-      <a href="dsp-suite.html" class="md-nav__link">
+      <a href="../testing/dsp-suite.html" class="md-nav__link">
         
   
   
@@ -1380,7 +1374,7 @@
   
   
     <li class="md-nav__item">
-      <a href="verifying-deployment.html" class="md-nav__link">
+      <a href="../testing/verifying-deployment.html" class="md-nav__link">
         
   
   
@@ -1408,7 +1402,7 @@
   
   
     <li class="md-nav__item">
-      <a href="pt2e-suite.html" class="md-nav__link">
+      <a href="../testing/pt2e-suite.html" class="md-nav__link">
         
   
   
@@ -1436,7 +1430,7 @@
   
   
     <li class="md-nav__item">
-      <a href="quantized-sweep.html" class="md-nav__link">
+      <a href="../testing/quantized-sweep.html" class="md-nav__link">
         
   
   
@@ -1499,10 +1493,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#directory-structure" class="md-nav__link">
+  <a href="#files" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Directory Structure
+        Files
       
     </span>
   </a>
@@ -1510,10 +1504,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#test-tiers" class="md-nav__link">
+  <a href="#pipeline" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Test Tiers
+        Pipeline
       
     </span>
   </a>
@@ -1521,71 +1515,65 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#jenkins-pipeline-commands" class="md-nav__link">
+  <a href="#supported-operations" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Jenkins Pipeline Commands
+        Supported Operations
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Jenkins Pipeline Commands">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#required-environment-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Required environment setup
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#c66x-host-stage-no-hardware" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        c66x host stage (no hardware)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#c7x-host-stage-no-hardware-needs-ti_cgt_c7000_path" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        c7x host stage (no hardware, needs TI_CGT_C7000_PATH)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#c7x-board-stage-am67a-required-never-run-in-background-or-in-parallel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        c7x board stage (AM67A required; never run in background or in parallel)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#dsp-tests" class="md-nav__link">
+  <a href="#configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        DSP Tests
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#firmware-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Firmware Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
       
     </span>
   </a>
@@ -1609,175 +1597,303 @@
 
 
 
-<h1 id="testing-overview">Testing Overview</h1>
-<p>Tests for the TVM TI DSP runtime, covering DSP model execution on C66x
-(AWRL6844) and C7x (J722S/AM67A) targets. Located at
-<code>tests/ti-dsp-runtime/</code>.</p>
-<h2 id="directory-structure">Directory Structure</h2>
+<h1 id="tidl-integration">TIDL Integration</h1>
+<p>Offloading Relax subgraphs to TI Deep Learning (TIDL) on the C7x MMA
+accelerator, via the <code>TIDLOffloadCompiler</code> pipeline in
+<code>python/tvm/relax/backend/tidl/</code>. Non-offloaded ops remain in TVM and
+execute as generated C code on the C7x scalar pipeline.</p>
+<blockquote>
+<p><strong>J722S only.</strong> TIDL subgraph offload requires firmware built with
+<code>--tidl ON</code> (the <code>j722s-evm</code>/AM67A default, which also forces
+<code>--mmalib ON</code>). BeagleY-AI firmware is always built <code>--tidl OFF
+--mmalib ON</code> — no TIDL offload path exists on that board. See
+<a href="mmalib-integration.html#firmware-decoupling-mmalib-from-tidl">MMALIB Integration</a>
+for the firmware-side <code>USE_TIDL_RUNTIME</code>/<code>USE_TI_MMALIB</code> split, and pass
+<code>-tidl-kernels=0</code> when compiling for BeagleY-AI regardless of whether a
+given model uses TIDL subgraph offload at all (it also controls whether
+<code>max_pool2d</code> targets the TIDL-backed kernel).</p>
+</blockquote>
+<p>Target string: <code>c_static_lib -mcpu=c7x</code> (TIDL artifacts are embedded and
+<code>-tidl-runtime=1</code> is applied automatically by <code>TIDLOffloadCompiler.build()</code>
+whenever a model actually produces TIDL subgraphs).</p>
+<h2 id="files">Files</h2>
 <table>
 <thead>
 <tr>
-<th>Directory</th>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>python/tvm/relax/backend/tidl/tidl.py</code></td>
+<td><code>TIDLOffloadCompiler</code>: partition, import, lower, bridge generation, build</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/backend/tidl/patterns.py</code></td>
+<td>TIDL <code>FusionPattern</code> definitions (74 patterns) and Python-side constraint checks</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/backend/tidl/README.md</code></td>
+<td>Full pattern/constraint reference and pipeline architecture (source of truth for this page)</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/tidl/tidl_api.{c,h}</code></td>
+<td>DLOAD-module-side IALG lifecycle (<code>init/process/free_tidl_subgraph</code>)</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/tidl/tidl_api_mem.{c,h}</code></td>
+<td><code>appMemAlloc</code>/<code>appMemFree</code> routed to the TVM DDR heap</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/tidl/ti_mem_manager.{c,h}</code></td>
+<td>Bump allocator for L1/L2/L3 SRAM pools used by TIDL</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/tidl/tidl_host_stubs.c</code></td>
+<td>x86 stubs for firmware-provided symbols, <code>c7x_host</code> builds only</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/tidl/README.md</code></td>
+<td>Runtime-side IALG lifecycle, UDMA sharing, memory pools, known issues</td>
+</tr>
+<tr>
+<td><code>tests/ti-dsp-runtime/tidl-tests/</code></td>
+<td>Partition, codegen, import, and hardware test suites</td>
+</tr>
+</tbody>
+</table>
+<h2 id="pipeline">Pipeline</h2>
+<div class="highlight"><pre><span></span><code>Relax IR (conv2d, relu, pool, softmax, ...)
+    |
+    v
+partition()        FuseOpsByPattern (TIDL patterns) -&gt; MergeCompositeFunctions
+    |               into Codegen="tidl" subgraph functions
+    v
+tidl_import()       Loads tidl_model_import_relax.so; per subgraph:
+    |               ImportInit -&gt; ImportNode -&gt; Link -&gt; Optimize -&gt; PostProcess
+    |               Produces net.bin + params_1.bin artifacts on disk
+    v
+lower_tidl()        Replace Codegen="tidl" functions with TIR PrimFunc stubs;
+    |               each stub emits call_extern("tidl_subgraph_N_process", ...)
+    v
+generate_bridge()   Generate tidl_bridge.c/h resolving the extern calls
+  + relax.build()    c_static_lib codegen emits lib0.c + weights.bin
+    v
+_build_dynmod()     TI C7x cross-compile; embeds TIDL artifacts as .rodata;
+    |               links tidl_api.c (IALG wrapper) + bridge
+    v
+lib0.out  --DLOAD--&gt;  AM67A (J722S): TIDL int8 on MMA + TVM float32 on scalar C7x
+</code></pre></div>
+<p><code>TIDLOffloadCompiler.build(mod, params=params)</code> runs the whole pipeline in
+one call; <code>build(exec_mode="c7x_host")</code> builds an x86-64 host-emulation
+executable instead of a DLOAD module, using the PC TIDL reference
+libraries, for pipeline validation without hardware. Individual stages
+are available for step-by-step debugging — see the README linked above
+for both usage styles.</p>
+<p>Batch normalization is not partitioned as its own pattern: <code>prepare()</code>
+runs <code>FoldBatchnormToConv2D</code> + <code>FoldConstant</code> first, algebraically folding
+inference-mode BN parameters into the preceding conv2d's weight/bias so
+the existing <code>conv2d_bias_relu</code>-style patterns match directly.</p>
+<h2 id="supported-operations">Supported Operations</h2>
+<p>74 patterns across these categories (exact op list and per-pattern
+constraints in <code>python/tvm/relax/backend/tidl/README.md</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Ops</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Convolution</td>
+<td><code>conv2d</code> (plain, +bias, +relu, +clip, and combinations — 6 patterns); <code>conv2d_transpose</code> (plain and +bias — 2 patterns)</td>
+</tr>
+<tr>
+<td>Pooling</td>
+<td><code>max_pool2d</code>, <code>avg_pool2d</code></td>
+</tr>
+<tr>
+<td>Reduction</td>
+<td><code>mean</code> (spatial axes only), <code>sum</code> (single axis), <code>reduce_max</code>/<code>reduce_min</code> (axis=HEIGHT only), <code>argmax</code>/<code>argmin</code> (axis=channel, <code>keepdims=True</code> only)</td>
+</tr>
+<tr>
+<td>Activations</td>
+<td><code>relu</code>, <code>sigmoid</code>, <code>tanh</code>, <code>clip</code> (incl. relu6), <code>leakyrelu</code>, <code>prelu</code>, <code>elu</code>, <code>hard_sigmoid</code>, <code>hard_swish</code>, <code>mish</code></td>
+</tr>
+<tr>
+<td>Element-wise</td>
+<td><code>add</code>, <code>multiply</code>, <code>subtract</code>, <code>divide</code>, <code>maximum</code>, <code>minimum</code> (4-D inputs only)</td>
+</tr>
+<tr>
+<td>Linear</td>
+<td><code>matmul</code>, <code>matmul</code> + bias (FC)</td>
+</tr>
+<tr>
+<td>Attention</td>
+<td><code>softmax</code></td>
+</tr>
+<tr>
+<td>Shape/layout</td>
+<td><code>reshape</code>, <code>flatten</code>, <code>squeeze</code>, <code>expand_dims</code>, <code>strided_slice</code>, <code>permute_dims</code>, <code>concat</code></td>
+</tr>
+<tr>
+<td>Normalization</td>
+<td><code>layer_norm</code>, <code>instance_norm</code></td>
+</tr>
+<tr>
+<td>Data type/padding</td>
+<td><code>astype</code> (cast), <code>nn.pad</code> (constant zero-padding)</td>
+</tr>
+<tr>
+<td>Advanced</td>
+<td><code>image.resize2d</code>, <code>take</code>, <code>topk</code>, <code>split</code>, <code>nn.pixel_shuffle</code> (depth-to-space), <code>broadcast_to</code> (expand), <code>scatter_elements</code>, <code>scatter_nd</code>, <code>image.grid_sample</code></td>
+</tr>
+<tr>
+<td>Math/unary</td>
+<td><code>abs</code>, <code>sqrt</code>, <code>power</code>, <code>exp</code>, <code>log</code>, <code>erf</code>, <code>floor</code>, <code>negative</code>, <code>sin</code>/<code>cos</code>/<code>tan</code>, <code>sinh</code>/<code>cosh</code>, <code>asin</code>/<code>acos</code>/<code>atan</code>/<code>asinh</code></td>
+</tr>
+<tr>
+<td>Quantization (stubs)</td>
+<td><code>quantize</code>, <code>dequantize</code></td>
+</tr>
+</tbody>
+</table>
+<p>Ops not in this list stay on the TVM scalar path automatically — nothing
+needs to be excluded explicitly.</p>
+<h2 id="configuration">Configuration</h2>
+<p><code>TIDLOffloadCompiler(config={...})</code> accepts:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>dsp-cpp/</code></td>
-<td>Build infrastructure: CMakeLists.txt, dsp_utils.py, c7x_dynmod linker scripts, and C++ integration examples</td>
+<td><code>artifacts_dir</code></td>
+<td><code>/tmp/tidl_artifacts</code></td>
+<td>Output directory for TIDL binaries</td>
 </tr>
 <tr>
-<td><code>dsp-tests/</code></td>
-<td>Pytest-based DSP model tests (conv2d, resnet, YOLO, etc.) for c66x_host, c7x_host, and c7x_dload modes</td>
+<td><code>tidl_tools_path</code></td>
+<td>auto-detect from <code>C7X_MMA_TIDL_PATH</code> env</td>
+<td>Path to the TIDL import tool/config</td>
 </tr>
 <tr>
-<td><code>dynamic-tests/</code></td>
-<td>Dynamic shape and control-flow tests (Relax <code>If</code>, dynamic batch) on the c_static_lib/C7x backend</td>
+<td><code>calibration_inputs</code></td>
+<td><strong>required</strong></td>
+<td>List of per-frame numpy arrays (one <code>(1,C,H,W)</code> array per calibration image). Random calibration data is rejected: TIDL derives int8 quantization scales from the statistics of these inputs, so unrepresentative data produces wrong scales and wrong classification results downstream</td>
 </tr>
 <tr>
-<td><code>mmalib-tests/</code></td>
-<td>MMALIB direct-offload tests (int8/int16 conv2d, matmul, depthwise) on the C7x MMA accelerator</td>
+<td><code>num_calibration_frames</code></td>
+<td>1</td>
+<td>Number of calibration iterations</td>
 </tr>
 <tr>
-<td><code>pt2e-tests/</code></td>
-<td><code>C7xMMAQuantizer</code> PT2E quantization and activation/pool/norm fusion tests</td>
+<td><code>skip_failing_subgraphs</code></td>
+<td><code>False</code></td>
+<td>Fall back to TVM instead of raising when a subgraph fails TIDL's own network-compiler/post-processing step</td>
 </tr>
 <tr>
-<td><code>quantized/</code></td>
-<td>INT8/INT16 quantized end-to-end model tests (ResNet, MobileNet, GoogLeNet, Inception)</td>
-</tr>
-<tr>
-<td><code>SmolLM/</code></td>
-<td>SmolLM-135M LLM chat e2e tests: KV cache, IPC protocol, board inference</td>
-</tr>
-<tr>
-<td><code>unit-tests/</code></td>
-<td>Standalone kernel unit tests (activation, avg-pool, clamp, concat, dequantize)</td>
-</tr>
-<tr>
-<td><code>wheel-tests/</code></td>
-<td>Wheel packaging tests: compile + inference e2e via installed <code>tvm_ti_c7x_*</code> wheels</td>
+<td><code>max_subgraphs</code></td>
+<td><code>None</code> (unlimited)</td>
+<td>Cap the number of subgraphs offloaded to TIDL, keeping the top-N by estimated FLOPs</td>
 </tr>
 </tbody>
 </table>
-<h2 id="test-tiers">Test Tiers</h2>
-<p>Three depth markers control how much of the DSP test suite (<code>dsp-tests/</code>)
-runs at each stage:</p>
-<table>
-<thead>
-<tr>
-<th>Marker</th>
-<th>Purpose</th>
-<th>DSP tests</th>
-<th>Time (host)</th>
-<th>Time (board)</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>quick</code></td>
-<td>PR gate</td>
-<td>37 tests</td>
-<td>~20 s</td>
-<td>~2 min</td>
-</tr>
-<tr>
-<td><code>core</code></td>
-<td>Post-merge</td>
-<td>61 tests</td>
-<td>~10 min</td>
-<td>~25 min</td>
-</tr>
-<tr>
-<td><em>(none)</em></td>
-<td>Nightly</td>
-<td>73 tests</td>
-<td>not tracked separately</td>
-<td>not tracked separately</td>
-</tr>
-</tbody>
-</table>
-<p><code>core</code> is a superset of <code>quick</code> for almost all tests; the exception is
-<code>test_mmalib_oc_tile_consistency.py</code>, which is <code>quick</code>-only. See
-<a href="dsp-suite.html">DSP Test Suite</a> for the full test catalogue and
-per-file timing.</p>
-<h2 id="jenkins-pipeline-commands">Jenkins Pipeline Commands</h2>
-<h3 id="required-environment-setup">Required environment setup</h3>
-<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">TVM_HOME</span><span class="o">=</span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span><span class="w">          </span><span class="c1"># or wherever the tvm repo is</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYTHONPATH</span><span class="o">=</span><span class="nv">$TVM_HOME</span>/python:<span class="nv">$PYTHONPATH</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">TI_CGT_C7000_PATH</span><span class="o">=</span>/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+<p>Calibration uses real intermediate activations per subgraph, not just at
+the model's inputs: the compiler augments the partitioned module to also
+emit each TIDL subgraph's <em>inputs</em> as extra outputs, runs that module on
+CPU with the calibration frames, and feeds the collected activations into
+TIDL's own calibration step for that specific subgraph. This matters for
+subgraphs that aren't the first one in the model — their inputs are
+post-activation feature maps, not raw pixel values, so calibrating them
+with the wrong distribution produces wrong int8 scales.</p>
+<h2 id="firmware-integration">Firmware Integration</h2>
+<p>TIDL's algorithm libraries are linked into the <strong>firmware</strong>, not the
+model module (same split as MMALIB's L2 DMA prefetch — see
+<a href="mmalib-integration.html">MMALIB Integration</a>). The firmware exports the
+shared resources a loaded module needs via the DLOAD symbol table
+(IALG function table, DDR heap allocation, the UDMA driver handle, L1/L2
+SRAM pools, cache writeback). TIDL and TVM's own DMA tiling share one
+UDMA driver instance, initialized once at firmware boot.</p>
+<p>Each TIDL subgraph goes through the standard IALG lifecycle at runtime
+(alloc → init → activate → process → deactivate, freed at module unload)
+— see <code>src/runtime/ti_dsp/tidl/README.md</code> for the exact call sequence.
+<code>tidl_bridge_cleanup()</code> releases every TIDL instance's handle, DMA
+channels, and memory records before <code>dyn_loader_unload()</code> frees the
+module's ELF segments, for the same reason MMALIB/TIDL's other cleanup
+ordering matters — see
+<a href="../firmware/design-deep-dive.html#dynamic-module-loading-dload">C Static Lib Backend — Module Unload Lifecycle</a>.</p>
+<h2 id="known-limitations">Known Limitations</h2>
+<ul>
+<li><strong><code>argmax</code>/<code>argmin</code> reducing to a single channel</strong>: <code>axis=1</code> (channel)
+  with <code>keepdims=True</code> on an input where that leaves exactly one output
+  channel hits a TIDL library limitation (a "zero channels processed per
+  call" internal error) for some input configurations. Prefer reducing
+  over a spatial axis instead, or treat the case as <code>xfail</code> if it's
+  intrinsic to the model.</li>
+<li><strong>Softmax-heavy heads may diverge on hardware despite passing host
+  emulation.</strong> A model whose TIDL-offloaded output feeds directly into a
+  TVM-side <code>exp()</code>-based op (e.g. a detection head's distribution-focal-loss
+  softmax) can produce <code>NaN</code> on real hardware (<code>c7x_dload</code>) while passing
+  on the PC AVX reference path (<code>c7x_host</code>) with identical calibration.
+  The C7x MMA and the PC AVX reference round int8 dequantization slightly
+  differently; if that shift pushes values far enough negative, <code>exp()</code>
+  underflows to exactly <code>0.0</code> for every element of a reduction, producing
+  <code>0/0 = NaN</code>. This is a hardware/reference rounding gap, not a
+  calibration bug — per-subgraph calibration (above) is necessary but not
+  sufficient to fix it. If a model hits this, keep the affected head off
+  the TIDL path (either leave it on the TVM scalar path, or use
+  <a href="mmalib-integration.html">MMALIB</a> + <code>C7xMMAQuantizer</code> for that portion of
+  the model instead, which bakes quantization scales into the compiled
+  binary and applies them identically on host and hardware).</li>
+<li><strong>Element-wise ops require rank exactly 4.</strong> A sub-4D use (e.g. an FC
+  bias add with shape <code>(1, N)</code>) is rejected by the pattern's constraint
+  check rather than being offloaded and crashing at runtime.</li>
+<li><strong><code>topk</code> always returns both values and indices.</strong> Request
+  <code>ret_type="both"</code> and extract index <code>[0]</code> for values-only usage.</li>
+</ul>
+<h2 id="testing">Testing</h2>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>tests/ti-dsp-runtime
+
+<span class="c1"># Partition + codegen — no .so, no hardware</span>
+pytest<span class="w"> </span>tidl-tests/test_tidl_partition.py<span class="w"> </span>tidl-tests/test_tidl_codegen.py<span class="w"> </span>-v
+
+<span class="c1"># Per-layer partition tests — no .so, no hardware (~0.3s)</span>
+pytest<span class="w"> </span>tidl-tests/test_tidl_layer_offload.py<span class="w"> </span>-k<span class="w"> </span>TestLayerPartition<span class="w"> </span>-v
+
+<span class="c1"># Import pipeline tests (needs tidl_model_import_relax.so)</span>
+pytest<span class="w"> </span>tidl-tests/test_tidl_relax_import.py<span class="w"> </span>-v
+
+<span class="c1"># Per-layer hardware tests on AM67A (all supported layer types)</span>
+<span class="nv">TI_CGT_C7000_PATH</span><span class="o">=</span>/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>pytest<span class="w"> </span>tidl-tests/test_tidl_layer_offload.py<span class="w"> </span>-k<span class="w"> </span>TestLayerHardware<span class="w"> </span>-v
+
+<span class="c1"># Full model hardware tests</span>
+pytest<span class="w"> </span>tidl-tests/test_tidl_resnet_e2e.py<span class="w"> </span>-v<span class="w"> </span>-s
+pytest<span class="w"> </span>tidl-tests/test_tidl_mv2_e2e.py<span class="w"> </span>-v<span class="w"> </span>-s
+pytest<span class="w"> </span>tidl-tests/test_yolo_dsp.py<span class="w"> </span>-v<span class="w"> </span>-s
 </code></pre></div>
-<p><code>TI_CGT_C7000_PATH</code> is required for all DSP e2e tests.</p>
-<blockquote>
-<p><strong>Note:</strong> the current <code>Jenkinsfile</code> runs a much richer pipeline than
-the manual commands below — separate stages for <code>unit-tests/</code>,
-<code>mmalib-tests/</code>, <code>pt2e-tests/</code>, <code>quantized/</code>, <code>wheel-tests/</code>, and
-<code>SmolLM/</code> in addition to <code>dsp-tests/</code>. The commands here are a manual
-reference for running the DSP suite by hand; there is no c66x stage in
-CI today, but the commands below remain valid for anyone running the
-C66x (AWRL6844) path manually.</p>
-</blockquote>
-<h3 id="c66x-host-stage-no-hardware">c66x host stage (no hardware)</h3>
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="nv">$TVM_HOME</span>
-
-<span class="c1"># PR gate:</span>
-pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">"quick and not c7x_only"</span><span class="w"> </span>--dsp-mode<span class="o">=</span>c66x_host<span class="w"> </span>-v
-
-<span class="c1"># Full — all tests valid for c66x:</span>
-pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not c7x_only"</span><span class="w"> </span>--dsp-mode<span class="o">=</span>c66x_host<span class="w"> </span>-v
-</code></pre></div>
-<h3 id="c7x-host-stage-no-hardware-needs-ti_cgt_c7000_path">c7x host stage (no hardware, needs TI_CGT_C7000_PATH)</h3>
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="nv">$TVM_HOME</span>
-
-<span class="c1"># PR gate:</span>
-pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>-v
-
-<span class="c1"># Post-merge gate:</span>
-pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </span>-m<span class="w"> </span>core<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>-v
-</code></pre></div>
-<h3 id="c7x-board-stage-am67a-required-never-run-in-background-or-in-parallel">c7x board stage (AM67A required; never run in background or in parallel)</h3>
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="nv">$TVM_HOME</span>
-
-<span class="c1"># PR gate:</span>
-pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>-v
-
-<span class="c1"># Post-merge gate:</span>
-pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </span>-m<span class="w"> </span>core<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>-v
-
-<span class="c1"># Nightly full regression:</span>
-pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>-v
-</code></pre></div>
-<blockquote>
-<p><strong>Important:</strong> c7x_dload tests must not be run in parallel or in the
-background.  The AM67A board has a single DSP core; concurrent sessions
-cause DMA-BUF exhaustion and firmware hangs.</p>
-</blockquote>
-<h2 id="dsp-tests">DSP Tests</h2>
-<p>DSP tests require <code>--dsp-mode</code> to select the execution backend.  Tests
-are further organised by architecture marker:</p>
-<table>
-<thead>
-<tr>
-<th>Marker</th>
-<th>Meaning</th>
-<th>Jenkins filter</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>c7x_only</code></td>
-<td>Model too large for C66x, or c7x-specific API</td>
-<td><code>-m "not c7x_only"</code> on c66x stages</td>
-</tr>
-<tr>
-<td><em>(none)</em></td>
-<td>Works on both c66x and c7x</td>
-<td>no filter needed</td>
-</tr>
-</tbody>
-</table>
-<p>See <a href="dsp-suite.html">DSP Test Suite</a> for the full test catalogue,
-per-file timing, and standalone script usage.</p>
+<p>Requirements vary by test tier: pure partition/codegen tests need only
+TVM; import and hardware tests additionally need
+<code>tidl_model_import_relax.so</code> (built from a separate TIDL source tree),
+<code>TI_CGT_C7000_PATH</code>, and, for hardware tests, a connected AM67A/J722S
+board. See <code>tests/ti-dsp-runtime/tidl-tests/README.md</code> for the full test
+list and per-file requirements.</p>
+<h2 id="related-documentation">Related Documentation</h2>
+<ul>
+<li><a href="mmalib-integration.html">MMALIB Integration</a> — the other C7x MMA offload
+  path; firmware <code>--tidl</code>/<code>--mmalib</code> linkage, board differences</li>
+<li><a href="c-static-lib.html">C Static Lib Backend</a> — target configuration, DLOAD
+  deployment</li>
+<li><a href="../firmware/design-deep-dive.html">Firmware Design Deep-Dive</a> — DLOAD
+  module unload ordering, symbol export table</li>
+</ul>
 
 
 

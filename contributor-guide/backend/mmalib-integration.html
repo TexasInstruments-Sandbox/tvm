@@ -9,10 +9,10 @@
       
       
       
-        <link rel="prev" href="c-static.html">
+        <link rel="prev" href="c-static-lib.html">
       
       
-        <link rel="next" href="../dsp-runtime/internals.html">
+        <link rel="next" href="tidl-integration.html">
       
       
         
@@ -686,14 +686,14 @@
   
   
     <li class="md-nav__item">
-      <a href="c-static.html" class="md-nav__link">
+      <a href="c-static-lib.html" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    C Static Backend
+    C Static Lib Backend
   
 
     
@@ -846,6 +846,172 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#qdq-fusion-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        QDQ Fusion Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="QDQ Fusion Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#matched-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matched Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compile-time-parameter-folding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compile-Time Parameter Folding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#eligibility-constraints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Eligibility Constraints
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-pass-order-with-mmalib1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline Pass Order (with -mmalib=1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#l2-dma-prefetch-injectmmalibdma" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2 DMA Prefetch (InjectMMALIBDMA)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#residual-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Residual Add
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runtime-mmalib-wrappers-and-code-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime: MMALIB Wrappers and Code Generation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Runtime: MMALIB Wrappers and Code Generation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#from-pass-to-call_extern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From pass to call_extern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#codegencstaticlib-no-indirection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CodeGenCStaticLib: no indirection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#header-visibility-preinclude-not-a-codegen-declaration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Header visibility: --preinclude, not a codegen declaration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wrapper-internals-alloc-init-exec-free-every-call" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wrapper internals: alloc → init → exec → free, every call
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#temporary-buffers-and-null-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Temporary buffers and NULL defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dload-symbol-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DLOAD symbol resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#key-files-full-pipeline" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -889,10 +1055,189 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="tidl-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TIDL Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="authoring-passes.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authoring Passes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="te-extern-lowering.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    te.extern Lowering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="codegen-cstatic.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CodeGenCStaticLib Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="extending-quantizer.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Quantizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="debugging-passes.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging Passes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -976,34 +1321,6 @@
     
   
     Runtime Internals
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../dsp-runtime/memory-map.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    C7x Memory Map Reference
   
 
     
@@ -1136,65 +1453,9 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../firmware/arm-client-internals.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ARM Host Client Internals
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../hardware-debug.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Hardware Debug Scripts
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -1223,10 +1484,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
         
           
-          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
             
   
   
@@ -1244,8 +1505,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1270,34 +1531,6 @@
     
   
     Overview
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../testing/c-static-suite.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    C Static Suite
   
 
     
@@ -1346,34 +1579,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../testing/dsp-cpp-harness.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    DSP C++ Harness
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../testing/verifying-deployment.html" class="md-nav__link">
         
   
@@ -1382,34 +1587,6 @@
     
   
     Verifying Your Deployment
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../testing/mmalib-suite.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MMALIB Suite
   
 
     
@@ -1466,34 +1643,6 @@
     
   
     Quantized Model Sweep
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../testing/dynamic-shape-limits.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Dynamic Shape Limitations
   
 
     
@@ -1621,6 +1770,172 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#qdq-fusion-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        QDQ Fusion Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="QDQ Fusion Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#matched-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matched Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compile-time-parameter-folding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compile-Time Parameter Folding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#eligibility-constraints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Eligibility Constraints
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-pass-order-with-mmalib1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline Pass Order (with -mmalib=1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#l2-dma-prefetch-injectmmalibdma" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2 DMA Prefetch (InjectMMALIBDMA)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#residual-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Residual Add
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runtime-mmalib-wrappers-and-code-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime: MMALIB Wrappers and Code Generation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Runtime: MMALIB Wrappers and Code Generation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#from-pass-to-call_extern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From pass to call_extern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#codegencstaticlib-no-indirection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CodeGenCStaticLib: no indirection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#header-visibility-preinclude-not-a-codegen-declaration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Header visibility: --preinclude, not a codegen declaration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wrapper-internals-alloc-init-exec-free-every-call" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wrapper internals: alloc → init → exec → free, every call
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#temporary-buffers-and-null-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Temporary buffers and NULL defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dload-symbol-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DLOAD symbol resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#key-files-full-pipeline" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1664,6 +1979,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1682,12 +2008,12 @@
 
 
 <h1 id="mmalib-integration">MMALIB Integration</h1>
-<p>C wrappers that let TVM's <code>c_static</code> backend offload compute-intensive
+<p>C wrappers that let TVM's <code>c_static_lib</code> backend offload compute-intensive
 Relax ops to the C7x MMA (Matrix Multiply Accelerator) coprocessor on
 AM67A (J722S) via TI's MMALIB library, plus the glue that lets the
 firmware and codegen link MMALIB without also requiring TIDL. Located
 at <code>src/runtime/ti_dsp/mmalib/</code>.</p>
-<p>Target string: <code>c_static -mcpu=c7x -mmalib=1</code></p>
+<p>Target string: <code>c_static_lib -mcpu=c7x -mmalib=1</code></p>
 <h2 id="files">Files</h2>
 <table>
 <thead>
@@ -1703,7 +2029,7 @@ at <code>src/runtime/ti_dsp/mmalib/</code>.</p>
 </tr>
 <tr>
 <td><code>tidl_maxpool_wrapper.{h,cpp}</code></td>
-<td><code>max_pool2d</code> wrapper — TIDL-backed (<code>c7x_int8_max_pool_tidl</code>) when the firmware links TIDL, with a scalar fallback (<code>c7x_int8_max_pool</code>) for <code>--tidl OFF</code> builds (e.g. BeagleY-AI)</td>
+<td><code>max_pool2d</code> wrapper — TIDL-backed (<code>c7x_int8_max_pool_tidl</code>) when the firmware links TIDL, falling back to the native vectorized C7x kernel (<code>c7x_int8_max_pool</code> in <code>kernels/c7x_pool_relu.cpp</code>) for <code>--tidl OFF</code> builds (e.g. BeagleY-AI)</td>
 </tr>
 </tbody>
 </table>
@@ -1735,7 +2061,7 @@ by quantization scheme and dtype:</p>
   │    → Float32 ops with no quantization → call_extern("mmalib_conv2d_i16" / "mmalib_matmul_i16")
   │    → Used for weight-only-quantized LLM inference (LegalizeMLPToMMALIBInt16)
   │
-  ▼  CodeGenCStatic
+  ▼  CodeGenCStaticLib
 Generated C code calling wrapper functions
   │
   ▼  Link against MMALIB
@@ -1865,9 +2191,12 @@ TVM compilation, nothing at inference time.</p>
 <li><strong>Codegen</strong>: <code>FuseQDQToTIDLMaxPool</code> — the one pass that unconditionally
   emitted a TIDL-backed kernel even outside TIDL-offload paths — now reads
   a <code>tidl-kernels</code> target attr (default <code>true</code>, preserving prior
-  behavior). Passing <code>-tidl-kernels=0</code> in the <code>c_static</code> target string
-  makes it emit <code>call_extern("c7x_int8_max_pool", ...)</code> (the scalar
-  fallback in <code>tidl_maxpool_wrapper.cpp</code>) instead of
+  behavior). Passing <code>-tidl-kernels=0</code> in the <code>c_static_lib</code> target string
+  makes it emit <code>call_extern("c7x_int8_max_pool", ...)</code> (the native
+  vectorized C7x kernel in <code>kernels/c7x_pool_relu.cpp</code> -- not a scalar
+  fallback; it has its own SE-based fast path for the 3x3/2x2 shapes
+  models actually use, falling back to scalar only for borders and
+  shapes outside that table) instead of
   <code>c7x_int8_max_pool_tidl</code>, so a model with <code>max_pool2d</code> still links
   against a no-TIDL firmware. <strong>Every BeagleY-AI compile must pass
   <code>-tidl-kernels=0</code> explicitly</strong> — codegen has no way to detect what the
@@ -1875,6 +2204,276 @@ TVM compilation, nothing at inference time.</p>
   emits a call to a symbol that doesn't exist there, which fails only at
   DLOAD load time on the board, not at compile time.</li>
 </ul>
+<h2 id="qdq-fusion-design">QDQ Fusion Design</h2>
+<h3 id="matched-pattern">Matched Pattern</h3>
+<p>Every QDQ fusion pass matches this structure (4 pattern variants per op:
+with/without bias × with/without relu):</p>
+<div class="highlight"><pre><span></span><code>dequantize(data, d_scale, d_zp)
+  → op(float, dequantize(weight, w_scale, w_zp=0))
+  → [add(float_bias)] → [relu]
+  → quantize(output, o_scale, o_zp)
+</code></pre></div>
+<p>The whole chain is replaced by one <code>call_extern</code> carrying compile-time
+integer parameters — nothing is computed at inference time.</p>
+<h3 id="compile-time-parameter-folding">Compile-Time Parameter Folding</h3>
+<div class="highlight"><pre><span></span><code># Int8:
+weight_sum[ch]        = sum(weight[ch, :, :, :])
+zp_correction[ch]      = -d_zp * weight_sum[ch]        # absorbs the input zero-point
+bias_i32[ch]           = round(float_bias[ch] / (d_scale * w_scale[ch])) + zp_correction[ch]
+combined_rescale[ch]   = d_scale * w_scale[ch] / o_scale
+(scale_u8[ch], shift_u8[ch]) = best_uint8_approx(combined_rescale[ch])
+
+# Int16 (symmetric only, d_zp = o_zp = 0 enforced by the check function):
+bias_i64[ch]           = round(float_bias[ch] / (d_scale * w_scale[ch]))   # wider accumulator
+combined_rescale[ch]   = d_scale * w_scale[ch] / o_scale
+(scale_u8[ch], shift_u8[ch]) = best_uint8_approx(combined_rescale[ch])
+</code></pre></div>
+<p><code>best_uint8_approx</code> (<code>_float_to_scale_shift</code> in <code>ti_mmalib_legalize.py</code>)
+finds integers <code>s ∈ [0,255]</code>, <code>sh ∈ [0,31]</code> such that <code>s × 2^(-sh) ≈
+combined_rescale[ch]</code> — this <code>(scale, shift)</code> pair is the fixed-point
+requantization format MMALIB expects natively. Precision degrades with
+larger reduction dimension K (error scales roughly as <code>√K</code>); this is why
+int16's accumulator is widened to <code>int64</code>.</p>
+<h3 id="eligibility-constraints">Eligibility Constraints</h3>
+<p>A pass's check function rejects a pattern match — falling back to scalar
+codegen — whenever any of the following hold:</p>
+<ul>
+<li>Weight zero-point (<code>w_zp</code>) is non-zero. MMALIB requires symmetric weight
+  quantization for every op.</li>
+<li>Bias, if present, doesn't resolve to a compile-time constant. PT2E often
+  wraps a 1D bias in <code>reshape(bias, (1, C, 1, 1))</code> before the <code>add</code>; a
+  shared helper (<code>_resolve_constant_tensor</code>) unwraps <code>reshape</code> /
+  <code>expand_dims</code> / <code>squeeze</code> / <code>astype</code> chains around a constant so this is
+  still recognized. If it still can't resolve, the match is rejected
+  outright rather than silently lowering with a dropped bias.</li>
+<li>Any spatial or batch dimension isn't a static, compile-time-known
+  integer, or batch size N isn't 1.</li>
+<li>For depthwise conv2d: <code>groups != C_in</code>, kernel isn't square, kernel size
+  isn't in the allowed set for that dtype, or stride/dilation are outside
+  the supported range (see the <a href="#supported-operations">Supported Operations</a>
+  table).</li>
+<li>For matmul/FC: weight isn't a 2D constant tensor, or K/N aren't multiples
+  of the MMA alignment for that dtype.</li>
+</ul>
+<h2 id="pipeline-pass-order-with-mmalib1">Pipeline Pass Order (with <code>-mmalib=1</code>)</h2>
+<p>The MMALIB-specific stages are inserted into the general <code>c_static</code>
+Relax legalization pipeline (<code>cpu_generic/pipeline.py</code>); everything else in
+this sequence (relu/activation/concat/movement/pooling/layernorm QDQ
+lowering) is shared with non-MMALIB compiles and unaffected by the
+<code>mmalib</code> flag:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="n">is_c7x</span> <span class="ow">and</span> <span class="n">target</span><span class="o">.</span><span class="n">attrs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"mmalib"</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+    <span class="n">passes</span> <span class="o">+=</span> <span class="n">get_mmalib_qdq_passes</span><span class="p">()</span>      <span class="c1"># 8 passes: int8+int16 QDQ fusion</span>
+
+<span class="n">passes</span> <span class="o">+=</span> <span class="p">[</span>
+    <span class="c1"># ... general c_static QDQ-lowering passes, shared with non-MMALIB ...</span>
+    <span class="n">FuseQDQToInt8Conv2D</span><span class="p">(),</span>
+    <span class="n">EliminateQDQRoundTrip</span><span class="p">(),</span>
+    <span class="n">RewriteDequantize</span><span class="p">(),</span>
+<span class="p">]</span>
+
+<span class="k">if</span> <span class="n">is_c7x</span> <span class="ow">and</span> <span class="n">target</span><span class="o">.</span><span class="n">attrs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"mmalib"</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+    <span class="n">passes</span> <span class="o">+=</span> <span class="n">get_mmalib_i16_fc_pass</span><span class="p">()</span>     <span class="c1"># LegalizeMLPToMMALIBInt16 (LLM path)</span>
+
+<span class="n">passes</span> <span class="o">+=</span> <span class="p">[</span><span class="n">FuseDequantizeMatmul</span><span class="p">()]</span>
+
+<span class="k">if</span> <span class="n">is_c7x</span> <span class="ow">and</span> <span class="n">target</span><span class="o">.</span><span class="n">attrs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"mmalib"</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+    <span class="c1"># No NHWC conversion — MMALIB wants NCHW throughout</span>
+    <span class="n">passes</span> <span class="o">+=</span> <span class="p">[</span><span class="n">LegalizeOps</span><span class="p">(</span><span class="n">customize_legalize_map</span><span class="o">=</span><span class="n">get_mmalib_legalize_map</span><span class="p">())]</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">passes</span> <span class="o">+=</span> <span class="p">[</span><span class="n">ConvertLayoutNHWC</span><span class="p">(),</span> <span class="n">LegalizeOps</span><span class="p">(</span><span class="o">...</span><span class="p">)]</span>
+
+<span class="n">passes</span> <span class="o">+=</span> <span class="p">[</span><span class="n">AnnotateTIROpPattern</span><span class="p">(),</span> <span class="n">FoldConstant</span><span class="p">(),</span> <span class="n">FuseOps</span><span class="p">(),</span> <span class="n">FuseTIR</span><span class="p">()]</span>
+
+<span class="k">if</span> <span class="n">is_c7x</span><span class="p">:</span>
+    <span class="n">passes</span> <span class="o">+=</span> <span class="p">[</span><span class="n">ScheduleC7xDMATiling</span><span class="p">(</span><span class="n">l2_budget</span><span class="p">)]</span>   <span class="c1"># DMA tiling for remaining, non-MMALIB conv2d</span>
+</code></pre></div>
+<p>Two further passes run later, once the graph has been lowered from Relax
+into TIR (<code>tvm/tir/pipeline.py</code>, not the Relax pipeline above):
+<code>InjectMMALIBDMA</code> (always active — see next section) and, after it,
+<code>LowerL2SramAlloc</code>, which turns its <code>Allocate(scope="global.l2sram")</code> nodes
+into concrete <code>tvm_l2_alloc</code> calls.</p>
+<h2 id="l2-dma-prefetch-injectmmalibdma">L2 DMA Prefetch (<code>InjectMMALIBDMA</code>)</h2>
+<p><code>InjectMMALIBDMA</code> is a TIR-level pass — it runs on the loop/buffer IR,
+after Relax has already been lowered — invoked unconditionally for every
+<code>c_static</code> compile (it's a no-op if the function contains no MMALIB
+<code>call_extern</code>). It wraps each supported MMALIB call with DMA that stages
+its input (and weights, when they fit) into on-chip L2 SRAM first, trading
+~200-cycle DDR latency for ~32-cycle L2 latency.</p>
+<p><strong>Supported kernels</strong> (7): <code>mmalib_conv2d_i8</code>, <code>mmalib_conv2d_i8_grouped_loop</code>,
+<code>mmalib_conv2d_i16</code>, <code>mmalib_depthwise_conv2d_i8</code>,
+<code>mmalib_depthwise_conv2d_i16</code>, <code>mmalib_matmul_bias_i8</code>,
+<code>mmalib_matmul_bias_i16</code>. The bare, bias-less <code>mmalib_matmul_i8</code>/<code>_i16</code>
+calls (used by the no-bias FC variant and the weight-only LLM path) are
+<strong>not</strong> covered — those always read from DDR directly. Residual add
+(<code>c7x_int8_residual_add_relu</code> / <code>c7x_int16_residual_add_relu</code>) is a native
+C7x kernel, not an MMALIB call, and is also outside this pass's scope — see
+<a href="#residual-add">Residual Add</a>.</p>
+<p>Injected structure, conceptually:</p>
+<div class="highlight"><pre><span></span><code>Allocate l2_guard[guard_bytes]              # prevents SE prefetch underflow
+  Allocate l2_input[input_bytes]
+    Allocate l2_weight[weight_bytes]        # omitted if weights don't fit L2
+      tvm_dsp_dma_copy(l2_input,  ddr_input,  input_bytes)
+      tvm_dsp_dma_copy(l2_weight, ddr_weight, weight_bytes)
+      tvm_dsp_dma_wait(...)
+      mmalib_*(l2_input, l2_weight, ...)
+</code></pre></div>
+<p>The guard allocation (<code>pad_top × W_in × elem_bytes</code> bytes, or a fixed
+128-byte fallback when there's no padding) bumps the L2 bump-pointer
+allocator so the input buffer doesn't start at address 0 — otherwise the
+C7x streaming engine's backward-prefetch can underflow past the start of
+L2. For FC/matmul_bias, the pass maps <code>[M, K, N]</code> matmul dimensions onto
+the same conv-shaped DMA logic (<code>K→C_in</code>, <code>M→H_in</code>, <code>N→C_out</code>).</p>
+<p><strong>Output-channel tiling for oversized weights.</strong> When a plain, ungrouped
+int8 conv2d's weight tensor doesn't fit the L2 budget but its input does,
+<code>InjectMMALIBDMA</code> tiles the weight by output channel instead of skipping
+L2 staging altogether: it emits a loop that DMAs one output-channel chunk
+of the weight into a shared L2 buffer at a time and calls a dedicated
+wrapper, <code>mmalib_conv2d_i8_sliced</code>, once per chunk. This is currently
+int8-only and only for the ungrouped conv2d kernel — int16, depthwise, and
+FC would each need their own sliced wrapper to get the same treatment.</p>
+<h2 id="residual-add">Residual Add</h2>
+<p>Residual (skip-connection) adds are handled by a separate pass,
+<code>ti_residual_add.py</code>, and run on the C7x <strong>scalar</strong> pipeline, not the MMA
+coprocessor — there's no matrix multiply to accelerate here, just a
+fixed-point weighted sum. The pass matches:</p>
+<div class="highlight"><pre><span></span><code>dequantize(x, x_scale, x_zp) + dequantize(skip, skip_scale, skip_zp)
+  → [relu] → quantize(out, out_scale, out_zp)
+</code></pre></div>
+<p>and replaces it with one call to <code>c7x_int8_residual_add_relu</code> or
+<code>c7x_int16_residual_add_relu</code>, computing:</p>
+<div class="highlight"><pre><span></span><code>out[i] = sat(((x[i]-x_zp)*M_x + (skip[i]-skip_zp)*M_skip) &gt;&gt; shift + out_zp)
+</code></pre></div>
+<p>with <code>M_x</code>, <code>M_skip</code>, and <code>shift</code> derived from the quantization scales at
+compile time. Because TVM's pattern matcher isn't commutative
+(<code>add(a, b)</code> doesn't match <code>add(b, a)</code>), there are 4 pattern variants per
+dtype — {relu, no-relu} × {operand order <code>add(x, skip)</code>, order
+<code>add(skip, x)</code>} — 8 total across int8 and int16. Int16 additionally
+requires every zero-point involved to be 0. This eliminates float32
+intermediate computation and cuts per-layer cost from roughly 5–11M cycles
+down to 100–500K cycles.</p>
+<h2 id="runtime-mmalib-wrappers-and-code-generation">Runtime: MMALIB Wrappers and Code Generation</h2>
+<p>Everything above describes how a Relax/TIR pass <em>decides</em> to call a
+wrapper and what integer parameters it computes at compile time. This
+section covers the other two ends of that decision: how it becomes literal
+C source calling the wrapper by name, and what the wrapper actually does
+when the DSP executes it.</p>
+<h3 id="from-pass-to-call_extern">From pass to <code>call_extern</code></h3>
+<p>Each QDQ lowering pass builds the extern call with TVM's <code>te.extern</code> /
+<code>tir.call_extern</code>, inside a helper reused for every variant of that op. For
+int8 conv2d (<code>ti_mmalib_qdq_fusion.py</code>), the call site picks the extern
+function name based on <code>groups</code>, then hands it to a shared emitter:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_emit_conv2d</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extern_name</span><span class="p">,</span> <span class="n">name_hint</span><span class="p">,</span> <span class="n">data_arg</span><span class="p">,</span> <span class="n">kernel_relax</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">fcompute</span><span class="p">(</span><span class="n">ins</span><span class="p">,</span> <span class="n">outs</span><span class="p">):</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"int32"</span><span class="p">,</span> <span class="n">extern_name</span><span class="p">,</span> <span class="n">ins</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="n">ins</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="o">...</span><span class="p">,</span>
+                <span class="n">outs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="n">C_in</span><span class="p">,</span> <span class="n">H_in</span><span class="p">,</span> <span class="n">W_in</span><span class="p">,</span> <span class="n">C_out</span><span class="p">,</span> <span class="n">KH</span><span class="p">,</span> <span class="n">KW</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">tir</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">te_mmalib_conv2d</span><span class="p">(</span><span class="n">data_t</span><span class="p">,</span> <span class="n">weight_t</span><span class="p">,</span> <span class="n">bias_t</span><span class="p">,</span> <span class="n">scale_t</span><span class="p">,</span> <span class="n">shift_t</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">te</span><span class="o">.</span><span class="n">extern</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="n">C_out</span><span class="p">,</span> <span class="n">H_out</span><span class="p">,</span> <span class="n">W_out</span><span class="p">),</span>
+                          <span class="p">[</span><span class="n">data_t</span><span class="p">,</span> <span class="n">weight_t</span><span class="p">,</span> <span class="n">bias_t</span><span class="p">,</span> <span class="n">scale_t</span><span class="p">,</span> <span class="n">shift_t</span><span class="p">],</span>
+                          <span class="n">fcompute</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name_hint</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"int8"</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">builder_</span><span class="o">.</span><span class="n">call_te</span><span class="p">(</span><span class="n">te_mmalib_conv2d</span><span class="p">,</span> <span class="n">data_arg</span><span class="p">,</span> <span class="n">kernel_relax</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+<p><code>extern_name</code> (<code>"mmalib_conv2d_i8"</code> or <code>"mmalib_conv2d_i8_grouped_loop"</code>) is
+the literal C symbol that must resolve at DLOAD load time; <code>name_hint</code>
+(<code>"mmalib_conv2d"</code> / <code>"mmalib_conv2d_grouped_loop"</code>) only names the
+generated TIR loop variable and PrimFunc — it's deliberately a <em>different</em>
+string. Reusing the extern name for <code>te.extern</code>'s own <code>name=</code> would make
+the C codegen emit a local variable named <code>mmalib_conv2d_i8</code> holding the
+output buffer pointer, which shadows the real function declaration and
+breaks the build. Every op file (<code>ti_mmalib_qdq_fc.py</code>,
+<code>ti_mmalib_qdq_dwconv.py</code>, and their int16 counterparts) follows the same
+two-names split.</p>
+<h3 id="codegencstaticlib-no-indirection"><code>CodeGenCStaticLib</code>: no indirection</h3>
+<p>There's no function-pointer table or dispatch layer — <code>call_extern</code> is
+printed as a literal function call by name. The base C codegen
+(<code>src/target/source/codegen_c.cc</code>) handles <code>tir::builtin::call_extern()</code> by
+printing the function name followed by its arguments (<code>PrintCallExtern</code>):</p>
+<div class="highlight"><pre><span></span><code><span class="kt">void</span><span class="w"> </span><span class="nf">CodeGenC::PrintCallExtern</span><span class="p">(</span><span class="n">Type</span><span class="w"> </span><span class="n">ret_type</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">global_symbol</span><span class="p">,</span>
+<span class="w">                                </span><span class="k">const</span><span class="w"> </span><span class="n">Array</span><span class="o">&lt;</span><span class="n">PrimExpr</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">args</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">skip_first_arg</span><span class="p">,</span>
+<span class="w">                                </span><span class="n">std</span><span class="o">::</span><span class="n">ostream</span><span class="o">&amp;</span><span class="w"> </span><span class="n">os</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">os</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">global_symbol</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">"("</span><span class="p">;</span>
+<span class="w">  </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">skip_first_arg</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w"> </span><span class="o">++</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">this</span><span class="o">-&gt;</span><span class="n">PrintExpr</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="n">os</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="n">os</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">", "</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="n">os</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">")"</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>So <code>tir.call_extern("int32", "mmalib_conv2d_i8", a0, a1, ...)</code> becomes
+literally <code>mmalib_conv2d_i8(a0, a1, ...)</code> in the generated C.
+<code>CodeGenCStaticLib</code> (<code>src/target/c_static_lib/codegen_c_static_lib.cc</code>) overrides this
+method only to track VM register usage for a few unrelated AnyList
+builtins, then delegates to the base implementation for everything else —
+MMALIB calls pass through unmodified.</p>
+<h3 id="header-visibility-preinclude-not-a-codegen-declaration">Header visibility: <code>--preinclude</code>, not a codegen declaration</h3>
+<p>The generated file never gets an inline forward declaration for
+<code>mmalib_conv2d_i8</code> from the codegen itself — <code>CodeGenCStaticLib</code> doesn't
+override the (empty-by-default) <code>GenerateForwardFunctionDeclarations</code> hook
+that <code>CodeGenCHost</code> uses for its own host-side extern calls. Instead, the
+DSP-side build passes <code>--preinclude=mmalib_wrappers.h</code> to the TI compiler
+for every generated translation unit
+(<code>src/runtime/ti_dsp/dynmod/CMakeLists.txt</code>), so every generated <code>lib*.c</code>
+file sees the wrapper prototypes without needing its own <code>#include</code> or
+<code>extern</code> line.</p>
+<h3 id="wrapper-internals-alloc-init-exec-free-every-call">Wrapper internals: alloc → init → exec → free, every call</h3>
+<p>MMALIB kernels follow an IALG-style init/exec lifecycle, and the C++
+wrappers in <code>mmalib_wrappers.cpp</code> re-run all of it — allocate, init, exec,
+free — on <strong>every single call</strong>; there's no handle cached across calls
+(despite an older doc comment in the same file suggesting otherwise — worth
+treating that comment as stale). A small RAII struct keeps this safe:</p>
+<div class="highlight"><pre><span></span><code><span class="k">struct</span><span class="w"> </span><span class="nc">Workspace</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="n">ptr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">nullptr</span><span class="p">;</span>
+<span class="w">    </span><span class="o">~</span><span class="n">Workspace</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ptr</span><span class="p">)</span><span class="w"> </span><span class="n">TVMBackendFreeWorkspace</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">ptr</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="n">alloc</span><span class="p">(</span><span class="kt">int32_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">ptr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TVMBackendAllocWorkspace</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="kt">uint64_t</span><span class="p">)</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">ptr</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><code>mmalib_conv2d_i8</code>, for example, builds MMALIB's own <code>bufParams</code>/<code>InitArgs</code>
+structs describing the input/weight/bias/output buffers, sizes a handle with
+<code>MMALIB_CNN_convolveBias_row_ixX_ixX_oxX_getHandleSize()</code>, allocates it from
+the DDR heap through <code>Workspace</code>, calls <code>..._init(...)</code>, then <code>..._exec(...)</code>
+— and the handle frees itself when the wrapper returns. For strided
+convolutions this alloc/init/exec cycle repeats once per output-channel
+chunk. <code>mmalib_matmul_bias_i8</code> follows the same shape with a single
+init/exec pair and no chunking. Every wrapper checks its pointer arguments
+for NULL and returns <code>-1</code> before calling into MMALIB at all; MMALIB's own
+<code>_init</code>/<code>_exec</code> status codes are then propagated straight through as the
+wrapper's return value.</p>
+<h3 id="temporary-buffers-and-null-defaults">Temporary buffers and NULL defaults</h3>
+<p>All scratch memory comes from <code>TVMBackendAllocWorkspace</code> (64-byte-aligned
+DDR), never the stack — the file's own header calls this out as a
+deliberate choice ("no stack arrays"). Two wrappers need real scratch space
+beyond the MMA handle itself: <code>mmalib_depthwise_conv2d_i8</code>/<code>_i16</code> reorder
+the weight tensor from its natural <code>[C, 1, KH, KW]</code> layout into MMALIB's
+internal column-interleaved format into a temporary buffer, and — when the
+output row stride isn't aligned to the hardware's 64-byte (i8) / 32-byte
+(i16) boundary — write into a padded temporary output buffer and copy it
+back row-by-row afterward.</p>
+<p>Every wrapper that takes optional bias/scale/shift substitutes an identity
+value when the caller passes <code>NULL</code> — a zeroed bias buffer, a scale of 1, a
+shift of 0 — rather than branching on every call site inside MMALIB
+itself. This is what lets the plain float→int16 legalize path (no
+quantization parameters at all) and the QDQ paths (real per-channel
+scale/shift) share the same wrapper functions.</p>
+<h3 id="dload-symbol-resolution">DLOAD symbol resolution</h3>
+<p>The 10 MMALIB wrapper functions are compiled into the C7x firmware and
+exported into a static symbol table
+(<code>src/runtime/ti_dsp/firmware/c7x/dsp/src/dyn_loader.c</code>):</p>
+<div class="highlight"><pre><span></span><code><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_conv2d_i8</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_conv2d_i8_sliced</span><span class="p">),</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_conv2d_i8_grouped_loop</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_conv2d_i16</span><span class="p">),</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_matmul_i8</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_matmul_i16</span><span class="p">),</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_depthwise_conv2d_i8</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_depthwise_conv2d_i16</span><span class="p">),</span>
+<span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_matmul_bias_i8</span><span class="p">),</span><span class="w"> </span><span class="n">SYM</span><span class="p">(</span><span class="n">mmalib_matmul_bias_i16</span><span class="p">),</span>
+</code></pre></div>
+<p>A compiled inference module (<code>lib0.out</code>) is a separately-built DLOAD ELF
+that calls these as <em>unresolved</em> external symbols; TVM's DLOAD dynamic
+loader resolves each one against this table at load time, against the
+already-linked firmware. No MMALIB code is statically linked into the
+module itself — only the header declarations (via <code>--preinclude</code>, above)
+are needed to compile it. Firmware changes require a rebuild; see
+<code>src/runtime/ti_dsp/mmalib/README.md</code> and the <code>firmware</code> skill for the
+build procedure.</p>
 <h2 id="key-files-full-pipeline">Key Files (Full Pipeline)</h2>
 <table>
 <thead>
@@ -1926,11 +2525,15 @@ TVM compilation, nothing at inference time.</p>
 </tr>
 <tr>
 <td><code>src/runtime/ti_dsp/mmalib/mmalib_wrappers.{h,cpp}</code></td>
-<td>C wrappers (8 entry points)</td>
+<td>C wrappers (10 entry points)</td>
 </tr>
 <tr>
 <td><code>src/runtime/ti_dsp/mmalib/tidl_maxpool_wrapper.{h,cpp}</code></td>
-<td><code>max_pool2d</code> wrapper (TIDL-backed + scalar fallback)</td>
+<td><code>max_pool2d</code> wrapper (TIDL-backed)</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/kernels/c7x_pool_relu.cpp</code></td>
+<td>Native vectorized C7x <code>max_pool2d</code> kernel (<code>c7x_int8_max_pool</code>), used for <code>--tidl OFF</code> builds</td>
 </tr>
 <tr>
 <td><code>src/runtime/ti_dsp/kernels/c7x_residual_add.{cpp,h}</code></td>
@@ -1950,7 +2553,7 @@ TVM compilation, nothing at inference time.</p>
 </tr>
 <tr>
 <td><code>src/runtime/ti_dsp/firmware/c7x/dsp/src/dyn_loader.c</code></td>
-<td>Exports 8 MMALIB symbols + guards TIDL-only symbols</td>
+<td>Exports 10 MMALIB symbols + guards TIDL-only symbols</td>
 </tr>
 <tr>
 <td><code>tests/ti-dsp-runtime/mmalib-tests/</code></td>
@@ -1964,6 +2567,7 @@ TVM compilation, nothing at inference time.</p>
 </table>
 <h2 id="testing">Testing</h2>
 <div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>tests/ti-dsp-runtime
+<span class="nb">export</span><span class="w"> </span><span class="nv">TI_CGT_C7000_PATH</span><span class="o">=</span>/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
 
 <span class="c1"># Quick unit tests — all MMALIB kernels, host emulation</span>
 pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>mmalib-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>-v
@@ -1972,10 +2576,10 @@ pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w">
 pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>mmalib-tests/<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host
 
 <span class="c1"># ResNet-18 int8 with MMALIB (host emulation)</span>
-pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/test_quantized_resnet_dsp.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>--mmalib
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>quantized/test_quantized_resnet.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>--mmalib
 
 <span class="c1"># ResNet-18 int8 with MMALIB (AM67A hardware)</span>
-pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/test_quantized_resnet_dsp.py<span class="w"> </span>-v<span class="w"> </span><span class="se">\</span>
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>quantized/test_quantized_resnet.py<span class="w"> </span>-v<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>--use-cpp-api<span class="w"> </span>--mmalib<span class="w"> </span>--profile
 
 <span class="c1"># PT2E int8 models (MobileNet V2)</span>
@@ -2079,6 +2683,14 @@ coprocessor reads from fast L2 scratchpad instead of slow DDR.</p>
   5×5 and 7×7 return <code>MMALIB_ERR_NOT_IMPLEMENTED</code> (tracked as MMALIB-882)</li>
 <li>INT16 QDQ activation quantization: always symmetric — d_zp and o_zp must be 0.
   Asymmetric patterns are rejected by the i16 check functions and fall through to float</li>
+</ul>
+<h2 id="related-documentation">Related Documentation</h2>
+<ul>
+<li><a href="c-static-lib.html">C Static Lib Backend</a> — Target config, pass ordering, DMA tiling</li>
+<li><a href="te-extern-lowering.html">te.extern Lowering</a> — Full compilation chain, dispatch sites</li>
+<li><a href="authoring-passes.html">Authoring Passes</a> — Writing new MMALIB fusion passes</li>
+<li><a href="extending-quantizer.html">Extending Quantizer</a> — Adding ops to C7xMMAQuantizer</li>
+<li><a href="debugging-passes.html">Debugging Passes</a> — --dump-ir, TVM_LOG_DEBUG, composite inspection</li>
 </ul>
 
 

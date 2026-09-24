@@ -23,7 +23,7 @@
     
     
       
-        <title>C Static Backend - TVM for TI C7™ NPU</title>
+        <title>C Static Lib Backend - TVM for TI C7™ NPU</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#c-static-backend" class="md-skip">
+        <a href="#c-static-lib-backend" class="md-skip">
           Skip to content
         </a>
       
@@ -109,7 +109,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              C Static Backend
+              C Static Lib Backend
             
           </span>
         </div>
@@ -702,7 +702,7 @@
   <span class="md-ellipsis">
     
   
-    C Static Backend
+    C Static Lib Backend
   
 
     
@@ -713,14 +713,14 @@
           <span class="md-nav__icon md-icon"></span>
         </label>
       
-      <a href="c-static.html" class="md-nav__link md-nav__link--active">
+      <a href="c-static-lib.html" class="md-nav__link md-nav__link--active">
         
   
   
   <span class="md-ellipsis">
     
   
-    C Static Backend
+    C Static Lib Backend
   
 
     
@@ -769,10 +769,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#when-to-use-c_static" class="md-nav__link">
+  <a href="#when-to-use-c_static_lib" class="md-nav__link">
     <span class="md-ellipsis">
       
-        When to Use c_static
+        When to Use c_static_lib
       
     </span>
   </a>
@@ -1035,10 +1035,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#cross-repository-structure" class="md-nav__link">
+  <a href="#components" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cross-Repository Structure
+        Components
       
     </span>
   </a>
@@ -1123,6 +1123,228 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#pass-ordering-critical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pass Ordering (Critical)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pass Ordering (Critical)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#relax-legalization-pipeline-with-mmalib1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relax Legalization Pipeline (with -mmalib=1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tir-pipeline-post-fusetir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIR Pipeline (post-FuseTIR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-mmalib-passes-run-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why MMALIB Passes Run First
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#centralized-pass-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Centralized Pass Registry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#teextern-call_extern-codegencstaticlib-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        te.extern → call_extern → CodeGenCStaticLib Chain
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="te.extern → call_extern → CodeGenCStaticLib Chain">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-chain-in-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Chain in Detail
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#all-teextern-dispatch-sites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        All te.extern Dispatch Sites
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-names-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two-Names Convention
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dma-injection-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DMA Injection Pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DMA Injection Pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supported-kernels-7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Kernels (7)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#injected-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Injected Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-channel-tiling-for-oversized-weights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output-Channel Tiling for Oversized Weights
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l2-sram-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2 SRAM Budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file-inventory_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Inventory
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#constreachability-and-the-decline-branch-helper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ConstReachability and the Decline-Branch Helper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ConstReachability and the Decline-Branch Helper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#constreachability-the-real-demonstrated-hazard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ConstReachability: the real, demonstrated hazard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inline_declined_composite-defense-in-depth-not-a-fix-for-a-reproduced-crash" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        inline_declined_composite: defense-in-depth, not a fix for a reproduced crash
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1157,17 +1379,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#code-generation-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Code Generation Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#key-data-structures" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1194,17 +1405,6 @@
   
     <nav class="md-nav" aria-label="C++ API for VM Operations">
       <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#performance-benefits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Performance Benefits
-      
-    </span>
-  </a>
-  
-</li>
         
           <li class="md-nav__item">
   <a href="#how-it-works_1" class="md-nav__link">
@@ -1242,66 +1442,16 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Building and Testing">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#build-tvm-with-c_static-backend" class="md-nav__link">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build TVM with c_static Backend
+        Related Documentation
       
     </span>
   </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#build-static-runtime-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Build Static Runtime (Optional)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#run-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Run Tests
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#build-dsp-runtime" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Build DSP Runtime
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#verify-installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Verify Installation
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1329,6 +1479,174 @@
     
   
     MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="tidl-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TIDL Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="authoring-passes.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authoring Passes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="te-extern-lowering.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    te.extern Lowering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="codegen-cstatic.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CodeGenCStaticLib Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="extending-quantizer.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Quantizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="debugging-passes.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging Passes
   
 
     
@@ -1420,34 +1738,6 @@
     
   
     Runtime Internals
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../dsp-runtime/memory-map.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    C7x Memory Map Reference
   
 
     
@@ -1580,65 +1870,9 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../firmware/arm-client-internals.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ARM Host Client Internals
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../hardware-debug.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Hardware Debug Scripts
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -1667,10 +1901,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
         
           
-          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
             
   
   
@@ -1688,8 +1922,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1714,34 +1948,6 @@
     
   
     Overview
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../testing/c-static-suite.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    C Static Suite
   
 
     
@@ -1790,34 +1996,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../testing/dsp-cpp-harness.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    DSP C++ Harness
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../testing/verifying-deployment.html" class="md-nav__link">
         
   
@@ -1826,34 +2004,6 @@
     
   
     Verifying Your Deployment
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../testing/mmalib-suite.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MMALIB Suite
   
 
     
@@ -1910,34 +2060,6 @@
     
   
     Quantized Model Sweep
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../testing/dynamic-shape-limits.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Dynamic Shape Limitations
   
 
     
@@ -2016,10 +2138,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#when-to-use-c_static" class="md-nav__link">
+  <a href="#when-to-use-c_static_lib" class="md-nav__link">
     <span class="md-ellipsis">
       
-        When to Use c_static
+        When to Use c_static_lib
       
     </span>
   </a>
@@ -2282,10 +2404,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#cross-repository-structure" class="md-nav__link">
+  <a href="#components" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cross-Repository Structure
+        Components
       
     </span>
   </a>
@@ -2370,6 +2492,228 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#pass-ordering-critical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pass Ordering (Critical)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pass Ordering (Critical)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#relax-legalization-pipeline-with-mmalib1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relax Legalization Pipeline (with -mmalib=1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tir-pipeline-post-fusetir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIR Pipeline (post-FuseTIR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-mmalib-passes-run-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why MMALIB Passes Run First
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#centralized-pass-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Centralized Pass Registry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#teextern-call_extern-codegencstaticlib-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        te.extern → call_extern → CodeGenCStaticLib Chain
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="te.extern → call_extern → CodeGenCStaticLib Chain">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-chain-in-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Chain in Detail
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#all-teextern-dispatch-sites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        All te.extern Dispatch Sites
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-names-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two-Names Convention
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dma-injection-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DMA Injection Pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DMA Injection Pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supported-kernels-7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Kernels (7)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#injected-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Injected Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-channel-tiling-for-oversized-weights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output-Channel Tiling for Oversized Weights
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l2-sram-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2 SRAM Budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file-inventory_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Inventory
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#constreachability-and-the-decline-branch-helper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ConstReachability and the Decline-Branch Helper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ConstReachability and the Decline-Branch Helper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#constreachability-the-real-demonstrated-hazard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ConstReachability: the real, demonstrated hazard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inline_declined_composite-defense-in-depth-not-a-fix-for-a-reproduced-crash" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        inline_declined_composite: defense-in-depth, not a fix for a reproduced crash
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2404,17 +2748,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#code-generation-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Code Generation Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#key-data-structures" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2441,17 +2774,6 @@
   
     <nav class="md-nav" aria-label="C++ API for VM Operations">
       <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#performance-benefits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Performance Benefits
-      
-    </span>
-  </a>
-  
-</li>
         
           <li class="md-nav__item">
   <a href="#how-it-works_1" class="md-nav__link">
@@ -2489,66 +2811,16 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Building and Testing">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#build-tvm-with-c_static-backend" class="md-nav__link">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build TVM with c_static Backend
+        Related Documentation
       
     </span>
   </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#build-static-runtime-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Build Static Runtime (Optional)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#run-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Run Tests
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#build-dsp-runtime" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Build DSP Runtime
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#verify-installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Verify Installation
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -2569,8 +2841,8 @@
 
 
 
-<h1 id="c-static-backend">C Static Backend</h1>
-<p>The <code>c_static</code> backend is a specialized C code generator for TVM that produces
+<h1 id="c-static-lib-backend">C Static Lib Backend</h1>
+<p>The <code>c_static_lib</code> backend is a specialized C code generator for TVM that produces
 standalone static binaries for Relax VM execution. It generates portable C/C++
 code suitable for embedded deployment, including optimized support for TI C66x
 and C7x DSP processors.</p>
@@ -2582,13 +2854,17 @@ and C7x DSP processors.</p>
 <li><a href="#c66x-dsp-quick-start">C66x DSP Quick Start</a></li>
 <li><a href="#c7x-dsp-and-dload-deployment">C7x DSP and DLOAD Deployment</a></li>
 <li><a href="#c7x-dma-tiling">C7x DMA Tiling</a></li>
+<li><a href="#pass-ordering-critical">Pass Ordering (Critical)</a></li>
+<li><a href="#teextern-call_extern-codegencstaticlib-chain">te.extern → call_extern → CodeGenCStaticLib Chain</a></li>
+<li><a href="#dma-injection-pipeline">DMA Injection Pipeline</a></li>
+<li><a href="#constreachability-and-the-decline-branch-helper">ConstReachability and the Decline-Branch Helper</a></li>
 <li><a href="#architecture">Architecture</a></li>
 <li><a href="#c-api-for-vm-operations">C++ API for VM Operations</a></li>
 <li><a href="#building-and-testing">Building and Testing</a></li>
 </ul>
 <h2 id="overview">Overview</h2>
-<h3 id="when-to-use-c_static">When to Use c_static</h3>
-<p>Use the <code>c_static</code> backend when you need:</p>
+<h3 id="when-to-use-c_static_lib">When to Use c_static_lib</h3>
+<p>Use the <code>c_static_lib</code> backend when you need:</p>
 <ul>
 <li><strong>Static binary deployment</strong>: Self-contained executables without shared library
   dependencies</li>
@@ -2603,29 +2879,28 @@ and C7x DSP processors.</p>
 <li>Parameter serialization in binary or C source formats</li>
 <li>Multi-input/multi-output model support</li>
 <li>TI DSP support with cycle-accurate profiling</li>
-<li>C++ API mode for reduced FFI overhead (12% faster on DSP)</li>
+<li>C++ API mode for reduced FFI overhead (~12% faster on DSP)</li>
 </ul>
 <h2 id="target-configuration">Target Configuration</h2>
 <h3 id="basic-usage">Basic Usage</h3>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">tvm</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">tvm</span><span class="w"> </span><span class="kn">import</span> <span class="n">relax</span>
 
-<span class="c1"># Basic c_static target</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static"</span><span class="p">)</span>
+<span class="c1"># Basic c_static_lib target</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static_lib"</span><span class="p">)</span>
 
 <span class="c1"># Target TI C66x DSP</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c66x"</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static_lib -mcpu=c66x"</span><span class="p">)</span>
 
 <span class="c1"># Target TI C7x DSP (AM67A/J722S via DLOAD)</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c7x"</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static_lib -mcpu=c7x"</span><span class="p">)</span>
 
 <span class="c1"># Compile model</span>
 <span class="n">mod</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">LegalizeOps</span><span class="p">()(</span><span class="n">mod</span><span class="p">)</span>
 <span class="n">ex</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="target-attributes-reference">Target Attributes Reference</h3>
-<p>See <a href="../../user-guide/compilation.html#target-attributes-reference">Compilation -- Target Attributes
-Reference</a>
+<p>See <a href="../../user-guide/compilation.html#target-attributes-reference">Compilation — Target Attributes Reference</a>
 for the full attribute table (including <code>tidl-kernels</code>/<code>tidl-runtime</code>,
 not reproduced here).</p>
 <h3 id="ti-dsp-runtime">TI DSP Runtime</h3>
@@ -2639,15 +2914,15 @@ instead of the standard VM FFI dispatch.</p>
 designed for bare-metal and RTOS environments. Key differences from the
 standard TVM runtime:</p>
 <ul>
-<li><strong>No VM class</strong> -- c_static emits direct function calls to builtin
+<li><strong>No VM class</strong> — c_static_lib emits direct function calls to builtin
   stubs instead of bytecode interpretation</li>
-<li><strong>Static memory pools</strong> -- pre-allocated L2 SRAM (fast) and L3/DDR
+<li><strong>Static memory pools</strong> — pre-allocated L2 SRAM (fast) and L3/DDR
   (main) pools with bump-pointer allocation; no <code>malloc()</code> at runtime</li>
-<li><strong>No exceptions or RTTI</strong> -- error handling via <code>ModelError</code> enum
+<li><strong>No exceptions or RTTI</strong> — error handling via <code>ModelError</code> enum
   return codes, compatible with TI CGT compiler constraints</li>
-<li><strong>C struct FFI</strong> -- 16-byte <code>TVMFFIAny</code> with manual ref counting
+<li><strong>C struct FFI</strong> — 16-byte <code>TVMFFIAny</code> with manual ref counting
   instead of C++ <code>tvm::ffi::Any</code> with smart pointers</li>
-<li><strong>Platform abstraction</strong> -- implementations for host emulation (PC),
+<li><strong>Platform abstraction</strong> — implementations for host emulation (PC),
   C66x (AWRL6844), and C7x (AM67A/J722S)</li>
 </ul>
 <p>See <a href="../dsp-runtime/internals.html">DSP Runtime Internals</a> for build
@@ -2671,8 +2946,8 @@ the source tree.</p>
         <span class="c1"># ... model definition</span>
         <span class="k">pass</span>
 
-<span class="c1"># Compile with c_static backend</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static"</span><span class="p">)</span>
+<span class="c1"># Compile with c_static_lib backend</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static_lib"</span><span class="p">)</span>
 <span class="n">mod</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">LegalizeOps</span><span class="p">()(</span><span class="n">MLPModule</span><span class="p">)</span>
 <span class="n">ex</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">)</span>
 
@@ -2682,6 +2957,7 @@ the source tree.</p>
 <h3 id="2-generated-files">2. Generated Files</h3>
 <p>After compilation, you get:
 - <code>lib0.c</code> - Main computation kernels
+- <code>lib1.c</code> - Additional kernels (for large models, split for parallel build)
 - <code>lib0.h</code> - Header with function declarations
 - <code>weights.bin</code> - Model parameters (if binary mode)</p>
 <h3 id="3-integration-example">3. Integration Example</h3>
@@ -2701,15 +2977,15 @@ the source tree.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">tvm</span>
 
 <span class="c1"># C66x with default optimizations (recommended)</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c66x"</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static_lib -mcpu=c66x"</span><span class="p">)</span>
 <span class="c1"># Defaults enabled: -use-cpp-api=1, -skip-runtime-checks=1</span>
 
 <span class="c1"># With layer profiling</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c66x -profile-layers=1"</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static_lib -mcpu=c66x -profile-layers=1"</span><span class="p">)</span>
 
 <span class="c1"># Disable optimizations for debugging</span>
 <span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span>
-    <span class="s2">"c_static -mcpu=c66x "</span>
+    <span class="s2">"c_static_lib -mcpu=c66x "</span>
     <span class="s2">"-skip-runtime-checks=0 "</span>
     <span class="s2">"-use-cpp-api=0"</span>
 <span class="p">)</span>
@@ -2721,8 +2997,8 @@ the source tree.</p>
 
 <span class="c1"># Build DSP runtime</span>
 <span class="nb">cd</span><span class="w"> </span><span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp
-mkdir<span class="w"> </span>build-c66x<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>build-c66x
-cmake<span class="w"> </span>-DCMAKE_TOOLCHAIN_FILE<span class="o">=</span>../cmake/toolchain-awrl6844.cmake<span class="w"> </span>..
+mkdir<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>build
+cmake<span class="w"> </span>..
 cmake<span class="w"> </span>--build<span class="w"> </span>.
 </code></pre></div>
 <h3 id="run-on-c66x-hardware">Run on C66x Hardware</h3>
@@ -2746,20 +3022,20 @@ pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </
 pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c66x<span class="w"> </span>--profile-layers
 </code></pre></div>
 <h2 id="c7x-dsp-and-dload-deployment">C7x DSP and DLOAD Deployment</h2>
-<p>The c_static backend supports deploying TVM-compiled models to the TI C7x
+<p>The c_static_lib backend supports deploying TVM-compiled models to the TI C7x
 DSP on the AM67A (J722S) SoC via runtime dynamic loading. Instead of
 linking the model into the DSP firmware at build time, the generated code is
 compiled into a relocatable C7x ELF module that the firmware's DLOAD
 dynamic linker loads at runtime over RPMessage IPC from Linux.</p>
 <h3 id="end-to-end-flow">End-to-End Flow</h3>
 <div class="highlight"><pre><span></span><code>  Dev Host                                   AM67A / J722S Board
- ─────────                                  ─────────────────────
+ ─────────                                  ────────────────────
 
  ┌────────────────────────┐
  │    TVM Compiler        │
  │    (Python)            │
  │                        │
- │  target = "c_static    │
+ │ target = "c_static_lib │
  │           -mcpu=c7x"   │
  └──────────┬─────────────┘
             │
@@ -2767,7 +3043,7 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.</p>
             ▼
  ┌──────────┴─────────────┐
  │                        ├───▶  lib0.c       (computation kernels)
- │   c_static codegen     │
+ │   c_static_lib codegen     │
  │                        ├───▶  weights.bin  (model parameters)
  └──────────┬─────────────┘
             │
@@ -2783,7 +3059,7 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.</p>
             │
             │  scp to AM67A
             │
-  ══════════╪═════════════════════════════════════════════════════
+  ══════════════════════════════════════════════════════════════════════════════
             │
             ▼
  ┌──────────┴─────────────┐          ┌────────────────────────────┐
@@ -2796,7 +3072,7 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.</p>
  │                        │          │    resolve exported syms,  │
  │                        │          │    apply relocations       │
  │                        │          │                            │
- │  2. infer               ├─────────▶│  Call cg_main_dsp():       │
+ │  2. infer              ├─────────▶│  Call cg_main_dsp():       │
  │     --input X.bin      │          │    build DLTensors from    │
  │                        │◀─────────┤    shared DDR, run model,  │
  │                        │          │    write output to DDR     │
@@ -2809,10 +3085,10 @@ dynamic linker loads at runtime over RPMessage IPC from Linux.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">tvm</span>
 
 <span class="c1"># C7x with default optimizations (recommended)</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c7x"</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static_lib -mcpu=c7x"</span><span class="p">)</span>
 
 <span class="c1"># With layer profiling</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static -mcpu=c7x -profile-layers=1"</span><span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static_lib -mcpu=c7x -profile-layers=1"</span><span class="p">)</span>
 </code></pre></div>
 <p>When <code>mcpu=c7x</code> is set, the following defaults apply:</p>
 <table>
@@ -2876,11 +3152,13 @@ deployment as a single file (<code>lib0.out</code>). For ResNet-18, this produce
 <h3 id="building-a-dload-module">Building a DLOAD Module</h3>
 <p>The build process uses a two-stage link with TI CGT C7000:</p>
 <p><strong>Stage 1</strong> -- Build a pseudo-firmware (<code>dsp_syms.out</code>) containing stub
-<code>__declspec(dllexport)</code> declarations of the symbols the firmware
-exports (127 in the current symbol list, spanning the C library, TVM
-runtime, VM builtins, math, and MMALIB wrappers). This provides
-link-time symbol definitions so the TI linker can resolve references in
-<code>lib0.c</code> without the actual firmware binary.</p>
+<code>__declspec(dllexport)</code> declarations of the symbols the firmware exports
+(spanning the C library, TVM runtime, VM builtins, math, and MMALIB
+wrappers -- see <a href="../firmware/architecture.html#dynamic-module-loading-dload">Firmware Architecture -- Dynamic Module Loading
+(DLOAD)</a> for the
+current count). This provides link-time symbol definitions so the TI
+linker can resolve references in <code>lib0.c</code> without the actual firmware
+binary.</p>
 <p><strong>Stage 2</strong> -- Compile <code>lib0.c</code> with the TI C++ compiler and link it
 against <code>dsp_syms.out</code> using the DLOAD linker script (<code>c7x_dynmod.cmd</code>):
 - <code>--dynamic=lib</code> -- produce a relocatable shared library ELF
@@ -2905,7 +3183,7 @@ build, deploy, and usage instructions, and
 <a href="../firmware/design-deep-dive.html">Firmware Design Deep-Dive</a> for
 architecture and DLOAD internals.</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># On dev host: compile model and build DLOAD module</span>
-<span class="nv">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>tvm.target.Target<span class="o">(</span><span class="s2">"c_static -mcpu=c7x"</span><span class="o">)</span>
+<span class="nv">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>tvm.target.Target<span class="o">(</span><span class="s2">"c_static_lib -mcpu=c7x"</span><span class="o">)</span>
 <span class="c1"># ... (produces lib0.c + weights.bin)</span>
 <span class="c1"># ... (TI CGT C7000 build produces lib0.out)</span>
 
@@ -2930,56 +3208,48 @@ pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/test_conv2d_dsp.py<
 <span class="c1"># ResNet-18 on C7x via DLOAD</span>
 pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/test_resnet_dsp.py<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>--use-cpp-api
 </code></pre></div>
-<h3 id="cross-repository-structure">Cross-Repository Structure</h3>
-<p>The C7x DLOAD flow spans two repositories:</p>
+<h3 id="components">Components</h3>
+<p>The C7x flow consists of the following components:</p>
 <table>
 <thead>
 <tr>
 <th>Component</th>
-<th>Repository</th>
 <th>Path</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>c_static code generator</td>
-<td><code>tvm</code></td>
-<td><code>src/target/c_static/</code></td>
+<td>c_static_lib code generator</td>
+<td><code>src/target/c_static_lib/</code></td>
 </tr>
 <tr>
 <td>TI DSP runtime</td>
-<td><code>tvm</code></td>
 <td><code>src/runtime/ti_dsp/</code></td>
 </tr>
 <tr>
 <td><code>bin_to_asm.py</code> (weights embedder)</td>
-<td><code>tvm</code></td>
 <td><code>src/runtime/ti_dsp/scripts/</code></td>
 </tr>
 <tr>
 <td>DLOAD linker script + stubs</td>
-<td><code>tvm</code></td>
 <td><code>src/runtime/ti_dsp/dynmod/c7x_dynmod/</code></td>
 </tr>
 <tr>
 <td>C7x DLOAD build scripts (test harness)</td>
-<td><code>tests/ti-dsp-runtime</code></td>
 <td><code>dsp-cpp/</code></td>
 </tr>
 <tr>
 <td>DSP firmware + host CLI</td>
-<td><code>tvm</code></td>
 <td><code>src/runtime/ti_dsp/firmware/c7x/</code></td>
 </tr>
 <tr>
 <td>pytest integration tests</td>
-<td><code>tests/ti-dsp-runtime</code></td>
 <td><code>dsp-tests/</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="c7x-dma-tiling">C7x DMA Tiling</h2>
-<p>When targeting <code>c_static -mcpu=c7x</code>, the compiler automatically applies
+<p>When targeting <code>c_static_lib -mcpu=c7x</code>, the compiler automatically applies
 DMA-based double-buffered tiling to conv2d layers whose working set
 exceeds the L2 SRAM budget.  This overlaps data movement (DDR to L2)
 with computation using the C7x DMA engine.</p>
@@ -3032,7 +3302,7 @@ StorageRewrite
 MakePackedAPI
 </code></pre></div>
 <p><strong>Stage 3 -- C codegen and linking</strong></p>
-<p>The c_static codegen emits <code>tvm_dsp_dma_copy()</code> and
+<p>The c_static_lib codegen emits <code>tvm_dsp_dma_copy()</code> and
 <code>tvm_dsp_dma_wait()</code> as regular C function calls.  The DSP runtime
 header (<code>dma/tvm_dsp_dma.h</code>) is included via <code>kDSPHeaders</code> in the code
 template.  At link time, the calls resolve to:</p>
@@ -3151,7 +3421,7 @@ emulation and C7x hardware.</p>
 <td><code>LowerDMAToExtern</code> pass (TIR intrinsics to call_extern)</td>
 </tr>
 <tr>
-<td><code>src/target/c_static/codegen_c_static_templates.h</code></td>
+<td><code>src/target/c_static_lib/codegen_c_static_lib_templates.h</code></td>
 <td><code>kDSPHeaders</code> includes <code>dma/tvm_dsp_dma.h</code></td>
 </tr>
 <tr>
@@ -3176,17 +3446,321 @@ emulation and C7x hardware.</p>
 </tr>
 </tbody>
 </table>
+<h2 id="pass-ordering-critical">Pass Ordering (Critical)</h2>
+<p>The pass ordering in <code>python/tvm/relax/backend/cpu_generic/pipeline.py</code>
+determines whether MMALIB offload works. <strong>MMALIB QDQ fusion passes MUST
+run before the generic QDQ elimination passes</strong> — otherwise the
+<code>quantize → dequantize</code> pairs between consecutive quantized layers are
+removed, destroying the pattern the MMALIB passes need to match.</p>
+<h3 id="relax-legalization-pipeline-with-mmalib1">Relax Legalization Pipeline (with <code>-mmalib=1</code>)</h3>
+<div class="highlight"><pre><span></span><code>1.  [MMALIB] get_mmalib_qdq_passes()      ← MUST RUN FIRST; sees intact QDQ
+2.  CanonicalizeBindings + DCE            ← collapse PT2E tuple artifacts
+3.  EliminateQDQTransparent               ← remove dequant/quant around no-op ops
+                                             (max_pool2d, reshape, permute, flatten, cat)
+3a. FuseQDQToC7xActivation               ← gelu, silu, hardsigmoid, hardswish → c7x_int8_*
+3b. FuseQDQToC7xAvgPool                   ← global/spatial avg_pool2d → c7x_int8_*_avg_pool
+3c. FuseQDQToC7xLayerNorm                ← layer_norm → c7x_int8_layer_norm
+4.  FuseQDQToInt8Conv2D                   ← generic int8 conv for non-MMALIB ops
+5.  EliminateQDQRoundTrip                 ← remove float round-trip between layers
+6.  RewriteDequantize                     ← normalize weight-only quant pattern
+7.  DCE
+8.  [MMALIB] LegalizeMLPToMMALIBInt16     ← int16 MLP offload; before step 9
+9.  FuseDequantizeMatmul                  ← weight-only attention matmul
+10. [MMALIB] LegalizeOps(custom map)  |
+      [non-MMALIB] ConvertLayoutNHWC +   |  ← mutually exclusive branches
+                 LegalizeOps()         |
+11. AnnotateTIROpPattern + FoldConstant + FuseOps + FuseTIR   ← Relax → TIR
+12. ScheduleC7xDMATiling               ← non-MMALIB conv L2 tiling (TIR)
+</code></pre></div>
+<h3 id="tir-pipeline-post-fusetir">TIR Pipeline (post-FuseTIR)</h3>
+<div class="highlight"><pre><span></span><code>InjectMMALIBDMA         ← wraps MMALIB call_extern with L2 DMA
+ScheduleC7xDMATiling    ← DMA tiling for remaining non-MMALIB conv2d
+InjectSoftwarePipeline
+LowerOpaqueBlock
+FlattenBuffer
+LowerAsyncDMA
+LowerDMAToExtern        ← tir.dma_copy/wait → call_extern
+NarrowDataType(32)
+StorageRewrite
+LowerL2SramAlloc        ← Allocate(l2sram) → tvm_l2_alloc
+MakePackedAPI
+CodeGenCStaticLib
+</code></pre></div>
+<h3 id="why-mmalib-passes-run-first">Why MMALIB Passes Run First</h3>
+<p>Between two consecutive quantized layers, the generic passes
+<code>FuseQDQToInt8Conv2D</code> and <code>EliminateQDQRoundTrip</code> remove the intermediate
+<code>quantize → dequantize</code> pair. This destroys the very pattern the MMALIB
+passes need to match (<code>dequantize → op → quantize</code>). Running MMALIB
+passes first means they see the intact graph PT2E produced, where every
+layer boundary still has explicit quantize/dequantize nodes.</p>
+<h3 id="centralized-pass-registry">Centralized Pass Registry</h3>
+<p>All MMALIB pass construction lives in <code>ti_mmalib_passes.py</code> via three
+factory functions:</p>
+<ul>
+<li><code>get_mmalib_qdq_passes()</code> — the 8 int8 + int16 QDQ fusion passes, in
+  dependency order.</li>
+<li><code>get_mmalib_i16_fc_pass()</code> — <code>LegalizeMLPToMMALIBInt16</code> (the LLM path);
+  must run after <code>RewriteDequantize</code> and before <code>FuseDequantizeMatmul</code>.</li>
+<li><code>get_mmalib_legalize_map()</code> — the <code>{op: legalize_fn}</code> map handed to
+  <code>LegalizeOps</code> for the no-quantization int16 legalize path.</li>
+</ul>
+<p><code>pipeline.py</code> calls these functions and is never edited directly when a new
+MMALIB pass is added — this avoids scattering <code>if
+target.attrs.get("mmalib")</code> checks throughout the general pipeline code.</p>
+<h2 id="teextern-call_extern-codegencstaticlib-chain">te.extern → call_extern → CodeGenCStaticLib Chain</h2>
+<p>Every C7x kernel dispatch follows the same four-step chain:</p>
+<div class="highlight"><pre><span></span><code>Relax op(s)
+  → FuseOpsByPattern (composite)
+  → PyExprMutator → builder_.call_te(te_fn, ...)
+  → te.extern → tir.call_extern
+  → CodeGenCStaticLib → C function call
+</code></pre></div>
+<h3 id="the-chain-in-detail">The Chain in Detail</h3>
+<ol>
+<li>
+<p><strong>Relax Pattern Match</strong> — <code>FuseOpsByPattern</code> matches a QDQ pattern
+   (e.g., <code>dequantize → conv2d → quantize</code>) and creates a <code>Composite</code>
+   function.</p>
+</li>
+<li>
+<p><strong>Lowering via PyExprMutator</strong> — A custom <code>PyExprMutator</code> subclass
+   extracts constants, folds quantization math at compile time, and calls
+   <code>builder_.call_te(te_kernel_fn, ...)</code>.</p>
+</li>
+<li>
+<p><strong>te.extern Emission</strong> — <code>te.extern</code> creates an <code>ExternOp</code> that
+   lowers to a TIR <code>PrimFunc</code> containing a single
+   <code>tir.call_extern("int32", "kernel_name", ...)</code>.</p>
+</li>
+<li>
+<p><strong>CodeGenCStaticLib</strong> — The base <code>CodeGenC::PrintCallExtern</code> prints
+   <code>call_extern</code> as a literal C function call:
+   <code>kernel_name(arg0, arg1, ...)</code>.</p>
+</li>
+</ol>
+<h3 id="all-teextern-dispatch-sites">All te.extern Dispatch Sites</h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Extern name</th>
+<th>Inputs</th>
+<th>Output dtype</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ti_mmalib_legalize.py</code></td>
+<td><code>mmalib_matmul_i16</code></td>
+<td><code>[a, b]</code></td>
+<td>int16</td>
+</tr>
+<tr>
+<td><code>ti_mmalib_legalize.py</code></td>
+<td><code>mmalib_conv2d_i16</code></td>
+<td><code>[data, weight]</code></td>
+<td>int16</td>
+</tr>
+<tr>
+<td><code>ti_mmalib_qdq_fusion.py</code></td>
+<td><code>mmalib_conv2d_i8</code></td>
+<td><code>[data, weight, bias, scale, shift]</code></td>
+<td>int8</td>
+</tr>
+<tr>
+<td><code>ti_mmalib_qdq_dwconv.py</code></td>
+<td><code>mmalib_depthwise_conv2d_i8</code></td>
+<td><code>[data, weight, bias, scale, shift]</code></td>
+<td>int8</td>
+</tr>
+<tr>
+<td><code>ti_mmalib_qdq_fc.py</code></td>
+<td><code>mmalib_matmul_bias_i8</code></td>
+<td><code>[data, weight, bias, scale, shift]</code></td>
+<td>int8</td>
+</tr>
+<tr>
+<td><code>ti_mmalib_i16_fc.py</code></td>
+<td><code>mmalib_matmul_bias_i16</code></td>
+<td><code>[data, weight, bias, scale, shift]</code></td>
+<td>int16</td>
+</tr>
+<tr>
+<td><code>ti_residual_add.py</code></td>
+<td><code>c7x_int8_residual_add_relu</code></td>
+<td><code>[x, skip, params]</code></td>
+<td>int8</td>
+</tr>
+<tr>
+<td><code>fuse_dequantize_matmul.py</code></td>
+<td><code>c7x_dequantize_vecmatmul</code></td>
+<td><code>[act, w, scale]</code></td>
+<td>float32</td>
+</tr>
+<tr>
+<td><code>ti_fuse_sdpa_decode.py</code></td>
+<td><code>c7x_sdpa_decode</code></td>
+<td><code>[q, k, v, mask]</code></td>
+<td>float32</td>
+</tr>
+</tbody>
+</table>
+<p>See <a href="te-extern-lowering.html">te-extern-lowering.md</a> for the full compilation
+chain, parameter folding, and DMA injection details.</p>
+<h3 id="two-names-convention">Two-Names Convention</h3>
+<p>Every lowering pass uses two distinct names:
+- <code>extern_name</code>: The literal C symbol (e.g., <code>"mmalib_conv2d_i8"</code>) — must match
+  firmware DLOAD export table exactly.
+- <code>name_hint</code>: The <code>te.extern</code> <code>name=</code> (e.g., <code>"mmalib_conv2d"</code>) — only names
+  the generated TIR PrimFunc and loop variable.</p>
+<p><strong>Never reuse <code>extern_name</code> for <code>name_hint</code></strong> — it creates a local variable
+that shadows the function declaration and breaks the build.</p>
+<h2 id="dma-injection-pipeline">DMA Injection Pipeline</h2>
+<p><code>InjectMMALIBDMA</code> (TIR pass, <code>ti_mmalib_inject_dma.py</code>) wraps each
+supported MMALIB <code>call_extern</code> with L2 SRAM staging. It runs after
+<code>FuseTIR</code> and before <code>ScheduleC7xDMATiling</code>.</p>
+<h3 id="supported-kernels-7">Supported Kernels (7)</h3>
+<ul>
+<li><code>mmalib_conv2d_i8</code></li>
+<li><code>mmalib_conv2d_i8_grouped_loop</code></li>
+<li><code>mmalib_conv2d_i16</code></li>
+<li><code>mmalib_depthwise_conv2d_i8</code></li>
+<li><code>mmalib_depthwise_conv2d_i16</code></li>
+<li><code>mmalib_matmul_bias_i8</code></li>
+<li><code>mmalib_matmul_bias_i16</code></li>
+</ul>
+<p><strong>Not covered</strong> (always read from DDR directly):
+- <code>mmalib_matmul_i8</code> / <code>mmalib_matmul_i16</code> (bias-less variants)
+- <code>c7x_int8_residual_add_relu</code> / <code>c7x_int16_residual_add_relu</code> (native C7x kernels)</p>
+<h3 id="injected-structure">Injected Structure</h3>
+<div class="highlight"><pre><span></span><code>Allocate l2_guard[guard_bytes]              # prevents SE prefetch underflow
+  Allocate l2_input[input_bytes]
+    Allocate l2_weight[weight_bytes]        # omitted if weights don't fit L2
+      tvm_dsp_dma_copy(l2_input,  ddr_input,  input_bytes)
+      tvm_dsp_dma_copy(l2_weight, ddr_weight, weight_bytes)
+      tvm_dsp_dma_wait(...)
+      mmalib_*(l2_input, l2_weight, ...)
+</code></pre></div>
+<p>The guard allocation (<code>pad_top × W_in × elem_bytes</code>, min 128 bytes) bumps
+the L2 bump-pointer so the input buffer doesn't start at address 0 —
+otherwise the C7x streaming engine's backward-prefetch can underflow.</p>
+<h3 id="output-channel-tiling-for-oversized-weights">Output-Channel Tiling for Oversized Weights</h3>
+<p>When a plain, ungrouped int8 conv2d's weight tensor doesn't fit the L2
+budget but its input does, <code>InjectMMALIBDMA</code> tiles the weight by output
+channel: emits a loop that DMAs one output-channel chunk at a time and
+calls <code>mmalib_conv2d_i8_sliced</code> once per chunk. Currently int8-only and
+only for ungrouped conv2d.</p>
+<h3 id="l2-sram-budget">L2 SRAM Budget</h3>
+<p>Default: 384 KB (half of 1.25 MB L2 SRAM, leaving room for double-buffering
+and other allocations). Configurable via <code>ScheduleC7xDMATiling(l2_budget)</code>.</p>
+<h3 id="file-inventory_1">File Inventory</h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>python/tvm/relax/transform/ti_mmalib_inject_dma.py</code></td>
+<td><code>InjectMMALIBDMA</code> TIR pass</td>
+</tr>
+<tr>
+<td><code>python/tvm/tir/pipeline.py</code></td>
+<td>TIR pipeline wiring</td>
+</tr>
+<tr>
+<td><code>python/tvm/tir/transform/lower_l2sram_alloc.py</code></td>
+<td><code>LowerL2SramAlloc</code> pass</td>
+</tr>
+<tr>
+<td><code>src/runtime/ti_dsp/dma/tvm_dsp_dma.h</code></td>
+<td>DMA API header</td>
+</tr>
+</tbody>
+</table>
+<h2 id="constreachability-and-the-decline-branch-helper">ConstReachability and the Decline-Branch Helper</h2>
+<p>Two related-but-distinct mechanisms, both driven by <code>bind_constants=False</code>
+(see <a href="authoring-passes.html#the-bind_constants-parameter">Authoring Passes</a> for what that flag
+actually does):</p>
+<h3 id="constreachability-the-real-demonstrated-hazard">ConstReachability: the real, demonstrated hazard</h3>
+<p><code>ConstReachability</code> (<code>ti_c7x_const_reachability.py</code>) answers "is this
+operand's value fully determined at compile time, with no runtime input?"
+The C7x QDQ-fusion passes run <em>before</em> <code>FoldConstant</code> on purpose — folding a
+weight's <code>dequantize(int8_const, scale_const)</code> too early would expand int8
+weights back to float32 in <code>weights.bin</code>. Running first means these passes
+still see plain <code>Var</code>s, not yet the <code>relax.Constant</code> nodes <code>FoldConstant</code>
+would otherwise have produced.</p>
+<p>That ordering has one demonstrated failure mode: if an <em>entire</em> matched
+subgraph happens to depend only on constants (e.g. a fixed
+continuous-position-bias table applied to a constant coordinate buffer, not
+the image), a pass can still wrap it in a <code>call_extern</code> to a C7x-only DSP
+kernel. <code>FoldConstant</code>, running later, tries to evaluate that call eagerly
+via a host LLVM JIT to fold it, can't resolve the DSP-only symbol, and
+segfaults instead of raising cleanly. <code>ConstReachability</code> lets a pass check
+reachability <em>before</em> choosing the extern path, so an all-constant match
+falls through to the portable/generic lowering instead.</p>
+<p><strong>Status: fixed and currently active</strong>, not just a historical note — the
+guard (<code>self._const_reach.is_const(...)</code>) is live today in all three passes
+this shipped in (<code>be39717c39</code>, joining a pre-existing guard in
+<code>fuse_dequantize_matmul.py</code>): <code>ti_fuse_qdq_c7x_movement.py</code>,
+<code>ti_fuse_qdq_c7x_relu.py</code>, and <code>fuse_dequantize_matmul.py</code>. Regression
+coverage is two-layered: unit tests
+(<code>test_movement_pass.py::test_constant_tensor_input_declines_and_still_compiles</code>
+and the equivalents in <code>test_relu_pass.py</code>) assert the match declines <em>and</em>
+that the module still compiles cleanly through
+<code>LegalizeOps → FoldConstant → FuseOps → FuseTIR</code>; and the original
+real-world trigger — Swin's relative-position-bias table — is exercised
+end-to-end via <code>swin_b</code>/<code>swin_v2_{b,s,t}</code> in
+<code>quantized/test_quantized_torchvision.py</code>.</p>
+<h3 id="inline_declined_composite-defense-in-depth-not-a-fix-for-a-reproduced-crash">inline_declined_composite: defense-in-depth, not a fix for a reproduced crash</h3>
+<p>When a lowerer declines a match (its check function returns <code>False</code>), the
+matched call is not automatically consumed — it remains as a <code>Call</code> to the
+composite <code>GlobalVar</code>. <code>FuseTIR</code>'s <code>TIRFuseMutator</code> fuses <em>every</em>
+<code>Primitive</code>-tagged <code>GlobalVar</code> still in the module regardless of whether
+anything still calls it, so a composite left un-consumed depends on legalizing
+and fusing cleanly entirely on its own.</p>
+<p><code>inline_declined_composite</code> (<code>ti_c7x_composite_inline.py</code>) guards against
+that: it re-emits the composite's own body back into the caller, restoring
+the ungrouped ops <code>FuseOpsByPattern</code> started from, and the caller is expected
+to run <code>relax.transform.DeadCodeElimination()(mod)</code> afterward so the
+now-orphaned composite function is actually deleted (inlining only rewrites
+the call site). It's called from inside a lowerer's decline branch — it is a
+plain helper function, not a standalone pass:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Inside a PyExprMutator's decline branch (e.g. FuseQDQToC7xMovement)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tvm.relax.transform.ti_c7x_composite_inline</span><span class="w"> </span><span class="kn">import</span> <span class="n">inline_declined_composite</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eligible</span><span class="p">(</span><span class="n">matched</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">inline_declined_composite</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">builder_</span><span class="p">,</span> <span class="n">call</span><span class="p">,</span> <span class="n">func</span><span class="p">)</span>
+</code></pre></div>
+<p>This landed in <code>ti_fuse_qdq_c7x_movement.py</code> and <code>ti_fuse_qdq_c7x_relu.py</code>
+(commit <code>b64d0fa3bf</code>). <strong>Important scope caveat</strong>, added in a follow-up
+correction (<code>d1c0f41f27</code>): no model on this tree has been shown to <em>require</em>
+it. <code>bind_constants=False</code> maps to <code>lift_constant_=true</code> in <code>fuse_ops.cc</code>, so
+matched <code>relax.Constant</code> leaves are lifted to composite <em>parameters</em>, not
+embedded in the body — a declined composite left in place was measured to
+compile cleanly through <code>LegalizeOps</code>/<code>FoldConstant</code>/<code>FuseOps</code>/<code>FuseTIR</code>. This
+helper is defense-in-depth for the <code>TIRFuseMutator</code> invariant above, not a fix
+for a crash anyone reproduced on this path.</p>
+<p>The intermittent <code>"Relax.Constant is not supported in primitive functions"</code>
+crash these passes were <em>once</em> suspected of causing came from somewhere else
+entirely: a stale parameter index in <code>FunctionCreator::CreateFunction</code>
+(<code>src/relax/transform/fuse_ops.cc</code>) when splicing several partially-used
+tuple parameters, fixed in <code>6fe9a33f09</code>. <strong>If that error reappears, capture
+the stack trace and rule this out before reaching for a decline-path
+change.</strong></p>
 <h2 id="architecture">Architecture</h2>
 <h3 id="directory-structure">Directory Structure</h3>
-<div class="highlight"><pre><span></span><code>src/target/c_static/
-|-- codegen_c_static.h           # Core code generator class
-|-- codegen_c_static.cc          # Main implementation (~1800 lines)
-|-- codegen_c_static_dsp.h       # DSP extension class
-|-- codegen_c_static_dsp.cc      # TI DSP pragmas, profiling
-|-- codegen_c_static_wrapper.h   # Wrapper generator class
-|-- codegen_c_static_wrapper.cc  # C++ wrapper generation
-|-- codegen_c_static_templates.h # Code templates (headers, helpers)
-|-- weight_packer.cc             # Weight/constant serialization to weights.bin
+<div class="highlight"><pre><span></span><code>src/target/c_static_lib/
+|-- codegen_c_static_lib.h           # Core code generator class
+|-- codegen_c_static_lib.cc          # Main implementation (~1800 lines)
+|-- codegen_c_static_lib_dsp.h       # DSP extension class
+|-- codegen_c_static_lib_dsp.cc      # TI DSP pragmas, profiling
+|-- codegen_c_static_lib_wrapper.h   # Wrapper generator class
+|-- codegen_c_static_lib_wrapper.cc  # C++ wrapper generation
+|-- codegen_c_static_lib_templates.h # Code templates (headers, helpers)
+|-- weight_packer.cc                 # Weight/constant serialization to weights.bin
 </code></pre></div>
 <h3 id="modular-components">Modular Components</h3>
 <table>
@@ -3198,7 +3772,7 @@ emulation and C7x hardware.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>CodeGenCStatic</code></td>
+<td><code>CodeGenCStaticLib</code></td>
 <td>Core TIR-to-C code generation, inherits from CodeGenC</td>
 </tr>
 <tr>
@@ -3211,16 +3785,6 @@ emulation and C7x hardware.</p>
 </tr>
 </tbody>
 </table>
-<h3 id="code-generation-flow">Code Generation Flow</h3>
-<ol>
-<li><strong>IR Analysis</strong>: Examine TVM IR to detect function signatures and return types</li>
-<li><strong>VM Builtin Emission</strong>: <code>EmitAnylistVMBuiltinCall</code> converts compact anylist intrinsics to C++ API</li>
-<li><strong>Register Allocation</strong>: Calculate register file requirements per function</li>
-<li><strong>Parameter Processing</strong>: Handle serialization (binary or source format)</li>
-<li><strong>DSP Optimization</strong>: <code>DSPCodeGenExtension</code> emits TI-specific pragmas</li>
-<li><strong>Wrapper Generation</strong>: <code>WrapperGenerator</code> creates C++ wrapper functions</li>
-<li><strong>Output</strong>: Produce compilation units suitable for static binary generation</li>
-</ol>
 <h3 id="key-data-structures">Key Data Structures</h3>
 <div class="highlight"><pre><span></span><code><span class="c1">// Function metadata</span>
 <span class="k">struct</span><span class="w"> </span><span class="nc">CGFunctionInfo</span><span class="w"> </span><span class="p">{</span>
@@ -3242,33 +3806,9 @@ emulation and C7x hardware.</p>
 <span class="p">};</span>
 </code></pre></div>
 <h2 id="c-api-for-vm-operations">C++ API for VM Operations</h2>
-<p>The c_static backend includes an optimized C++ API mode (<code>-use-cpp-api=1</code>) that
+<p>The c_static_lib backend includes an optimized C++ API mode (<code>-use-cpp-api=1</code>) that
 bypasses the FFI layer for VM operations, providing significant performance gains
 on embedded targets.</p>
-<h3 id="performance-benefits">Performance Benefits</h3>
-<p>On CLISTA-DoA model (C66x DSP @ 450 MHz):</p>
-<table>
-<thead>
-<tr>
-<th>Metric</th>
-<th>Improvement</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Cycle reduction</td>
-<td>12% (62K cycles)</td>
-</tr>
-<tr>
-<td>Memory reduction</td>
-<td>9% (1.8KB L2 peak)</td>
-</tr>
-<tr>
-<td>Code size</td>
-<td>22% reduction</td>
-</tr>
-</tbody>
-</table>
 <h3 id="how-it-works_1">How It Works</h3>
 <p>The C++ API replaces verbose FFI dispatch sequences with direct function calls:</p>
 <p><strong>Before (FFI mode)</strong>:
@@ -3303,73 +3843,25 @@ on embedded targets.</p>
 </tr>
 </tbody>
 </table>
-<p>Both optimizations are <strong>enabled by default</strong> for all c_static targets.</p>
+<p>Both optimizations are <strong>enabled by default</strong> for all c_static_lib targets.</p>
 <h2 id="building-and-testing">Building and Testing</h2>
-<h3 id="build-tvm-with-c_static-backend">Build TVM with c_static Backend</h3>
-<div class="highlight"><pre><span></span><code><span class="c1"># Configure build</span>
-mkdir<span class="w"> </span>-p<span class="w"> </span>build
-cp<span class="w"> </span>cmake/cstatic_config.cmake<span class="w"> </span>build/config.cmake
-<span class="nb">cd</span><span class="w"> </span>build
-
-<span class="c1"># Build (requires LLVM 15+)</span>
-cmake<span class="w"> </span>-G<span class="w"> </span>Ninja<span class="w"> </span>..
-ninja
-
-<span class="c1"># Set up Python environment</span>
-<span class="nb">cd</span><span class="w"> </span>..
-<span class="nb">export</span><span class="w"> </span><span class="nv">TVM_HOME</span><span class="o">=</span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYTHONPATH</span><span class="o">=</span><span class="nv">$TVM_HOME</span>/python:<span class="nv">$PYTHONPATH</span>
-</code></pre></div>
-<h3 id="build-static-runtime-optional">Build Static Runtime (Optional)</h3>
-<div class="highlight"><pre><span></span><code><span class="c1"># Enable static runtime in config</span>
-<span class="c1"># Set BUILD_STATIC_RUNTIME=ON in build/config.cmake</span>
-<span class="nb">cd</span><span class="w"> </span>build
-cmake<span class="w"> </span>-G<span class="w"> </span>Ninja<span class="w"> </span>..
-ninja
-</code></pre></div>
-<h3 id="run-tests">Run Tests</h3>
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="nv">$TVM_HOME</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYTHONPATH</span><span class="o">=</span><span class="nv">$TVM_HOME</span>/python:<span class="nv">$PYTHONPATH</span>
-
-<span class="c1"># C static backend tests</span>
-pytest<span class="w"> </span>tests/cstatic/unit-tests/test_conv2d.py<span class="w"> </span>-v
-pytest<span class="w"> </span>tests/cstatic/unit-tests/test_resnet.py<span class="w"> </span>-v
-pytest<span class="w"> </span>tests/cstatic/unit-tests/test_matmul.py<span class="w"> </span>-v
-pytest<span class="w"> </span>tests/cstatic/unit-tests/test_mlp.py<span class="w"> </span>-v
-
-<span class="c1"># DSP tests (host emulation)</span>
-pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c66x_host
-
-<span class="c1"># DSP tests (C66x hardware)</span>
-pytest<span class="w"> </span>tests/ti-dsp-runtime/dsp-tests/<span class="w"> </span>-v<span class="w"> </span>--dsp-mode<span class="o">=</span>c66x
-</code></pre></div>
-<h3 id="build-dsp-runtime">Build DSP Runtime</h3>
-<p><strong>Host emulation</strong>:
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp
-mkdir<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>build
-cmake<span class="w"> </span>..
-cmake<span class="w"> </span>--build<span class="w"> </span>.
-</code></pre></div></p>
-<p><strong>C66x hardware (AWRL6844)</strong>:
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp
-mkdir<span class="w"> </span>build-c66x<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>build-c66x
-cmake<span class="w"> </span>-DCMAKE_TOOLCHAIN_FILE<span class="o">=</span>../cmake/toolchain-awrl6844.cmake<span class="w"> </span>..
-cmake<span class="w"> </span>--build<span class="w"> </span>.
-</code></pre></div></p>
-<p><strong>C7x hardware (J722S/AM67A)</strong>:
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp
-mkdir<span class="w"> </span>build-c7x<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>build-c7x
-cmake<span class="w"> </span>-DCMAKE_TOOLCHAIN_FILE<span class="o">=</span>../cmake/toolchain-j722s-c7x.cmake<span class="w"> </span>..
-cmake<span class="w"> </span>--build<span class="w"> </span>.
-</code></pre></div></p>
-<h3 id="verify-installation">Verify Installation</h3>
-<div class="highlight"><pre><span></span><code><span class="c1"># Run VM builtins test (host)</span>
-./src/runtime/ti_dsp/build/test_vm_builtins
-
-<span class="c1"># Run VM builtins test (C66x)</span>
-<span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp/scripts/run_on_c66x.sh<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>src/runtime/ti_dsp/build-c66x/test_vm_builtins_c66x.out
-</code></pre></div>
+<p>Building TVM itself and the DSP runtime (host emulation, C66x, and C7x
+variants) is covered by AGENTS.md's Build section at the repository root
+(canonical Docker build) and by <a href="../dsp-runtime/internals.html">DSP Runtime
+Internals</a> (native cmake build, per
+platform) -- not repeated here.</p>
+<p>For running this backend's test suites -- prerequisites, the unit test
+table, and the pytest command reference for both <code>tests/cstatic/</code> and
+the MMALIB-specific suites -- see <a href="../testing/dsp-suite.html">DSP Suite</a>.</p>
+<h2 id="related-documentation">Related Documentation</h2>
+<ul>
+<li><a href="mmalib-integration.html">MMALIB Integration</a> — QDQ offload pipeline, supported ops, testing</li>
+<li><a href="te-extern-lowering.html">te.extern Lowering</a> — Full compilation chain, dispatch sites</li>
+<li><a href="codegen-cstatic.html">CodeGenCStaticLib Internals</a> — Code generator architecture, DLOAD symbol resolution</li>
+<li><a href="authoring-passes.html">Authoring Passes</a> — Writing new Relax/TIR passes for C7x</li>
+<li><a href="extending-quantizer.html">Extending Quantizer</a> — Adding ops to C7xMMAQuantizer</li>
+<li><a href="debugging-passes.html">Debugging Passes</a> — --dump-ir, TVM_LOG_DEBUG, composite inspection</li>
+</ul>
 
 
 

@@ -9,7 +9,7 @@
       
       
       
-        <link rel="prev" href="../dsp-runtime/memory-map.html">
+        <link rel="prev" href="../dsp-runtime/internals.html">
       
       
         <link rel="next" href="design-deep-dive.html">
@@ -684,14 +684,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../backend/c-static.html" class="md-nav__link">
+      <a href="../backend/c-static-lib.html" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    C Static Backend
+    C Static Lib Backend
   
 
     
@@ -720,6 +720,174 @@
     
   
     MMALIB Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/tidl-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TIDL Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/authoring-passes.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authoring Passes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/te-extern-lowering.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    te.extern Lowering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/codegen-cstatic.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CodeGenCStaticLib Internals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/extending-quantizer.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending Quantizer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/debugging-passes.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debugging Passes
   
 
     
@@ -811,34 +979,6 @@
     
   
     Runtime Internals
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../dsp-runtime/memory-map.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    C7x Memory Map Reference
   
 
     
@@ -1007,6 +1147,139 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#per-buffer-dmabufs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Buffer dmabufs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arm-host-client-internals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM Host Client Internals
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ARM Host Client Internals">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#component-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Component layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-buffer-dmabufs-mechanics-and-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-buffer dmabufs (Mechanics and API)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zero-copy-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero-copy strategy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input_buf-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        input_buf layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capacity-declared-not-grown-on-demand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity: declared, not grown on demand
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Capacity: declared, not grown on demand">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-the-table-over-declares" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the table over-declares
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-limitation-single-client-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known limitation: single client only
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ctypes-struct-_c7xtensordesc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ctypes struct (_C7xTensorDesc)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-lifetime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output lifetime
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#dynamic-module-loading-dload" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1045,21 +1318,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#change-history" class="md-nav__link">
+  <a href="#related-documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Change History
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#future-work-dynamic-buffer-allocation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Future work: dynamic buffer allocation
+        Related Documentation
       
     </span>
   </a>
@@ -1103,65 +1365,9 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="arm-client-internals.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ARM Host Client Internals
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../hardware-debug.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Hardware Debug Scripts
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -1190,10 +1396,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
         
           
-          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
             
   
   
@@ -1211,8 +1417,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1237,34 +1443,6 @@
     
   
     Overview
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../testing/c-static-suite.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    C Static Suite
   
 
     
@@ -1313,34 +1491,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../testing/dsp-cpp-harness.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    DSP C++ Harness
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../testing/verifying-deployment.html" class="md-nav__link">
         
   
@@ -1349,34 +1499,6 @@
     
   
     Verifying Your Deployment
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../testing/mmalib-suite.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MMALIB Suite
   
 
     
@@ -1433,34 +1555,6 @@
     
   
     Quantized Model Sweep
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../testing/dynamic-shape-limits.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Dynamic Shape Limitations
   
 
     
@@ -1539,6 +1633,139 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#per-buffer-dmabufs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Buffer dmabufs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arm-host-client-internals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ARM Host Client Internals
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ARM Host Client Internals">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#component-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Component layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-buffer-dmabufs-mechanics-and-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-buffer dmabufs (Mechanics and API)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zero-copy-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero-copy strategy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input_buf-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        input_buf layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capacity-declared-not-grown-on-demand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity: declared, not grown on demand
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Capacity: declared, not grown on demand">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-the-table-over-declares" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the table over-declares
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#known-limitation-single-client-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known limitation: single client only
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ctypes-struct-_c7xtensordesc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ctypes struct (_C7xTensorDesc)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-lifetime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output lifetime
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#dynamic-module-loading-dload" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1577,21 +1804,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#change-history" class="md-nav__link">
+  <a href="#related-documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Change History
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#future-work-dynamic-buffer-allocation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Future work: dynamic buffer allocation
+        Related Documentation
       
     </span>
   </a>
@@ -1640,9 +1856,208 @@ For build/deploy/usage instructions, see
   and DLOAD segment allocation (unified from formerly separate heap/scratch)</li>
 <li>L2 SRAM: 1.25 MB (L2RAM_C7x_1_MAIN per TRM) for scratch/fast buffers</li>
 </ul>
+<h3 id="per-buffer-dmabufs">Per-Buffer dmabufs</h3>
+<p>The 512 MB shared DDR carveout was originally one dmabuf, synced whole on
+every inference regardless of how much data actually moved (<code>struct
+dma_buf_sync</code> has no offset/length, so sync granularity is allocation
+granularity). It's now split into independently-allocated, independently-synced
+dmabufs: <code>client-&gt;staging</code> (ELF + weights only, still fixed at
+<code>C7X_STAGING_ADDR</code>/468 MB since <code>gen_pool_first_fit</code> packs the first
+allocation at the pool base), <code>client-&gt;printf_buf</code> (64 KB, rebindable via
+<code>C7X_MSG_SET_PRINTF_BUF</code>), and <code>client-&gt;input_buf</code>/<code>output_buf</code> (sized per
+session from the compiled module's <code>tvm_dsp_io_meta</code>, or
+<code>c7x_client_reserve_io()</code> for a module with no table). <code>C7X_KV_ADDR</code> stays
+fixed too, folded into <code>client-&gt;staging</code>'s 480 MB reservation.</p>
+<p>See <a href="#arm-host-client-internals">ARM Host Client Internals</a> for the buffer
+table and capacity-declaration semantics, and <code>c7x_compute_protocol.h</code> for
+the wire format (<code>c7x_msg_infer</code>'s <code>input_dsp_addr</code>/<code>result_dsp_addr</code> fields
+replace the old fixed <code>C7X_RESULT_ADDR</code> constant).</p>
+<p><strong>Known limitation carried over from this change:</strong> the firmware tracks the
+current session's <code>output_buf</code>/<code>printf_buf</code> base as process-global state,
+not per-connection -- a second concurrently-connected client would silently
+redirect the first's buffers. Acceptable today (one DSP core, access already
+serialised), but worth revisiting if that assumption changes.</p>
+<h3 id="arm-host-client-internals">ARM Host Client Internals</h3>
+<p>Internal design of the ARM-side IPC client (<code>libc7x_arm_runtime.so</code>) that
+backs the <code>C7xVirtualMachine</code> (Python) / <code>c7x::Module</code> (C++) APIs -- see
+<a href="../../user-guide/python-api.html">Python / C++ API Reference</a> for the public API
+surface, and <a href="../../user-guide/deploying-firmware.html">Deploying Firmware</a>
+for build/deploy instructions.</p>
+<h4 id="component-layout">Component layout</h4>
+<div class="highlight"><pre><span></span><code>python/tvm/contrib/c7x/
+├── __init__.py             — exports C7xVirtualMachine
+└── c7x_runtime.py          — Python ctypes wrapper
+
+src/runtime/ti_dsp/firmware/c7x/arm/
+├── CMakeLists.txt          — builds libc7x_arm_runtime.so + c7x_compute CLI + test binary
+├── build.sh                — cross-compile + deploy script
+├── include/
+│   └── c7x_runtime.h       — C++ c7x::Module API (DLPack-only dependency)
+└── src/
+    ├── c7x_runtime.cc      — c7x::Module implementation
+    ├── c7x_compute_client.cpp  — IPC client (rpmsg, staging/result DDR)
+    └── c7x_compute_cli.cpp — CLI executable (links libc7x_arm_runtime.so)
+</code></pre></div>
+<p><code>libc7x_arm_runtime.so</code> contains <code>c7x_compute_client</code>, <code>rpmsg_wrapper</code>, and
+<code>c7x_runtime</code>.  The CLI binary (<code>c7x_compute</code>) links this library unchanged.</p>
+<h4 id="per-buffer-dmabufs-mechanics-and-api">Per-buffer dmabufs (Mechanics and API)</h4>
+<p>Each purpose gets its own <code>DmaBuf</code> (fd + own <code>/dev/remoteprocN</code> attachment +
+mmap + DSP address), synced independently via <code>DMA_BUF_IOCTL_SYNC</code> -- the
+ioctl has no offset/length, so per-buffer granularity is the only lever for
+not syncing far more than actually moved on every inference:</p>
+<table>
+<thead>
+<tr>
+<th>Buffer</th>
+<th>Allocated</th>
+<th>Size</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>client-&gt;staging</code></td>
+<td><code>c7x_client_open()</code></td>
+<td>480 MB (<code>C7X_STAGING_SIZE + C7X_KV_SIZE</code>), fixed</td>
+<td>ELF (DLOAD) + weights (MODEL_LOAD) only -- <strong>not</strong> inference input tensors. Allocated first so <code>gen_pool_first_fit</code> packs it at the carveout's base, keeping <code>C7X_STAGING_ADDR</code>/<code>C7X_KV_ADDR</code> valid as fixed DSP addresses without the host needing to steer the allocator.</td>
+</tr>
+<tr>
+<td><code>client-&gt;printf_buf</code></td>
+<td><code>c7x_client_open()</code></td>
+<td>64 KB, fixed</td>
+<td>DSP printf output. Rebinds the DSP's boot-time <code>shm_printf</code> target via <code>C7X_MSG_SET_PRINTF_BUF</code>, sent once right after open.</td>
+</tr>
+<tr>
+<td><code>client-&gt;input_buf</code></td>
+<td><code>c7x_client_dyn_load()</code></td>
+<td>Declared, from <code>tvm_dsp_io_meta</code> (or <code>c7x_client_reserve_io()</code>)</td>
+<td>Inference input tensors + a descriptor region at the front (see below). Grows (never shrinks) if a later <code>DYN_LOAD</code> needs more.</td>
+</tr>
+<tr>
+<td><code>client-&gt;output_buf</code></td>
+<td><code>c7x_client_dyn_load()</code></td>
+<td>Declared, from <code>tvm_dsp_io_meta</code> (or <code>c7x_client_reserve_io()</code>)</td>
+<td>Inference output tensors. Same growth rule as <code>input_buf</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>KV cache tensors (<code>C7X_INFER_FLAG_KV_RESIDENT</code>) still live at the fixed
+<code>C7X_KV_ADDR</code>, written directly by the DSP -- unaffected by any of the above,
+since <code>client-&gt;staging</code>'s 480 MB reservation already covers that range.</p>
+<h4 id="zero-copy-strategy">Zero-copy strategy</h4>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Mechanism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Output</strong></td>
+<td><code>c7x_client_infer()</code> returns <code>data</code> pointers directly into the mmap'd <code>output_buf</code> dmabuf.  <code>vm["main"]()</code> does one <code>np.copy()</code> for safety.  <code>run_nocopy()</code> skips the copy and returns numpy views of <code>output_buf</code>.</td>
+</tr>
+<tr>
+<td><strong>Input (standard)</strong></td>
+<td><code>c7x_compute_client</code> copies the user buffer into <code>input_buf</code> via <code>memcpy</code>.</td>
+</tr>
+<tr>
+<td><strong>Input (zero-copy)</strong></td>
+<td><code>create_input()</code> / <code>CreateInput()</code> allocates a tensor <strong>inside</strong> <code>input_buf</code>.  On the next <code>Run()</code>, the client detects that the input pointer is already within <code>input_buf</code>'s range and skips the <code>memcpy</code>.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="input_buf-layout">input_buf layout</h4>
+<div class="highlight"><pre><span></span><code>input_buf (mmap'd dmabuf, declared capacity)
+┌──────────────────────────┬──────────────────────────────┐
+│  Descriptor region       │  create_input() allocations  │
+│  [0 .. input_data_offset)│  [input_data_offset .. size) │
+└──────────────────────────┴──────────────────────────────┘
+</code></pre></div>
+<p>The descriptor region holds the <code>c7x_tensor_desc</code> array for
+<code>C7X_MSG_INFER_LARGE</code> (used when too many tensors to fit inline in the
+512-byte rpmsg buffer) -- sized from the declared input count, at the front
+of <code>input_buf</code> rather than "wherever there's room before the tensor data"
+(the pre-per-buffer design squeezed it in just below where the ELF ended).
+<code>c7x_client_get_input_data_offset()</code> returns this region's size, preventing
+<code>create_input()</code> from overlapping it.</p>
+<h4 id="capacity-declared-not-grown-on-demand">Capacity: declared, not grown on demand</h4>
+<p><code>input_buf</code>/<code>output_buf</code> are sized once from the loaded module's
+<code>tvm_dsp_io_meta</code> (see <code>tvm.contrib.c7x.io_meta</code>), or via
+<code>c7x_client_reserve_io()</code> for a module built without one -- or one whose
+table over-declares for the calling convention in use (see below). Exceeding
+the declared capacity is always an error -- never silently absorbed:</p>
+<ul>
+<li><strong>Input</strong> over capacity: caught host-side, before staging anything
+  (<code>-EFBIG</code>).</li>
+<li><strong>Output</strong> over capacity: only the firmware can detect it, mid-write,
+  against the transmitted <code>result_size</code> -- <code>C7X_STATUS_ERR_SIZE</code> with
+  <code>result_required</code> naming the capacity needed through the tensor that
+  overflowed. It is not the total for the whole output set: the firmware
+  stops at the first tensor that doesn't fit, so for a multi-output model
+  a reserve-and-retry cycle can report a larger figure each round until
+  every tensor fits.</li>
+</ul>
+<p><code>c7x_client_reserve_io()</code> is rejected once capacity is locked -- which
+happens on the <em>first</em> successful use (a <code>CreateInput()</code> call, or a
+completed inference that handed back output pointers), not merely on
+attempting one, so a too-small reservation can still be grown and retried
+on the same client without corruption.</p>
+<h5 id="when-the-table-over-declares">When the table over-declares</h5>
+<p><code>tvm_dsp_io_meta</code> is derived from the entry signature, which bounds capacity
+over <em>calling conventions</em> rather than describing one call. The same compiled
+module has two footprints: with <code>C7X_INFER_FLAG_KV_RESIDENT</code> the firmware
+diverts every output past the first to <code>C7X_KV_ADDR</code>, so only the first
+reaches <code>output_buf</code>.</p>
+<p>SmolLM-135M prefill returns 61 tensors (logits + 60 KV) and declares
+24,384,320 bytes of output. Driven kv-resident it needs 12,583,040. Its input
+side genuinely needs 11,802,496 -- prefill must push a zeroed cache, so it
+can't use the synthetic-descriptor path decode uses -- and the carveout has
+33,488,896 bytes above the staging reservation. The declaration doesn't fit;
+the actual use does, with ~9 MB spare.</p>
+<p>So <code>c7x_client_dyn_load()</code> treats an unmeetable declaration as advisory:
+whatever partial sizing succeeded is kept, a warning names declared vs
+allocated, and the load reports success. The caller then declares its real
+per-call figure with <code>c7x_client_reserve_io()</code> before the first inference.
+<code>tests/ti-dsp-runtime/SmolLM/</code> does this from <code>metadata.json</code>'s <code>io_reserve</code>,
+computed at compile time by <code>tvm.contrib.c7x.io_meta.kv_resident_output_bytes()</code>
+and sent over the session protocol's <code>reserve_io</code> op.</p>
+<p>This is why the buffer table above lists <code>c7x_client_reserve_io()</code> as a size
+source alongside the table, rather than only as a fallback for modules built
+without one.</p>
+<h4 id="known-limitation-single-client-only">Known limitation: single client only</h4>
+<p>The firmware tracks the <em>current</em> session's <code>output_buf</code>/<code>printf_buf</code>
+base+size as process-global state (<code>g_result_dsp_addr</code>/<code>g_result_size</code> in
+<code>compute_service.c</code>, rebindable printf target), not per-connection. A second
+concurrently-connected client would silently redirect the first's output
+and printf buffers. Acceptable today (one DSP core, access already
+serialised by the "never two <code>c7x_dload</code> sessions on the same board"
+testing rule) but worth knowing if that assumption ever changes.</p>
+<h4 id="ctypes-struct-_c7xtensordesc">ctypes struct (<code>_C7xTensorDesc</code>)</h4>
+<p>Python-side struct matching <code>c7x_tensor_desc_t</code> in <code>c7x_compute_client.h</code>:</p>
+<div class="highlight"><pre><span></span><code>Offset  Field        Type      Bytes
+0       data         void*     8
+8       data_size    size_t    8
+16      ndim         int32     4
+20      dtype_code   int32     4   (DLPack: 0=Int 1=UInt 2=Float)
+24      dtype_bits   int32     4
+28      _pad         int32     4   (alignment)
+32      shape[6]     int64[6]  48
+Total                          80
+</code></pre></div>
+<p>Validated at import time: <code>assert ctypes.sizeof(_C7xTensorDesc) == 80</code>.</p>
+<h4 id="output-lifetime">Output lifetime</h4>
+<ul>
+<li><code>vm["main"]()</code>: outputs are copied to new memory before return — safe to
+  hold across multiple inference calls.</li>
+<li><code>run_nocopy()</code>: outputs are numpy views of <code>output_buf</code> — valid only until
+  the next <code>run_nocopy()</code> call (next inference overwrites the buffer).</li>
+<li>C++ <code>OutputTensor.dl.data</code>: valid until the next <code>Module::Run()</code> or
+  <code>Module::Close()</code>.</li>
+</ul>
 <h3 id="dynamic-module-loading-dload">Dynamic Module Loading (DLOAD)</h3>
 <p>TI's C70 dynamic ELF loader handles relocation and symbol resolution at
-runtime. The firmware exports ~116 symbols to loaded modules (TVM runtime
+runtime. The firmware exports 119 symbols to loaded modules (TVM runtime
 API, platform functions, DMA operations, C7x kernels, MMALIB wrappers).
 Key design decisions:</p>
 <ul>
@@ -1691,66 +2106,15 @@ in remoteproc mode.</p>
   the rproc fd must stay open for the lifetime of the mapping</li>
 <li><code>c7x_compute run</code> performs load+infer+unload atomically in a single
   RPMessage/DMA connection, returning JSON for deterministic parsing</li>
+<li>The DSP-side service loop runs in the main task context, not a
+  dedicated task -- spawning it as a separate task hits a
+  <code>TaskSupport_setupTaskStack</code> assertion on C7x</li>
 </ul>
-<h2 id="change-history">Change History</h2>
-<p>Moved from <code>src/runtime/ti_dsp/firmware/c7x/</code> to
-<code>src/runtime/ti_dsp/firmware/c7x/</code> for co-location with the TVM DSP
-runtime it depends on. Key milestones from original development:</p>
+<h2 id="related-documentation">Related Documentation</h2>
 <ul>
-<li><strong>Initial framework</strong>: FreeRTOS compute service with RPMessage IPC,
-  shared DDR data plane, and basic compute kernels (copy, scale, invert)</li>
-<li><strong>IPC fixes</strong>: RPMessage_waitForLinuxReady, rpmsg_chrdev announce,
-  service loop in main task context (avoiding TaskSupport_setupTaskStack
-  assertion on C7x)</li>
-<li><strong>DLOAD integration</strong>: TI C70 dynamic ELF loader with 61 firmware
-  symbol exports, segment allocation, cache coherency on loaded code</li>
-<li><strong>DMA heap shared memory</strong>: /dev/mem replaced with DMA heap carveout
-  (vision_apps_shared-memories) with proper dmabuf cache sync</li>
-<li><strong>Unified DDR pool</strong>: Merged separate heap/scratch into 128 MB
-  contiguous cacheable region, DLOAD allocations routed through
-  tvm_dsp_alloc</li>
-<li><strong>512 MB shared buffer</strong>: Expanded for large models (ResNet-18
-  at ~47 MB ELF with embedded weights)</li>
-<li><strong>Module lifecycle</strong>: Proper cleanup ordering (register file -&gt;
-  constants -&gt; ELF segments), pool reset on unload for back-to-back
-  cycles</li>
-<li><strong>Host C++ rewrite</strong>: C99 host code converted to C++14 with RAII
-  wrappers for fd, mmap, rpmsg resources</li>
-<li><strong>SHM printf</strong>: DSP printf redirected to 64 KB shared memory buffer
-  via TI RTS add_device(), replacing ~2 KB DebugP trace buffer</li>
-<li><strong>Composite run command</strong>: Single-shot load+infer+unload with JSON
-  output, eliminating multi-SSH-call fragility</li>
-<li><strong>64-bit cycle counter</strong>: Direct __TSC reads replacing
-  CycleCounterP_getCount32 (which wraps at ~4.3s)</li>
-<li><strong>Robust device discovery</strong>: Binary search for rpmsg endpoint
-  indices, sysfs-based remoteproc matching</li>
-<li><strong>UDMA subsystem</strong>: DmaUtilsAutoInc3d with standalone UDMA/DRU,
-  per-module DMA lifecycle, L2 symbol exports</li>
-<li><strong>DLOAD in-place rodata</strong>: Read-only ELF segments (weights, TIDL
-  artifacts) mapped in-place from the staging buffer, eliminating
-  DDR pool copies (~13 MB saved for ResNet-18 TIDL)</li>
-</ul>
-<p>(Note: the "Unified DDR pool" milestone above describes the pool size
-<em>at the time of that merge</em> -- 128 MB was correct then; the pool was
-later extended to its current 352 MiB, see "Memory Layout" above.)</p>
-<h2 id="future-work-dynamic-buffer-allocation">Future work: dynamic buffer allocation</h2>
-<p>The 512 MB shared DDR carveout is currently split into fixed-size
-regions at compile time (<code>C7X_STAGING_ADDR</code> / <code>C7X_STAGING_SIZE</code> =
-468 MB, <code>C7X_KV_ADDR</code> / <code>C7X_KV_SIZE</code> = 12 MB, <code>C7X_RESULT_ADDR</code> /
-<code>C7X_RESULT_SIZE</code> = 32 MB).  These constants are hardcoded in
-<code>c7x_compute_protocol.h</code> because the DSP MMU mapping is static.</p>
-<p>A future improvement would make the partitioning dynamic:</p>
-<ul>
-<li>Replace the fixed staging/result split with a single
-  <code>C7X_SHARED_BASE</code> + <code>C7X_SHARED_SIZE</code> region</li>
-<li>Have the host negotiate the layout at connection time (e.g. in
-  the PING response or a new CONFIGURE message): staging region
-  size, result region offset, printf buffer offset</li>
-<li>The DSP would use the negotiated offsets instead of compile-time
-  constants</li>
-<li>This enables models with very large outputs (e.g. segmentation
-  masks) to borrow space from the staging region after inference
-  input has been consumed</li>
+<li><a href="design-deep-dive.html">Firmware Design Deep-Dive</a> — System architecture, protocol specification, memory layout, DLOAD internals</li>
+<li><a href="../../user-guide/deploying-firmware.html">Deploying Firmware</a> — Build, deploy, and usage instructions</li>
+<li><a href="../../user-guide/python-api.html">Python / C++ API Reference</a> — Public API surface</li>
 </ul>
 
 
