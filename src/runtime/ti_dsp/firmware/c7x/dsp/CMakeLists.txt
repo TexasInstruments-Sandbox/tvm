@@ -293,7 +293,7 @@ target_link_directories(${PROJECT_NAME}.out PRIVATE
 
 # --- TIDL Runtime (optional) ---
 # When enabled, links TIDL algo libraries into the firmware. TIDL's own algo
-# library (tidl_obj_algo.lib) has unresolved MMALIB_CNN_*/MMALIB_LINALG_*
+# library (tidl_algo.lib) has unresolved MMALIB_CNN_*/MMALIB_LINALG_*
 # symbol references, so USE_TIDL_RUNTIME=ON requires USE_TI_MMALIB=ON too --
 # enforced below rather than left as a user error that fails at link time.
 option(USE_TIDL_RUNTIME "Link TIDL algo libs into firmware" OFF)
@@ -302,7 +302,7 @@ option(USE_TIDL_RUNTIME "Link TIDL algo libs into firmware" OFF)
 # direct offload (independent of TIDL subgraph offload).
 option(USE_TI_MMALIB "Link MMALIB direct-integration libs into firmware" OFF)
 if(USE_TIDL_RUNTIME AND NOT USE_TI_MMALIB)
-    message(STATUS "USE_TIDL_RUNTIME=ON requires MMALIB (tidl_obj_algo.lib "
+    message(STATUS "USE_TIDL_RUNTIME=ON requires MMALIB (tidl_algo.lib "
                     "has unresolved MMALIB_CNN_*/MMALIB_LINALG_* symbols) "
                     "-- forcing USE_TI_MMALIB=ON")
     set(USE_TI_MMALIB ON CACHE BOOL "Link MMALIB direct-integration libs into firmware" FORCE)
@@ -325,8 +325,9 @@ if(USE_TIDL_RUNTIME)
 
     list(APPEND TIDL_RUNTIME_LIBS
         ${TIDL_LIB_PATH}/tidl_algo.lib
-        ${TIDL_LIB_PATH}/tidl_obj_algo.lib
-        ${TIDL_LIB_PATH}/tidl_priv_algo.lib
+        ${TIDL_LIB_PATH}/tidl_ref.lib
+        ${TIDL_LIB_PATH}/tidl_priv.lib
+        ${TIDL_LIB_PATH}/tidl_kernels.lib
         ${TIDL_LIB_PATH}/tidl_custom.lib
     )
     # Force the linker to retain TIDL_VISION_FXNS (IALG function table) and
@@ -345,8 +346,14 @@ if(USE_TIDL_RUNTIME)
     # into the lib tree so we derive it from C7X_MMA_TIDL_PATH directly.
     if(DEFINED ENV{C7X_MMA_TIDL_PATH})
         set(_TIDL_SRC_ROOT "$ENV{C7X_MMA_TIDL_PATH}/ti_dl")
+        set(_TIDL_KERNELS_INC "$ENV{C7X_MMA_TIDL_PATH}/tidl-kernels/include")
     else()
         set(_TIDL_SRC_ROOT "${PSDK_INSTALL_PATH}/c7x-mma-tidl/ti_dl")
+        set(_TIDL_KERNELS_INC "${PSDK_INSTALL_PATH}/c7x-mma-tidl/tidl-kernels/include")
+    endif()
+    if(NOT EXISTS "${_TIDL_KERNELS_INC}/tidl_spatialMaxPool_ixX_oxX.h")
+        message(FATAL_ERROR "TIDL kernel headers not found at: ${_TIDL_KERNELS_INC} "
+                             "(tidl-kernels submodule not checked out/built?)")
     endif()
     target_sources(${PROJECT_NAME}.out PRIVATE
         ${TVM_DSP_RUNTIME_DIR}/mmalib/tidl_maxpool_wrapper.cpp
@@ -356,7 +363,11 @@ if(USE_TIDL_RUNTIME)
         # TIDL headers needed by tidl_maxpool_wrapper.cpp
         ${_TIDL_SRC_ROOT}/inc
         ${_TIDL_SRC_ROOT}/algo/inc
-        ${_TIDL_SRC_ROOT}/algo/src/tidsp/inc
+        # tidl_spatialMaxPool_ixX_oxX.h lives in the tidl-kernels submodule
+        # (a sibling of ti_dl/, not nested under it) as of the AM62D tag's
+        # library restructure -- it used to be at algo/src/tidsp/inc, which
+        # no longer exists.
+        ${_TIDL_KERNELS_INC}
         # ivision.h is included by itidl_ti.h (TI IVISION interface)
         ${PSDK_INSTALL_PATH}/ivision
     )

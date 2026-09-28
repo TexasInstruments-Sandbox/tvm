@@ -556,10 +556,11 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
             list(APPEND DSP_SOURCES ${TIDL_API_DIR}/tidl_host_stubs.c)
             set(TIDL_HOST_LIBS
                 "${TIDL_PC_LIB_DIR}/libtidl_algo.a"
-                "${TIDL_PC_LIB_DIR}/libtidl_priv_algo.a"
+                "${TIDL_PC_LIB_DIR}/libtidl_ref.a"
+                "${TIDL_PC_LIB_DIR}/libtidl_priv.a"
+                "${TIDL_PC_LIB_DIR}/libtidl_kernels.a"
                 "${TIDL_PC_LIB_DIR}/libtidl_avx_kernels.a"
                 "${TIDL_PC_LIB_DIR}/libtidl_custom.a"
-                "${TIDL_PC_LIB_DIR}/libtidl_obj_algo.a"
             )
             # circularBlockSizeTbl is defined in both libtidl_algo.a and
             # libcommon_x86_64.a.  Both libs are required (TIDL algo calls
