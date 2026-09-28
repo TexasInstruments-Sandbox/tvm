@@ -11,7 +11,10 @@ Requirements: TVM + built tidl_model_import_relax.so + c7x-mma-tidl tree
               (for device_config.cfg).  No hardware needed.
 """
 
+import contextlib
 import os
+import sys
+import tempfile
 
 import numpy as np
 import pytest
@@ -71,6 +74,30 @@ def _init_tidl():
     init_fn = tvm.get_global_func("TIDL_relaxInit")
     ret = init_fn(1, {"tidl_tools_path": TIDL_TOOLS_PATH, "artifacts_folder": "/tmp"})
     assert ret == 0, f"TIDL_relaxInit returned {ret}"
+
+
+@contextlib.contextmanager
+def _capture_c_stdout():
+    """Capture writes to fd 1 into a list-of-one string.
+
+    ``contextlib.redirect_stdout`` only rebinds ``sys.stdout``, which the TIDL
+    import .so and the calibration subprocess it spawns via ``system()`` never
+    go through -- they write straight to fd 1.  Redirect the descriptor itself
+    so the subprocess inherits it.
+    """
+    captured = []
+    with tempfile.TemporaryFile(mode="w+") as tmp:
+        saved_fd = os.dup(1)
+        try:
+            sys.stdout.flush()
+            os.dup2(tmp.fileno(), 1)
+            yield captured
+        finally:
+            sys.stdout.flush()
+            os.dup2(saved_fd, 1)
+            os.close(saved_fd)
+            tmp.seek(0)
+            captured.append(tmp.read())
 
 
 def _build_composite_call(comp_fn, orig_call):
@@ -609,6 +636,56 @@ class TestTIDLImport:
             assert os.path.getsize(paths["net_bin"]) > 0, "net.bin is empty"
 
         self._assert_finite_calibration_stats(tmp_path)
+
+    @pytest.mark.quick
+    def test_import_calibration_subprocess_reports_no_errors(self, tmp_path):
+        """The float range-collection pass must actually run.
+
+        ``tidl_isCalibrationInNativeTypes()`` (added by the AM62D tag) is true
+        for ``TIDL_IMPORT_MODEL_FORMAT_TVM_RELAY``, the format the Relax
+        importer reuses.  On the float stats-collection pass it copies
+        ``gParams.modelInElementType`` into ``inElementType`` without checking
+        for the -1 "unset" sentinel, so an importer that leaves those fields
+        unpopulated makes the stats tool's ``tidl_tb_dataConvert`` reject every
+        element of the input tensor and abort in ``TIDLRT_invoke``.  The float
+        ranges are then collected on an unwritten input buffer, which silently
+        miscalibrates every INT8 scale in the network (ResNet-18 mean_diff
+        0.158 -> 2.28, top-1 208 -> 419).
+
+        ``PC_dsp_test_dl_algo.out`` prints those errors but still exits 0, so
+        the import reports success either way -- hence checking its output
+        rather than a return code.  A tiny model is enough: the failure is a
+        property of the input plumbing, not of the network.
+        """
+        _init_tidl()
+        compiler = self._make_compiler(tmp_path)
+        mod = self._prepare_and_partition(
+            compiler,
+            GAPFCModel,
+            {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
+        )
+        if not any(
+            isinstance(f, relax.Function) and f.attrs and f.attrs.get("Codegen") == "tidl"
+            for f in mod.functions.values()
+        ):
+            pytest.skip("No TIDL subgraphs found after partition — check pattern matching")
+
+        with _capture_c_stdout() as captured:
+            _mod_out, artifacts = compiler.tidl_import(mod)
+        output = captured[0]
+
+        assert len(artifacts) > 0, "Expected at least one TIDL artifact"
+        n_convert_errors = output.count("of function : tidl_tb_dataConvert")
+        assert n_convert_errors == 0, (
+            f"Calibration tool rejected {n_convert_errors} tensor elements in "
+            "tidl_tb_dataConvert — the network's input/output element type is "
+            "invalid (modelInElementType left at -1?), so the float range "
+            "collection ran on an unwritten buffer"
+        )
+        assert "TIDLRT_invoke failed" not in output, (
+            "Calibration tool's TIDLRT_invoke failed — float range collection "
+            f"did not run.  Tool output:\n{output[-2000:]}"
+        )
 
 
 if __name__ == "__main__":
