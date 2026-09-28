@@ -197,6 +197,54 @@ class ConvMeanModel(nn.Module):
         return y
 
 
+class ConvMeanFCModel(nn.Module):
+    """Conv2D -> global average pool -> flatten -> FC (matmul + bias).
+
+    Mirrors a classifier head (ResNet/MobileNetV2-style): the FC's weight
+    goes through a TIDL_ConstDataLayer, unlike conv weights which are
+    embedded directly in the ConvolutionLayer.
+    """
+
+    def __init__(self, channels=8, num_classes=10):
+        super().__init__()
+        self.conv = nn.Conv2D(3, channels, 3, 1, 1, bias=False)
+        self.fc = nn.Linear(channels, num_classes, bias=True)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        x = self.conv(x)
+        x = nn.relu(x)
+        h = wrap_nested(_op.mean(x._expr, axis=[2, 3], keepdims=True), "global_avg")
+        h = nn.op.reshape(h, (h.shape[0], h.shape[1]))
+        return self.fc(h)
+
+
+class GAPFCModel(nn.Module):
+    """Global average pool -> flatten -> FC, with no conv backbone at all.
+
+    Isolates the mean+reshape+matmul+add tail: the FC weight is the only
+    constant that goes through a TIDL_ConstDataLayer (conv weights are
+    embedded directly in the ConvolutionLayer and never hit that path),
+    so this is the fastest reproduction of the dtype bug covered by
+    test_import_matmul_const_data_layer_dtype -- no conv layers means no
+    per-channel calibration work beyond a single InnerProductLayer.
+    """
+
+    def __init__(self, channels=3, num_classes=10):
+        super().__init__()
+        self.fc = nn.Linear(channels, num_classes, bias=True)
+
+    def main(self, x):
+        from tvm.relax import op as _op
+        from tvm.relax.frontend.nn.op import wrap_nested
+
+        h = wrap_nested(_op.mean(x._expr, axis=[2, 3], keepdims=True), "global_avg")
+        h = nn.op.reshape(h, (h.shape[0], h.shape[1]))
+        return self.fc(h)
+
+
 # ---------------------------------------------------------------------------
 # Tests: FFI registration
 # ---------------------------------------------------------------------------
@@ -323,6 +371,29 @@ class TestTIDLImport:
         mod = compiler.prepare(mod, param_dict)
         mod = compiler.partition(mod)
         return mod
+
+    def _assert_finite_calibration_stats(self, artifacts_dir, max_abs_threshold=100.0):
+        """Every *_stats_tool_out.bin under artifacts_dir must be finite and
+        small — non-finite or implausibly large values indicate a
+        ConstDataLayer dtype (or similar) corruption in the calibration
+        pipeline, not real INT8 quantization noise."""
+        found_stats = False
+        for root, _dirs, files in os.walk(artifacts_dir):
+            for fn in files:
+                if fn.endswith("_stats_tool_out.bin"):
+                    found_stats = True
+                    arr = np.fromfile(os.path.join(root, fn), dtype=np.float32)
+                    finite = arr[np.isfinite(arr)]
+                    assert finite.size == arr.size, (
+                        f"{fn} contains non-finite calibration stats "
+                        "(ConstDataLayer dtype corruption?)"
+                    )
+                    max_abs = float(np.max(np.abs(finite))) if finite.size else 0.0
+                    assert max_abs < max_abs_threshold, (
+                        f"{fn} max|stat|={max_abs:.2f} is implausibly large for "
+                        "small random weights (ConstDataLayer dtype corruption?)"
+                    )
+        assert found_stats, "No calibration stats file found under artifacts_dir"
 
     def test_import_returns_artifacts(self, tmp_path):
         """tidl_import() should return (mod, artifacts) dict."""
@@ -458,6 +529,86 @@ class TestTIDLImport:
         for _sg, paths in artifacts.items():
             assert "net_bin" in paths, "net.bin missing from artifacts"
             assert os.path.getsize(paths["net_bin"]) > 0, "net.bin is empty"
+
+    @pytest.mark.quick
+    def test_import_matmul_const_data_layer_dtype(self, tmp_path):
+        """FC weight's ConstDataLayer must calibrate with sane statistics.
+
+        Regression test: no Relax parser sets layer.weights/bias.dataType
+        after copying constant data (NDArrtoFloat always produces
+        float32), so it stayed at its zero-initialized TIDL_UnsignedChar.
+        tidl_addConstDataLayers() reads that field to size the
+        ConstDataLayer's own allocation and memcpy, so the wrong type
+        under-allocated by 4x and corrupted (or crashed) calibration for
+        any op needing a separate ConstDataLayer -- matmul/InnerProduct
+        (this model's FC head) being the common case, since conv weights
+        are embedded directly in the ConvolutionLayer and never hit this
+        path. A plain conv+relu+mean subgraph (see
+        test_import_global_avg_pool_via_mean above) never exercised it.
+        """
+        _init_tidl()
+        compiler = self._make_compiler(tmp_path)
+        mod = self._prepare_and_partition(
+            compiler,
+            ConvMeanFCModel,
+            {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
+        )
+
+        tidl_funcs = [
+            gv
+            for gv, f in mod.functions.items()
+            if isinstance(f, relax.Function) and f.attrs and f.attrs.get("Codegen") == "tidl"
+        ]
+        if not tidl_funcs:
+            pytest.skip("No TIDL subgraphs found after partition — check pattern matching")
+
+        mod_out, artifacts = compiler.tidl_import(mod)
+        assert len(artifacts) > 0, "Expected at least one TIDL artifact"
+
+        for _sg, paths in artifacts.items():
+            assert "net_bin" in paths, "net.bin missing from artifacts"
+            assert os.path.getsize(paths["net_bin"]) > 0, "net.bin is empty"
+
+        self._assert_finite_calibration_stats(tmp_path)
+
+    @pytest.mark.quick
+    def test_import_fc_const_data_layer_no_backbone(self, tmp_path):
+        """Import a bare GAP+FC model -- no conv backbone at all.
+
+        A fast smoke test for the import + calibration pipeline on a
+        topology with a single InnerProductLayer and no conv2d pattern
+        matching. It does guard the native-type element-update pass's
+        out-of-bounds reads (reverting those bound-checks segfaults here),
+        but it does *not* guard the ConstDataLayer dtype bug that
+        test_import_matmul_const_data_layer_dtype above covers: measured
+        by reverting that fix, this case still passes and only the
+        conv+GAP+FC variant trips the stats threshold. Don't rely on it
+        for ConstDataLayer coverage.
+        """
+        _init_tidl()
+        compiler = self._make_compiler(tmp_path)
+        mod = self._prepare_and_partition(
+            compiler,
+            GAPFCModel,
+            {"x": nn.spec.Tensor((1, 3, 32, 32), "float32")},
+        )
+
+        tidl_funcs = [
+            gv
+            for gv, f in mod.functions.items()
+            if isinstance(f, relax.Function) and f.attrs and f.attrs.get("Codegen") == "tidl"
+        ]
+        if not tidl_funcs:
+            pytest.skip("No TIDL subgraphs found after partition — check pattern matching")
+
+        mod_out, artifacts = compiler.tidl_import(mod)
+        assert len(artifacts) > 0, "Expected at least one TIDL artifact"
+
+        for _sg, paths in artifacts.items():
+            assert "net_bin" in paths, "net.bin missing from artifacts"
+            assert os.path.getsize(paths["net_bin"]) > 0, "net.bin is empty"
+
+        self._assert_finite_calibration_stats(tmp_path)
 
 
 if __name__ == "__main__":
