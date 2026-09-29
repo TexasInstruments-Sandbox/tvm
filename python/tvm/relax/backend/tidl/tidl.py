@@ -2129,6 +2129,44 @@ def _lower_tidl_pass(
             result = tvm.ir.load_json(_js.replace('"relax.expr.DataflowVar"', '"relax.expr.Var"'))
         result = relax.transform.InlinePrivateFunctions()(result)
 
+    # Record how many bytes TIDL may write for each subgraph output so
+    # PadTIDLOutputStorage can grow the allocation after memory planning.
+    # TIDL writes outPadCh padding channels plus a spare past the logical
+    # tensor, and the planner only knows shape x dtype -- see
+    # io_buf_desc.py and output_storage.py.  Built here because it needs the
+    # stub name (enumeration index) alongside the artifacts key and sg_id,
+    # which only coexist in this scope.
+    storage_bytes = {}
+    for idx, name in enumerate(success_funcs):
+        sg_name = f"tidl_subgraph_{idx}"
+        io_bin = (artifacts or {}).get(name, {}).get("io_bin")
+        if not io_bin:
+            continue
+        try:
+            from .io_buf_desc import parse_io_buf_desc  # noqa: PLC0415
+
+            slots = parse_io_buf_desc(io_bin).output_byte_sizes()
+        except (OSError, ValueError, FileNotFoundError) as err:
+            # A layout mismatch or missing descriptor must not fail the build:
+            # without the attribute the pass no-ops and we get today's
+            # behaviour, so warn loudly rather than aborting.
+            logger.warning(
+                "Could not read TIDL output sizes for %s from %s: %s. Output "
+                "storage will not be padded; repeated inference may return "
+                "corrupted data.",
+                sg_name,
+                io_bin,
+                err,
+            )
+            continue
+        if slots:
+            storage_bytes[sg_name] = [slots.get(s, 0) for s in range(max(slots) + 1)]
+
+    if storage_bytes:
+        from .output_storage import MODULE_ATTR  # noqa: PLC0415
+
+        result = result.with_attr(MODULE_ATTR, storage_bytes)
+
     return result
 
 
