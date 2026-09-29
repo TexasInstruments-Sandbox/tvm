@@ -252,8 +252,16 @@ def dataflow_lower_passes(target: tvm.target.Target):
 
 def finalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
     """The default finalization passes for CPU backend."""
+    from tvm.relax.backend.tidl.output_storage import PadTIDLOutputStorage
+
     return [
         relax.transform.StaticPlanBlockMemory(),
+        # TIDL writes padding channels past the logical output tensor, which the
+        # memory planner above does not account for.  Must sit between
+        # StaticPlanBlockMemory (which creates memory.alloc_storage) and
+        # LowerAllocTensor.  No-ops unless the module carries
+        # "tidl.output_storage_bytes", so non-TIDL builds are unaffected.
+        PadTIDLOutputStorage(),
         relax.transform.LowerAllocTensor(),
         relax.transform.KillAfterLastUse(),
         relax.transform.LowerRuntimeBuiltin(),
