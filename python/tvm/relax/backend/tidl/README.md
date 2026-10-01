@@ -19,7 +19,7 @@ compiler = TIDLOffloadCompiler(config={
     "calibration_inputs": calib_frames,
 })
 
-# Single call: partition -> import -> lower -> codegen -> bridge -> build
+# Single call: partition -> import -> lower -> fix dtypes -> codegen -> bridge -> build
 result = compiler.build(mod, params=param_dict)
 
 result.module_path   # Path to lib0.out (C7x DLOAD module)
@@ -52,6 +52,12 @@ imported, artifacts = compiler.tidl_import(partitioned)
 
 # 3. Lower: replace TIDL functions with TIR extern stubs
 lowered = compiler.lower_tidl(imported, artifacts)
+
+# 3b. Fix output dtype mismatches between TIDL's actual output and what
+#     the TIR stub declares (see "Pipeline" below) -- skipped here since
+#     this manual path bypasses compile(); call it explicitly if your
+#     model has a subgraph output dtype mismatch.
+lowered = compiler._fix_output_dtype_mismatches(lowered, artifacts)
 
 # 4. Compile: generate C code via c_static_lib
 target = tvm.target.Target("c_static_lib -mcpu=c7x")
@@ -228,7 +234,17 @@ quantisation scale — use domain-specific bounded inputs for those ops.
 
 Run during partitioning before passing composites to TIDL:
 
-- **All ops:** dtype must be in {float32, int8, int16, uint8}
+- **All ops:** dtype must be in {float32, int8, int16, uint8}. This is a
+  single blanket allowlist shared by every `_check_*` callback, not a
+  per-op allowlist — some ops that a reference TIDL importer permits a
+  wider integer dtype for on a per-op basis (e.g. int32 for `take`'s data
+  input, or int32/int64 for an elementwise `mod`) are declined here
+  anyway, since int32/int64/uint32/uint64/bool are outside this set for
+  every op uniformly. Offload coverage, not a bug.
+- **Any op with a statically-unknown rank/shape:** declined (fails
+  closed), not optimistically accepted. Reduces offload coverage for
+  dynamic-shape models in exchange for not risking a mis-parse on a shape
+  TIDL cannot represent.
 - **Conv2d:** kernel size 1–7 (6 excluded by TIDL allowlisting),
   H and W strides must be equal, input rank ≤ 4
 - **Pool:** kernel ≤ 3, input rank == 4
@@ -243,13 +259,27 @@ Run during partitioning before passing composites to TIDL:
 - **Element-wise (add, multiply, subtract, divide, maximum, minimum):**
   input rank must be exactly 4; sub-4D uses (e.g. FC bias add `(1,1000)`)
   are rejected — they cause a crash in TIDL algProcess
+- **StridedSlice:** `axes`/`begin`/`end` must each be a single-axis tuple
+  (length 1); `strides`, if present, must be a length-1 tuple whose value
+  is exactly 1 — a multi-axis slice or a non-unit stride is declined
+  rather than silently mis-executed as something else.
+- **Pad:** `pad_mode` must be `"constant"`; input must be exactly 4-D
+  (`pad_width` has 8 entries); the N and C (batch/channel) pad amounts
+  must both be zero — only H/W padding is supported.
+- **Take (gather):** `data` must not itself be a `relax.Constant` (the
+  common inverse case — an embedding table gathered by variable token
+  ids — is fine; a constant table combined with constant indices is the
+  declined case); `data` must be ≥ 2-D; `indices` must be effectively
+  1-D (only its last dimension may be non-singleton).
 - **TopK:** axis must be HEIGHT (2) or WIDTH (3) in 4D NCHW; sorted must
   be True (TIDL constraint).  TIDL always produces both values and
   indices outputs — use `ret_type="both"` and extract `[0]` for values.
   The C++ parser sets `numConstInputs=1` to satisfy the allowlisting
   constraint that expects K as an initializer (in Relax, K is an attr).
 - **Split:** any axis; equal sections (`split(x, N)`) and explicit
-  cut-point indices (`split(x, [i0, i1, ...])`) both supported.
+  cut-point indices (`split(x, [i0, i1, ...])`) both supported, up to 16
+  output tensors — TIDL's slice-points buffer is fixed-size and a larger
+  split is declined rather than overflowing it.
 
 **Batch normalization:** `prepare()` runs `FoldBatchnormToConv2D` +
 `FoldConstant` before partitioning, which algebraically folds
@@ -395,8 +425,19 @@ Phase 4: lower_tidl()
 Lowered IR (TIR stubs + remaining Relax ops)
     |
     v
+Phase 4b: _fix_output_dtype_mismatches()
+    |  Compares each subgraph's actual output element type/scale/zero-point
+    |  (read from io.bin) against what its TIR stub declares; inserts a
+    |  dequant/cast in @main at the call_tir site on mismatch
+    v
+Lowered IR (dtype-corrected)
+    |
+    v
 Phase 5: generate_bridge() + relax.build()
-    |  c_static_lib codegen emits lib0.c
+    |  c_static_lib codegen emits lib0.c.  Its finalize passes run
+    |  PadTIDLOutputStorage between memory planning and buffer lowering,
+    |  which grows an output's allocated storage to cover TIDL's write-past-
+    |  the-logical-tensor padding channels; a no-op for non-TIDL builds.
     v
 lib0.c + weights.bin + tidl_bridge.c/h
     |
