@@ -18,13 +18,25 @@ Relax IR
   → Partition (FuseOpsByPattern + MergeCompositeFunctions, Codegen="tidl")
   → TIDL Import (tidl_import() via Relax FFI → net.bin + params_1.bin)
   → Lower (LowerTIDLToTIR: replace TIDL funcs with call_extern stubs)
-  → c_static_lib Codegen (emit lib0.c + weights.bin; sets `-tidl-runtime=1` target attr)
+  → Output Dtype Fixup (_fix_output_dtype_mismatches(): compares each
+    subgraph's actual output element type/scale/zero-point, read from
+    params_1.bin, against what its TIR stub declares; inserts a dequant/
+    cast in @main at the call_tir site on mismatch — see README.md's
+    "Pipeline" section for the exact formula and known pitfalls)
+  → c_static_lib Codegen (emit lib0.c + weights.bin; sets `-tidl-runtime=1` target attr;
+    relax.build()'s finalize passes run PadTIDLOutputStorage here too, growing an
+    output's allocated storage to cover TIDL's write-past-the-tensor padding channels)
   → IO Meta (write_io_meta() → tvm_dsp_io_meta.bin, declared input_buf/
     output_buf capacity for the per-buffer-dmabuf c7x_dload protocol)
   → Bridge Generation (tidl_bridge.c: eager tidl_bridge_init_all() + per-subgraph process() + tidl_bridge_cleanup())
   → C7x DLOAD Build (lib0.out with embedded TIDL artifacts + IO-meta blob)
   → Deploy to AM67A via c7x_compute
 ```
+
+Both the Output Dtype Fixup and PadTIDLOutputStorage steps are no-ops when
+there is nothing for them to do (no detected mismatch; no module attribute
+set, respectively) — they only touch the generated IR when a subgraph
+output actually needs it.
 
 **The IO Meta step is easy to silently skip** if a caller re-implements
 this pipeline by hand instead of going through `TIDLOffloadCompiler.build()`/
@@ -164,6 +176,18 @@ Device config: `DEVICE_NAME=4` = TIDL_AM62A (C7504 with MMA2, single-core).
    InnerProduct (FC) output is ~10^7× the correct value. For `tidl.matmul_bias`
    also set `constTensorsDims[1]` for the bias (the bias-size constraint checker
    reads it). Fixed in `tidl_parse_relax_matmul.cpp` commit `312d39b`.
+8. **The Python dtype allowlist (`patterns.py`'s `_TIDL_SUPPORTED_DTYPES` =
+   {float32, int8, int16, uint8}) is a single blanket set shared by every
+   `_check_*` callback, not a per-op allowlist.** A dtype a reference TIDL
+   importer permits for one specific op (e.g. int32 for `take`'s data input)
+   is still declined here, because the gate doesn't special-case ops the
+   way a per-op allowlist would. Also fails closed on an unknown/dynamic
+   shape rather than optimistically accepting. See README.md's "Constraint
+   checks" section for the current per-op decline conditions (strided_slice
+   single-axis/unit-stride, pad constant-mode/4-D/no-N-C-padding, split
+   ≤16 outputs, take non-constant-data) — these are correctness/safety
+   gates, not just missing optimizations, so don't loosen them without
+   re-reading why they're there.
 
 ## Testing
 

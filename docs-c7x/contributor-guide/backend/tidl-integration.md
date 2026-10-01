@@ -49,8 +49,18 @@ tidl_import()       Loads tidl_model_import_relax.so; per subgraph:
 lower_tidl()        Replace Codegen="tidl" functions with TIR PrimFunc stubs;
     |               each stub emits call_extern("tidl_subgraph_N_process", ...)
     v
+_fix_output_dtype_  Compares each subgraph's actual output element type/
+  mismatches()      scale/zero-point (read from params_1.bin) against what
+    |               its TIR stub declares; inserts a dequant/cast in @main
+    |               at the call_tir site on mismatch. No-op if nothing
+    |               mismatches.
+    v
 generate_bridge()   Generate tidl_bridge.c/h resolving the extern calls
-  + relax.build()    c_static_lib codegen emits lib0.c + weights.bin
+  + relax.build()    c_static_lib codegen emits lib0.c + weights.bin.
+    |               relax.build()'s finalize passes also run
+    |               PadTIDLOutputStorage here, growing an output's
+    |               allocated storage to cover TIDL's write-past-the-
+    |               tensor padding channels (no-op for non-TIDL builds).
     v
 _build_dynmod()     TI C7x cross-compile; embeds TIDL artifacts as .rodata;
     |               links tidl_api.c (IALG wrapper) + bridge
@@ -163,6 +173,27 @@ ordering matters — see
   check rather than being offloaded and crashing at runtime.
 - **`topk` always returns both values and indices.** Request
   `ret_type="both"` and extract index `[0]` for values-only usage.
+- **The dtype gate is one blanket allowlist, not per-op.** Every pattern's
+  constraint check accepts only {float32, int8, int16, uint8} dtypes, with
+  no op-specific exceptions. A dtype that some reference TIDL importer
+  permits for a specific op (e.g. int32 as `take`'s data input, or
+  int32/int64 for an elementwise `mod`) is still declined here, since the
+  allowlist doesn't vary per op. An op whose rank/shape cannot be
+  statically determined is declined too, rather than optimistically
+  accepted — this trades offload coverage on dynamic-shape models for not
+  risking a mis-parse.
+- **`strided_slice` only supports a single axis with unit stride.**
+  Multi-axis `axes`/`begin`/`end`/`strides`, or any stride other than 1,
+  is declined rather than silently executed with the wrong bounds.
+- **`nn.pad` only supports constant-mode, 4-D, H/W-only padding.** Any
+  non-`"constant"` `pad_mode`, a non-4-D input, or non-zero N/C (batch/
+  channel) padding is declined.
+- **`split` is capped at 16 output tensors.** TIDL's internal slice-points
+  buffer is fixed-size; a larger split is declined rather than overflowing
+  it.
+- **`take` declines when `data` (not just `indices`) is a constant.** The
+  common inverse case — a constant embedding table gathered by variable
+  token ids — offloads fine; a fully-constant gather does not.
 
 ## Testing
 
