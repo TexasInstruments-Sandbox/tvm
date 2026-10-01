@@ -288,13 +288,13 @@ pipeline {
                         sh '''
                             if [ -d c7x-mma-tidl/.git ]; then
                                 cd c7x-mma-tidl
-                                git fetch --depth=1 origin tvm-relax
-                                git checkout tvm-relax
-                                git reset --hard origin/tvm-relax
+                                git fetch --depth=1 origin tvm-relax-am62d-12.00.00.00
+                                git checkout tvm-relax-am62d-12.00.00.00
+                                git reset --hard origin/tvm-relax-am62d-12.00.00.00
                                 git submodule update --init --depth=1
                             else
                                 rm -rf c7x-mma-tidl
-                                git clone --depth=1 --branch tvm-relax \
+                                git clone --depth=1 --branch tvm-relax-am62d-12.00.00.00 \
                                     --recurse-submodules --shallow-submodules \
                                     ssh://git@bitbucket.itg.ti.com/mctools/c7x-mma-tidl.git \
                                     c7x-mma-tidl
