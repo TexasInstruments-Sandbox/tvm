@@ -124,6 +124,14 @@ class TIDLIOBufDesc:
         n = total if count is None else min(count, total)
         return list(struct.unpack_from(f"<{n}i", self._blob, offset))
 
+    def floats(self, name: str, count: Optional[int] = None) -> List[float]:
+        """Read a float32 field as a list (optionally only the first ``count``)."""
+        offset, total, elem_size, ctype, _ = self._fields[name]
+        if elem_size != 4 or ctype not in ("float32_tidl", "float"):
+            raise TypeError(f"{name} is {ctype}, not a float32 array")
+        n = total if count is None else min(count, total)
+        return list(struct.unpack_from(f"<{n}f", self._blob, offset))
+
     def scalar(self, name: str) -> int:
         return self.ints(name, 1)[0]
 
@@ -137,13 +145,39 @@ class TIDLIOBufDesc:
         raw = self._blob[offset + index * stride : offset + (index + 1) * stride]
         return raw.split(b"\0", 1)[0].decode("utf-8", errors="replace")
 
-    def output_byte_sizes(self) -> Dict[int, int]:
-        """Map TVM output slot -> bytes that must be allocated for that output.
+    def output_slot_map(self, num_out: Optional[int] = None) -> List[int]:
+        """Map descriptor index -> TVM output slot, via ``outDataName``.
 
         The slot comes from ``outDataName``, encoded ``"tidl_<sg>_o<slot>"`` --
         the same parsing ``connect_input_output_tensors()`` in tidl_api.c uses to
         bind outputs, so the mapping agrees with the device side.  TIDL may
         reorder outputs during compilation, so slot != index in general.
+
+        Returns a list ``slots`` where ``slots[i]`` is the TVM output slot for
+        descriptor index ``i``. Falls back to ``slot = i`` when ``outDataName``
+        is absent or doesn't carry a trailing ``o<digits>`` suffix.
+        """
+        n = self.scalar("numOutputBuf") if num_out is None else num_out
+        slots = []
+        for i in range(n):
+            slot = i
+            try:
+                out_name = self.name_at("outDataName", i)
+            except (KeyError, TypeError, IndexError):
+                out_name = ""
+            pos = out_name.rfind("o")
+            if pos >= 0:
+                digits = out_name[pos + 1 :]
+                if digits.isdigit():
+                    slot = int(digits)
+            slots.append(slot)
+        return slots
+
+    def output_byte_sizes(self) -> Dict[int, int]:
+        """Map TVM output slot -> bytes that must be allocated for that output.
+
+        See :meth:`output_slot_map` for how the slot is derived from
+        ``outDataName``.
 
         The size follows TI's own reference harness,
         ``ti_dl/test/src/tidl_rt.c:567``::
@@ -171,19 +205,11 @@ class TIDLIOBufDesc:
         dim1 = self.ints("outDIM1", num_out)
         dim2 = self.ints("outDIM2", num_out)
         buf_sizes = self.ints("outBufSize", num_out)
+        slot_map = self.output_slot_map(num_out)
 
         result: Dict[int, int] = {}
         for i in range(num_out):
-            slot = i
-            try:
-                out_name = self.name_at("outDataName", i)
-            except (KeyError, TypeError, IndexError):
-                out_name = ""
-            pos = out_name.rfind("o")
-            if pos >= 0:
-                digits = out_name[pos + 1 :]
-                if digits.isdigit():
-                    slot = int(digits)
+            slot = slot_map[i]
             esize = _ELEMENT_SIZE.get(elem_types[i], 1)
             elems = (
                 max(1, batches[i])

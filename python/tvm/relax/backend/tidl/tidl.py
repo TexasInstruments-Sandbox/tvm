@@ -63,6 +63,23 @@ _TIDL_ELEMENT_TYPE = {
     "float32": 6,  # TIDL_SinglePrecFloat
     "uint64": 7,  # TIDL_UnsignedDoubleWord
     "int64": 8,  # TIDL_SignedDoubleWord
+    "bool": 9,  # TIDL_Bool
+    "bfloat16": 10,  # TIDL_BFloat16
+}
+
+# Inverse mapping: TIDL element type enum -> TVM dtype string
+_TIDL_ELEMENT_TYPE_TO_DTYPE = {
+    0: "uint8",  # TIDL_UnsignedChar
+    1: "int8",  # TIDL_SignedChar
+    2: "uint16",  # TIDL_UnsignedShort
+    3: "int16",  # TIDL_SignedShort
+    4: "uint32",  # TIDL_UnsignedWord
+    5: "int32",  # TIDL_SignedWord
+    6: "float32",  # TIDL_SinglePrecFloat
+    7: "uint64",  # TIDL_UnsignedDoubleWord
+    8: "int64",  # TIDL_SignedDoubleWord
+    9: "bool",  # TIDL_Bool
+    10: "bfloat16",  # TIDL_BFloat16
 }
 
 
@@ -968,7 +985,7 @@ class TIDLOffloadCompiler:
     # ------------------------------------------------------------------
 
     def compile(self, mod: IRModule, params: Optional[Dict] = None) -> Tuple[IRModule, Dict]:
-        """Full TIDL offload pipeline: prepare -> partition -> import -> lower.
+        """Full TIDL offload pipeline: prepare -> partition -> import -> lower -> fix dtypes.
 
         Parameters
         ----------
@@ -990,7 +1007,180 @@ class TIDLOffloadCompiler:
         mod, artifacts = self.tidl_import(mod)
         failed = getattr(self, "_last_failed_subgraphs", set())
         mod = self.lower_tidl(mod, artifacts=artifacts, failed_subgraphs=failed)
+        mod = self._fix_output_dtype_mismatches(mod, artifacts)
         return mod, artifacts
+
+    def _fix_output_dtype_mismatches(self, mod: IRModule, artifacts: Dict) -> IRModule:
+        """Compare TIDL actual output dtypes vs Relax declared dtypes; insert casts if mismatch.
+
+        Reads each subgraph's params_1.bin via io_buf_desc, compares outElementType
+        against the TIR stub's declared output dtype (from lowering), and if mismatched:
+        inserts astype + dequant math in @main at the call site.
+
+        Note: This runs AFTER lower_tidl, so TIDL functions are already TIR stubs.
+        The subgraph return type rewriting is not needed since TIR stubs are created
+        with the correct output types from the artifacts.
+        """
+        from .io_buf_desc import parse_io_buf_desc
+
+        # Find all TIDL subgraph TIR stubs in the module
+        tidl_stubs = {}
+        for gv, func in mod.functions_items():
+            if isinstance(func, tvm.tir.PrimFunc) and "tidl_subgraph" in gv.name_hint:
+                # Extract sg_id from function name or attribute
+                sg_id_attr = func.attrs.get("tidl_sg_id") if func.attrs else None
+                sg_id = int(sg_id_attr) if sg_id_attr is not None else len(tidl_stubs)
+                # Find matching artifact by sg_id
+                art = None
+                for name, a in artifacts.items():
+                    if a.get("sg_id") == sg_id:
+                        art = a
+                        break
+                if art:
+                    tidl_stubs[gv.name_hint] = (gv, func, art, sg_id)
+
+        if not tidl_stubs:
+            return mod
+
+        # For each subgraph stub, compare dtypes
+        mismatches = {}  # stub_name -> list of (output_idx, tvm_dtype, tidl_dtype, scale_inv, zp)
+
+        for stub_name, (gv, func, art, sg_id) in tidl_stubs.items():
+            io_bin = art.get("io_bin")
+            if not io_bin or not os.path.isfile(io_bin):
+                continue
+
+            # Parse TIDL descriptor
+            try:
+                desc = parse_io_buf_desc(io_bin)
+            except (OSError, ValueError, FileNotFoundError) as err:
+                logger.warning(f"Could not read TIDL output descriptor for {stub_name}: {err}")
+                continue
+
+            # Get Relax declared output dtypes from TIR stub buffer_map
+            output_sinfos = []
+            for param in func.params:
+                buf = func.buffer_map.get(param)
+                if buf is not None and param.name.startswith("output"):
+                    output_sinfos.append(buf.dtype)
+
+            if not output_sinfos:
+                continue
+
+            tvm_dtypes = [str(dt) for dt in output_sinfos]
+
+            # Get TIDL actual output dtypes from descriptor
+            num_out = desc.scalar("numOutputBuf")
+            tidl_elem_types = desc.ints("outElementType", num_out)
+            tidl_scales = desc.floats("outTensorScale", num_out)
+            tidl_zps = desc.ints("outZeroPoint", num_out)
+            slot_map = desc.output_slot_map(num_out)
+
+            # TIDL may reorder outputs during compilation (see
+            # io_buf_desc.TIDLIOBufDesc.output_slot_map); re-key every
+            # per-output field by TVM output slot before comparing against
+            # tvm_dtypes, which is already in TVM output-param order.
+            by_slot: Dict[int, tuple] = {}
+            for i in range(num_out):
+                elem_type = tidl_elem_types[i]
+                tidl_dtype = _TIDL_ELEMENT_TYPE_TO_DTYPE.get(elem_type)
+                if tidl_dtype is None:
+                    logger.warning(f"{stub_name} output {i}: unknown TIDL element type {elem_type}")
+                    continue
+                by_slot[slot_map[i]] = (tidl_dtype, tidl_scales[i], tidl_zps[i])
+
+            # Compare per output
+            for idx, tvm_dt in enumerate(tvm_dtypes):
+                entry = by_slot.get(idx)
+                if entry is None:
+                    continue
+                tidl_dt, scale, zp = entry
+                if tidl_dt != tvm_dt:
+                    mismatches.setdefault(stub_name, []).append((idx, tvm_dt, tidl_dt, scale, zp))
+
+        if not mismatches:
+            return mod
+
+        # Apply fix: insert casts in @main at the call_tir sites
+        mod = self._insert_output_casts_in_main(mod, mismatches)
+        return mod
+
+    def _insert_output_casts_in_main(self, mod: IRModule, mismatches: Dict) -> IRModule:
+        """Insert dequant casts in @main after TIDL subgraph calls."""
+        from tvm.relax.expr_functor import PyExprMutator, mutator
+
+        @mutator
+        class OutputCastInserter(PyExprMutator):
+            def __init__(self, mod, mismatches):
+                super().__init__(mod)
+                self.mismatches = mismatches
+
+            def visit_call_(self, call):
+                call = super().visit_call_(call)
+                # Subgraph calls were already rewritten to call_tir by
+                # _TIDLCallReplacer before this pass runs: call.op is the
+                # relax.call_tir builtin Op, not the callee GlobalVar -- the
+                # callee lives in call.args[0].
+                if call.op != tvm.ir.Op.get("relax.call_tir"):
+                    return call
+                callee = call.args[0]
+                if not isinstance(callee, relax.GlobalVar):
+                    return call
+
+                sg_name = callee.name_hint
+                if sg_name not in self.mismatches:
+                    return call
+
+                # Apply output conversions
+                output_mismatches = self.mismatches[sg_name]
+                is_tuple = len(output_mismatches) > 1 or isinstance(call.struct_info, relax.TupleStructInfo)
+
+                if is_tuple:
+                    fields = []
+                    for i, mismatch in enumerate(output_mismatches):
+                        idx, tvm_dt, tidl_dt, scale, zp = mismatch
+                        field = relax.TupleGetItem(call, i)
+                        if tidl_dt != tvm_dt:
+                            field = self._apply_output_conversion(field, tidl_dt, tvm_dt, scale, zp)
+                        fields.append(field)
+                    return relax.Tuple(fields)
+                else:
+                    idx, tvm_dt, tidl_dt, scale, zp = output_mismatches[0]
+                    if tidl_dt != tvm_dt:
+                        return self._apply_output_conversion(call, tidl_dt, tvm_dt, scale, zp)
+                    return call
+
+            def _apply_output_conversion(self, tensor, tidl_dt, tvm_dt, scale, zp):
+                """Dequantize: float_value = (data - zp) / scale, then cast to tvm_dt.
+
+                ``scale`` is ``outTensorScale`` read directly from the TIDL
+                descriptor -- it is the ordinary quantization scale, not an
+                inverse. Confirmed against TIDL's own convention
+                ("Xfloat = (Xfixed - zp)/scale", tidl_import_quantize.cpp:1490)
+                and the runtime dequant kernel copy_zfscale_linear
+                (arm-tidl/rt/src/tidl_rt_ovx_datamove.cpp), which computes
+                dst = (src - zp) * (out_scale/in_scale); for an int->float
+                output conversion out_scale == 1.0, giving (src - zp)/in_scale.
+                """
+                # If scale is 0 or identity (scale=1, zp=0), just cast.
+                if scale is not None and zp is not None and not (scale == 1.0 and zp == 0):
+                    as_float = relax.op.astype(tensor, "float32")
+                    shifted = relax.op.subtract(as_float, relax.const(float(zp), "float32"))
+                    divisor = float(scale) if float(scale) != 0.0 else 1.0
+                    result = relax.op.divide(shifted, relax.const(divisor, "float32"))
+                    if tvm_dt != "float32":
+                        result = relax.op.astype(result, tvm_dt)
+                    return result
+                # Identity or unknown: plain cast
+                return relax.op.astype(tensor, tvm_dt)
+
+        main_gv = mod.get_global_var("main")
+        if main_gv is None:
+            return mod
+
+        new_main = OutputCastInserter(mod, mismatches).visit_expr(mod[main_gv])
+        mod.update_func(main_gv, new_main)
+        return mod
 
     # ------------------------------------------------------------------
     # Full build pipeline: compile -> codegen -> bridge -> dynmod
