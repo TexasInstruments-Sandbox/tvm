@@ -255,5 +255,79 @@ class TestOutputSlotRemap:
         )
 
 
+# ---------------------------------------------------------------------------
+# Narrow TIDL output (argmax/argmin): storage must match what TIDL writes
+# ---------------------------------------------------------------------------
+
+
+class TestNarrowIntegerOutput:
+    """TIDL writes one uint8 per argmax index while Relax declares int32.
+
+    Casting a tensor still declared (and sized) as int32 cannot unpack bytes
+    TIDL packed four to the word, so the stub buffer and the call_tir result
+    must be re-declared uint8 before the widening cast.
+    """
+
+    @staticmethod
+    def _fix(monkeypatch):
+        class _FakeDesc:
+            def scalar(self, name):
+                return 1
+
+            def ints(self, name, count=None):
+                return {"outElementType": [0], "outZeroPoint": [3]}[name]
+
+            def floats(self, name, count=None):
+                return [2.0]
+
+            def output_slot_map(self, num_out=None):
+                return [0]
+
+        monkeypatch.setattr(
+            "tvm.relax.backend.tidl.io_buf_desc.parse_io_buf_desc",
+            lambda *a, **k: _FakeDesc(),
+        )
+        mod = _build_module("tidl_subgraph_0", ["int32"])
+        with tempfile.NamedTemporaryFile() as f:
+            artifacts = {"tidl_subgraph_0": {"sg_id": 0, "io_bin": f.name}}
+            return TIDLOffloadCompiler()._fix_output_dtype_mismatches(mod, artifacts)
+
+    def test_stub_output_buffer_is_retyped(self, monkeypatch):
+        new_mod = self._fix(monkeypatch)
+        stub = new_mod["tidl_subgraph_0"]
+        out_param = [p for p in stub.params if p.name.startswith("output")][0]
+        assert str(stub.buffer_map[out_param].dtype) == "uint8"
+        assert int(stub.attrs["tidl_sg_id"]) == 0
+
+    def test_call_tir_declares_tidl_dtype_then_widens(self, monkeypatch):
+        new_mod = self._fix(monkeypatch)
+        new_main = new_mod["main"]
+        calls = _collect_calls(new_main.body)
+        tir_calls = [c for c in calls if c.op == tvm.ir.Op.get("relax.call_tir")]
+        assert len(tir_calls) == 1
+        assert tir_calls[0].struct_info.dtype == "uint8"
+        assert new_main.ret_struct_info.dtype == "int32"
+        astypes = [c for c in calls if c.op == tvm.ir.Op.get("relax.astype")]
+        assert len(astypes) == 1
+
+    def test_survives_call_tir_rewrite(self, monkeypatch):
+        """The callee GlobalVar's cached signature must follow the retyped stub.
+
+        Otherwise CallTIRRewrite (run by relax.build) type-checks the uint8
+        output allocation against the stale int32 signature and aborts.
+        """
+        new_mod = self._fix(monkeypatch)
+        gv = new_mod.get_global_var("tidl_subgraph_0")
+        assert "uint8" in str(gv.struct_info)
+        relax.transform.CallTIRRewrite()(new_mod)
+
+    def test_integer_widening_skips_dequant(self, monkeypatch):
+        """scale=2.0, zp=3 must not turn index values into (idx - 3) / 2."""
+        new_mod = self._fix(monkeypatch)
+        ops = {c.op for c in _collect_calls(new_mod["main"].body)}
+        assert tvm.ir.Op.get("relax.divide") not in ops
+        assert tvm.ir.Op.get("relax.subtract") not in ops
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -427,8 +427,10 @@ Lowered IR (TIR stubs + remaining Relax ops)
     v
 Phase 4b: _fix_output_dtype_mismatches()
     |  Compares each subgraph's actual output element type/scale/zero-point
-    |  (read from io.bin) against what its TIR stub declares; inserts a
-    |  dequant/cast in @main at the call_tir site on mismatch
+    |  (read from io.bin) against what its TIR stub declares; on mismatch
+    |  re-declares the stub output and call_tir result with TIDL's dtype
+    |  (storage must match the bytes written) and inserts a dequant/cast
+    |  in @main at the call_tir site
     v
 Lowered IR (dtype-corrected)
     |

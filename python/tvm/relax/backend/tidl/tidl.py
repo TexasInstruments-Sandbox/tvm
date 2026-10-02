@@ -1101,19 +1101,67 @@ class TIDLOffloadCompiler:
         if not mismatches:
             return mod
 
-        # Apply fix: insert casts in @main at the call_tir sites
-        mod = self._insert_output_casts_in_main(mod, mismatches)
+        # Apply fix: make the stubs write TIDL's dtype, then insert casts in
+        # @main at the call_tir sites.
+        mod, new_gvars = self._retype_stub_outputs(mod, tidl_stubs, mismatches)
+        mod = self._insert_output_casts_in_main(mod, mismatches, new_gvars)
         return mod
 
-    def _insert_output_casts_in_main(self, mod: IRModule, mismatches: Dict) -> IRModule:
+    @staticmethod
+    def _retype_stub_outputs(mod: IRModule, tidl_stubs: Dict, mismatches: Dict):
+        """Declare each mismatched stub output with the dtype TIDL really writes.
+
+        TIDL writes outElementType-sized elements (e.g. one byte per argmax
+        index) regardless of what Relax declared, so the output buffer must
+        carry that dtype for its byte size, and the bridge's pointer type, to
+        be right.  The cast back to the Relax dtype happens in @main.
+        """
+        new_gvars = {}
+        for stub_name, stub_mismatches in mismatches.items():
+            gv, func, _art, _sg_id = tidl_stubs[stub_name]
+            tidl_dtypes = {m[0]: m[2] for m in stub_mismatches}
+            in_sinfos, out_sinfos = [], []
+            for param in func.params:
+                buf = func.buffer_map[param]
+                sinfo = relax.TensorStructInfo(buf.shape, str(buf.dtype))
+                (out_sinfos if param.name.startswith("output") else in_sinfos).append(sinfo)
+            out_sinfos = [
+                relax.TensorStructInfo(si.shape, tidl_dtypes.get(k, si.dtype))
+                for k, si in enumerate(out_sinfos)
+            ]
+            out_sinfo = out_sinfos[0] if len(out_sinfos) == 1 else relax.TupleStructInfo(out_sinfos)
+            new_func = _make_tidl_tir_stub(gv.name_hint, in_sinfos, out_sinfo, sg_id=_sg_id)
+            # A GlobalVar's R.Callable struct info is derived from the stub's
+            # buffers when it is added and cannot be overwritten, so CallTIRRewrite
+            # would keep type-checking against the old dtype.  Swap in a fresh
+            # GlobalVar under the same name (the bridge symbols derive from it).
+            params_sinfo = [
+                relax.TensorStructInfo(
+                    new_func.buffer_map[p].shape, str(new_func.buffer_map[p].dtype)
+                )
+                for p in new_func.params
+            ]
+            new_gv = relax.GlobalVar(gv.name_hint)
+            relax.expr._update_struct_info(
+                new_gv, relax.FuncStructInfo(params_sinfo, relax.TupleStructInfo([]), purity=True)
+            )
+            del mod[gv]
+            mod[new_gv] = new_func
+            new_gvars[stub_name] = new_gv
+        return mod, new_gvars
+
+    def _insert_output_casts_in_main(
+        self, mod: IRModule, mismatches: Dict, new_gvars: Optional[Dict] = None
+    ) -> IRModule:
         """Insert dequant casts in @main after TIDL subgraph calls."""
         from tvm.relax.expr_functor import PyExprMutator, mutator
 
         @mutator
         class OutputCastInserter(PyExprMutator):
-            def __init__(self, mod, mismatches):
+            def __init__(self, mod, mismatches, new_gvars):
                 super().__init__(mod)
                 self.mismatches = mismatches
+                self.new_gvars = new_gvars
 
             def visit_call_(self, call):
                 call = super().visit_call_(call)
@@ -1131,24 +1179,46 @@ class TIDLOffloadCompiler:
                 if sg_name not in self.mismatches:
                     return call
 
-                # Apply output conversions
+                # Apply output conversions.  The call is first re-declared with
+                # TIDL's real output dtype: the stub buffer (see
+                # _retype_stub_outputs) and this call's storage must be sized
+                # for the bytes TIDL actually writes, otherwise a cast reads a
+                # 1-byte-per-element result as if it were 4-byte elements.
                 output_mismatches = self.mismatches[sg_name]
-                is_tuple = len(output_mismatches) > 1 or isinstance(call.struct_info, relax.TupleStructInfo)
+                is_tuple = isinstance(call.struct_info, relax.TupleStructInfo)
+                tidl_dtypes = {m[0]: m[2] for m in output_mismatches}
+                call = self._retype_call_tir(call, tidl_dtypes)
 
                 if is_tuple:
                     fields = []
-                    for i, mismatch in enumerate(output_mismatches):
-                        idx, tvm_dt, tidl_dt, scale, zp = mismatch
+                    for i in range(len(call.struct_info.fields)):
                         field = relax.TupleGetItem(call, i)
-                        if tidl_dt != tvm_dt:
-                            field = self._apply_output_conversion(field, tidl_dt, tvm_dt, scale, zp)
+                        for idx, tvm_dt, tidl_dt, scale, zp in output_mismatches:
+                            if idx == i:
+                                field = self._apply_output_conversion(
+                                    field, tidl_dt, tvm_dt, scale, zp
+                                )
                         fields.append(field)
                     return relax.Tuple(fields)
+                idx, tvm_dt, tidl_dt, scale, zp = output_mismatches[0]
+                return self._apply_output_conversion(call, tidl_dt, tvm_dt, scale, zp)
+
+            def _retype_call_tir(self, call, tidl_dtypes):
+                """Re-declare ``call_tir``'s out_sinfo with TIDL's dtype per slot."""
+
+                def retype(sinfo, dtype):
+                    return relax.TensorStructInfo(sinfo.shape, dtype)
+
+                if isinstance(call.struct_info, relax.TupleStructInfo):
+                    out_sinfo = [
+                        retype(f, tidl_dtypes.get(i, f.dtype))
+                        for i, f in enumerate(call.struct_info.fields)
+                    ]
                 else:
-                    idx, tvm_dt, tidl_dt, scale, zp = output_mismatches[0]
-                    if tidl_dt != tvm_dt:
-                        return self._apply_output_conversion(call, tidl_dt, tvm_dt, scale, zp)
-                    return call
+                    out_sinfo = retype(call.struct_info, tidl_dtypes[0])
+                callee = self.new_gvars.get(call.args[0].name_hint, call.args[0])
+                new_call = relax.call_tir(callee, call.args[1], out_sinfo=out_sinfo)
+                return self.builder_.normalize(new_call)
 
             def _apply_output_conversion(self, tensor, tidl_dt, tvm_dt, scale, zp):
                 """Dequantize: float_value = (data - zp) / scale, then cast to tvm_dt.
@@ -1163,7 +1233,16 @@ class TIDLOffloadCompiler:
                 output conversion out_scale == 1.0, giving (src - zp)/in_scale.
                 """
                 # If scale is 0 or identity (scale=1, zp=0), just cast.
-                if scale is not None and zp is not None and not (scale == 1.0 and zp == 0):
+                # Integer -> integer (e.g. argmax indices) is a widening, not a
+                # dequantization: outTensorScale/outZeroPoint do not apply.
+                int_prefixes = ("int", "uint", "bool")
+                is_int_to_int = tidl_dt.startswith(int_prefixes) and tvm_dt.startswith(int_prefixes)
+                if (
+                    not is_int_to_int
+                    and scale is not None
+                    and zp is not None
+                    and not (scale == 1.0 and zp == 0)
+                ):
                     as_float = relax.op.astype(tensor, "float32")
                     shifted = relax.op.subtract(as_float, relax.const(float(zp), "float32"))
                     divisor = float(scale) if float(scale) != 0.0 else 1.0
@@ -1178,7 +1257,7 @@ class TIDLOffloadCompiler:
         if main_gv is None:
             return mod
 
-        new_main = OutputCastInserter(mod, mismatches).visit_expr(mod[main_gv])
+        new_main = OutputCastInserter(mod, mismatches, new_gvars or {}).visit_expr(mod[main_gv])
         mod.update_func(main_gv, new_main)
         return mod
 
