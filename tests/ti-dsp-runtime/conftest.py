@@ -19,7 +19,7 @@ def pytest_addoption(parser):
         "--board",
         action="store",
         default=None,
-        choices=["j722s-evm", "beagley-ai"],
+        choices=["j722s-evm", "beagley-ai", "am62d"],
         help="Target board for c7x_dload (hardware) runs. Required whenever "
         "--dsp-mode=c7x_dload is used; ignored for c7x_host emulation.",
     )

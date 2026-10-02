@@ -130,7 +130,7 @@ _current_test_name: Optional[str] = None
 _current_board: Optional[str] = None
 
 # am67a is j722s-evm's default SSH hostname, not a distinct board.
-_BOARD_DEFAULT_HOSTNAME = {"j722s-evm": "am67a", "beagley-ai": "beagley-ai"}
+_BOARD_DEFAULT_HOSTNAME = {"j722s-evm": "am67a", "beagley-ai": "beagley-ai", "am62d": "am62d"}
 
 
 def set_current_test_name(name: Optional[str]) -> None:
@@ -140,7 +140,7 @@ def set_current_test_name(name: Optional[str]) -> None:
 
 
 def set_current_board(board: Optional[str]) -> None:
-    """Set the target board (j722s-evm|beagley-ai) selected via --board."""
+    """Set the target board (j722s-evm|beagley-ai|am62d) selected via --board."""
     global _current_board
     _current_board = board
 
@@ -222,7 +222,7 @@ def get_target_string(
         board = get_current_board()
         if board is None:
             raise RuntimeError(
-                "No board specified: pass --board <j722s-evm|beagley-ai> "
+                "No board specified: pass --board <j722s-evm|beagley-ai|am62d> "
                 "(c7x_dload targets real deployed firmware, whose exported "
                 "kernels depend on which board it was built for)"
             )
@@ -234,6 +234,11 @@ def get_target_string(
             # the board (not at compile time). c7x_host emulation is unaffected
             # -- it's a separate build, not the deployed board firmware.
             target += " -tidl-kernels=0"
+        elif board == "am62d":
+            # AM62D firmware is built --tidl OFF --mmalib OFF (same reason as
+            # BeagleY-AI above), and it has 240 KB of L2 scratch memory rather
+            # than the 1.25 MB target default (cf. target_kind.cc).
+            target += " -tidl-kernels=0 -l2-sram-size=245760"
     return target
 
 
@@ -922,7 +927,13 @@ def build_dsp_dynmod(
     dsp_cpp_dir = Path(dsp_cpp_dir).resolve()
 
     # Use the same C7x toolchain
-    toolchain_file = _DSP_RUNTIME_DIR / "cmake" / "toolchain-j722s-c7x.cmake"
+    # (am62d is a different SoC/core, so it has its own toolchain file.)
+    toolchain_name = (
+        "toolchain-am62d-c7x.cmake"
+        if get_current_board() == "am62d"
+        else "toolchain-j722s-c7x.cmake"
+    )
+    toolchain_file = _DSP_RUNTIME_DIR / "cmake" / toolchain_name
     if not toolchain_file.exists():
         raise FileNotFoundError(f"Toolchain file not found: {toolchain_file}")
 
@@ -1168,7 +1179,7 @@ def run_dsp_dload(
         target_host = get_board_hostname()
         if target_host is None:
             raise RuntimeError(
-                "No board specified: pass --board <j722s-evm|beagley-ai> "
+                "No board specified: pass --board <j722s-evm|beagley-ai|am62d> "
                 "(needed to pick the SSH host to deploy to)"
             )
 
