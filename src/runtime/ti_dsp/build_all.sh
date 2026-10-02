@@ -10,7 +10,7 @@
 # instructions.
 #
 # Usage:
-#   src/runtime/ti_dsp/build_all.sh --board <j722s-evm|beagley-ai>
+#   src/runtime/ti_dsp/build_all.sh --board <j722s-evm|beagley-ai|am62d>
 #       [--ddr <4gb|8gb>] [--wheels]
 #
 # --wheels additionally builds the x86/arm64 packaging wheels. Off by
@@ -22,7 +22,9 @@
 # Board-specific TIDL/MMALIB linkage follows this project's convention:
 # beagley-ai always builds --tidl OFF --mmalib ON (no TIDL subgraph
 # offload on that board); j722s-evm/am67a uses firmware/c7x/dsp/build.sh's
-# own default (--tidl ON, which forces --mmalib ON too).
+# own default (--tidl ON, which forces --mmalib ON too). am62d builds
+# --tidl OFF --mmalib OFF (neither is supported there yet) and has no
+# --wheels support yet.
 
 set -euo pipefail
 
@@ -50,7 +52,12 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$TVM_BOARD" ]; then
-    echo "Error: --board <j722s-evm|beagley-ai> is required" >&2
+    echo "Error: --board <j722s-evm|beagley-ai|am62d> is required" >&2
+    exit 1
+fi
+
+if [ "$TVM_BOARD" = "am62d" ] && [ "$BUILD_WHEELS" -eq 1 ]; then
+    echo "Error: --wheels is not supported for --board am62d yet" >&2
     exit 1
 fi
 
@@ -60,6 +67,7 @@ DDR_ARGS=()
 # Only beagley-ai needs an explicit TIDL/MMALIB override.
 FW_TIDL_ARGS=()
 [ "$TVM_BOARD" = "beagley-ai" ] && FW_TIDL_ARGS=(--tidl OFF --mmalib ON)
+[ "$TVM_BOARD" = "am62d" ] && FW_TIDL_ARGS=(--tidl OFF --mmalib OFF)
 
 # Speeds up repeat TVM core builds (e.g. the GitHub Actions wheel-build
 # workflow, which persists CCACHE_DIR across runs) wherever ccache

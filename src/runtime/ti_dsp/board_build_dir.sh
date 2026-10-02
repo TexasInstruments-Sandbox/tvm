@@ -24,7 +24,10 @@ resolve_board_build_dir() {
     fi
 
     BUILD_SUFFIX=""
-    if [ "$BOARD" != "j722s-evm" ] || [ "$DDR" != "8gb" ]; then
+    if [ "$BOARD" = "am62d" ]; then
+        # DDR size is not a build axis on am62d (see cmake/boards.cmake).
+        BUILD_SUFFIX="-am62d"
+    elif [ "$BOARD" != "j722s-evm" ] || [ "$DDR" != "8gb" ]; then
         BUILD_SUFFIX="-${BOARD}-${DDR}"
     fi
 

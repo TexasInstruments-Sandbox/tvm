@@ -63,6 +63,12 @@ if [ -z "$TVM_BOARD" ]; then
     echo "Error: --board <j722s-evm|beagley-ai> is required" >&2
     exit 1
 fi
+if [ "$TVM_BOARD" = "am62d" ]; then
+    # Wheel-based deploy + quantized MMALIB tests; none of that exists for
+    # am62d yet.  Without this it would silently take the j722s/am67a path.
+    echo "Error: validate_all.sh does not support --board am62d yet" >&2
+    exit 1
+fi
 
 case "$TVM_BOARD" in
     beagley-ai) BOARD_TARGET_HOST="beagley-ai" ;;

@@ -9,8 +9,9 @@
 #   ./build_runtime.sh c7x_host         # Build C7x host emulation only
 #   ./build_runtime.sh clean            # Remove all build directories
 #
-#   --board <j722s-evm|beagley-ai>      # Target board (required for c7x)
-#   --ddr <4gb|8gb>                     # Shared-DMA DDR size (default: per-board)
+#   --board <j722s-evm|beagley-ai|am62d> # Target board (required for c7x)
+#   --ddr <4gb|8gb>                     # Shared-DMA DDR size (default: per-board;
+#                                       # not applicable to am62d)
 #
 # Board/ddr resolve to SDK paths and the shared-DMA physical base entirely
 # in cmake/boards.cmake -- this script only forwards the flags and picks a
@@ -133,14 +134,18 @@ build_c66x() {
 
 build_c7x() {
     if [ -z "$TVM_BOARD" ]; then
-        echo "Error: --board <j722s-evm|beagley-ai> is required for the c7x target" >&2
+        echo "Error: --board <j722s-evm|beagley-ai|am62d> is required for the c7x target" >&2
         exit 1
     fi
+    # am62d is a different SoC (C7504): its own toolchain file.  The j722s
+    # boards keep the original toolchain file unchanged.
+    local toolchain="toolchain-j722s-c7x.cmake"
+    [ "$TVM_BOARD" = "am62d" ] && toolchain="toolchain-am62d-c7x.cmake"
     echo ""
     echo "=== Building C7x cross-compiled runtime (board=$BOARD ddr=$DDR) ==="
     rm -rf "build-c7x${BUILD_SUFFIX}"
     mkdir "build-c7x${BUILD_SUFFIX}" && cd "build-c7x${BUILD_SUFFIX}"
-    cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-j722s-c7x.cmake \
+    cmake -DCMAKE_TOOLCHAIN_FILE="../cmake/${toolchain}" \
           $CMAKE_BOARD_ARGS \
           ..
     cmake --build .
@@ -175,7 +180,7 @@ case "$TARGET" in
     clean)     do_clean ;;
     all)       build_c66x; build_c7x; build_c7x_host ;;
     *)
-        echo "Usage: $0 [c66x_host|c66x|c7x|c7x_host|clean|all] --board <j722s-evm|beagley-ai> [--ddr <4gb|8gb>]"
+        echo "Usage: $0 [c66x_host|c66x|c7x|c7x_host|clean|all] --board <j722s-evm|beagley-ai|am62d> [--ddr <4gb|8gb>]"
         echo "  (--board is required only for the c7x target)"
         exit 1
         ;;
