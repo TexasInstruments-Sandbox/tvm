@@ -2054,6 +2054,7 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             # datatype
             "to.dtype": self._to,
             "to.dtype_layout": self._to,
+            "to.device": self._to_device,
             "type_as.default": self._type_as,
             # other
             "_assert_async.default": self._assert_async,
