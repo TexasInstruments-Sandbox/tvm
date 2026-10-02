@@ -72,6 +72,8 @@ static uint8_t g_dma_tr_buf[MAX_DMA_CHANNELS][DMA_TR_BUF_SIZE]
  * The standalone udma.h bundled with dmautils only defines MAIN_0/1,
  * so we provide the C7x-specific ID here. */
 #define TVM_DSP_UDMA_DRU_INST_ID  (5U)
+/* AM62D: instance ID not yet verified against the AM62DX SDK udma_soc.h;
+ * the DMA path is not exercised by the no-MMALIB/no-TIDL milestone. */
 
 /* ------------------------------------------------------------------ */
 /* Virtual-to-physical address translation for DRU                    */
@@ -106,6 +108,12 @@ uint64_t tvm_dsp_runtime_shared_phys_base(void) {
 static uint64_t virt_to_phys(const void *vaddr) {
     uint64_t va = (uint64_t)(uintptr_t)vaddr;
 
+#if defined(TVM_DSP_DEVICE_AM62DX)
+    /* AM62D: the DSP MMU maps every region (L2, DDR carveout, IPC)
+     * identity, so no translation is needed.  The J722S regions below do
+     * not exist on this SoC and must not be applied. */
+    return va;
+#else
     /* Region 9: DDR shared memory / host staging buffer (512 MB) */
     if (va >= 0xC0000000ULL && va < 0xE0000000ULL) {
         return va - 0xC0000000ULL + (uint64_t)C7X_SHARED_PHYS_BASE;
@@ -120,6 +128,7 @@ static uint64_t virt_to_phys(const void *vaddr) {
     }
     /* All other regions: identity mapping */
     return va;
+#endif
 }
 
 /* ------------------------------------------------------------------ */

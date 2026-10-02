@@ -144,7 +144,11 @@ int tvm_dsp_platform_init(void) {
    * On real hardware, the bump allocator uses the full L2SRAM MAIN region
    * (1.25 MB at 0x7E000000 on J722S), separate from the runtime pool.
    * For host emulation, allocate a matching buffer from the heap. */
-#if defined(__TI_COMPILER_VERSION__) && !defined(C7X_HOST_EMULATION)
+#if defined(TVM_DSP_DEVICE_AM62DX)
+  /* AM62D: use the linker-defined L2 heap (or its host fallback) directly. */
+  g_tvm_l2_base = g_l2_heap_base;
+  g_tvm_l2_size = (uint32_t)g_l2_heap_size;
+#elif defined(__TI_COMPILER_VERSION__) && !defined(C7X_HOST_EMULATION)
   g_tvm_l2_base = (uint8_t*)0x7E000000;
   g_tvm_l2_size = 0x140000;  /* 1.25 MB per J722S TRM */
 #else
