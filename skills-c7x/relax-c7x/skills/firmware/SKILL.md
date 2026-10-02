@@ -44,13 +44,18 @@ cd arm && ./build.sh && ./build.sh deploy
 
 ## Board Selection (`--board`/`--ddr`)
 
-`--board <j722s-evm|beagley-ai>` (default `j722s-evm`) and `--ddr <8gb|4gb>`
-(per-board default) resolve SDK paths and the shared-DMA carveout physical
-base via `src/runtime/ti_dsp/cmake/boards.cmake` — see `relax-c7x:build`
-for the full mechanism. The **only** memory-map difference between boards is
-the shared carveout physical base: `0x900000000` (8gb) vs `0x8a0000000`
-(4gb). Everything else in "Memory Layout" below — local heap base, region
-sizes, DSP virtual addresses — is identical across boards.
+`--board <j722s-evm|beagley-ai|am62d>` (default `j722s-evm`) and
+`--ddr <8gb|4gb>` (per-board default) resolve SDK paths and the shared-DMA
+carveout physical base via `src/runtime/ti_dsp/cmake/boards.cmake` — see
+`relax-c7x:build` for the full mechanism. Between the two **j722s** boards
+the only memory-map difference is the shared carveout physical base:
+`0x900000000` (8gb) vs `0x8a0000000` (4gb); everything else in "Memory
+Layout" below — local heap base, region sizes, DSP virtual addresses — is
+identical. **`am62d` is a different SoC** (C7504): it has its own linker
+command file and syscfg (`configs/linker_am62d_c75_freertos.cmd`,
+`am62d_c75ss0.syscfg`), a 1 MB L2 MAIN bank, DDR heap at `0xB2000000`, and a
+172 MB identity-mapped shared carveout at `0xA3000000`; the "Memory Layout"
+below describes the j722s boards only.
 
 **The runtime lib and firmware must be built with the same `--board`/`--ddr`**
 (built separately, statically linked; a mismatch silently corrupts DMA, no

@@ -140,14 +140,38 @@ bash build_runtime.sh all        # c66x + c7x + c7x_host
 
 ### Board / TIDL-MMALIB convention
 
-`--board` is **required** (no default) and must be one of `j722s-evm` or
-`beagley-ai`. Board-specific linkage:
+`--board` is **required** (no default) and must be one of `j722s-evm`,
+`beagley-ai` or `am62d`. Board-specific linkage:
 
 - `beagley-ai` → `--tidl OFF --mmalib ON` (no TIDL subgraph offload on this
   board).
 - `j722s-evm` → firmware default (`--tidl ON`, which forces `--mmalib ON`).
+- `am62d` → `--tidl OFF --mmalib OFF` (neither is supported yet; the scripts
+  reject `ON`).
 
-`build_all.sh` and the wheel build apply this convention automatically.
+`build_all.sh` and the wheel build apply this convention automatically
+(`am62d` has no wheel support yet; `build_all.sh --wheels` rejects it).
+
+`am62d` is a different SoC (C7504 core, FreeRTOS SDK, identity-mapped 172 MB
+shared carveout at `0xA3000000`) from the two j722s boards. `boards.cmake`
+derives `TVM_SOC` (`j722s` | `am62dx`) from `--board`; SoC-specific code is
+guarded by `TVM_DSP_DEVICE_AM62DX` / `SOC_AM62DX`, and the j722s boards keep
+their existing `SOC_J722S` / `TVM_DSP_DEVICE_J722S` paths unchanged. Native
+AM62D build (PSDK_INSTALL_PATH holds `freertos_sdk_am62dx_12_02_00_00/`):
+
+```bash
+export PSDK_INSTALL_PATH=/opt/ti/am62d TI_SYSCONFIG_ROOT=/opt/ti/sysconfig
+export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.0.LTS
+cd src/runtime/ti_dsp
+bash build_runtime.sh c7x --board am62d
+(cd firmware/c7x/dsp && ./build.sh --board am62d)
+# ARM client needs an aarch64 toolchain, e.g. the TI arm-gnu-toolchain:
+(cd firmware/c7x/arm && TVM_HOME=$(git rev-parse --show-toplevel) \
+   CROSS_COMPILE=aarch64-none-linux-gnu- ./build.sh --board am62d)
+```
+
+Not yet verified on AM62D hardware: the DMA path (DRU instance ID), conv2d
+DMA tiling, and the remoteproc firmware name used by `deploy-c7x.sh`.
 
 The runtime library and firmware are built by independent CMake invocations
 and statically linked — **the runtime and firmware builds must use identical

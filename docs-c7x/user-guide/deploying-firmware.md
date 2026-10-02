@@ -48,11 +48,11 @@ The Arm shared library is cross-compiled for aarch64 on the dev host.
 
 Refer to `src/runtime/ti_dsp/build_all.sh` for commands to build the Arm shared library.
 
-`--board <j722s-evm|beagley-ai>` is required (`--ddr <4gb|8gb>` stays
-optional, default per-board): besides build-dir naming consistency with
-`build_runtime.sh` and `dsp/build.sh`, `--board` also picks the `deploy`
-subcommand's default SSH host (`beagley-ai` -> `beagley-ai`, else
-`am67a`). `CROSS_COMPILE` (default `aarch64-linux-gnu-`) is still
+`--board <j722s-evm|beagley-ai|am62d>` is required (`--ddr <4gb|8gb>` stays
+optional, default per-board; it does not apply to `am62d`): besides build-dir
+naming consistency with `build_runtime.sh` and `dsp/build.sh`, `--board` also
+picks the `deploy` subcommand's default SSH host (`beagley-ai` ->
+`beagley-ai`, `am62d` -> `am62d`, else `am67a`). `CROSS_COMPILE` (default `aarch64-linux-gnu-`) is still
 configurable via an environment variable; there's no `BOARD_HOSTNAME`
 override for the deploy host — add an SSH-config alias if your board is
 reachable under a different name.
@@ -71,7 +71,7 @@ live DSP firmware.
     All deployment commands below are run from the **Linux development host**.
 
     `--board` is required: the deploy script SSHs into the hostname it maps to
-    (`beagley-ai` -> `beagley-ai`, else `am67a`) and uses remoteproc to manage
+    (`beagley-ai` -> `beagley-ai`, `am62d` -> `am62d`, else `am67a`) and uses remoteproc to manage
     the DSP firmware. Add an SSH-config alias if your board answers to a
     different name.
 
