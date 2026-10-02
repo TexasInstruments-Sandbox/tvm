@@ -137,11 +137,13 @@ static inline void* tvm_l2_alloc(uint32_t nbytes) {
 }
 
 static inline void tvm_l2_reset(void) {
-#if defined(__C7000__) && !defined(C7X_HOST_EMULATION)
+#if defined(__C7000__) && !defined(C7X_HOST_EMULATION) && !defined(SOC_AM62DX)
     /* Hardcode L2 base on real C7x hardware to bypass PLT call.
      * C7X_HOST_EMULATION is defined by the c7x_host build system to
      * distinguish host emulation (GCC + TI Host Emu headers) from
-     * actual C7x hardware (TI cl7x compiler). */
+     * actual C7x hardware (TI cl7x compiler).
+     * These are the J722S L2 MAIN values; AM62D (SOC_AM62DX, 240 KB of
+     * L2 scratch memory) takes the getter path below instead. */
     tvm_l2_ptr = (uint8_t*)0x7E000000;
     tvm_l2_avail = 0x140000;
 #else
