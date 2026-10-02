@@ -10,6 +10,11 @@
 #include <kernel/dpl/ClockP.h>
 #include <kernel/dpl/HwiP.h>
 #include <kernel/dpl/MmuP_armv8.h>
+#if defined(TVM_DSP_DEVICE_AM62DX)
+#include <kernel/dpl/CacheP.h>
+#include <kernel/nortos/dpl/c75/CacheP_c75.h>
+#include <c7x.h>
+#endif
 #include <drivers/ipc_notify.h>
 #include <drivers/ipc_rpmsg.h>
 #include <FreeRTOS.h>
@@ -63,6 +68,13 @@ void c7x_compute_main(void *args)
 {
     int32_t status;
     uint32_t mmuEnabled;
+
+#if defined(TVM_DSP_DEVICE_AM62DX)
+    /* AM62D requires explicit driver/board open after System_init() */
+    Drivers_open();
+    status = Board_driversOpen();
+    DebugP_assert(status == SystemP_SUCCESS);
+#endif
 
     DebugP_log("\r\n");
     DebugP_log("===========================================\r\n");
@@ -231,3 +243,73 @@ int main(void)
     /* Should never reach here */
     return 0;
 }
+
+#if defined(TVM_DSP_DEVICE_AM62DX)
+/*
+ * =============================================================================
+ * AM62D Silicon Workaround -- L1D write-through + disable EL2 snoop
+ *
+ * Matches appCacheInit() in the AM62A vision_apps reference firmware.  Without
+ * this, a C7x silicon bug can cause a hang with the default write-back L1D and
+ * snoop configuration.  AM62D only: the J722S firmware does not need it.
+ * =============================================================================
+ */
+
+extern MmuP_Config gMmuConfig;
+extern MmuP_RegionConfig gMmuRegionConfig[];
+
+/* Write to ECR256 (L1DCFG) -- no CSL header available for this register */
+static void c7x_set_l1dcfg(uint64_t val);
+__asm__ __volatile__("c7x_set_l1dcfg: \n"
+                     " MVC .S1 A4, ECR256 ; \n"
+                     " RET .B1\n");
+
+static void configureC7xL1DCacheAsWriteThrough(void)
+{
+    CacheP_wbInvAll(CacheP_TYPE_L1D);
+    __memory_fence(__MFENCE_ALL_COLORS);
+    c7x_set_l1dcfg(0x1U);  /* L1DWBEN=1: write-through mode */
+}
+
+#define C7X_EL2_SNOOP_CFG_REG  0x7C00000Cu
+
+static void disable_c7x_snoop(void)
+{
+    /* Disable all EL2 snoop paths -- overrides reset default (all enabled).
+     * Mirrors setC7xSnoopCfgReg() in the AM62A reference firmware. */
+    volatile uint32_t *pReg = (volatile uint32_t *)(uintptr_t)C7X_EL2_SNOOP_CFG_REG;
+    *pReg = 0u;
+}
+
+static void appCacheInit(void)
+{
+    configureC7xL1DCacheAsWriteThrough();
+    disable_c7x_snoop();
+}
+
+/* Override the weak function definition here to set cache write through during c_init */
+void MmuP_setConfig(void)
+{
+    uint32_t i;
+    int32_t status;
+
+    for (i = 0; i < gMmuConfig.numRegions; i++)
+    {
+        status = MmuP_map(gMmuRegionConfig[i].vaddr, gMmuRegionConfig[i].paddr,
+                          gMmuRegionConfig[i].size, &gMmuRegionConfig[i].attr);
+        DebugP_assertNoLog(status == SystemP_SUCCESS);
+        (void)status;
+    }
+
+    /* Initialize clec */
+    HwiP_configClecAccessCtrl();
+    appCacheInit();
+}
+
+/* Override the weak function definition here to set cache write back after c_init */
+void CacheP_Module_startup(void)
+{
+    CacheP_enable(CacheP_TYPE_L1D);
+    CacheP_enableWB(CacheP_TYPE_L1D);
+}
+#endif /* TVM_DSP_DEVICE_AM62DX */

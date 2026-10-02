@@ -40,6 +40,15 @@ extern "C" {
  *   DSP vaddr: 0xC0000000  (MMU region: 0xC0000000 -> 0x900000000, 512 MB)
  *   Host:      allocated via /dev/dma_heap/carveout_vision_apps_shared-memories
  */
+#if defined(TVM_DSP_DEVICE_AM62DX)
+/* AM62D: 32-bit DDR, DSP MMU is identity-mapped (DSP vaddr == physical).
+ *   Carveout: 0xA3000000, 172 MB (carveout_edgeai_shared-memories). */
+#define C7X_SHARED_BASE         0xA3000000ULL   /* DSP virtual address */
+#ifndef C7X_SHARED_PHYS_BASE
+#define C7X_SHARED_PHYS_BASE    0xA3000000ULL   /* Physical address (host DMA heap) */
+#endif
+#define C7X_SHARED_SIZE         0x0AC00000ULL   /* 172 MB total — full DMA heap carveout */
+#else
 #define C7X_SHARED_BASE         0xC0000000ULL   /* DSP virtual address */
 /* Physical address (host DMA heap).  Overridable via -D so a single
  * board/ddr choice (see cmake/boards.cmake) can retarget it: 8gb boards
@@ -48,6 +57,7 @@ extern "C" {
 #define C7X_SHARED_PHYS_BASE    0x900000000ULL  /* Physical address (host DMA heap) */
 #endif
 #define C7X_SHARED_SIZE         0x20000000ULL   /* 512 MB total — full DMA heap carveout */
+#endif
 
 /* Staging region: first 468 MB of the shared DDR carveout.
  * Used for host-to-DSP data transfer: ELF modules (DLOAD) and weights
@@ -58,8 +68,15 @@ extern "C" {
  *   Physical 0x900000000 -> DSP virtual 0xC0000000
  * The host allocates staging+KV as one dmabuf first so first-fit packs it
  * at the pool base and this address stays valid (client->staging). */
+#if defined(TVM_DSP_DEVICE_AM62DX)
+/* AM62D: 128 MB staging + 12 MB KV, leaving the last 32 MB of the 172 MB
+ * carveout for the per-session input/output buffers and printf buffer. */
+#define C7X_STAGING_ADDR   0xA3000000ULL
+#define C7X_STAGING_SIZE   0x08000000ULL   /* 128 MB */
+#else
 #define C7X_STAGING_ADDR   0xC0000000ULL
 #define C7X_STAGING_SIZE   0x1D400000ULL   /* 468 MB */
+#endif
 
 /* KV cache fixed region: 12 MB right after staging.
  * Persists across inferences — not touched by watermark restore.
@@ -71,7 +88,11 @@ extern "C" {
  * [C7X_STAGING_ADDR, C7X_KV_ADDR + C7X_KV_SIZE) first, so first-fit packs
  * it at the pool's low end and this fixed address stays valid without the
  * host needing to steer the allocator (gen_pool has no such API). */
+#if defined(TVM_DSP_DEVICE_AM62DX)
+#define C7X_KV_ADDR      0xAB000000ULL   /* staging + 128 MB */
+#else
 #define C7X_KV_ADDR      0xDD400000ULL   /* staging + 468 MB */
+#endif
 #define C7X_KV_SIZE      0x00C00000ULL   /* 12 MB */
 #define C7X_KV_NUM_TENSORS   60
 #define C7X_KV_TENSOR_SIZE   196608      /* 1*3*256*64*sizeof(float) */

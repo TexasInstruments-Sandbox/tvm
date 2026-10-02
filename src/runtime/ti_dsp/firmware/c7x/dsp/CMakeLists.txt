@@ -8,7 +8,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # Board/DDR -> SDK roots + shared-DMA phys base (single source of truth).
-# The firmware always cross-compiles against the J722S SDK, so require it:
+# The firmware always cross-compiles against the board's TI SDK, so require it:
 # boards.cmake errors (no default) if PSDK_INSTALL_PATH/MCU_PLUS_SDK_PATH
 # resolve to nothing or a nonexistent path.
 set(TVM_REQUIRE_SDK TRUE)
@@ -39,9 +39,19 @@ endif()
 # Resolved by boards.cmake from TVM_BOARD/TVM_DDR (env override still wins).
 set(MCUPSDK_ROOT "${MCU_PLUS_SDK_PATH}")
 
-# Device and core settings
-set(DEVICE "j722s")
-set(CORE "c75ss0-0")
+# Device and core settings.  TVM_SOC comes from boards.cmake (j722s for
+# j722s-evm/beagley-ai, am62dx for am62d); the j722s values are unchanged.
+if(TVM_SOC STREQUAL "am62dx")
+    set(DEVICE "am62dx")
+    set(CORE "c75x")
+    set(TVM_FW_SOC_DEFINE SOC_AM62DX)
+    set(TVM_FW_DEVICE_DEFINE TVM_DSP_DEVICE_AM62DX)
+else()
+    set(DEVICE "j722s")
+    set(CORE "c75ss0-0")
+    set(TVM_FW_SOC_DEFINE SOC_J722S)
+    set(TVM_FW_DEVICE_DEFINE TVM_DSP_DEVICE_J722S)
+endif()
 set(PROFILE "release")
 
 # Set toolchain before project()
@@ -84,12 +94,18 @@ message(STATUS "SysConfig CLI: ${SYSCONFIG_TOOL}")
 # configure_file runs at CMake configure time, so a --ddr switch (which
 # reconfigures into a fresh, board+ddr-keyed build dir) always regenerates
 # this with the correct base -- no stale MMU map is ever reused.
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/configs/c75ss0.syscfg.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/c75ss0.syscfg"
-    @ONLY
-)
-set(SYSCFG_FILE "${CMAKE_CURRENT_BINARY_DIR}/c75ss0.syscfg")
+# am62d uses a fixed, plain syscfg (single shared carveout, nothing to
+# parameterize).
+if(TVM_SOC STREQUAL "am62dx")
+    set(SYSCFG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/configs/am62d_c75ss0.syscfg")
+else()
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/configs/c75ss0.syscfg.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/c75ss0.syscfg"
+        @ONLY
+    )
+    set(SYSCFG_FILE "${CMAKE_CURRENT_BINARY_DIR}/c75ss0.syscfg")
+endif()
 
 # Generated files from SysConfig
 set(SYSCFG_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/syscfg")
@@ -141,7 +157,7 @@ target_include_directories(syscfg_generated PRIVATE
     ${MCUPSDK_ROOT}/source/drivers/hw_include/${DEVICE}
 )
 target_compile_definitions(syscfg_generated PRIVATE
-    SOC_J722S
+    ${TVM_FW_SOC_DEFINE}
     BUILD_C7X
     BUILD_C7X_1
     OS_FREERTOS
@@ -153,7 +169,11 @@ target_compile_definitions(syscfg_generated PRIVATE
 )
 
 # Linker command file
-set(LINKER_CMD "${CMAKE_CURRENT_SOURCE_DIR}/configs/linker_c75_freertos.cmd")
+if(TVM_SOC STREQUAL "am62dx")
+    set(LINKER_CMD "${CMAKE_CURRENT_SOURCE_DIR}/configs/linker_am62d_c75_freertos.cmd")
+else()
+    set(LINKER_CMD "${CMAKE_CURRENT_SOURCE_DIR}/configs/linker_c75_freertos.cmd")
+endif()
 
 # TVM DSP Runtime (relative to firmware location within ti_dsp/)
 set(TVM_DSP_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
@@ -210,7 +230,7 @@ target_include_directories(dmautils_standalone PRIVATE
     ${TI_CGT_ROOT}/include
 )
 target_compile_definitions(dmautils_standalone PRIVATE
-    DMA_UTILS_STANDALONE SOC_J722S BUILD_C7X_1 BUILD_C7X MCU_PLUS_SDK
+    DMA_UTILS_STANDALONE ${TVM_FW_SOC_DEFINE} BUILD_C7X_1 BUILD_C7X MCU_PLUS_SDK
 )
 
 # Main executable
@@ -263,7 +283,7 @@ target_include_directories(${PROJECT_NAME}.out PRIVATE
 
 # Compile definitions
 target_compile_definitions(${PROJECT_NAME}.out PRIVATE
-    SOC_J722S
+    ${TVM_FW_SOC_DEFINE}
     BUILD_C7X
     BUILD_C7X_1
     OS_FREERTOS
@@ -274,7 +294,7 @@ target_compile_definitions(${PROJECT_NAME}.out PRIVATE
     _SYS_BIOS
     # TVM DSP runtime configuration
     TVM_DSP_TARGET_C7X
-    TVM_DSP_DEVICE_J722S
+    ${TVM_FW_DEVICE_DEFINE}
     TVM_DSP_NO_EXCEPTIONS=1
     TVM_DSP_NO_THREADS=1
     # DmaUtils headers need MCU_PLUS_SDK for correct include paths
@@ -301,6 +321,10 @@ option(USE_TIDL_RUNTIME "Link TIDL algo libs into firmware" OFF)
 # When enabled, links MMALIB conv2d/matmul kernels into the firmware for
 # direct offload (independent of TIDL subgraph offload).
 option(USE_TI_MMALIB "Link MMALIB direct-integration libs into firmware" OFF)
+if(TVM_SOC STREQUAL "am62dx" AND (USE_TIDL_RUNTIME OR USE_TI_MMALIB))
+    message(FATAL_ERROR "TIDL/MMALIB are not yet supported on TVM_BOARD=${TVM_BOARD}; "
+                        "build with --tidl OFF --mmalib OFF.")
+endif()
 if(USE_TIDL_RUNTIME AND NOT USE_TI_MMALIB)
     message(STATUS "USE_TIDL_RUNTIME=ON requires MMALIB (tidl_algo.lib "
                     "has unresolved MMALIB_CNN_*/MMALIB_LINALG_* symbols) "

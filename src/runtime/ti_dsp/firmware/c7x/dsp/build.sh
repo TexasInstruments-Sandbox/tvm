@@ -7,8 +7,9 @@
 #   ./build.sh clean    - Clean build directory
 #   ./build.sh deploy   - Deploy and start firmware
 #
-#   --board <j722s-evm|beagley-ai>      - Target board (required)
-#   --ddr <4gb|8gb>                     - Shared-DMA DDR size (default: per-board)
+#   --board <j722s-evm|beagley-ai|am62d> - Target board (required)
+#   --ddr <4gb|8gb>                     - Shared-DMA DDR size (default: per-board;
+#                                          not applicable to am62d)
 #   --tidl <ON|OFF>                     - Link TIDL algo libs (default: ON)
 #   --mmalib <ON|OFF>                   - Link MMALIB direct-integration libs
 #                                          (default: OFF; forced ON if --tidl
@@ -49,10 +50,20 @@ while [ $# -gt 0 ]; do
 done
 
 # Backward-compat: TIDL defaulted ON unconditionally before --tidl existed.
-TVM_TIDL="${TVM_TIDL:-ON}"
+# am62d has no TIDL/MMALIB support yet: default both OFF and reject ON.
+if [ "$TVM_BOARD" = "am62d" ]; then
+    if [ "${TVM_TIDL:-OFF}" = "ON" ] || [ "${TVM_MMALIB:-OFF}" = "ON" ]; then
+        echo "Error: --tidl/--mmalib ON are not supported for --board am62d" >&2
+        exit 1
+    fi
+    TVM_TIDL="OFF"
+    TVM_MMALIB="OFF"
+else
+    TVM_TIDL="${TVM_TIDL:-ON}"
+fi
 
 if [ -z "$TVM_BOARD" ]; then
-    echo "Error: --board <j722s-evm|beagley-ai> is required" >&2
+    echo "Error: --board <j722s-evm|beagley-ai|am62d> is required" >&2
     exit 1
 fi
 
