@@ -90,6 +90,19 @@ message(STATUS "  Generated code: ${GENERATED_CODE_DIR}")
 # === Dynmod infrastructure ===
 set(DYNMOD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/c7x_dynmod")
 
+# C7x core variant and SoC define.  TVM_DSP_DEVICE is force-set by the
+# cmake/toolchain-<device>-c7x.cmake toolchain file: am62d -> C7504, anything
+# else (j722s) -> C7524.
+if(TVM_DSP_DEVICE STREQUAL "am62d")
+    set(DYNMOD_CPU_FLAG "-mv7504")
+    set(DYNMOD_SOC_DEFINE "-DSOC_AM62DX")
+    set(DYNMOD_RTS_LIB "rts7504_le.lib")
+else()
+    set(DYNMOD_CPU_FLAG "-mv7524")
+    set(DYNMOD_SOC_DEFINE "-DSOC_J722S")
+    set(DYNMOD_RTS_LIB "rts7524_le.lib")
+endif()
+
 # Compiler flags
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     message(STATUS "  Optimization: Release (-O2 --auto_inline=500)")
@@ -160,7 +173,7 @@ add_custom_command(
 add_custom_command(
     OUTPUT "${DSP_SYMS_SECT_OBJ}"
     COMMAND ${CMAKE_C_COMPILER}
-        -mv7524 --abi=eabi
+        ${DYNMOD_CPU_FLAG} --abi=eabi
         --compile_only
         --output_file="${DSP_SYMS_SECT_OBJ}"
         "${DSP_SYMS_ASM}"
@@ -188,7 +201,7 @@ if(EXISTS "${WEIGHTS_FILE}")
         OUTPUT "${WEIGHTS_OBJ_FILE}"
         COMMAND ${CMAKE_COMMAND} -E time
             ${CMAKE_C_COMPILER}
-            -mv7524 --abi=eabi
+            ${DYNMOD_CPU_FLAG} --abi=eabi
             --compile_only
             --output_file="${WEIGHTS_OBJ_FILE}"
             "${WEIGHTS_ASM}"
@@ -227,7 +240,7 @@ if(EXISTS "${IO_META_FILE}")
         OUTPUT "${IO_META_OBJ_FILE}"
         COMMAND ${CMAKE_COMMAND} -E time
             ${CMAKE_C_COMPILER}
-            -mv7524 --abi=eabi
+            ${DYNMOD_CPU_FLAG} --abi=eabi
             --compile_only
             --output_file="${IO_META_OBJ_FILE}"
             "${IO_META_ASM}"
@@ -261,7 +274,7 @@ elseif(DSP_RUNTIME_DIR AND EXISTS "${DSP_RUNTIME_DIR}/include/dlpack")
     # Bundled dlpack headers in pip-installed package
     list(APPEND DYNMOD_INCLUDES -I${DSP_RUNTIME_DIR}/include)
 endif()
-set(DYNMOD_DEFINES -DTVM_DSP_TARGET_C7X -DSOC_J722S -DTIDL_MAX_NUM_CORES=4 -DRPROC_TRACE=0)
+set(DYNMOD_DEFINES -DTVM_DSP_TARGET_C7X ${DYNMOD_SOC_DEFINE} -DTIDL_MAX_NUM_CORES=4 -DRPROC_TRACE=0)
 
 # Common C7x headers (rproc_trace.h etc.)
 set(C7X_COMMON_DIR "${TVM_HOME}/src/runtime/ti_dsp/firmware/c7x/common")
@@ -375,7 +388,7 @@ if(USE_TIDL)
                 add_custom_command(
                     OUTPUT "${ARTIFACT_OBJ}"
                     COMMAND ${CMAKE_C_COMPILER}
-                        -mv7524 --abi=eabi
+                        ${DYNMOD_CPU_FLAG} --abi=eabi
                         --compile_only
                         --output_file="${ARTIFACT_OBJ}"
                         "${ARTIFACT_ASM}"
@@ -490,7 +503,7 @@ add_custom_command(
         ${TIDL_EXPORT_FLAGS}
         ${TIDL_LIB_FLAGS}
         "${DSP_SYMS_SECT_OBJ}"
-        -l${TI_CGT_C7000_PATH}/lib/rts7524_le.lib
+        -l${TI_CGT_C7000_PATH}/lib/${DYNMOD_RTS_LIB}
         -l${TI_CGT_C7000_PATH}/lib/libc.a
         -m "${LIB0_MAP}"
         --output_file="${LIB0_OUT}"
