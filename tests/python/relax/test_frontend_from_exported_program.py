@@ -6509,6 +6509,28 @@ def test_copy():
     verify_model(CopyBroadcast(), example_args, {}, expected_copy)
 
 
+def test_to_device():
+    # aten.to.device(x, device, dtype): the device is dropped, the dtype still casts.
+    class ToDeviceDtype(Module):
+        def forward(self, x, y):
+            return x.to(y.device, dtype=torch.float16)
+
+    @tvm.script.ir_module
+    class expected:
+        @R.function
+        def main(
+            x: R.Tensor((2, 3), dtype="float32"), y: R.Tensor((2, 3), dtype="float32")
+        ) -> R.Tuple(R.Tensor((2, 3), dtype="float16")):
+            with R.dataflow():
+                lv: R.Tensor((2, 3), dtype="float16") = R.astype(x, dtype="float16")
+                gv: R.Tuple(R.Tensor((2, 3), dtype="float16")) = (lv,)
+                R.output(gv)
+            return gv
+
+    example_args = (torch.randn(2, 3), torch.randn(2, 3))
+    verify_model(ToDeviceDtype(), example_args, {}, expected)
+
+
 def test_to_copy():
     # float
     class ToFloat(Module):

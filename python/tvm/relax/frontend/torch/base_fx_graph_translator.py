@@ -2571,6 +2571,17 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             return self.block_builder.emit(relax.op.astype(x, dtype))
         return x
 
+    def _to_device(self, node: fx.Node) -> relax.Var:
+        """aten.to.device(self, device, dtype, ...): device is a no-op, dtype still casts."""
+        import torch
+
+        x = self.env[node.args[0]]
+        dtype = node.args[2] if len(node.args) > 2 else node.kwargs.get("dtype")
+        if isinstance(dtype, torch.dtype):
+            dtype = BaseFXGraphImporter._convert_data_type(dtype, self.env)
+            return self.block_builder.emit(relax.op.astype(x, dtype))
+        return x
+
     def _type_as(self, node: fx.Node) -> relax.Var:
         x = self.env[node.args[0]]
         other = self.env[node.args[1]]
