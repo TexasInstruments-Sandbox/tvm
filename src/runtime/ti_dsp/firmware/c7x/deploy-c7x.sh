@@ -31,11 +31,12 @@ done
 set -- "${ARGS[@]}"
 
 if [ -z "$TVM_BOARD" ]; then
-    echo "Error: --board <j722s-evm|beagley-ai> is required" >&2
+    echo "Error: --board <j722s-evm|beagley-ai|am62d> is required" >&2
     exit 1
 fi
 case "$TVM_BOARD" in
     beagley-ai) export TARGET="beagley-ai" ;;
+    am62d)      export TARGET="am62d" ;;
     *)          export TARGET="am67a" ;;
 esac
 

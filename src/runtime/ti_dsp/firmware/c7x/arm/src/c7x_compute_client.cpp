@@ -45,7 +45,11 @@ struct dma_buf_phys_data {
 #define RPROC_IOC_DMA_BUF_ATTACH _IOWR(RPROC_MAGIC, 0, struct dma_buf_phys_data)
 
 /* DMA heap device for the shared memory carveout */
+#if defined(TVM_DSP_DEVICE_AM62DX)
+#define DMA_HEAP_DEVICE  "/dev/dma_heap/carveout_edgeai_shared-memories"
+#else
 #define DMA_HEAP_DEVICE  "/dev/dma_heap/carveout_vision_apps_shared-memories"
+#endif
 
 /* Device tree address for C7x DSP (stable across reboots) */
 #define C7X_DEVICE_ADDR  "7e000000.dsp"

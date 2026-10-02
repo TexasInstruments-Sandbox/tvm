@@ -8,7 +8,7 @@
 #   ./build.sh clean    - Clean build directory
 #   ./build.sh deploy   - Deploy to target
 #
-#   --board <j722s-evm|beagley-ai>      - Target board (required)
+#   --board <j722s-evm|beagley-ai|am62d> - Target board (required)
 #   --ddr <4gb|8gb>                     - Shared-DMA DDR size (default: per-board)
 #
 # --board/--ddr affect the cosmetic C7X_SHARED_PHYS_BASE sanity check in
@@ -37,7 +37,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$TVM_BOARD" ]; then
-    echo "Error: --board <j722s-evm|beagley-ai> is required" >&2
+    echo "Error: --board <j722s-evm|beagley-ai|am62d> is required" >&2
     exit 1
 fi
 
@@ -46,6 +46,7 @@ fi
 # reachable under a different name.
 case "$TVM_BOARD" in
     beagley-ai) TARGET_HOST="beagley-ai" ;;
+    am62d)      TARGET_HOST="am62d" ;;
     *)          TARGET_HOST="am67a" ;;
 esac
 
