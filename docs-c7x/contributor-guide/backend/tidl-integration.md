@@ -51,9 +51,11 @@ lower_tidl()        Replace Codegen="tidl" functions with TIR PrimFunc stubs;
     v
 _fix_output_dtype_  Compares each subgraph's actual output element type/
   mismatches()      scale/zero-point (read from params_1.bin) against what
-    |               its TIR stub declares; inserts a dequant/cast in @main
-    |               at the call_tir site on mismatch. No-op if nothing
-    |               mismatches.
+    |               its TIR stub declares. On mismatch, re-declares the
+    |               stub's output buffer and the call_tir result with
+    |               TIDL's real dtype (so the storage matches the bytes
+    |               TIDL writes, e.g. 1 byte per argmax index) and inserts
+    |               a dequant/cast in @main. No-op if nothing mismatches.
     v
 generate_bridge()   Generate tidl_bridge.c/h resolving the extern calls
   + relax.build()    c_static_lib codegen emits lib0.c + weights.bin.
