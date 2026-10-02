@@ -40,6 +40,8 @@
 /* Include device-specific configuration */
 #if defined(TVM_DSP_DEVICE_J722S)
 #include "j722s/j722s_config.h"
+#elif defined(TVM_DSP_DEVICE_AM62DX)
+#include "am62d/am62d_config.h"
 #else
 /* Default C7x memory configuration (generic) */
 #define TVM_DSP_DEVICE_NAME "Generic C7x"

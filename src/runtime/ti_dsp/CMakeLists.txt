@@ -41,12 +41,12 @@ cmake_minimum_required(VERSION 3.16)
 # Board/DDR -> SDK roots + shared-DMA phys base (single source of truth,
 # only load-bearing for the c7x target; harmless no-op for host/c66x).
 # Included before project() so it resolves MCU_PLUS_SDK_PATH *before*
-# toolchain-j722s-c7x.cmake runs (toolchain files load during project()).
-# The c7x cross build is the only runtime target that consumes the J722S
+# toolchain-{j722s,am62d}-c7x.cmake runs (toolchain files load during project()).
+# The c7x cross build is the only runtime target that consumes the TI
 # SDK; it is uniquely identified pre-project() by its toolchain file, so we
 # require the SDK (no default -- a missing/wrong root is a hard error) only
 # then.  host/c66x/c7x_host emulation builds need no SDK.
-if(CMAKE_TOOLCHAIN_FILE MATCHES "toolchain-j722s-c7x")
+if(CMAKE_TOOLCHAIN_FILE MATCHES "toolchain-(j722s|am62d)-c7x")
     set(TVM_REQUIRE_SDK TRUE)
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/boards.cmake")
@@ -127,6 +127,8 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x")
     add_compile_definitions(TVM_DSP_ALIGNED_WEIGHTS)
     if(TVM_DSP_DEVICE STREQUAL "j722s")
         add_compile_definitions(TVM_DSP_DEVICE_J722S)
+    elseif(TVM_DSP_DEVICE STREQUAL "am62d")
+        add_compile_definitions(TVM_DSP_DEVICE_AM62DX)
     endif()
     # Code in DDR mode: application code runs from DDR (cached via MMU)
     # This maximizes L2 SRAM available for TVM data heap
@@ -600,12 +602,17 @@ if(TVM_DSP_BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests)
                 ${MCU_PLUS_SDK_PATH}/source/board
             )
 
-            # C7x target defines
+            # C7x target defines (SoC-specific pair first; the rest is common)
+            if(TVM_SOC STREQUAL "am62dx")
+                target_compile_definitions(tvm_dsp_runtime PUBLIC SOC_AM62DX)
+            else()
+                target_compile_definitions(tvm_dsp_runtime PUBLIC
+                    SOC_J722S
+                    TARGET_C7X_J722S)
+            endif()
             target_compile_definitions(tvm_dsp_runtime PUBLIC
-                SOC_J722S
                 CORE_C75
                 _TMS320C7X
-                TARGET_C7X_J722S
                 ENABLE_PRINTFS=1
                 _TI_STD_TYPES=1
                 TISTDTYPES_H_=1
