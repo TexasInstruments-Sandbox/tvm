@@ -12,10 +12,21 @@
 # before include() so a missing/wrong root is a hard error, not a silent
 # guess.  See docs/dsp/beagley_ai_enablement.md for the design.
 
-set(TVM_BOARD "j722s-evm" CACHE STRING "Target board: j722s-evm, beagley-ai")
-set_property(CACHE TVM_BOARD PROPERTY STRINGS j722s-evm beagley-ai)
-if(NOT TVM_BOARD MATCHES "^(j722s-evm|beagley-ai)$")
-    message(FATAL_ERROR "Invalid TVM_BOARD: ${TVM_BOARD}. Use: j722s-evm, beagley-ai")
+set(TVM_BOARD "j722s-evm" CACHE STRING "Target board: j722s-evm, beagley-ai, am62d")
+set_property(CACHE TVM_BOARD PROPERTY STRINGS j722s-evm beagley-ai am62d)
+if(NOT TVM_BOARD MATCHES "^(j722s-evm|beagley-ai|am62d)$")
+    message(FATAL_ERROR "Invalid TVM_BOARD: ${TVM_BOARD}. Use: j722s-evm, beagley-ai, am62d")
+endif()
+
+# SoC family of the selected board.  Every SoC-specific CMake branch and
+# compile definition keys on this (never on TVM_BOARD directly), so the two
+# j722s boards share one code path and am62d is purely additive.
+#   j722s  - j722s-evm, beagley-ai  (C7524, MCU+ SDK)
+#   am62dx - am62d                  (C7504, FreeRTOS SDK)
+if(TVM_BOARD STREQUAL "am62d")
+    set(TVM_SOC "am62dx")
+else()
+    set(TVM_SOC "j722s")
 endif()
 
 # Per-board default DDR size (any explicitly-set TVM_DDR wins).
@@ -39,7 +50,11 @@ endif()
 # Shared DMA carveout physical base.  This is the *only* memory-map
 # difference between 4gb and 8gb boards (confirmed against the upstream
 # armbian j722s-4gb-edgeai-memory-map.patch).
-if(TVM_DDR STREQUAL "8gb")
+if(TVM_BOARD STREQUAL "am62d")
+    # AM62D has a single fixed shared-memory carveout, identity-mapped
+    # (virtual == physical); TVM_DDR does not apply to this board.
+    set(C7X_SHARED_PHYS_BASE "0xA3000000")
+elseif(TVM_DDR STREQUAL "8gb")
     set(C7X_SHARED_PHYS_BASE "0x900000000")
 else()
     set(C7X_SHARED_PHYS_BASE "0x8a0000000")
@@ -56,7 +71,11 @@ endif()
 # is derived from PSDK_INSTALL_PATH.  The per-board SDK version subdirectory
 # names are the only SDK strings this module hardcodes -- they are board
 # facts (the 11_00 vs 11_02 SDKs), not machine paths.
-if(TVM_BOARD STREQUAL "beagley-ai")
+if(TVM_BOARD STREQUAL "am62d")
+    # AM62D uses the FreeRTOS SDK (same source/ layout as the MCU+ SDK).
+    set(_TVM_MCU_PLUS_SDK_SUBDIR "freertos_sdk_am62dx_12_02_00_00")
+    set(_TVM_MMALIB_SUBDIR       "mmalib_12_01_00_09")
+elseif(TVM_BOARD STREQUAL "beagley-ai")
     set(_TVM_MCU_PLUS_SDK_SUBDIR "mcu_plus_sdk_j722s_11_02_01_05")
     set(_TVM_MMALIB_SUBDIR       "mmalib_11_02_00_11")
 else()
@@ -111,11 +130,15 @@ endif()
 # Empty for the default board+ddr so existing build-c7x/build-c7x-host
 # paths are unchanged when no flags are passed.
 set(TVM_BUILD_SUFFIX "")
-if(NOT TVM_BOARD STREQUAL "j722s-evm" OR NOT TVM_DDR STREQUAL "8gb")
+if(TVM_BOARD STREQUAL "am62d")
+    # DDR size is not a build axis on am62d.
+    set(TVM_BUILD_SUFFIX "-am62d")
+elseif(NOT TVM_BOARD STREQUAL "j722s-evm" OR NOT TVM_DDR STREQUAL "8gb")
     set(TVM_BUILD_SUFFIX "-${TVM_BOARD}-${TVM_DDR}")
 endif()
 
-message(STATUS "TVM board config: TVM_BOARD=${TVM_BOARD} TVM_DDR=${TVM_DDR} "
+message(STATUS "TVM board config: TVM_BOARD=${TVM_BOARD} TVM_SOC=${TVM_SOC} "
+                "TVM_DDR=${TVM_DDR} "
                 "C7X_SHARED_PHYS_BASE=${C7X_SHARED_PHYS_BASE}")
 message(STATUS "  MCU_PLUS_SDK_PATH=${MCU_PLUS_SDK_PATH}")
 message(STATUS "  PSDK_INSTALL_PATH=${PSDK_INSTALL_PATH}")
