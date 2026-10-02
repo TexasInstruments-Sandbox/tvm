@@ -53,6 +53,11 @@ if(DEFINED C7X_SHARED_PHYS_BASE)
         C7X_SHARED_PHYS_BASE=${C7X_SHARED_PHYS_BASE}ULL
     )
 endif()
+# AM62D selects its own shared-memory map (c7x_compute_protocol.h) and DMA
+# heap carveout name (c7x_compute_client.cpp).
+if(TVM_SOC STREQUAL "am62dx")
+    target_compile_definitions(c7x_arm_runtime PRIVATE TVM_DSP_DEVICE_AM62DX)
+endif()
 
 # ---------------------------------------------------------------------------
 # CLI executable — links the shared library (no logic change)
