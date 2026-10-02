@@ -13,11 +13,20 @@ set(CMAKE_CXX_COMPILER "${TI_CGT_ROOT}/bin/cl7x") # C++ needed for TVM runtime
 # Specify the archiver
 set(CMAKE_AR "${TI_CGT_ROOT}/bin/ar7x" CACHE FILEPATH "Archiver")
 
+# CPU variant: C7504 on am62dx (AM62D), C7524 on j722s (default).  TVM_SOC is
+# set by cmake/boards.cmake, which the firmware CMakeLists includes before
+# project().
+if(TVM_SOC STREQUAL "am62dx")
+    set(_C7X_CPU_FLAG "-mv7504")
+else()
+    set(_C7X_CPU_FLAG "-mv7524")
+endif()
+
 # Set default compile flags (adjust as needed for C7x and your project)
 # Consult TI documentation for recommended flags
-set(CMAKE_C_FLAGS_INIT "-mv7524 --abi=eabi --include_path=\"${TI_CGT_ROOT}/include\" -O2 -g" CACHE STRING "" FORCE)
-set(CMAKE_CXX_FLAGS_INIT "-mv7524 --abi=eabi --include_path=\"${TI_CGT_ROOT}/include\" -O2 -g --rtti --c++14" CACHE STRING "" FORCE)
-set(CMAKE_ASM_FLAGS_INIT "-mv7524 --abi=eabi --include_path=\"${TI_CGT_ROOT}/include\"" CACHE STRING "" FORCE)
+set(CMAKE_C_FLAGS_INIT "${_C7X_CPU_FLAG} --abi=eabi --include_path=\"${TI_CGT_ROOT}/include\" -O2 -g" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS_INIT "${_C7X_CPU_FLAG} --abi=eabi --include_path=\"${TI_CGT_ROOT}/include\" -O2 -g --rtti --c++14" CACHE STRING "" FORCE)
+set(CMAKE_ASM_FLAGS_INIT "${_C7X_CPU_FLAG} --abi=eabi --include_path=\"${TI_CGT_ROOT}/include\"" CACHE STRING "" FORCE)
 
 # Set the define flag for TI compiler (uses -D like GCC)
 set(CMAKE_C_COMPILE_OPTIONS_PIC "")
