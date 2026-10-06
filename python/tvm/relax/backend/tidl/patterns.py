@@ -52,11 +52,18 @@ _TIDL_MAX_RANK = 6
 
 
 def _get_shape(expr) -> Optional[list]:
-    """Return shape as a plain list of ints, or None."""
+    """Return shape as a plain list of ints, or None.
+
+    None when the shape is unknown or has a symbolic dimension (``int()`` on a
+    ``tir.Var`` would raise out of the pattern callback).
+    """
     si = expr.struct_info
     if not hasattr(si, "shape") or si.shape is None:
         return None
-    return [int(d) for d in si.shape]
+    try:
+        return [int(d) for d in si.shape]
+    except (TypeError, ValueError):
+        return None
 
 
 def _get_dtype(expr) -> Optional[str]:
@@ -72,11 +79,13 @@ def _check_dtype(expr) -> bool:
 def _check_rank(expr, max_rank: int = 4) -> bool:
     """True if the rank is known and within what TIDL can represent.
 
-    Fails closed on an unknown shape.  It used to return True here on the
+    Fails closed on an unknown or symbolic shape.  It used to return True on the
     grounds that the C++ importer would check later; it does not -- 60 of the 68
     parsers in tidlParseRelax/ have no denial path at all, so this callback is
     the only gate.  Declining an op whose rank cannot be established costs a
-    fallback to TVM; accepting it risks TIDL mis-parsing the tensor.
+    fallback to TVM; accepting it risks TIDL mis-parsing the tensor.  TIDL
+    serializes concrete dimensions at import, so a symbolic dimension is
+    declined even when the rank is known.
     """
     shape = _get_shape(expr)
     if shape is None:
@@ -171,7 +180,7 @@ def _check_pool(ctx: PatternCheckContext) -> bool:
         if not _check_dtype(data):
             return False
         shape = _get_shape(data)
-        if shape is not None and len(shape) != 4:
+        if shape is None or len(shape) != 4:
             return False
 
     attrs = root.attrs
@@ -191,7 +200,7 @@ def _check_relu(ctx: PatternCheckContext) -> bool:
     data = ctx.annotated_expr.get("data")
     if data is None or not _check_dtype(data):
         return False
-    return True
+    return _check_rank(data, _TIDL_MAX_RANK)
 
 
 def _check_add(ctx: PatternCheckContext) -> bool:
@@ -230,7 +239,7 @@ def _check_mean(ctx: PatternCheckContext) -> bool:
         if not _check_dtype(data):
             return False
         shape = _get_shape(data)
-        if shape is not None and len(shape) != 4:
+        if shape is None or len(shape) != 4:
             return False
 
     # Validate axis from attrs
@@ -342,7 +351,7 @@ def _check_softmax(ctx: PatternCheckContext) -> bool:
     data = ctx.annotated_expr.get("data")
     if data is None or not _check_dtype(data):
         return False
-    return True
+    return _check_rank(data, _TIDL_MAX_RANK)
 
 
 def _check_concat(ctx: PatternCheckContext) -> bool:
@@ -408,7 +417,7 @@ def _check_batch_norm(ctx: PatternCheckContext) -> bool:
         if not _check_dtype(data):
             return False
         shape = _get_shape(data)
-        if shape is not None and len(shape) != 4:
+        if shape is None or len(shape) != 4:
             return False
     return True
 
@@ -1072,7 +1081,7 @@ def _check_resize2d(ctx: PatternCheckContext) -> bool:
         if not _check_dtype(data):
             return False
         shape = _get_shape(data)
-        if shape is not None and len(shape) != 4:
+        if shape is None or len(shape) != 4:
             return False
     return True
 
@@ -1404,7 +1413,7 @@ def _check_depth_to_space(ctx: PatternCheckContext) -> bool:
         if not _check_dtype(data):
             return False
         shape = _get_shape(data)
-        if shape is not None and len(shape) != 4:
+        if shape is None or len(shape) != 4:
             return False
     return True
 
@@ -1432,7 +1441,7 @@ def _check_instance_norm(ctx: PatternCheckContext) -> bool:
         if not _check_dtype(data):
             return False
         shape = _get_shape(data)
-        if shape is not None and len(shape) != 4:
+        if shape is None or len(shape) != 4:
             return False
     return True
 
@@ -1488,7 +1497,7 @@ def _check_grid_sample(ctx: PatternCheckContext) -> bool:
         if not _check_dtype(data):
             return False
         shape = _get_shape(data)
-        if shape is not None and len(shape) != 4:
+        if shape is None or len(shape) != 4:
             return False
     return True
 
@@ -1509,7 +1518,7 @@ def _check_conv2d_transpose(ctx: PatternCheckContext) -> bool:
         if not _check_dtype(inp):
             return False
         shape = _get_shape(inp)
-        if shape is not None and len(shape) != 4:
+        if shape is None or len(shape) != 4:
             return False
     return True
 
