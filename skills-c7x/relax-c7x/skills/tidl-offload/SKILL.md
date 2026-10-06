@@ -67,11 +67,39 @@ artifacts from the *same* compiled module — this is what `test_yolo_tidl`
 does, so the expensive TIDL import doesn't run twice per model. Calling
 `build()` twice instead would re-run `compile()` each time.
 
-## Two-Level Gating
+## Who decides what can be offloaded
 
-1. **TVM-side (Python):** pattern matching identifies offloadable ops via `FuseOpsByPattern` with 74 composite patterns. Constraint callbacks reject ops exceeding TIDL hardware limits.
+**Exactly one place: `TIDL_relaxAllowNode` in `tidl_model_import_relax.so`.**
+`patterns.py` matches *structure only* (which Relax ops, in which arrangement);
+every pattern's check is `_gate.tidl_gate(name)` (`_gate.py`), which rebuilds the
+composite function `FuseOpsByPattern` would create for the match, wraps it in the
+same synthetic call `tidl_import` uses, and asks the library. There is no
+Python-side constraint logic: dtype, rank, shape, attribute, constant-vs-variable
+and hardware-limit rules all live in the C++ Relax parsers
+(`tidlParseRelax/`, chiefly `tidl_parse_relax_declines.cpp`) and TIDL's shared
+`tidlAllowlistingConstraints/` headers. **To change what is offloaded, change
+the C++ and rebuild the `.so` (`c7x-mma-tidl/build_j722s.sh`); do not add a
+`_check_*` to `patterns.py`.**
 
-2. **TIDL-side (C++ .so):** `tidl_model_import_relax.so` checks each operator against device-specific constraints and compiles to optimized MMA code.
+Consequences:
+
+- **Partitioning needs the `.so`.** Without it `partition()` raises a clear
+  error (fail closed). Structure-only tests pass
+  `config["allow_fn"] = lambda call: 1`.
+- **Rejection reasons** are available: `_gate.recording()` yields a `GateResult`
+  per pattern-check call (`.verdict`, `.reason`, the synthesised `.composite`);
+  `TIDL_relaxGetLastRejectReason` returns the last one, including
+  `[constraint: <TIDL catalogue text>]` when TIDL's own constraint failed.
+- **`TIDL_relaxDescribeNode(call)`** returns the parsed layer as JSON (metadata
+  dims/dtypes, and layer params such as axis/stride/pad/slice points). Use it to
+  test that an *accepted* op was parsed correctly: a wrong axis is accepted and
+  only visible there.
+- **Name lists:** the gate stamps `tidl_node_name` =
+  `<pattern>:<root var name_hint in the input IR>` so `deny_list:layer_name`
+  works. Names are not guaranteed unique (Relax reuses `lv`).
+- `partition()` runs `CanonicalizeBindings` first so a weight bound as
+  `w = R.const(...)` is inlined into the call; otherwise fusion makes it a
+  composite *parameter* and TIDL declines the (then variable) weight.
 
 ## 74 Composite Patterns
 
@@ -176,18 +204,35 @@ Device config: `DEVICE_NAME=4` = TIDL_AM62A (C7504 with MMA2, single-core).
    InnerProduct (FC) output is ~10^7× the correct value. For `tidl.matmul_bias`
    also set `constTensorsDims[1]` for the bias (the bias-size constraint checker
    reads it). Fixed in `tidl_parse_relax_matmul.cpp` commit `312d39b`.
-8. **The Python dtype allowlist (`patterns.py`'s `_TIDL_SUPPORTED_DTYPES` =
-   {float32, int8, int16, uint8}) is a single blanket set shared by every
-   `_check_*` callback, not a per-op allowlist.** A dtype a reference TIDL
-   importer permits for one specific op (e.g. int32 for `take`'s data input)
-   is still declined here, because the gate doesn't special-case ops the
-   way a per-op allowlist would. Also fails closed on an unknown/dynamic
-   shape rather than optimistically accepting. See README.md's "Constraint
-   checks" section for the current per-op decline conditions (strided_slice
-   single-axis/unit-stride, pad constant-mode/4-D/no-N-C-padding, split
-   ≤16 outputs, take non-constant-data) — these are correctness/safety
-   gates, not just missing optimizations, so don't loosen them without
-   re-reading why they're there.
+8. **Eligibility rules carried over from the Python checks are the stricter
+   bound, on purpose.** The ported rules keep the former Python limits (data
+   types float32/int8/int16/uint8 only; elementwise ops exactly 4-D; most other
+   ops rank <= 6) even where TIDL's shared constraints are looser, so moving
+   them never widened what gets offloaded. They are correctness/safety gates,
+   not just missing optimizations (strided_slice single-axis/unit-stride, pad
+   constant-mode/4-D/no-N-C-padding, split <= 16 outputs, take non-constant
+   data, resize method, expand_dims output rank): don't loosen one without
+   re-reading why it exists, and give any new accept path a numeric test
+   (`test_tidl_declines_hw.py`).
+9. **A parser that accepts by omission is the real bug class.** Three found by
+   the decline table: `pad` read `pad_value` from a constant operand (it is an
+   attribute), so any value imported as 0; `resize2d` left the nearest-neighbour
+   default for an unknown method (cubic imported as nearest); the softmax
+   parser counted dims by indexing `varTensorsDims[0]` up to 6 (past the end of
+   a 4-D shape) so a non-negative axis was normalised with the wrong rank.
+   Add a case to `test_tidl_declines.py` for every decline, and an accepting
+   case with `TIDL_relaxDescribeNode` params for every field a decline protects.
+    Also found this way: non-global `avg_pool2d` could never parse; the deconv
+    parser never set `padW/padH` (TIDL's 4x4 rule reads them), and TIDL deconv
+    needs out == in * stride; `take` with constant indices returns wrong values
+    on hardware and is declined.
+10. **The Relax `.so` does not compile `tidlParseTVM/`.** Anything shared with
+    the Relay parsers must live in a file both targets build
+    (`tidl_import_common_model_check.cpp`); an `extern` to a Relay-only symbol
+    links fine and aborts the process at first call (lazy binding). Also, the
+    makefile does not track header dependencies for `tidlParseRelax/*.cpp`:
+    after editing `tidl_parse_relax.h` run `touch tidlParseRelax/*.cpp` before
+    `build_j722s.sh`, or stale objects keep the old macro/layout.
 
 ## Testing
 
@@ -195,9 +240,14 @@ Tests at `tests/ti-dsp-runtime/tidl-tests/` and `unit-tests/`:
 
 | File | Tests | Scope | Requirements |
 |------|-------|-------|--------------|
-| `test_tidl_partition.py` | 17 | Pattern matching + constraint callbacks | None |
+| `test_tidl_partition.py` | 17 | Pattern matching + eligibility through the gate | `.so` |
 | `test_tidl_codegen.py` | 12 | Lowering, TIR stubs, bridge codegen | None |
-| `test_tidl_layer_offload.py` | 65 | Per-layer offload unit tests | None |
+| `test_tidl_layer_offload.py` | 65 | Per-layer offload unit tests | `.so` |
+| `test_tidl_declines.py` | 152 | Accept/reject table per eligibility rule; `DescribeNode` parse checks | `.so` |
+| `test_tidl_constraint_coverage.py` | 5 | TIDL constraint inventory vs. tests; ratchet | `.so` |
+| `test_tidl_allownode.py` | 63 | Gate seam: composite fidelity, driver declines, name lists, fail-closed | `.so` |
+| `test_tidl_partition_snapshot.py` | 58 | Partition of 54 layer models + ResNet-18/MV2/YOLOv5n/v8n vs. committed snapshots | `.so` |
+| `test_tidl_declines_hw.py` | 24 | Accepted configs vs. a TVM CPU reference on AM67A | AM67A + `.so` |
 | `test_tidl_new_ops.py` | 4 | Transformer op patterns (softmax, layernorm) | None |
 | `test_tidl_relax_import.py` | 10 | FFI load, init, import pipeline | `tidl_model_import_relax.so` |
 | `test_tidl_e2e.py` | 2 | Stub bridge pipeline on c7x_host | TI_CGT_C7000_PATH |
@@ -207,12 +257,12 @@ Tests at `tests/ti-dsp-runtime/tidl-tests/` and `unit-tests/`:
 | `test_yolo_dsp.py` | 2 | YOLOv5/v8 c_static_lib + TIDL offload (exercises eager bridge init) | AM67A + .so for TIDL variant |
 | `unit-tests/test_tidl_large_weight_calib.py` | 2 | Calibration overflow isolation (large-weight conv) | `.so` only |
 
-Markers: `quick` (no hardware, no .so), `core` (dependency-free + c7x_host stub).
+Markers: `quick` (no hardware), `core` (+ c7x_host stub). Most `tidl-tests` need `tidl_model_import_relax.so` to partition (`conftest.py` skips them when it is not built); `C7X_MMA_TIDL_PATH` defaults to `~/ml/c7x-mma-tidl`.
 
 ```bash
 cd tests/ti-dsp-runtime
 
-# Quick tests (partition + codegen + layer offload, no deps, ~90s)
+# Quick tests (partition + codegen + layer offload + decline table, ~2 min; needs the .so)
 pytest tidl-tests/ -m quick -v
 
 # Core gate (adds c7x_host stub e2e)
@@ -234,7 +284,9 @@ For general test debugging (DSP_KEEP_TEMP, failure modes), see `relax-c7x:testin
 
 | File | Purpose |
 |------|---------|
-| `python/tvm/relax/backend/tidl/patterns.py` | 74 composite patterns (`get_tidl_patterns()`) + constraints |
+| `python/tvm/relax/backend/tidl/patterns.py` | composite patterns (`get_tidl_patterns()`), structure only |
+| `python/tvm/relax/backend/tidl/_gate.py` | the eligibility gate: asks `TIDL_relaxAllowNode` about each match |
+| `c7x-mma-tidl/.../tidlParseRelax/tidl_parse_relax_declines.cpp` | the eligibility rules (one per composite) |
 | `python/tvm/relax/backend/tidl/tidl.py` | TIDLOffloadCompiler: partition, import, lower, bridge, codegen_and_build |
 | `python/tvm/contrib/c7x/io_meta.py` | `write_io_meta()`/`compute_io_meta()` — the `tvm_dsp_io_meta.bin` blob |
 | `src/runtime/ti_dsp/tidl/tidl_api.c` | IALG lifecycle on-device |

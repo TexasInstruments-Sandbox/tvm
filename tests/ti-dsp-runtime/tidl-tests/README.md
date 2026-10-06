@@ -6,11 +6,16 @@ Tests for TIDL subgraph offloading in the TVM/Relax c_static_lib backend.
 
 | Test | Count | What it tests | Requirements |
 |------|-------|---------------|--------------|
-| `test_tidl_partition.py` | 17 | Pattern matching, partitioning, constraints | TVM only |
-| `test_tidl_codegen.py` | 12 | Lowering pass, TIR stubs, c_static_lib codegen, bridge generation (single + multi-subgraph, stub + real) | TVM only |
+| `test_tidl_partition.py` | 17 | Pattern matching, partitioning, eligibility through the gate | `tidl_model_import_relax.so` |
+| `test_tidl_codegen.py` | 12 | Lowering pass, TIR stubs, c_static_lib codegen, bridge generation (single + multi-subgraph, stub + real) | `.so` (partitioning) |
 | `test_tidl_relax_import.py` | 18 | FFI load, init, AllowNode, tidl_import() pipeline | `tidl_model_import_relax.so` + c7x-mma-tidl tree |
-| `test_tidl_layer_offload.py` | 103 | Per-layer offload validation: pattern matching (Level 1, 61 tests) and hardware inference (Level 4, 42 tests) covering all supported layer types | Level 1: TVM only; Level 4: `.so` + `TI_CGT_C7000_PATH` + AM67A |
+| `test_tidl_layer_offload.py` | 103 | Per-layer offload validation: pattern matching (Level 1, 61 tests) and hardware inference (Level 4, 42 tests) covering all supported layer types | Level 1: `.so` (partitioning); Level 4: + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_new_ops.py` | 4 | Newer composite ops (softmax, multiply, permute_dims, concat) through full build + AM67A pipeline | `.so` + `TI_CGT_C7000_PATH` + AM67A |
+| `test_tidl_allownode.py` | 63 | The eligibility gate: composite fidelity (synthesised == fused), `TIDL_relaxDescribeNode`, driver declines, name lists, fail-closed without the `.so` | `.so` |
+| `test_tidl_declines.py` | 152 | Accept/reject table for every eligibility rule, with parsed-layer (`DescribeNode`) checks on accepted cases | `.so` |
+| `test_tidl_constraint_coverage.py` | 5 | Inventory of TIDL's own allowlisting constraints vs. the decline table (covered / subsumed / untested), with a ratchet | `.so` + c7x-mma-tidl tree |
+| `test_tidl_partition_snapshot.py` | 58 | Partition of 54 layer models + ResNet-18, MobileNetV2, YOLOv5n, YOLOv8n vs. `snapshots/partition_snapshots.json` | `.so` |
+| `test_tidl_declines_hw.py` | 24 | Accepted configurations run on hardware and compared with a TVM CPU reference | `.so` + AM67A (`--dsp-mode=c7x_dload --board j722s-evm`) |
 | `test_tidl_e2e.py` | 2 | Full pipeline on c7x_host: stub bridge (no TIDL libs) and real bridge (TIDL PC/AVX reference path) | `TI_CGT_C7000_PATH`; real-bridge test also needs `.so` + PC TIDL algo libs |
 | `test_tidl_import_e2e.py` | 2 | `compiler.build()` one-call pipeline -> deploy -> run on AM67A (single-subgraph ConvReluSoftmax + multi-subgraph 2-conv model) | `.so` + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_resnet_e2e.py` | 3 | ResNet-18 TIDL build pipeline validation, hardware correctness, cycle comparison | `.so` + `TI_CGT_C7000_PATH` (build test); + AM67A (hardware tests) |
@@ -19,13 +24,23 @@ Tests for TIDL subgraph offloading in the TVM/Relax c_static_lib backend.
 | `diag_tidl_levels.py` | -- | Standalone multi-level TIDL init debug script | `TI_CGT_C7000_PATH` + artifacts + AM67A |
 
 ```bash
-# Run partition + codegen tests (no hardware needed):
+# Run partition + codegen tests (need the .so, no hardware):
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_partition.py \
        tests/ti-dsp-runtime/tidl-tests/test_tidl_codegen.py -v
 
-# Per-layer partition tests — no .so or hardware (61 tests, ~0.3s):
+# Per-layer partition tests — need the .so, no hardware:
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_layer_offload.py \
        -k TestLayerPartition -v
+
+# Eligibility rules: decline table, constraint coverage, partition snapshots, gate seam:
+pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_declines.py \
+       tests/ti-dsp-runtime/tidl-tests/test_tidl_constraint_coverage.py \
+       tests/ti-dsp-runtime/tidl-tests/test_tidl_partition_snapshot.py \
+       tests/ti-dsp-runtime/tidl-tests/test_tidl_allownode.py -v
+
+# Numeric check of accepted configs on AM67A (serial; one board):
+pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_declines_hw.py \
+       --dsp-mode=c7x_dload --board j722s-evm -v
 
 # Import tests (needs tidl_model_import_relax.so):
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_relax_import.py -v
@@ -49,6 +64,37 @@ python tests/ti-dsp-runtime/tidl-tests/test_tidl_resnet_e2e.py \
 # Standalone TIDL diagnostic (levels 0/1/1b/2/3):
 python tests/ti-dsp-runtime/tidl-tests/diag_tidl_levels.py 3
 ```
+
+## Library-gated tests
+
+Offload eligibility is decided by `TIDL_relaxAllowNode` in
+`tidl_model_import_relax.so`, so partitioning needs it: build it with
+`c7x-mma-tidl/build_j722s.sh` (CI must do this before `tidl-tests`). **The
+`quick` and `core` tiers are therefore no longer `.so`-free.**
+
+`conftest.py` defaults `C7X_MMA_TIDL_PATH` to `~/ml/c7x-mma-tidl` and skips the
+library-dependent tests, rather than failing, when the `.so` is absent. Two
+mechanisms do that:
+
+- modules listed in `_NEEDS_SO_MODULES` (`conftest.py`) are skipped at
+  collection — these are the ones that partition without gating themselves;
+- modules with their own `.so` skipif or autouse skip fixture
+  (`test_tidl_allownode.py`, `test_tidl_declines*.py`,
+  `test_tidl_partition_snapshot.py`, `test_tidl_relax_import.py`,
+  `test_tidl_new_ops.py`, `test_tidl_import_e2e.py`,
+  `test_tidl_output_storage.py`) are not listed.
+
+A test that only checks pattern *structure* can pass
+`allow_fn=lambda call: 1` in the compiler config and come off that list.
+
+Other files in this directory used by the eligibility tests:
+
+- `partition_snapshot.py`, `diag_tidl_partition_snapshot.py`,
+  `snapshots/` - partition snapshots. Any difference must be classified; see
+  `snapshots/README.md`.
+- `constraint_coverage.py`, `diag_tidl_constraint_coverage.py`,
+  `constraint_coverage.json` - TIDL's constraint inventory and its test map.
+- `diag_tidl_gate_spike.py` - gate cost and composite-fidelity on real models.
 
 ## Per-layer Tests (`test_tidl_layer_offload.py`)
 

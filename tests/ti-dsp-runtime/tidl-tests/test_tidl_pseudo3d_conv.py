@@ -11,10 +11,11 @@ There's no explicit kernel_size parameter. The "pseudo-3D" case in Relay
 meant the ONNX parser receiving a 5D weight (OIDHW) with depth=1 and treating
 it as 2D. Relax's conv2d only accepts 4D weight (OIHW)."""
 
+import numpy as np
 import pytest
+
 from tvm import relax
 from tvm.relax.backend.tidl import partition_for_tidl
-
 
 pytestmark = [pytest.mark.quick, pytest.mark.core]
 
@@ -38,9 +39,10 @@ class TestPseudo3DConv:
     def test_conv2d_standard_2d_partitioned(self):
         """Standard 2D conv2d with 4D weight (OIHW) should partition."""
         x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
-        weight = relax.Var("w", relax.TensorStructInfo((16, 8, 3, 3), "float32"))
+        # TIDL imports only constant weights: a variable one is declined
+        weight = relax.const(np.ones((16, 8, 3, 3), "float32"))
         bb = relax.BlockBuilder()
-        with bb.function("main", [x, weight]):
+        with bb.function("main", [x]):
             with bb.dataflow():
                 out = bb.emit(relax.op.nn.conv2d(x, weight))
                 gv = bb.emit_output(out)
@@ -63,9 +65,10 @@ class TestPseudo3DConv:
         enters, so nothing declines it either.
         """
         x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
-        weight = relax.Var("w", relax.TensorStructInfo((16, 8, 3, 3), "float32"))
+        # TIDL imports only constant weights: a variable one is declined
+        weight = relax.const(np.ones((16, 8, 3, 3), "float32"))
         bb = relax.BlockBuilder()
-        with bb.function("main", [x, weight]):
+        with bb.function("main", [x]):
             with bb.dataflow():
                 out = bb.emit(relax.op.nn.conv2d(x, weight, dilation=(2, 2)))
                 gv = bb.emit_output(out)

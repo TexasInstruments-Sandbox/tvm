@@ -94,11 +94,17 @@ def _build_cast_model(data_dtype="float32", out_dtype="int8"):
 
 
 class TestQuantizeDenyByDefault:
-    def test_supported_dtype_partitioned(self):
-        """float32 -> int8 quantize: both ends supported, should offload."""
+    def test_supported_dtype_stays_on_tvm(self):
+        """float32 -> int8 quantize has supported dtypes but no Relax parser yet.
+
+        tidl_parse_relax_quantize.cpp is a stub that returns
+        TIDL_UnsupportedLayer ("TODO: implement quantize layer parsing"), so
+        TIDL_relaxAllowNode declines it: offloading would only fail later in
+        TIDL_relaxImportNode. Flip this to expect offload when the parser lands.
+        """
         mod = _build_quantize_model(data_dtype="float32", out_dtype="int8")
         partitioned = partition_for_tidl(mod)
-        assert _count_tidl_subgraphs(partitioned) == 1
+        assert _count_tidl_subgraphs(partitioned) == 0
 
     def test_unsupported_out_dtype_declined(self):
         """uint16 output is valid for relax.quantize but not TIDL's dtype set."""
@@ -118,11 +124,11 @@ class TestQuantizeDenyByDefault:
 
 
 class TestDequantizeDenyByDefault:
-    def test_supported_dtype_partitioned(self):
-        """int8 -> float32 dequantize: both ends supported, should offload."""
+    def test_supported_dtype_stays_on_tvm(self):
+        """int8 -> float32 dequantize: parser is a stub (see the quantize twin)."""
         mod = _build_dequantize_model(data_dtype="int8", out_dtype="float32")
         partitioned = partition_for_tidl(mod)
-        assert _count_tidl_subgraphs(partitioned) == 1
+        assert _count_tidl_subgraphs(partitioned) == 0
 
     def test_unsupported_out_dtype_declined(self):
         """float16 output is valid for relax.dequantize but not TIDL's dtype set."""
@@ -430,7 +436,8 @@ class TestUnknownShapeFailsClosed:
         "permute_dims": lambda x: relax.op.permute_dims(x, axes=[0, 2, 3, 1]),
         "max_pool2d": lambda x: relax.op.nn.max_pool2d(x, (2, 2), (2, 2)),
         "relu": relax.op.nn.relu,
-        "softmax": lambda x: relax.op.nn.softmax(x, axis=1),
+        # TIDL softmax supports only the width/height axes
+        "softmax": lambda x: relax.op.nn.softmax(x, axis=3),
     }
 
     @pytest.mark.parametrize("op_name", sorted(OPS))

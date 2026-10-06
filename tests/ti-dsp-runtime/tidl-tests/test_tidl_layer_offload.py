@@ -583,24 +583,24 @@ def _build_instance_norm_model():
 
 
 def _build_scatter_elements_model():
-    """Scatter elements along axis 1."""
+    """Scatter elements along the width axis (the only axis TIDL supports)."""
     data = relax.Var("data", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
     indices = relax.Var("indices", relax.TensorStructInfo((1, 2, 16, 16), "int32"))
     updates = relax.Var("updates", relax.TensorStructInfo((1, 2, 16, 16), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [data, indices, updates]):
         with bb.dataflow():
-            out = bb.emit(relax.op.scatter_elements(data, indices, updates, axis=1))
+            out = bb.emit(relax.op.scatter_elements(data, indices, updates, axis=3))
             gv = bb.emit_output(out)
         bb.emit_func_output(gv)
     return bb.get()
 
 
 def _build_scatter_nd_model():
-    """Scatter ND."""
+    """Scatter ND (indices' last dim is output_rank - 1, as TIDL requires)."""
     data = relax.Var("data", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
-    indices = relax.Var("indices", relax.TensorStructInfo((2, 1), "int32"))
-    updates = relax.Var("updates", relax.TensorStructInfo((2, 8, 16, 16), "float32"))
+    indices = relax.Var("indices", relax.TensorStructInfo((2, 3), "int32"))
+    updates = relax.Var("updates", relax.TensorStructInfo((2, 16), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [data, indices, updates]):
         with bb.dataflow():
@@ -624,17 +624,15 @@ def _build_grid_sample_model():
 
 
 def _build_conv2d_transpose_model():
-    """Conv2d transpose (deconvolution)."""
+    """Conv2d transpose (deconvolution): 4x4 stride 2 pad 1, the exact 2x upsample TIDL supports."""
 
     @I.ir_module
     class Model:
         @R.function
-        def main(
-            x: R.Tensor((1, 8, 16, 16), "float32"),
-            w: R.Tensor((8, 4, 3, 3), "float32"),
-        ):
+        def main(x: R.Tensor((1, 8, 16, 16), "float32")):
             with R.dataflow():
-                y = R.nn.conv2d_transpose(x, w, strides=(1, 1), padding=(1, 1))
+                w = R.const(np.random.randn(8, 4, 4, 4).astype("float32"))
+                y = R.nn.conv2d_transpose(x, w, strides=(2, 2), padding=(1, 1))
                 R.output(y)
             return y
 
@@ -1800,18 +1798,20 @@ class ConvDepthToSpaceModel(nn.Module):
 
 
 class ConvConvTransposeModel(nn.Module):
-    """Conv + conv2d_transpose (deconvolution).
+    """Conv + conv2d_transpose (deconvolution), 4x4 stride 2 pad 1 (exact 2x upsample).
 
     Tests the IOHW→OIHW weight permutation fix.  The deconv weight is a
     module parameter (IOHW layout as stored by Relax); TIDL expects OIHW,
-    so the import parser must permute before writing net.bin.
+    so the import parser must permute before writing net.bin. TIDL's deconv
+    supports 2x2/3x3/4x4 kernels at stride 2 and upsamples by exactly the
+    stride, so this uses 4x4/pad 1.
     """
 
     def __init__(self):
         super().__init__()
         self.conv = nn.Conv2D(3, 8, 3, 1, 1, bias=False)
-        # IOHW layout: in_ch=8, out_ch=4, kH=3, kW=3
-        self.deconv_weight = nn.Parameter((8, 4, 3, 3))
+        # IOHW layout: in_ch=8, out_ch=4, kH=4, kW=4
+        self.deconv_weight = nn.Parameter((8, 4, 4, 4))
 
     def main(self, x):
         from tvm.relax import op as _op
@@ -1819,8 +1819,10 @@ class ConvConvTransposeModel(nn.Module):
 
         x = self.conv(x)
         x = nn.relu(x)
-        # conv2d_transpose: (1,8,H,W) -> (1,4,H,W) with stride=1, pad=1
-        y = _op.nn.conv2d_transpose(x._expr, self.deconv_weight._expr, strides=(1, 1), padding=(1, 1))
+        # conv2d_transpose: (1,8,H,W) -> (1,4,2H,2W) with stride=2, pad=1, k=4
+        y = _op.nn.conv2d_transpose(
+            x._expr, self.deconv_weight._expr, strides=(2, 2), padding=(1, 1)
+        )
         return wrap_nested(y, "deconv_out")
 
 
@@ -2138,7 +2140,7 @@ class TestLayerHardware:
             ConvConvTransposeModel,
             tmp_path,
             dsp_mode,
-            expected_shape=(1, 4, 16, 16),  # conv2d 3->8, deconv 8->4, pad keeps HW
+            expected_shape=(1, 4, 32, 32),  # conv2d 3->8, deconv 8->4, stride 2 doubles HW
         )
         assert n >= 1
         assert np.isfinite(output).all()

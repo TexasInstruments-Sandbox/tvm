@@ -1,0 +1,1474 @@
+{
+ "abs::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "acos::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "argop::Number of non-singleton variable input dimensions must be <= 4": {
+  "cases": [
+   "argmax-rank5",
+   "matmul-rank5",
+   "reduce-max-rank5"
+  ],
+  "status": "covered"
+ },
+ "argop::Only axis = -3 is supported": {
+  "cases": [
+   "argmax-height"
+  ],
+  "status": "subsumed"
+ },
+ "argop::Only keepdims = 1 (default) is supported": {
+  "cases": [
+   "argmin-no-keepdims"
+  ],
+  "status": "subsumed"
+ },
+ "argop::select_last_index = 1 is only supported in firmware version >= 11_00_07_00": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "asin::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "asinh::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "atan::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "batchNorm::Number of variable input dimensions must be <= 6": {
+  "note": "generic rank limit; see the per-op 7-D cases or the stricter rank bound in declines",
+  "status": "untested"
+ },
+ "batchNorm::Scale, Bias, input_mean and input_var should be constant 1-D tensor of size same as input channel dimension": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "batchNorm::Training mode in ONNX is not supported by TIDL_RT": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "cast::Only bool, float32 and signed/unsigned 8/16/32/64-bit integers are supported as cast destination types": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "cast::Only the default round mode (Up) is supported with Cast round attribute": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "cast::Only the default saturate mode (1) is supported with Cast saturate attribute": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "clip::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "clip::Only min <= 0 and max > 0 is supported": {
+  "cases": [
+   "clip-min-positive"
+  ],
+  "status": "covered"
+ },
+ "concat::Not supported along the batch dimension": {
+  "cases": [
+   "concat-batch-4d"
+  ],
+  "status": "subsumed"
+ },
+ "concat::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "conv::Depthwise (Fully Grouped) convolution is only supported for 1x3s1, 3x3s1, 3x3s2, 5x5s1, 5x5s2, 7x7s1 & 7x7s2 filters": {
+  "cases": [
+   "conv2d-depthwise-5x5-stride3"
+  ],
+  "status": "covered"
+ },
+ "conv::For Depthwise convolution layer, Pad (along width) greater than the MMA width is not supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "conv::Input width less than MAX(Pad Left, Pad Right) is not supported for AM62A and AM67A": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "conv::Kernel size 3x3 with stride 3 is not supported in AM62A and AM67A": {
+  "cases": [
+   "conv2d-3x3-stride3"
+  ],
+  "status": "covered"
+ },
+ "conv::Kernel size greater than 7 with stride 2 is not supported": {
+  "cases": [
+   "conv2d-kernel-9"
+  ],
+  "status": "subsumed"
+ },
+ "conv::NumGroups greater than In or Out channels not supported for Caffe": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "conv::Number of non-singleton variable input dimensions must be <= 4": {
+  "cases": [
+   "argmax-rank5",
+   "matmul-rank5",
+   "reduce-max-rank5"
+  ],
+  "status": "covered"
+ },
+ "conv::Only one variable input is allowed": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "conv::Padding greater than input width is not supported for AM62A and AM67A": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "conv::Stride 4 is only supported with Kernel size 11x11": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "conv::Stride must be the same along both horizontal and vertical dimensions": {
+  "cases": [
+   "conv2d-unequal-strides"
+  ],
+  "status": "subsumed"
+ },
+ "conv::Weight tensor size should match with proto kernel_shape": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "cos::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "cosh::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "deconv::16-bit Deconvolution is not suppported on AM62A and AM67A": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "deconv::Change to Upsample/Resize if possible. Upsample/Resize will be more efficient": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "deconv::Number of non-singleton variable input dimensions must be <= 4": {
+  "cases": [
+   "argmax-rank5",
+   "matmul-rank5",
+   "reduce-max-rank5"
+  ],
+  "status": "covered"
+ },
+ "deconv::Only 4x4, 3x3 and 2x2 kernels with 2x2 stride are supported": {
+  "cases": [
+   "deconv-stride1"
+  ],
+  "status": "covered"
+ },
+ "deconv::Only default dilations values (1,1) are supported": {
+  "cases": [
+   "deconv-dilation"
+  ],
+  "status": "covered"
+ },
+ "deconv::Only one variable input is allowed": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "deconv::Weight tensor size should match with proto kernel_shape": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "depthToSpace::Input depth (channel dimension) should be multiple of (blocksize * blocksize)": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "depthToSpace::Input should be four-dimensional (4D)": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "depthToSpace::Only mode supported are DCR(depth-column-row order) and CRD(column-row-depth order)": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "eltwise::1D vector dimension should match with channel or width dimension": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "eltwise::Both inputs as variable are supported in Sub only if firmware version >= 10_01_06_00": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "eltwise::Eltwise operator(Add/Mul/Div/Sub/Max/Min/Sum/Mod layer) is supported only with operands of similar dimensions or broadcast supported patterns of both inputs": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "eltwise::Number of non-singleton variable input dimensions in Add/Mul/Sub/Div/Max/Min/Sum/Mod must be <= 6": {
+  "note": "generic rank limit; see the per-op 7-D cases or the stricter rank bound in declines",
+  "status": "untested"
+ },
+ "eltwise::Only 2 inputs are supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "eltwise::Only 2 inputs are supported in Add/Mul/Sub/Div/Max/Min/Sum/Mod layers": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "eltwise::The variable inputs in Add/Mul/Div/Sub/Max/Min/Sum/Mod layer must of be same dimensions or broadcast-able": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "eltwise::Too many inputs for elementwise operator": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "elu::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "erf::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "exp::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "expand::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "expand::Shape tensor cannot be a variable input": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "flatten::Number of non-singleton variable input dimensions must be <= ": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "argmax-rank5",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "matmul-rank5",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "reduce-max-rank5",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "floor::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "gather::Input data dimensions must be greater than 1D": {
+  "cases": [
+   "take-rank1-data"
+  ],
+  "status": "subsumed"
+ },
+ "gather::Input shape of dimension higher than axis should be 1": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "gather::Number of output dimensions must be <= 6": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "gather::Only 1D indices are supported": {
+  "cases": [
+   "take-2d-indices"
+  ],
+  "status": "subsumed"
+ },
+ "gridsample::Only 2D grid indices are supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "gridsample::Only nearest and linear/bilinear mode is supported ": {
+  "cases": [
+   "grid-sample-bicubic"
+  ],
+  "status": "covered"
+ },
+ "gridsample::Only zero padding mode is supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "hardSigmoid::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "hardswish::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "innerProduct::Bias tensor input should be a vector of [1, N] or [N] where N should match output width": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "innerProduct::Filter and input must be of same dimensions or broadcast-able": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "innerProduct::Filter tensor input should have atleast 2 dimensions": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "innerProduct::Gemm layer does not support more than one variable inputs": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "innerProduct::Gemm layer is not supported in TIDL when bias size != output width, please use edgeai model optimizer tool to convert Gemm to (MatMul + Add) combination": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "innerProduct::Height(H) and Width(W) dimension should be 1 in NHWC data format": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "innerProduct::MatMul with signed & unsigned input combination is not supported in TDA4VM & is only supported in firmware version >= 10_00_07_00": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "innerProduct::MatMul with signed inputs & unsigned output is not supported ": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "innerProduct::Number of non-singleton variable input dimensions must be <= 4": {
+  "cases": [
+   "argmax-rank5",
+   "matmul-rank5",
+   "reduce-max-rank5"
+  ],
+  "status": "covered"
+ },
+ "innerProduct::Only supported Gemm params are transA = 0, alpha = 1.0 and beta = 1.0. The same will processed as inner product or fully connected layer in TIDL": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "instanceNormalization::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "instanceNormalization::Number of variable input dimensions must be >= 3": {
+  "note": "generic rank limit; see the per-op 7-D cases or the stricter rank bound in declines",
+  "status": "untested"
+ },
+ "instanceNormalization::Scale and Bias should be 1-D tensor of size same as input channel dimension": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "layernorm::Dimension of scale and bias vector can either be [1, N] or [N]": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "layernorm::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "layernorm::Only supported across the width axis": {
+  "cases": [
+   "layer-norm-channel-axis"
+  ],
+  "status": "covered"
+ },
+ "leakyRelu::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "log::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "mish::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "neg::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "pad::Maximum number of input dimension supported is 6": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "pad::Only constant pad mode with constant_value = 0 is supported": {
+  "cases": [
+   "pad-nonzero-value"
+  ],
+  "status": "subsumed"
+ },
+ "pad::Pad layer is expected to provide 8 pad values": {
+  "cases": [
+   "pad-rank3"
+  ],
+  "status": "subsumed"
+ },
+ "pad::Padding is only supported for width/height axes": {
+  "cases": [
+   "pad-channel"
+  ],
+  "status": "subsumed"
+ },
+ "pooling::GlobalAveragePool does not support plane size > 1024": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "pooling::Input should be variable and not constant/initializer": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "pooling::Number of non-singleton variable input dimensions must be <= 4": {
+  "cases": [
+   "argmax-rank5",
+   "matmul-rank5",
+   "reduce-max-rank5"
+  ],
+  "status": "covered"
+ },
+ "pooling::Number of outputs should be 1": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "pooling::Only 1D and 2D GlobalAveragePool is supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "pooling::Only default dilations values (1,1) are supported": {
+  "cases": [
+   "deconv-dilation"
+  ],
+  "status": "covered"
+ },
+ "pooling::Pooling functionality is validated for 3x3,2x2 and 1x1 kernels with both stride 1 and stride 2 (horizontally and vertically), with the exception of 2x2 kernel with stride 1": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "pow::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "pow::Power tensor must be a constant tensor": {
+  "cases": [
+   "power-variable-exponent"
+  ],
+  "status": "covered"
+ },
+ "pow::Size of the constant tensor must be 1": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "prelu::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "prelu::PRelu does not support variable slope": {
+  "cases": [
+   "prelu-variable-slope"
+  ],
+  "status": "covered"
+ },
+ "prelu::PRelu slope should be same or broadcast-able to input channel dimension": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "reduce::Number of non-singleton variable input dimensions must be <= 4": {
+  "cases": [
+   "argmax-rank5",
+   "matmul-rank5",
+   "reduce-max-rank5"
+  ],
+  "status": "covered"
+ },
+ "reduce::Only keepdims = 1 is supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "reduce::Reduction is only supported along height axis": {
+  "cases": [
+   "max-width"
+  ],
+  "status": "subsumed"
+ },
+ "relu::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "reshape::Input volume should be equal to output volume": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "reshape::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "reshape::Only default allowzero = 0 is supported": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "reshape::Output dimensions must be less than ": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "reshape::Variable shape is not supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "resize::'linear' resize mode is not supported when coordinate_transformation_mode is 'asymmetric'": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "resize::'pytorch_half_pixel' coordinate_transformation_mode is not supported for Resize output shapes <= 1": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "resize::Number of non-singleton variable input dimensions must be <= 4": {
+  "cases": [
+   "argmax-rank5",
+   "matmul-rank5",
+   "reduce-max-rank5"
+  ],
+  "status": "covered"
+ },
+ "resize::Only 'floor' nearest mode is supported when coordinate_transformation_mode is 'asymmetric'": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "resize::Only 'half_pixel', 'pytorch_half_pixel' and 'asymmetric' coordinate_transformation_mode is supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "resize::Only 'nearest' and 'linear' resize mode are supported": {
+  "cases": [
+   "resize-cubic"
+  ],
+  "status": "subsumed"
+ },
+ "resize::Only 'round_prefer_ceil' nearest mode is supported when coordinate_transformation_mode is 'half_pixel' or 'pytorch_half_pixel'": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "resize::Only Power of 2 scales are supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "resize::Only default antialias = 0 is supported": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "resize::Only default exclude_outside = 0 is supported": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "resize::Only default keep_aspect_ratio_policy = 'stretch' is supported": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "resize::Resize is only supported along width and height axis": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "resize::Scales < 1 are not supported": {
+  "cases": [
+   "resize-downscale"
+  ],
+  "status": "covered"
+ },
+ "resize::Width and Height scale should be same": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "scatterElements::For ScatterND, indices tensor's last dimension must be at most (output_rank - 1)": {
+  "cases": [
+   "scatter-nd-short-indices"
+  ],
+  "status": "covered"
+ },
+ "scatterElements::For ScatterND, number of non-singleton indices dimensions must be <= 4": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "scatterElements::Number of non-singleton variable input dimensions must be <= 4": {
+  "cases": [
+   "argmax-rank5",
+   "matmul-rank5",
+   "reduce-max-rank5"
+  ],
+  "status": "covered"
+ },
+ "scatterElements::Only scatter along width axis is supported": {
+  "cases": [
+   "scatter-elements-channel-axis"
+  ],
+  "status": "covered"
+ },
+ "scatterElements::ScatterElements only supports the 'none' reduction type": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "scatterElements::ScatterND does not support the 'add' reduction type in 16bit precision": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "scatterElements::ScatterND does not support the 'mul' reduction type": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "scatterElements::The constant input 'data' must be a zero tensor": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "scatterElements::Updates tensor should not have more than 1 channel": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "sigmoid::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "sin::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "sinh::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "slice::Constant/initializer inputs must have 4 values": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "slice::Layer should have 3 constant/initializer inputs": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "slice::Must have 4 inputs": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "slice::Number of dimensions for constant/initializer inputs must be 1": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "slice::Number of dimensions for output tensor must be 4": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "slice::Number of dimensions for variable inputs must be 4": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "slice::Only batch size = 1 is supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "slice::Only one input should be variable": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "slice::Only supports non-batch dimension": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "slice::Slice with stride greater than 0 is supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "softmax::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "softmax::Only softmax along width and height axis is supported": {
+  "cases": [
+   "softmax-channel"
+  ],
+  "status": "covered"
+ },
+ "sqrt::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "tan::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "tanh::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "topK::Input K for TopK operator is only supported when given as an initializer in the model": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "topK::TopK axis other than width and height is not supported": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "topK::TopK is not supported with 'sorted' attribute is set to 0": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ },
+ "transpose::For firmware version < 10_01_04_00, only permutes are suported when number of dimensions > 4": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "transpose::For inputs with more than 4 dimensions (>4D), permutations where the width dimension is mapped to either the first or second position (Dim 0 or Dim 1) in the output shape are not supported. Unsupported permutation patterns: [W, X, X, X, X, X] - Width dimension at position 0; [X, W, X, X, X, X] - Width dimension at position 1": {
+  "cases": [
+   "transpose-5d-width-first"
+  ],
+  "status": "covered"
+ },
+ "transpose::Number of non-singleton variable input dimensions must be <= 6": {
+  "cases": [
+   "abs-7d-rank-limit",
+   "acos-7d-rank-limit",
+   "asin-7d-rank-limit",
+   "asinh-7d-rank-limit",
+   "atan-7d-rank-limit",
+   "cos-7d-rank-limit",
+   "cosh-7d-rank-limit",
+   "erf-7d-rank-limit",
+   "exp-7d-rank-limit",
+   "flatten-7d-rank-limit",
+   "floor-7d-rank-limit",
+   "log-7d-rank-limit",
+   "negative-7d-rank-limit",
+   "nn.leakyrelu-7d-rank-limit",
+   "sigmoid-7d-rank-limit",
+   "sin-7d-rank-limit",
+   "sinh-7d-rank-limit",
+   "sqrt-7d-rank-limit",
+   "tan-7d-rank-limit",
+   "tanh-7d-rank-limit"
+  ],
+  "status": "covered"
+ },
+ "transpose::Transpose over batch dimension is only supported in firmware version >= 10_01_04_00": {
+  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "status": "untested"
+ },
+ "unsqueeze::Output dimensions after unsqueeze must be <= 6": {
+  "note": "needs a decline-table case",
+  "status": "untested"
+ }
+}
