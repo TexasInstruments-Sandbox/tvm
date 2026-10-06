@@ -77,6 +77,7 @@ def register_patterns(patterns: list[Pattern]):
     for item in patterns:
         if isinstance(item, FusionPattern):
             entries.append(item)
+            _REGISTERED_PATTERN_NAMES.add(item.name)
         elif isinstance(item, tuple):
             entries.append(FusionPattern(*item))
             _REGISTERED_PATTERN_NAMES.add(item[0])

@@ -16,6 +16,9 @@ here points at the dtype check rather than at unrelated pattern-matching
 breakage.
 """
 
+import subprocess
+import sys
+
 import pytest
 
 from tvm import relax
@@ -511,3 +514,16 @@ class TestTopKDenyByDefault:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_patterns_module_import_exits_cleanly():
+    """Holding a reference to ``patterns`` used to segfault the interpreter at
+    exit: register_patterns did not record FusionPattern names, so the atexit
+    cleanup left 74 patterns with Python check callbacks in libtvm's static
+    table, released after Python had shut down."""
+    proc = subprocess.run(
+        [sys.executable, "-c", "from tvm.relax.backend.tidl import patterns"],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, f"exit code {proc.returncode}\n{proc.stderr[-500:]}"
