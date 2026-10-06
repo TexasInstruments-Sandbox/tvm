@@ -54,6 +54,9 @@ test -d "${VENV_DIR}" || uv venv "${VENV_DIR}"
 export VIRTUAL_ENV="$(cd "${VENV_DIR}" && pwd)"
 export PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
+# Pinned: transformers 5.18.0 records tensor.to(device) as aten.to.device in
+# exported graphs (handled by the PyTorch frontend); pinning keeps the exported
+# graph from changing between builds. Re-verify SmolLM export before bumping.
 uv pip install "numpy==2.5.1" pytest pytest-isolate scipy psutil ml_dtypes build pandas tqdm seaborn "transformers==5.18.0"
 uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --extra-index-url https://download.pytorch.org/whl/cpu
 uv pip install "torchao==0.16.0" --extra-index-url https://download.pytorch.org/whl/cpu
