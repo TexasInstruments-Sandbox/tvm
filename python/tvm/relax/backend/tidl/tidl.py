@@ -1027,9 +1027,7 @@ class TIDLOffloadCompiler:
         tidl_stubs = {}
         for gv, func in mod.functions_items():
             if isinstance(func, tvm.tir.PrimFunc) and "tidl_subgraph" in gv.name_hint:
-                # Extract sg_id from function name or attribute
-                sg_id_attr = func.attrs.get("tidl_sg_id") if func.attrs else None
-                sg_id = int(sg_id_attr) if sg_id_attr is not None else len(tidl_stubs)
+                sg_id = _stub_sg_id(gv.name_hint, func)
                 # Find matching artifact by sg_id
                 art = None
                 for name, a in artifacts.items():
@@ -1709,6 +1707,23 @@ def _build_c7x_host(
 # ------------------------------------------------------------------
 
 
+def _stub_sg_id(name, func) -> int:
+    """Return the ``tidl_sg_id`` recorded on a TIDL TIR stub by ``_make_tidl_tir_stub``.
+
+    Raises rather than guessing: sg_id selects the artifact (io_bin, dtypes) and
+    the bridge symbol names, so a stub without it would silently bind to the
+    wrong subgraph.
+    """
+    sg_id = func.attrs.get("tidl_sg_id") if func.attrs else None
+    if sg_id is None:
+        raise ValueError(
+            f"TIDL subgraph stub '{name}' has no 'tidl_sg_id' attribute; "
+            "_make_tidl_tir_stub always sets it, so the module was modified "
+            "after lowering or the stub was built elsewhere"
+        )
+    return int(sg_id)
+
+
 def _collect_tidl_subgraph_info(mod):
     """Collect info about TIDL subgraph TIR stubs in a lowered module.
 
@@ -1735,8 +1750,7 @@ def _collect_tidl_subgraph_info(mod):
                     else:
                         inputs.append({"shape": shape, "dtype": dtype})
             # Recover original sg_id (set by _make_tidl_tir_stub)
-            sg_id_attr = func.attrs.get("tidl_sg_id") if func.attrs else None
-            sg_id = int(sg_id_attr) if sg_id_attr is not None else len(subgraphs)
+            sg_id = _stub_sg_id(name, func)
             subgraphs.append(
                 {
                     "name": name,
@@ -1994,7 +2008,7 @@ def _generate_bridge_code(subgraphs, stub, artifacts_dir):
 # ------------------------------------------------------------------
 
 
-def _make_tidl_tir_stub(name, input_sinfos, output_sinfo, sg_id=None):
+def _make_tidl_tir_stub(name, input_sinfos, output_sinfo, sg_id):
     """Create a TIR PrimFunc stub that calls an extern TIDL function.
 
     The stub extracts raw data pointers from DLTensor buffers and
@@ -2002,7 +2016,7 @@ def _make_tidl_tir_stub(name, input_sinfos, output_sinfo, sg_id=None):
 
     Parameters
     ----------
-    sg_id : int, optional
+    sg_id : int
         Original subgraph index from the TIDL import loop.  Stored as
         the ``tidl_sg_id`` attribute so ``_collect_tidl_subgraph_info``
         can recover it for correct bridge symbol naming.
@@ -2047,8 +2061,7 @@ def _make_tidl_tir_stub(name, input_sinfos, output_sinfo, sg_id=None):
 
     func = tvm.tir.PrimFunc(params, body, buffer_map=buffer_map)
     func = func.with_attr("tir.noalias", True)
-    if sg_id is not None:
-        func = func.with_attr("tidl_sg_id", sg_id)
+    func = func.with_attr("tidl_sg_id", sg_id)
     return func
 
 

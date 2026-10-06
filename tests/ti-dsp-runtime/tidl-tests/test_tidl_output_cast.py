@@ -40,6 +40,7 @@ from tvm import relax
 from tvm.relax.analysis import post_order_visit
 from tvm.relax.backend.tidl import TIDLOffloadCompiler
 from tvm.relax.backend.tidl.io_buf_desc import TIDLIOBufDesc
+from tvm.relax.backend.tidl.tidl import _collect_tidl_subgraph_info
 
 pytestmark = [pytest.mark.quick, pytest.mark.core]
 
@@ -67,11 +68,12 @@ def _make_tidl_subgraph_stub(name, out_dtypes, sg_id):
         buffer_map[b] = out_buf
     func = tvm.tir.PrimFunc(params, tvm.tir.Evaluate(0), buffer_map=buffer_map)
     func = func.with_attr("global_symbol", name)
-    func = func.with_attr("tidl_sg_id", sg_id)
+    if sg_id is not None:
+        func = func.with_attr("tidl_sg_id", sg_id)
     return func
 
 
-def _build_module(sg_name, out_dtypes, sg_id=0):
+def _build_module(sg_name, out_dtypes, sg_id: int | None = 0):
     """Build a module with one TIDL subgraph TIR stub and a @main that calls
     it via call_tir, in a single BlockBuilder session so the callee GlobalVar
     carries the stub's struct info (required for call_tir normalization).
@@ -331,3 +333,24 @@ class TestNarrowIntegerOutput:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestMissingSgId:
+    """A TIDL stub without ``tidl_sg_id`` must raise, not fall back to a
+    positional index: sg_id selects the artifact (io_bin, dtypes) and the
+    bridge symbol names, so a guessed value binds the wrong subgraph."""
+
+    def test_fix_output_dtype_mismatches_raises(self):
+        mod = _build_module("tidl_subgraph_0", ["int8"], sg_id=None)
+        with pytest.raises(ValueError, match="tidl_subgraph_0.*tidl_sg_id"):
+            TIDLOffloadCompiler()._fix_output_dtype_mismatches(mod, {})
+
+    def test_collect_subgraph_info_raises(self):
+        mod = _build_module("tidl_subgraph_0", ["int8"], sg_id=None)
+        with pytest.raises(ValueError, match="tidl_subgraph_0.*tidl_sg_id"):
+            _collect_tidl_subgraph_info(mod)
+
+    def test_present_sg_id_is_used(self):
+        """Accept-side sibling: a non-zero sg_id is read back, not replaced by an index."""
+        mod = _build_module("tidl_subgraph_3", ["int8"], sg_id=3)
+        assert [sg["sg_id"] for sg in _collect_tidl_subgraph_info(mod)] == [3]

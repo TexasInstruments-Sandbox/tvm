@@ -21,7 +21,7 @@ import sys
 
 import pytest
 
-from tvm import relax
+from tvm import relax, tir
 from tvm.relax.backend.tidl import partition_for_tidl
 
 # All tests in this file are quick (pure IR, no hardware, no .so)
@@ -398,6 +398,60 @@ class TestReshapeDenyByDefault:
         partitioned = partition_for_tidl(mod)
         assert _count_tidl_subgraphs(partitioned) == 0, (
             "reshape to a 7-D target shape should not be offloaded"
+        )
+
+
+def _build_unary_model(struct_info, op):
+    x = relax.Var("x", struct_info)
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x]):
+        with bb.dataflow():
+            out = bb.emit(op(x))
+            gv = bb.emit_output(out)
+        bb.emit_func_output(gv)
+    return bb.get()
+
+
+def _symbolic_batch():
+    return relax.TensorStructInfo([tir.Var("n", "int64"), 8, 16, 16], "float32")
+
+
+def _rank_only():
+    return relax.TensorStructInfo(dtype="float32", ndim=4)
+
+
+class TestUnknownShapeFailsClosed:
+    """_check_rank / the exact-rank guards decline when the shape cannot be
+    established, instead of deferring to a C++ importer that has no denial
+    path.  A symbolic dimension used to raise TypeError out of the callback
+    (``int()`` on a tir.Var)."""
+
+    OPS = {
+        "permute_dims": lambda x: relax.op.permute_dims(x, axes=[0, 2, 3, 1]),
+        "max_pool2d": lambda x: relax.op.nn.max_pool2d(x, (2, 2), (2, 2)),
+        "relu": relax.op.nn.relu,
+        "softmax": lambda x: relax.op.nn.softmax(x, axis=1),
+    }
+
+    @pytest.mark.parametrize("op_name", sorted(OPS))
+    def test_static_shape_partitioned(self, op_name):
+        """Accept-side sibling: same op, fully static shape."""
+        static = relax.TensorStructInfo((1, 8, 16, 16), "float32")
+        mod = _build_unary_model(static, self.OPS[op_name])
+        assert _count_tidl_subgraphs(partition_for_tidl(mod)) == 1
+
+    @pytest.mark.parametrize("op_name", sorted(OPS))
+    def test_symbolic_dim_declined(self, op_name):
+        mod = _build_unary_model(_symbolic_batch(), self.OPS[op_name])
+        assert _count_tidl_subgraphs(partition_for_tidl(mod)) == 0, (
+            f"{op_name} with a symbolic batch dim should not be offloaded"
+        )
+
+    @pytest.mark.parametrize("op_name", sorted(OPS))
+    def test_unknown_shape_declined(self, op_name):
+        mod = _build_unary_model(_rank_only(), self.OPS[op_name])
+        assert _count_tidl_subgraphs(partition_for_tidl(mod)) == 0, (
+            f"{op_name} with a known rank but no shape should not be offloaded"
         )
 
 
