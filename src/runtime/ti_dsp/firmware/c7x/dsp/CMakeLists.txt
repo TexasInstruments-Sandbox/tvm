@@ -319,17 +319,15 @@ if(USE_TIDL_RUNTIME)
         set(TIDL_LIB_PATH "${PSDK_INSTALL_PATH}/c7x-mma-tidl/ti_dl/lib/J722S/dsp/algo/release")
     endif()
 
-    if(NOT EXISTS "${TIDL_LIB_PATH}/tidl_algo.lib")
-        message(FATAL_ERROR "TIDL libraries not found at: ${TIDL_LIB_PATH}")
-    endif()
-
-    list(APPEND TIDL_RUNTIME_LIBS
-        ${TIDL_LIB_PATH}/tidl_algo.lib
-        ${TIDL_LIB_PATH}/tidl_ref.lib
-        ${TIDL_LIB_PATH}/tidl_priv.lib
-        ${TIDL_LIB_PATH}/tidl_kernels.lib
-        ${TIDL_LIB_PATH}/tidl_custom.lib
-    )
+    set(_TIDL_LIB_NAMES tidl_algo tidl_ref tidl_priv tidl_kernels tidl_custom)
+    foreach(_lib IN LISTS _TIDL_LIB_NAMES)
+        if(NOT EXISTS "${TIDL_LIB_PATH}/${_lib}.lib")
+            message(FATAL_ERROR "TIDL library ${_lib}.lib not found in: ${TIDL_LIB_PATH} "
+                                "(an older c7x-mma-tidl checkout may predate the "
+                                "tidl_ref/tidl_priv/tidl_kernels split)")
+        endif()
+        list(APPEND TIDL_RUNTIME_LIBS ${TIDL_LIB_PATH}/${_lib}.lib)
+    endforeach()
     # Force the linker to retain TIDL_VISION_FXNS (IALG function table) and
     # the TIDL maxpool entry point that DLOAD modules reference. Without
     # --retain, the linker eliminates them as "unused" since nothing in the
