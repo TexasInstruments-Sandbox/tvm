@@ -15,7 +15,7 @@ sys.path.insert(0, str(_DSP_CPP_DIR))
 @pytest.fixture(autouse=True)
 def _set_dsp_test_name(request):
     """Set the current test name in dsp_utils for workspace naming."""
-    from dsp_utils import set_current_test_name
+    from dsp_utils import set_current_test_name  # pyright: ignore[reportMissingImports]
 
     set_current_test_name(request.node.name)
     yield
@@ -138,12 +138,16 @@ def tidl_build_and_run(compiler, mod, params, input_data, tmp_path, dsp_mode):
 
     try:
         if dsp_mode == "c7x_host":
-            from dsp_utils import INPUT_BIN_FILE, run_dsp_host, write_tensors_to_file
+            from dsp_utils import (  # pyright: ignore[reportMissingImports]
+                INPUT_BIN_FILE,
+                run_dsp_host,
+                write_tensors_to_file,
+            )
 
             write_tensors_to_file([input_data], str(result.build_dir / INPUT_BIN_FILE))
             output = run_dsp_host(result.module_path)
         else:
-            from dsp_utils import run_dsp_dload
+            from dsp_utils import run_dsp_dload  # pyright: ignore[reportMissingImports]
 
             output, _stdout, _cycles = run_dsp_dload(
                 result.module_path,
@@ -163,14 +167,69 @@ def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line(
         "markers",
-        "quick: mark test as quick (no hardware, no .so, fast execution)",
+        "quick: mark test as quick (no hardware, fast execution). Partitioning "
+        "needs tidl_model_import_relax.so, so this tier is no longer .so-free",
     )
     config.addinivalue_line(
         "markers",
-        "core: post-merge gate — dependency-free tests plus c7x_host stub "
-        "pipeline; excludes tests requiring tidl_model_import_relax.so or AM67A",
+        "core: post-merge gate — no hardware, plus the c7x_host stub pipeline; "
+        "excludes tests requiring AM67A. Needs tidl_model_import_relax.so",
     )
     config.addinivalue_line(
         "markers",
         "c7x_only: tests requiring TI C7x toolchain or hardware",
     )
+    config.addinivalue_line(
+        "markers",
+        "needs_tidl_so: test partitions through the eligibility gate and is "
+        "skipped when tidl_model_import_relax.so is absent",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Offload eligibility is decided by tidl_model_import_relax.so, so every
+# partition needs it. Modules that gate themselves on the .so (a module-level
+# skipif or an autouse skip fixture) are not listed below; these are the ones
+# that partition without such a gate, so collection has to skip them.
+#
+# A test that only wants to exercise pattern *structure* can pass
+# ``allow_fn=lambda call: 1`` in the compiler config and drop off this list.
+# ---------------------------------------------------------------------------
+
+_C7X_MMA_TIDL_PATH = os.environ.setdefault(
+    "C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl")
+)
+RELAX_SO_PATH = os.path.join(
+    _C7X_MMA_TIDL_PATH, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
+)
+
+# Keep sorted. See tidl-tests/README.md ("Library-gated tests").
+_NEEDS_SO_MODULES = (
+    "test_tidl_cast_attrs.py",
+    "test_tidl_codegen.py",
+    "test_tidl_constraint_coverage.py",
+    "test_tidl_e2e.py",
+    "test_tidl_layer_offload.py",
+    "test_tidl_multioutput_metadata.py",
+    "test_tidl_negative_axis.py",
+    "test_tidl_partition.py",
+    "test_tidl_pattern_checks.py",
+    "test_tidl_pseudo3d_conv.py",
+    "test_tidl_split_single_index.py",
+    "test_tidl_var_input_dtype.py",
+)
+
+
+def pytest_collection_modifyitems(config, items):  # noqa: ARG001
+    """Skip (not fail) tests that partition through the .so when it isn't built."""
+    if os.path.isfile(RELAX_SO_PATH):
+        return
+    skip = pytest.mark.skip(reason="tidl_model_import_relax.so not built (partition needs it)")
+    for item in items:
+        # Match on the file name: nodeid is relative to rootdir, which differs
+        # between `pytest tidl-tests/...` and `pytest --rootdir=... tests/...`.
+        if (
+            item.get_closest_marker("needs_tidl_so")
+            or os.path.basename(str(item.path)) in _NEEDS_SO_MODULES
+        ):
+            item.add_marker(skip)

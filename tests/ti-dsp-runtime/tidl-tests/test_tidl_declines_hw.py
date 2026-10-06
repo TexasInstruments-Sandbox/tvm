@@ -1,0 +1,148 @@
+#!/usr/bin/env python
+"""Numeric spot checks for configurations the eligibility rules *accept*.
+
+``test_tidl_declines.py`` shows that unsupported configurations are declined.
+This file covers the other half: for each op whose rules were moved into the
+TIDL library, an accepted configuration at (or next to) the boundary is built
+through the real TIDL pipeline, run on the AM67A, and compared with a TVM CPU
+reference. It is what catches a silent mis-parse: a wrong axis, stride or
+padding is *accepted* and only shows up as a wrong value.
+
+Output is INT8-quantized by TIDL, so the comparison is against the reference's
+dynamic range, not bit-exact. Run serially, one board:
+
+    pytest --rootdir=. tidl-tests/test_tidl_declines_hw.py --dsp-mode=c7x_dload \
+        --board j722s-evm -v
+"""
+
+import os
+
+import numpy as np
+import pytest
+
+import tvm
+from conftest import tidl_build_and_run
+from tvm import relax
+from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+C7X_MMA_TIDL_PATH = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
+TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
+RELAX_SO_PATH = os.path.join(
+    C7X_MMA_TIDL_PATH, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
+)
+
+pytestmark = pytest.mark.skipif(not os.path.isfile(RELAX_SO_PATH), reason="relax .so not built")
+
+op = relax.op
+nn = relax.op.nn
+F32 = "float32"
+SHAPE = (1, 8, 16, 16)
+
+
+def _const(shape, seed=0, scale=0.5):
+    rng = np.random.RandomState(seed)
+    return relax.const((rng.randn(*shape) * scale).astype(F32))
+
+
+def _module(fn, shape=SHAPE):
+    x = relax.Var("x", relax.TensorStructInfo(shape, F32))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x]):
+        with bb.dataflow():
+            out = bb.emit_output(fn(bb, x))
+        bb.emit_func_output(out)
+    mod = bb.get()
+    # The frontends mark how many of main's params are runtime inputs; codegen
+    # reads it (and emits "-1 inputs" if it is missing).
+    mod["main"] = mod["main"].with_attr("num_input", 1)
+    return mod
+
+
+def _split_first_slice(bb, x):
+    """relu -> split into 4 channel slices -> first slice (one subgraph, one output)."""
+    parts = bb.emit(op.split(nn.relu(x), 4, axis=1))
+    return bb.emit(relax.TupleGetItem(parts, 0))
+
+
+# id -> module. One hardware run per operator (plan decision D3).
+#
+# Not here: `take` with constant indices. It imports but returns wrong values on
+# hardware (cosine 0.35-0.5 vs. the CPU reference, before and after this work), so
+# the library declines it (test_tidl_declines.py::take-const-indices). Re-add
+# take cases here when the gather import path is fixed.
+CASES = {
+    "softmax-width": _module(lambda bb, x: nn.softmax(x, axis=3)),
+    "softmax-height": _module(lambda bb, x: nn.softmax(x, axis=2)),
+    "softmax-last-neg": _module(lambda bb, x: nn.softmax(x, axis=-1)),
+    "strided-slice-height": _module(lambda bb, x: op.strided_slice(x, [2], [4], [12])),
+    "pad-hw": _module(lambda bb, x: nn.pad(x, [0, 0, 0, 0, 1, 2, 3, 4])),
+    "concat-channel": _module(lambda bb, x: op.concat([x, nn.relu(x)], axis=1)),
+    "split-channel-first-slice": _module(_split_first_slice),
+    "reduce-max-height": _module(lambda bb, x: op.max(x, axis=[2], keepdims=True)),
+    "mean-spatial": _module(lambda bb, x: op.mean(x, axis=[2, 3], keepdims=True)),
+    "sum-channel": _module(lambda bb, x: op.sum(x, axis=[1], keepdims=True)),
+    "max-pool-3x3-s2": _module(lambda bb, x: nn.max_pool2d(x, (3, 3), (2, 2), padding=(1, 1))),
+    "avg-pool-2x2-s2": _module(lambda bb, x: nn.avg_pool2d(x, (2, 2), (2, 2))),
+    "conv-7x7-s2": _module(
+        lambda bb, x: nn.conv2d(x, _const((8, 8, 7, 7)), strides=(2, 2), padding=(3, 3))
+    ),
+    "conv-3x3": _module(lambda bb, x: nn.conv2d(x, _const((8, 8, 3, 3)), padding=(1, 1))),
+    "conv-transpose-3x3-s2-outpad1": _module(
+        lambda bb, x: nn.conv2d_transpose(
+            x, _const((8, 4, 3, 3)), strides=(2, 2), padding=(1, 1), output_padding=(1, 1)
+        )
+    ),
+    "conv-transpose-4x4-s2": _module(
+        lambda bb, x: nn.conv2d_transpose(x, _const((8, 4, 4, 4)), strides=(2, 2), padding=(1, 1))
+    ),
+    "resize-nearest-2x": _module(
+        lambda bb, x: op.image.resize2d(x, (32, 32), method="nearest_neighbor")
+    ),
+    "prelu-channel-slope": _module(
+        lambda bb, x: nn.prelu(x, relax.const(np.linspace(0.05, 0.4, 8).astype(F32)), axis=1)
+    ),
+    "permute-nhwc": _module(lambda bb, x: op.permute_dims(x, [0, 2, 3, 1])),
+    "reshape": _module(lambda bb, x: op.reshape(x, relax.ShapeExpr([1, 16, 8, 16]))),
+    "eltwise-add": _module(lambda bb, x: op.add(x, nn.relu(x))),
+    "eltwise-multiply": _module(lambda bb, x: op.multiply(x, nn.relu(x))),
+    "eltwise-subtract": _module(lambda bb, x: op.subtract(x, nn.relu(x))),
+    "eltwise-maximum": _module(lambda bb, x: op.maximum(x, nn.relu(x))),
+}
+
+
+def _reference(mod, data):
+    ex = relax.build(mod, target="llvm")
+    vm = relax.VirtualMachine(ex, tvm.cpu())
+    return vm["main"](tvm.runtime.tensor(data)).numpy()
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+def test_accepted_config_matches_reference(case, dsp_mode, tmp_path):
+    mod = CASES[case]
+    rng = np.random.RandomState(123)
+    data = rng.randn(*SHAPE).astype(F32)
+    calib = [rng.randn(*SHAPE).astype(F32) for _ in range(4)]
+
+    compiler = TIDLOffloadCompiler(
+        {
+            "artifacts_dir": str(tmp_path / "tidl_artifacts"),
+            "tidl_tools_path": TIDL_TOOLS_PATH,
+            "num_calibration_frames": len(calib),
+            "calibration_inputs": calib,
+        }
+    )
+    out, n_subgraphs = tidl_build_and_run(compiler, mod, {}, data, tmp_path, dsp_mode)
+    assert n_subgraphs >= 1, "the op was not offloaded to TIDL"
+
+    ref = _reference(mod, data)
+    out = np.asarray(out, dtype=np.float64).reshape(ref.shape)
+    span = float(np.max(np.abs(ref))) or 1.0
+    err = float(np.max(np.abs(out - ref))) / span
+    cos = float(
+        np.dot(out.ravel(), ref.ravel()) / ((np.linalg.norm(out) * np.linalg.norm(ref)) or 1.0)
+    )
+    print(f"  {case}: max|err|/max|ref| = {err:.4f}, cosine = {cos:.5f}")
+    # INT8 quantization noise, not a structural error: a wrong axis/stride/pad
+    # gives order-1 relative error and a low cosine.
+    assert err < 0.15, f"max relative error {err:.3f}"
+    assert cos > 0.99, f"cosine similarity {cos:.4f}"

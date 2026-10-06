@@ -22,6 +22,7 @@ TVM/Relax c_static_lib backend targeting C7x DSP with MMA accelerator.
 
 # Re-export from canonical location (TIDL-independent, lives in tvm.contrib.c7x)
 from tvm.contrib.c7x import C7xVirtualMachine as C7xVirtualMachine
+
 from .patterns import get_tidl_patterns as get_tidl_patterns
 from .tidl import LowerTIDLToTIR as LowerTIDLToTIR
 from .tidl import TIDLBuildResult as TIDLBuildResult

@@ -32,7 +32,7 @@ import tarfile
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 
@@ -42,6 +42,7 @@ from tvm.ir import IRModule
 from tvm.relax import transform
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
+from . import _gate
 from .patterns import get_tidl_patterns
 
 logger = logging.getLogger(__name__)
@@ -112,57 +113,10 @@ class InOutNodes(ctypes.Structure):
 # ---------------------------------------------------------------------------
 
 
-# Relative path from c7x-mma-tidl root to the Relax import .so.
-_RELAX_SO_REL = "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
-
-
-def _load_tidl_relax_so(path=None, tidl_tools_path=None):
-    """Load tidl_model_import_relax.so and verify FFI functions.
-
-    Resolution order:
-      1. *path* arg (explicit override)
-      2. ``TIDL_RELAX_SO_PATH`` env var
-      3. bundled package (``tvm.data.ti_dsp.paths``)
-      4. derived from *tidl_tools_path*: the .so and ``tidl_tools/`` are
-         siblings under the same c7x-mma-tidl root, so
-         ``os.path.dirname(tidl_tools_path)/<rel>`` gives the .so path
-      5. ``$C7X_MMA_TIDL_PATH/<rel>`` env var (no hardcoded default)
-    """
-    if tvm.get_global_func("TIDL_relaxInit", allow_missing=True) is not None:
-        return
-    if path is None:
-        path = os.environ.get("TIDL_RELAX_SO_PATH")
-    if path is None:
-        try:
-            from tvm.data.ti_dsp.paths import find_tidl_relax_so
-
-            path = find_tidl_relax_so()
-        except ImportError:
-            pass
-    if path is None and tidl_tools_path is not None:
-        c7x = os.path.dirname(os.path.abspath(tidl_tools_path))
-        path = os.path.join(c7x, _RELAX_SO_REL)
-    if path is None:
-        c7x = os.environ.get("C7X_MMA_TIDL_PATH")
-        if c7x:
-            path = os.path.join(c7x, _RELAX_SO_REL)
-    if not path or not os.path.isfile(path):
-        raise FileNotFoundError(
-            f"tidl_model_import_relax.so not found (tried: {path!r}).  "
-            "Pass 'tidl_tools_path' in config or set C7X_MMA_TIDL_PATH."
-        )
-    tvm.runtime.load_module(path)
-    required = [
-        "TIDL_relaxInit",
-        "TIDL_relaxImportInit",
-        "TIDL_relaxImportNode",
-        "TIDL_relaxImportLinkNode",
-        "TIDL_relaxOptimizeNet",
-        "TIDL_relaxPostProcessNet",
-    ]
-    for name in required:
-        if tvm.get_global_func(name, allow_missing=True) is None:
-            raise RuntimeError(f"FFI function '{name}' not registered after loading .so")
+# The .so loader, constants lifting and allow gate live in _gate.py (below
+# both this module and patterns.py, which this module imports).
+_load_tidl_relax_so = _gate.load_relax_so
+_lift_constants_in_composite = _gate.lift_constants_in_composite
 
 
 def _tidl_element_type(dtype_str: str) -> int:
@@ -199,10 +153,25 @@ def _flatten_sinfos(sinfo) -> List:
     return [sinfo]
 
 
+def _module_functions(mod: IRModule):
+    """``mod.functions`` (present at runtime, missing from TVM's type stubs)."""
+    return mod.functions  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def _prim_params(func):
+    """``PrimFunc.params`` (present at runtime, missing from TVM's type stubs)."""
+    return func.params  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def _prim_buffer_map(func):
+    """``PrimFunc.buffer_map`` (present at runtime, missing from TVM's type stubs)."""
+    return func.buffer_map  # pyright: ignore[reportAttributeAccessIssue]
+
+
 def _find_tidl_subgraphs(mod: IRModule):
     """Return ``[(gv, func)]`` for ``Codegen="tidl"`` functions."""
     result = []
-    for gv, func in mod.functions.items():
+    for gv, func in _module_functions(mod).items():
         if isinstance(func, relax.Function) and func.attrs:
             if func.attrs.get("Codegen") == "tidl":
                 result.append((gv, func))
@@ -273,52 +242,6 @@ def _make_in_out_nodes(this_node, in_names, out_names):
     node.out_nodes = ctypes.cast(out_arr, ctypes.c_void_p) if n_out else None
 
     return node, this_b, in_bytes, out_bytes, in_arr, out_arr
-
-
-def _lift_constants_in_composite(func):
-    """Lift Constants inlined in Call args into separate VarBindings.
-
-    ``TIDL_relaxFindConstants`` only finds Constants that are bound to
-    their own VarBinding.  After ``FuseOpsByPattern(bind_constants=True)``
-    Constants may appear directly as Call arguments.  This helper rewrites
-    the composite function so every such Constant gets its own binding.
-    """
-    new_bindings = []
-    for block in func.body.blocks:
-        for b in block.bindings:
-            val = b.value
-            if isinstance(val, relax.Call):
-                new_args = list(val.args)
-                for k, arg in enumerate(val.args):
-                    if isinstance(arg, relax.Constant):
-                        const_var = relax.DataflowVar(
-                            f"tidl_const_{len(new_bindings)}",
-                            arg.struct_info,
-                        )
-                        new_bindings.append(relax.VarBinding(const_var, arg))
-                        new_args[k] = const_var
-
-                new_call = relax.Call(
-                    val.op,
-                    new_args,
-                    val.attrs,
-                    val.sinfo_args,
-                )
-                relax._ffi_api.UpdateStructInfo(new_call, val.struct_info)
-                new_bindings.append(relax.VarBinding(b.var, new_call))
-            else:
-                new_bindings.append(b)
-
-    new_block = relax.DataflowBlock(new_bindings)
-    new_body = relax.SeqExpr([new_block], func.body.body)
-    new_func = relax.Function(
-        func.params,
-        new_body,
-        func.ret_struct_info,
-        func.is_pure,
-        func.attrs,
-    )
-    return new_func
 
 
 def _write_calibration_data(
@@ -422,10 +345,27 @@ class TIDLOffloadCompiler:
         self._tidl_lib = None
 
     # ------------------------------------------------------------------
-    # Phase 1: Partitioning (no .so dependency)
+    # Phase 1: Partitioning (eligibility decided by the .so, see _gate.py)
     # ------------------------------------------------------------------
 
     def partition(self, mod: IRModule) -> IRModule:
+        """Partition *mod* into TIDL and non-TIDL subgraphs.
+
+        Eligibility (dtype, rank, attributes, limits, ...) is decided by
+        ``TIDL_relaxAllowNode`` in ``tidl_model_import_relax.so``; patterns
+        only match structure. The library must therefore be available, and
+        partitioning raises a clear error if it is not. ``config["allow_fn"]``
+        (a callable taking the synthetic composite call and returning truthy
+        to accept) replaces that decision, e.g. ``lambda call: 1`` for tests
+        that only exercise pattern structure.
+        """
+        allow_fn = self.config.get("allow_fn")
+        if allow_fn is None:
+            _gate.require_library(self.config, self._artifacts_dir)
+        with _gate.active_allow_fn(allow_fn):
+            return self._partition(mod)
+
+    def _partition(self, mod: IRModule) -> IRModule:
         """Partition the Relax IR into TIDL and non-TIDL subgraphs.
 
         Applies ``FuseOpsByPattern`` with TIDL patterns, then merges
@@ -443,15 +383,27 @@ class TIDLOffloadCompiler:
         IRModule
             Partitioned module with TIDL subgraph functions.
         """
+        # A weight/bias bound to its own ``w = R.const(...)`` binding becomes a
+        # *parameter* of the fused composite, which TIDL cannot import (it needs
+        # the constant inline so TIDL_relaxFindConstants sees it). ``prepare()``
+        # already produces inline constants; this makes partitioning robust for
+        # modules that skipped it, and is a no-op for ones that did not.
+        mod = relax.transform.CanonicalizeBindings()(mod)
+
         patterns = get_tidl_patterns()
         mod_pre_partition = mod  # saved for per-pattern fallback below
+
+        def _fuse_one(m, pat):
+            """One pattern, with the gate told *m*'s binding order (see _gate.py)."""
+            with _gate.binding_order(m):
+                return transform.FuseOpsByPattern(
+                    [pat], bind_constants=True, annotate_codegen=False
+                )(m)
 
         def _apply_patterns(m):
             for pat in patterns:
                 try:
-                    m = transform.FuseOpsByPattern(
-                        [pat], bind_constants=True, annotate_codegen=False
-                    )(m)
+                    m = _fuse_one(m, pat)
                 except Exception as e:  # noqa: BLE001
                     if "cyclic dependency" in str(e).lower():
                         logger.warning(
@@ -482,9 +434,7 @@ class TIDLOffloadCompiler:
         mod = mod_pre_partition
         for pat in patterns:
             try:
-                mod = transform.FuseOpsByPattern(
-                    [pat], bind_constants=True, annotate_codegen=False
-                )(mod)
+                mod = _fuse_one(mod, pat)
             except Exception as e:  # noqa: BLE001
                 if "cyclic dependency" in str(e).lower():
                     logger.warning(
@@ -564,31 +514,15 @@ class TIDLOffloadCompiler:
         artifacts_dir = self._artifacts_dir
         os.makedirs(artifacts_dir, exist_ok=True)
 
-        tidl_tools_path = self.config.get("tidl_tools_path")
-        if tidl_tools_path is None:
-            c7x_root = os.environ.get("C7X_MMA_TIDL_PATH")
-            if c7x_root is None:
-                raise ValueError(
-                    "Either 'tidl_tools_path' in config or C7X_MMA_TIDL_PATH env must be set."
-                )
-            tidl_tools_path = os.path.join(c7x_root, "tidl_tools")
+        tidl_tools_path = _gate.resolve_tools_path(self.config)
 
-        # ---- Load .so -------------------------------------------------
-        # Derived from tidl_tools_path if tidl_relax_so_path is not set;
-        # both live under the same c7x-mma-tidl root.
-        _load_tidl_relax_so(tidl_tools_path=tidl_tools_path)
-
-        # ---- TIDL_relaxInit -------------------------------------------
-        init_options = dict(self.config.get("tidl_options", {}))
-        init_options.setdefault("tidl_tools_path", tidl_tools_path)
-        init_options.setdefault("artifacts_folder", artifacts_dir)
-        # FFI expects Map<String, String>
-        init_options = {str(k): str(v) for k, v in init_options.items()}
-
-        init_fn = tvm.get_global_func("TIDL_relaxInit")
-        ret = init_fn(1, init_options)
-        if ret != 0:
-            raise RuntimeError(f"TIDL_relaxInit failed (rc={ret})")
+        # ---- Load .so and TIDL_relaxInit ------------------------------
+        _gate.ensure_initialized(self.config, artifacts_dir, force=True)
+        # Everything below mutates the library's global parameters, so drop the
+        # "already initialised with this config" cache now rather than at the
+        # end: a later partition() in this process (or an import that raises
+        # part-way) must not gate against the state this import leaves behind.
+        _gate.invalidate_init()
 
         # ---- Per-subgraph import --------------------------------------
         subgraphs = _find_tidl_subgraphs(mod)
@@ -599,7 +533,7 @@ class TIDLOffloadCompiler:
         num_calib_frames = self.config.get("num_calibration_frames", 1)
         skip_failing = self.config.get("skip_failing_subgraphs", False)
         max_subgraphs = self.config.get("max_subgraphs", None)
-        artifacts: Dict[str, Dict[str, str]] = {}
+        artifacts: Dict[str, Dict[str, Any]] = {}
         failed_subgraphs: set = set()
 
         # If max_subgraphs is set, rank all candidate subgraphs by estimated
@@ -757,7 +691,9 @@ class TIDLOffloadCompiler:
 
                 # Synthetic call: Function as op (C++ expects FunctionNode)
                 syn_call = relax.Call(lifted_fn, orig_call.args)
-                relax._ffi_api.UpdateStructInfo(syn_call, orig_call.struct_info)
+                relax._ffi_api.UpdateStructInfo(  # pyright: ignore[reportAttributeAccessIssue]
+                    syn_call, orig_call.struct_info
+                )
 
                 # No per-tensor quantization for float32 models
                 zp = np.zeros(1, dtype=np.int32)
@@ -1127,21 +1063,32 @@ class TIDLOffloadCompiler:
                 relax.TensorStructInfo(si.shape, tidl_dtypes.get(k, si.dtype))
                 for k, si in enumerate(out_sinfos)
             ]
-            out_sinfo = out_sinfos[0] if len(out_sinfos) == 1 else relax.TupleStructInfo(out_sinfos)
-            new_func = _make_tidl_tir_stub(gv.name_hint, in_sinfos, out_sinfo, sg_id=_sg_id)
+            out_sinfo = (
+                out_sinfos[0]
+                if len(out_sinfos) == 1
+                else relax.TupleStructInfo(cast(List[relax.StructInfo], out_sinfos))
+            )
+            new_func = cast(
+                tvm.tir.PrimFunc,
+                _make_tidl_tir_stub(gv.name_hint, in_sinfos, out_sinfo, sg_id=_sg_id),
+            )
             # A GlobalVar's R.Callable struct info is derived from the stub's
             # buffers when it is added and cannot be overwritten, so CallTIRRewrite
             # would keep type-checking against the old dtype.  Swap in a fresh
             # GlobalVar under the same name (the bridge symbols derive from it).
+            stub_buffers = _prim_buffer_map(new_func)
             params_sinfo = [
-                relax.TensorStructInfo(
-                    new_func.buffer_map[p].shape, str(new_func.buffer_map[p].dtype)
-                )
-                for p in new_func.params
+                relax.TensorStructInfo(stub_buffers[p].shape, str(stub_buffers[p].dtype))
+                for p in _prim_params(new_func)
             ]
-            new_gv = relax.GlobalVar(gv.name_hint)
+            new_gv = relax.GlobalVar(gv.name_hint)  # pyright: ignore[reportCallIssue]
             relax.expr._update_struct_info(
-                new_gv, relax.FuncStructInfo(params_sinfo, relax.TupleStructInfo([]), purity=True)
+                new_gv,
+                relax.FuncStructInfo(
+                    cast(List[relax.StructInfo], params_sinfo),
+                    relax.TupleStructInfo([]),
+                    purity=True,
+                ),
             )
             del mod[gv]
             mod[new_gv] = new_func
@@ -1161,8 +1108,11 @@ class TIDLOffloadCompiler:
                 self.mismatches = mismatches
                 self.new_gvars = new_gvars
 
-            def visit_call_(self, call):
-                call = super().visit_call_(call)
+            def visit_call_(self, call: relax.Call) -> relax.Expr:  # pyright: ignore[reportIncompatibleMethodOverride]
+                visited = super().visit_call_(call)
+                if not isinstance(visited, relax.Call):
+                    return visited
+                call = visited
                 # Subgraph calls were already rewritten to call_tir by
                 # _TIDLCallReplacer before this pass runs: call.op is the
                 # relax.call_tir builtin Op, not the callee GlobalVar -- the
@@ -1185,11 +1135,11 @@ class TIDLOffloadCompiler:
                 output_mismatches = self.mismatches[sg_name]
                 is_tuple = isinstance(call.struct_info, relax.TupleStructInfo)
                 tidl_dtypes = {m[0]: m[2] for m in output_mismatches}
-                call = self._retype_call_tir(call, tidl_dtypes)
+                call = cast(relax.Call, self._retype_call_tir(call, tidl_dtypes))
 
                 if is_tuple:
                     fields = []
-                    for i in range(len(call.struct_info.fields)):
+                    for i in range(len(cast(relax.TupleStructInfo, call.struct_info).fields)):
                         field = relax.TupleGetItem(call, i)
                         for idx, tvm_dt, tidl_dt, scale, zp in output_mismatches:
                             if idx == i:
@@ -1210,7 +1160,9 @@ class TIDLOffloadCompiler:
                 if isinstance(call.struct_info, relax.TupleStructInfo):
                     out_sinfo = [
                         retype(f, tidl_dtypes.get(i, f.dtype))
-                        for i, f in enumerate(call.struct_info.fields)
+                        for i, f in enumerate(
+                            cast(List[relax.TensorStructInfo], list(call.struct_info.fields))
+                        )
                     ]
                 else:
                     out_sinfo = retype(call.struct_info, tidl_dtypes[0])
@@ -1382,7 +1334,7 @@ class TIDLOffloadCompiler:
                     target=tvm_target,
                     exec_mode="compiled",
                     system_lib=True,
-                    relax_pipeline=pipeline,
+                    relax_pipeline=pipeline,  # pyright: ignore[reportArgumentType]
                     tir_pipeline=None,  # target-aware TIR pipeline
                 )
 
@@ -1734,14 +1686,14 @@ def _collect_tidl_subgraph_info(mod):
     are skipped.
     """
     subgraphs = []
-    for gv, func in mod.functions.items():
+    for gv, func in _module_functions(mod).items():
         if isinstance(func, tvm.tir.PrimFunc) and "tidl_subgraph" in gv.name_hint:
             name = gv.name_hint
             # Extract shapes/dtypes from buffer_map
             inputs = []
             outputs = []
-            for param in func.params:
-                buf = func.buffer_map.get(param)
+            for param in _prim_params(func):
+                buf = _prim_buffer_map(func).get(param)
                 if buf is not None:
                     shape = [int(d) for d in buf.shape]
                     dtype = str(buf.dtype)
@@ -2039,8 +1991,8 @@ def _make_tidl_tir_stub(name, input_sinfos, output_sinfo, sg_id):
         out_fields = [output_sinfo]
 
     out_bufs = []
-    for k, field_si in enumerate(out_fields):
-        out_shape = [int(d) for d in field_si.shape]
+    for k, field_si in enumerate(cast(List[relax.TensorStructInfo], out_fields)):
+        out_shape = [int(d) for d in field_si.shape]  # pyright: ignore
         out_dtype = str(field_si.dtype)
         out_handle = tvm.tir.Var(f"output{k}", "handle")
         out_buf = tvm.tir.decl_buffer(out_shape, out_dtype, f"out{k}")
@@ -2190,7 +2142,7 @@ def _estimate_subgraph_flops(func: relax.Function) -> float:
                 return
             if isinstance(op, tvm.ir.Op):
                 out = _out_elems(expr)
-                name = op.name
+                name = op.name  # pyright: ignore[reportAttributeAccessIssue]
                 if name == "relax.nn.conv2d":
                     if len(expr.args) >= 2:
                         w_si = getattr(expr.args[1], "struct_info", None)
@@ -2215,7 +2167,7 @@ def _estimate_subgraph_flops(func: relax.Function) -> float:
             for block in expr.blocks:
                 for binding in block.bindings:
                     if hasattr(binding, "value"):
-                        _walk(binding.value)
+                        _walk(binding.value)  # pyright: ignore[reportAttributeAccessIssue]
             _walk(expr.body)
         elif isinstance(expr, relax.Tuple):
             for field in expr.fields:
@@ -2271,8 +2223,11 @@ class _TIDLCallReplacer(PyExprMutator):
         self._stub_gvars = stub_gvars
         self._fallback_gvars = fallback_gvars or {}
 
-    def visit_call_(self, call):
-        call = super().visit_call_(call)
+    def visit_call_(self, call: relax.Call) -> relax.Expr:  # pyright: ignore[reportIncompatibleMethodOverride]
+        visited = super().visit_call_(call)
+        if not isinstance(visited, relax.Call):
+            return visited
+        call = visited
         if isinstance(call.op, relax.GlobalVar):
             name = call.op.name_hint
             if name in self._tir_stubs:
@@ -2287,7 +2242,7 @@ class _TIDLCallReplacer(PyExprMutator):
                 return relax.call_tir(
                     tir_gv,
                     relax.Tuple(list(call.args)),
-                    out_sinfo=out_sinfo_arg,
+                    out_sinfo=out_sinfo_arg,  # pyright: ignore[reportArgumentType]
                 )
             if name in self._fallback_gvars:
                 # Remap old GlobalVar → new GlobalVar in the builder.
@@ -2329,7 +2284,7 @@ def _lower_tidl_pass(
     # only supports single-output subgraphs.
     success_funcs = {}
     fallback_funcs = {}
-    for gv, func in mod.functions.items():
+    for gv, func in _module_functions(mod).items():
         if isinstance(func, relax.Function) and func.attrs:
             if func.attrs.get("Codegen") == "tidl":
                 input_sinfos = [p.struct_info for p in func.params]
@@ -2375,14 +2330,14 @@ def _lower_tidl_pass(
     # The replacer handles TIDL→TIR remapping (success_funcs) and
     # old-GVar→new-GVar remapping (fallback_funcs).
     replacer = _TIDLCallReplacer(mod, tir_stubs, stub_gvars, fallback_gvars=fallback_gvars)
-    for gv, func in mod.functions.items():
+    for gv, func in _module_functions(mod).items():
         name = gv.name_hint
         if name in success_funcs:
             continue  # dropped: replaced by TIR stub
         if name in fallback_funcs:
             continue  # already added above
         if isinstance(func, relax.Function):
-            new_func = replacer.visit_expr(func)
+            new_func = cast(relax.Function, replacer.visit_expr(func))
             new_func = relax.analysis.remove_all_unused(new_func)
             builder.add_func(new_func, name)
         elif isinstance(func, tvm.tir.PrimFunc):
@@ -2552,7 +2507,7 @@ def _build_calibration_module(
                     exposure_vars.append(ev)
                 else:
                     # Function param or regular Var — already in scope.
-                    exposure_vars.append(arg)
+                    exposure_vars.append(cast(relax.Var, arg))
             new_blocks.append(relax.DataflowBlock(new_bindings))
         else:
             new_blocks.append(block)
@@ -2577,8 +2532,8 @@ def _build_calibration_module(
     # GlobalVar objects so that TIDL subgraph call sites in main          #
     # (which reference those GVars) remain valid.                         #
     # ------------------------------------------------------------------ #
-    main_gv = next(gv for gv in mod.functions if gv.name_hint == "main")
-    aug_funcs = dict(mod.functions)
+    main_gv = next(gv for gv in _module_functions(mod) if gv.name_hint == "main")
+    aug_funcs = dict(_module_functions(mod))
     aug_funcs[main_gv] = new_main
     augmented_mod = tvm.IRModule(aug_funcs)
 
@@ -2643,7 +2598,7 @@ def _collect_subgraph_calibration_data(
             exec_mode="compiled",
             system_lib=False,
         )
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm.cpu())  # pyright: ignore[reportArgumentType]
 
     # per_sg_frames[sg_name][frame_idx][input_idx] = np.ndarray shape (1, ...)
     per_sg_frames: Dict[str, List[List[np.ndarray]]] = {}
@@ -2666,7 +2621,7 @@ def _collect_subgraph_calibration_data(
             for j in range(n_inputs):
                 key = f"{sg_name}_i{j}"
                 if key not in output_map:
-                    inp_arrays.append(None)
+                    inp_arrays.append(None)  # pyright: ignore[reportArgumentType]
                     continue
                 inp_arrays.append(result[output_map[key] + 1].numpy())
             frame_data[sg_name] = inp_arrays
@@ -2720,8 +2675,11 @@ class LowerTIDLToTIR:
 def partition_for_tidl(mod: IRModule, config: Optional[Dict[str, Any]] = None) -> IRModule:
     """Convenience function: partition a module for TIDL offloading.
 
-    This only runs Phase 1 (pattern matching + merge) and does not
-    require the TIDL import library.
+    This only runs Phase 1 (pattern matching + merge).  Which matches may be
+    offloaded is decided by ``TIDL_relaxAllowNode`` in
+    ``tidl_model_import_relax.so``, so the library must be available (see
+    ``C7X_MMA_TIDL_PATH`` / ``config["tidl_tools_path"]``); pass
+    ``config["allow_fn"] = lambda call: 1`` to test pattern structure alone.
 
     Parameters
     ----------

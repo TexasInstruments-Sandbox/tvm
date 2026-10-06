@@ -24,7 +24,8 @@ whenever a model actually produces TIDL subgraphs).
 | File | Purpose |
 |------|---------|
 | `python/tvm/relax/backend/tidl/tidl.py` | `TIDLOffloadCompiler`: partition, import, lower, bridge generation, build |
-| `python/tvm/relax/backend/tidl/patterns.py` | TIDL `FusionPattern` definitions (74 patterns) and Python-side constraint checks |
+| `python/tvm/relax/backend/tidl/patterns.py` | TIDL `FusionPattern` definitions (74 patterns); structure only, no constraint logic |
+| `python/tvm/relax/backend/tidl/_gate.py` | The eligibility gate: rebuilds the composite for each match and asks `TIDL_relaxAllowNode` in `tidl_model_import_relax.so` |
 | `python/tvm/relax/backend/tidl/README.md` | Full pattern/constraint reference and pipeline architecture (source of truth for this page) |
 | `src/runtime/ti_dsp/tidl/tidl_api.{c,h}` | DLOAD-module-side IALG lifecycle (`init/process/free_tidl_subgraph`) |
 | `src/runtime/ti_dsp/tidl/tidl_api_mem.{c,h}` | `appMemAlloc`/`appMemFree` routed to the TVM DDR heap |
@@ -81,6 +82,34 @@ Batch normalization is not partitioned as its own pattern: `prepare()`
 runs `FoldBatchnormToConv2D` + `FoldConstant` first, algebraically folding
 inference-mode BN parameters into the preceding conv2d's weight/bias so
 the existing `conv2d_bias_relu`-style patterns match directly.
+
+## How offload eligibility is decided
+
+Eligibility is decided in exactly one place, `TIDL_relaxAllowNode` in
+`tidl_model_import_relax.so`. The Python patterns match structure only; every
+pattern's check (`_gate.tidl_gate(name)`) rebuilds the composite function that
+`FuseOpsByPattern` would create, wraps it in the synthetic call the importer
+uses, and asks the library. The rules themselves are in the C++ Relax parsers
+(`tidlParseRelax/`, mostly `tidl_parse_relax_declines.cpp`) plus TIDL's shared
+`tidlAllowlistingConstraints/`. Consequences for contributors:
+
+- To change what is offloaded, change the C++ and rebuild the `.so`
+  (`c7x-mma-tidl/build_j722s.sh`). Do not add Python constraint logic.
+- `partition()` needs the `.so` and fails with a clear error without it.
+  Tests that only check pattern structure set
+  `config["allow_fn"] = lambda call: 1`.
+- Why an op stayed on TVM: `_gate.recording()` returns a `GateResult` per
+  match with `.verdict` and `.reason` (the library's message, plus
+  `[constraint: ...]` when a TIDL constraint fired).
+- `TIDL_relaxDescribeNode(call)` returns what the parser populated (dims,
+  dtypes, axis, strides, pad, slice points) for testing accepted ops.
+- Deny lists by layer name use `<pattern>:<root variable name in the input IR>`.
+
+Rules are tested by a decline table (`test_tidl_declines.py`), a constraint
+coverage gate against TIDL's own constraint headers
+(`test_tidl_constraint_coverage.py`), partition snapshots
+(`test_tidl_partition_snapshot.py`), and numeric hardware checks of accepted
+configurations (`test_tidl_declines_hw.py`).
 
 ## Supported Operations
 
@@ -202,11 +231,18 @@ ordering matters — see
 ```bash
 cd tests/ti-dsp-runtime
 
-# Partition + codegen — no .so, no hardware
+# Partition + codegen — needs the .so (eligibility), no hardware
 pytest tidl-tests/test_tidl_partition.py tidl-tests/test_tidl_codegen.py -v
 
-# Per-layer partition tests — no .so, no hardware (~0.3s)
+# Per-layer partition tests — needs the .so, no hardware
 pytest tidl-tests/test_tidl_layer_offload.py -k TestLayerPartition -v
+
+# Eligibility rules: decline table, constraint coverage, partition snapshots
+pytest tidl-tests/test_tidl_declines.py tidl-tests/test_tidl_constraint_coverage.py \
+  tidl-tests/test_tidl_partition_snapshot.py tidl-tests/test_tidl_allownode.py -v
+
+# Numeric check of accepted configs on AM67A (serial; one board)
+pytest tidl-tests/test_tidl_declines_hw.py --dsp-mode=c7x_dload --board j722s-evm -v
 
 # Import pipeline tests (needs tidl_model_import_relax.so)
 pytest tidl-tests/test_tidl_relax_import.py -v

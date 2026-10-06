@@ -43,7 +43,8 @@ compiler = TIDLOffloadCompiler(config={
     "calibration_inputs": calib_frames,
 })
 
-# 1. Partition: identify TIDL-supported subgraphs
+# 1. Partition: identify TIDL-supported subgraphs. Eligibility is decided by
+#    tidl_model_import_relax.so (TIDL_relaxAllowNode), so partition() needs it.
 partitioned = compiler.partition(mod)
 
 # 2. Import: compile subgraphs into TIDL artifacts (net.bin + io.bin)
@@ -230,30 +231,49 @@ quantisation scale — use domain-specific bounded inputs for those ops.
 | `tidl.quantize` | `quantize` |
 | `tidl.dequantize` | `dequantize` |
 
+The Relax parsers for both are stubs (`TIDL_UnsupportedLayer`), so the
+library declines every match and they stay on TVM until the parsers are
+implemented.
+
 ### Constraint checks
 
-Run during partitioning before passing composites to TIDL:
+**Where they live.** Patterns here match structure only. Whether a match can
+be offloaded is decided by `TIDL_relaxAllowNode` in
+`tidl_model_import_relax.so` (parsers in `c7x-mma-tidl/.../tidlParseRelax/`,
+mainly `tidl_parse_relax_declines.cpp`, plus TIDL's shared
+`tidlAllowlistingConstraints/`). `_gate.py` rebuilds each match's composite and
+asks the library; `GateResult.reason` (via `_gate.recording()`) says why an op
+stayed on TVM. The list below describes the current rules for reference; the
+C++ is authoritative, and `tests/ti-dsp-runtime/tidl-tests/test_tidl_declines.py`
+is an executable version of it.
 
-- **All ops:** dtype must be in {float32, int8, int16, uint8}. This is a
-  single blanket allowlist shared by every `_check_*` callback, not a
-  per-op allowlist — some ops that a reference TIDL importer permits a
-  wider integer dtype for on a per-op basis (e.g. int32 for `take`'s data
-  input, or int32/int64 for an elementwise `mod`) are declined here
-  anyway, since int32/int64/uint32/uint64/bool are outside this set for
-  every op uniformly. Offload coverage, not a bug.
-- **Any op with a statically-unknown rank/shape:** declined (fails
-  closed), not optimistically accepted. Reduces offload coverage for
-  dynamic-shape models in exchange for not risking a mis-parse on a shape
-  TIDL cannot represent.
+Rules applied before passing composites to TIDL:
+
+- **All ops:** the data input's dtype must be in {float32, int8, int16,
+  uint8}. This is a single blanket set, not a per-op allowlist — some ops
+  that a reference TIDL importer permits a wider integer dtype for on a
+  per-op basis (e.g. int32 for `take`'s data input, or int32/int64 for an
+  elementwise `mod`) are declined anyway. Offload coverage, not a bug.
+- **Any op with a statically-unknown or symbolic shape:** declined (fails
+  closed), not optimistically accepted.
+- **Conv2d_transpose:** TIDL's deconvolution upsamples by exactly the stride, so
+  the Relax output must equal input x stride (4x4 pad 1, or 3x3/2x2 with
+  matching output_padding, at stride 2); any other output size is laid out
+  against a differently sized TIDL output and comes back as garbage. Kernels:
+  2x2 (pad 0), 3x3, 4x4 (pad 1) at stride 2 only (TIDL constraint).
+- **Avg_pool2d:** non-global average pooling now parses (it used to call the
+  max-pool parser, which looked for `relax.nn.max_pool2d` and so failed every
+  time; the old Python check hid this until `tidl_import` raised).
 - **Conv2d:** kernel size 1–7 (6 excluded by TIDL allowlisting),
   H and W strides must be equal, input rank ≤ 4
 - **Pool:** kernel ≤ 3, input rank == 4
 - **Mean:** input rank == 4, reduction axes must be exactly [2, 3]
   (spatial-only; channel/batch mean rejected)
-- **ReduceMax/ReduceMin:** single axis only, must be axis=2 (HEIGHT in 4D
-  NCHW); all other axes rejected by TIDL ReduceLayer
-- **ArgMax/ArgMin:** axis must be 1 (channel, TIDL_DIM_NUMCH), keepdims=True
-  required; other axes or keepdims=False rejected.  Output is int64 — add
+- **ReduceMax/ReduceMin:** single axis only, must be HEIGHT (axis 2 in 4D
+  NCHW, i.e. rank-2); all other axes rejected by TIDL ReduceLayer
+- **ArgMax/ArgMin:** axis must be the channel axis (rank-3, axis 1 in NCHW;
+  TIDL: "Only axis = -3 is supported"), keepdims=True required; other axes or
+  keepdims=False rejected.  Output is int64 — add
   `astype("int32")` after argmax/argmin to keep both ops in one subgraph
 - **Sum:** single axis only (multi-axis reduction rejected)
 - **Element-wise (add, multiply, subtract, divide, maximum, minimum):**
@@ -263,15 +283,28 @@ Run during partitioning before passing composites to TIDL:
   (length 1); `strides`, if present, must be a length-1 tuple whose value
   is exactly 1 — a multi-axis slice or a non-unit stride is declined
   rather than silently mis-executed as something else.
-- **Pad:** `pad_mode` must be `"constant"`; input must be exactly 4-D
+- **Pad:** `pad_mode` must be `"constant"`; `pad_value` must be 0 (TIDL's
+  PadLayer is zero-padding only; the parser used to read the value from a
+  constant operand and import any value as 0); input must be exactly 4-D
   (`pad_width` has 8 entries); the N and C (batch/channel) pad amounts
   must both be zero — only H/W padding is supported.
+- **Resize2d:** `method` must be nearest/linear, `coordinate_transformation_mode`
+  one of half_pixel/align_corners/asymmetric, `rounding_method` one of
+  round/round_prefer_floor/round_prefer_ceil/floor/ceil (an unknown value
+  used to silently keep the parser default, e.g. cubic imported as nearest).
+- **ExpandDims:** output rank <= 6.
+- **Softmax:** axis must be width or height (TIDL constraint); the parser
+  normalises the axis with the tensor's real rank.
 - **Take (gather):** `data` must not itself be a `relax.Constant` (the
   common inverse case — an embedding table gathered by variable token
   ids — is fine; a constant table combined with constant indices is the
   declined case); `data` must be ≥ 2-D; `indices` must be effectively
-  1-D (only its last dimension may be non-singleton).
-- **TopK:** axis must be HEIGHT (2) or WIDTH (3) in 4D NCHW; sorted must
+  1-D (only its last dimension may be non-singleton). **Constant indices
+  are declined**: they import but return wrong values on hardware (cosine
+  0.35-0.5 against a CPU reference, found by `test_tidl_declines_hw.py`, before
+  and after the dtype/field fixes), so `take` only offloads with variable
+  indices until the gather import path is fixed.
+- **TopK:** axis must be one of the last two (HEIGHT/WIDTH); sorted must
   be True (TIDL constraint).  TIDL always produces both values and
   indices outputs — use `ret_type="both"` and extract `[0]` for values.
   The C++ parser sets `numConstInputs=1` to satisfy the allowlisting
