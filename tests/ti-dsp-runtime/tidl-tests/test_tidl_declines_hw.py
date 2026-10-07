@@ -64,12 +64,11 @@ def _split_first_slice(bb, x):
     return bb.emit(relax.TupleGetItem(parts, 0))
 
 
+def _take(indices, axis):
+    return _module(lambda bb, x: op.take(x, relax.const(np.array(indices, "int32")), axis=axis))
+
+
 # id -> module. One hardware run per operator (plan decision D3).
-#
-# Not here: `take` with constant indices. It imports but returns wrong values on
-# hardware (cosine 0.35-0.5 vs. the CPU reference, before and after this work), so
-# the library declines it (test_tidl_declines.py::take-const-indices). Re-add
-# take cases here when the gather import path is fixed.
 CASES = {
     "softmax-width": _module(lambda bb, x: nn.softmax(x, axis=3)),
     "softmax-height": _module(lambda bb, x: nn.softmax(x, axis=2)),
@@ -107,6 +106,11 @@ CASES = {
     "eltwise-multiply": _module(lambda bb, x: op.multiply(x, nn.relu(x))),
     "eltwise-subtract": _module(lambda bb, x: op.subtract(x, nn.relu(x))),
     "eltwise-maximum": _module(lambda bb, x: op.maximum(x, nn.relu(x))),
+    # Constant int32 indices used to be copied as float values and read back as
+    # int32 bit patterns: only index 0 came out right.
+    "take-const-indices-width-gather": _take([0, 2, 5, 9], 3),
+    "take-const-indices-channel-gather": _take([0, 3, 4, 7], 1),
+    "take-const-indices-height-slice": _take([2, 3, 4, 5], 2),
 }
 
 

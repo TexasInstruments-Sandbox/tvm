@@ -299,11 +299,9 @@ Rules applied before passing composites to TIDL:
   common inverse case — an embedding table gathered by variable token
   ids — is fine; a constant table combined with constant indices is the
   declined case); `data` must be ≥ 2-D; `indices` must be effectively
-  1-D (only its last dimension may be non-singleton). **Constant indices
-  are declined**: they import but return wrong values on hardware (cosine
-  0.35-0.5 against a CPU reference, found by `test_tidl_declines_hw.py`, before
-  and after the dtype/field fixes), so `take` only offloads with variable
-  indices until the gather import path is fixed.
+  1-D (only its last dimension may be non-singleton). Constant indices
+  (int32 or int64) are supported; TIDL turns contiguous ones into a Slice and
+  declines a gather whose higher dimensions are not 1.
 - **TopK:** axis must be one of the last two (HEIGHT/WIDTH); sorted must
   be True (TIDL constraint).  TIDL always produces both values and
   indices outputs — use `ret_type="both"` and extract `[0]` for values.

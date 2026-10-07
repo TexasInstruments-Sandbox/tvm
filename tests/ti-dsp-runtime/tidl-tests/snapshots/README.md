@@ -28,12 +28,12 @@ No other entry (54 layer models, ResNet-18, MobileNetV2, YOLOv5n) changed.
 Two changes alter what gets offloaded but leave every snapshot entry identical,
 so they are recorded here rather than in the table above.
 
-- **`take` with constant indices is now declined** (bucket 1). It imported, but
-  returned wrong values on hardware (cosine 0.35-0.5 against a CPU reference,
-  before and after the index-dtype and gather-field fixes). `layer/take` uses
-  *variable* indices and still offloads, which is why no entry moved. Re-check
-  this when the gather import path is fixed; see the `take` cases in
-  `test_tidl_declines.py` and the note in `test_tidl_declines_hw.py`.
+- **`take` with constant indices** was briefly declined because it returned
+  wrong values (cosine 0.35-0.5). The cause was the parser copying int32
+  indices through `NDArrtoFloat`, which converts them to float values that the
+  gather then read as int32 bit patterns, so only index 0 was right. With the
+  indices copied as integers it offloads again, subject to TIDL's own gather
+  constraints; `layer/take` uses variable indices, so no entry moved either way.
 - **`partition()` now runs `CanonicalizeBindings` on every module**, not just
   ones that skipped `prepare()`. It is what makes a `w = R.const(...)` binding
   inline so `TIDL_relaxFindConstants` sees the weight; for already-prepared
