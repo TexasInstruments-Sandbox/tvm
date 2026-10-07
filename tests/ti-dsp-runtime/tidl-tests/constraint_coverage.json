@@ -70,7 +70,7 @@
   "status": "subsumed"
  },
  "argop::select_last_index = 1 is only supported in firmware version >= 11_00_07_00": {
-  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "note": "not reachable from Relax: relax.argmax/argmin have no select_last_index; the parser sets 0",
   "status": "untested"
  },
  "asin::Number of non-singleton variable input dimensions must be <= 6": {
@@ -153,7 +153,7 @@
   "status": "untested"
  },
  "batchNorm::Scale, Bias, input_mean and input_var should be constant 1-D tensor of size same as input channel dimension": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: no tidl.nn.batch_norm composite exists; prepare() folds batch_norm into conv2d",
   "status": "untested"
  },
  "batchNorm::Training mode in ONNX is not supported by TIDL_RT": {
@@ -161,8 +161,10 @@
   "status": "untested"
  },
  "cast::Only bool, float32 and signed/unsigned 8/16/32/64-bit integers are supported as cast destination types": {
-  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
-  "status": "untested"
+  "cases": [
+   "cast-to-int32"
+  ],
+  "status": "subsumed"
  },
  "cast::Only the default round mode (Up) is supported with Cast round attribute": {
   "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
@@ -241,12 +243,17 @@
   "status": "covered"
  },
  "conv::For Depthwise convolution layer, Pad (along width) greater than the MMA width is not supported": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "conv2d-depthwise-padw-17-16bit",
+   "conv2d-depthwise-padw-33-8bit"
+  ],
+  "status": "covered"
  },
  "conv::Input width less than MAX(Pad Left, Pad Right) is not supported for AM62A and AM67A": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "conv2d-width-less-than-pad"
+  ],
+  "status": "covered"
  },
  "conv::Kernel size 3x3 with stride 3 is not supported in AM62A and AM67A": {
   "cases": [
@@ -273,16 +280,20 @@
   "status": "covered"
  },
  "conv::Only one variable input is allowed": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "conv2d-variable-weight"
+  ],
+  "status": "subsumed"
  },
  "conv::Padding greater than input width is not supported for AM62A and AM67A": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: the check is skipped for the TVM_RELAY model type the Relax importer uses",
   "status": "untested"
  },
  "conv::Stride 4 is only supported with Kernel size 11x11": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "conv2d-5x5-stride4"
+  ],
+  "status": "covered"
  },
  "conv::Stride must be the same along both horizontal and vertical dimensions": {
   "cases": [
@@ -345,11 +356,13 @@
   "status": "covered"
  },
  "deconv::16-bit Deconvolution is not suppported on AM62A and AM67A": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "deconv-16bit"
+  ],
+  "status": "covered"
  },
  "deconv::Change to Upsample/Resize if possible. Upsample/Resize will be more efficient": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: warning only, never declines",
   "status": "untested"
  },
  "deconv::Number of non-singleton variable input dimensions must be <= 4": {
@@ -373,55 +386,65 @@
   "status": "covered"
  },
  "deconv::Only one variable input is allowed": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "deconv-variable-weight"
+  ],
+  "status": "subsumed"
  },
  "deconv::Weight tensor size should match with proto kernel_shape": {
   "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
   "status": "untested"
  },
  "depthToSpace::Input depth (channel dimension) should be multiple of (blocksize * blocksize)": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: pixel_shuffle struct inference rejects such a module",
   "status": "untested"
  },
  "depthToSpace::Input should be four-dimensional (4D)": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "depth-to-space-rank5"
+  ],
+  "status": "subsumed"
  },
  "depthToSpace::Only mode supported are DCR(depth-column-row order) and CRD(column-row-depth order)": {
   "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
   "status": "untested"
  },
  "eltwise::1D vector dimension should match with channel or width dimension": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "add-channel-vector-broadcasts-channel"
+  ],
+  "status": "covered"
  },
  "eltwise::Both inputs as variable are supported in Sub only if firmware version >= 10_01_06_00": {
-  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
-  "status": "untested"
+  "cases": [
+   "subtract-two-variables-firmware-10_01_05_00"
+  ],
+  "status": "covered"
  },
  "eltwise::Eltwise operator(Add/Mul/Div/Sub/Max/Min/Sum/Mod layer) is supported only with operands of similar dimensions or broadcast supported patterns of both inputs": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: dead constraint, every path returns true",
   "status": "untested"
  },
  "eltwise::Number of non-singleton variable input dimensions in Add/Mul/Sub/Div/Max/Min/Sum/Mod must be <= 6": {
-  "note": "generic rank limit; see the per-op 7-D cases or the stricter rank bound in declines",
-  "status": "untested"
+  "cases": [
+   "add-rank5"
+  ],
+  "status": "subsumed"
  },
  "eltwise::Only 2 inputs are supported": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: Relax binary elementwise ops always have exactly two operands",
   "status": "untested"
  },
  "eltwise::Only 2 inputs are supported in Add/Mul/Sub/Div/Max/Min/Sum/Mod layers": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: Relax binary elementwise ops always have exactly two operands",
   "status": "untested"
  },
  "eltwise::The variable inputs in Add/Mul/Div/Sub/Max/Min/Sum/Mod layer must of be same dimensions or broadcast-able": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: dead constraint, every path returns true",
   "status": "untested"
  },
  "eltwise::Too many inputs for elementwise operator": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: compiled out (TIDL_EN_MULTI_TENSOR_ELT_WISE is not defined)",
   "status": "untested"
  },
  "elu::Number of non-singleton variable input dimensions must be <= 6": {
@@ -525,8 +548,10 @@
   "status": "covered"
  },
  "expand::Shape tensor cannot be a variable input": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "expand-variable-shape"
+  ],
+  "status": "subsumed"
  },
  "flatten::Number of non-singleton variable input dimensions must be <= ": {
   "cases": [
@@ -588,12 +613,17 @@
   "status": "subsumed"
  },
  "gather::Input shape of dimension higher than axis should be 1": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "take-const-indices-height-gather",
+   "take-variable-indices-height"
+  ],
+  "status": "covered"
  },
  "gather::Number of output dimensions must be <= 6": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "take-output-rank7"
+  ],
+  "status": "covered"
  },
  "gather::Only 1D indices are supported": {
   "cases": [
@@ -602,8 +632,10 @@
   "status": "subsumed"
  },
  "gridsample::Only 2D grid indices are supported": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "grid-sample-3d-grid"
+  ],
+  "status": "covered"
  },
  "gridsample::Only nearest and linear/bilinear mode is supported ": {
   "cases": [
@@ -612,8 +644,10 @@
   "status": "covered"
  },
  "gridsample::Only zero padding mode is supported": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "grid-sample-border"
+  ],
+  "status": "covered"
  },
  "hardSigmoid::Number of non-singleton variable input dimensions must be <= 6": {
   "cases": [
@@ -666,16 +700,20 @@
   "status": "covered"
  },
  "innerProduct::Bias tensor input should be a vector of [1, N] or [N] where N should match output width": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "matmul-bias-mxn"
+  ],
+  "status": "covered"
  },
  "innerProduct::Filter and input must be of same dimensions or broadcast-able": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: needs two different non-1 channel dims, which matmul broadcasting rejects",
   "status": "untested"
  },
  "innerProduct::Filter tensor input should have atleast 2 dimensions": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "matmul-1d-weight"
+  ],
+  "status": "subsumed"
  },
  "innerProduct::Gemm layer does not support more than one variable inputs": {
   "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
@@ -690,11 +728,11 @@
   "status": "untested"
  },
  "innerProduct::MatMul with signed & unsigned input combination is not supported in TDA4VM & is only supported in firmware version >= 10_00_07_00": {
-  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
+  "note": "not reachable from Relax: relax.matmul requires both operands to have the same dtype",
   "status": "untested"
  },
  "innerProduct::MatMul with signed inputs & unsigned output is not supported ": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: checked only on optimised layers (layer->optimized == 1), never at allowlisting",
   "status": "untested"
  },
  "innerProduct::Number of non-singleton variable input dimensions must be <= 4": {
@@ -735,16 +773,20 @@
   "status": "covered"
  },
  "instanceNormalization::Number of variable input dimensions must be >= 3": {
-  "note": "generic rank limit; see the per-op 7-D cases or the stricter rank bound in declines",
-  "status": "untested"
+  "cases": [
+   "instance-norm-rank3"
+  ],
+  "status": "subsumed"
  },
  "instanceNormalization::Scale and Bias should be 1-D tensor of size same as input channel dimension": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: instance_norm struct inference requires 1-D gamma/beta of the channel size",
   "status": "untested"
  },
  "layernorm::Dimension of scale and bias vector can either be [1, N] or [N]": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "layer-norm-height-width"
+  ],
+  "status": "subsumed"
  },
  "layernorm::Number of non-singleton variable input dimensions must be <= 6": {
   "cases": [
@@ -773,7 +815,8 @@
  },
  "layernorm::Only supported across the width axis": {
   "cases": [
-   "layer-norm-channel-axis"
+   "layer-norm-channel-axis",
+   "layer-norm-height-width"
   ],
   "status": "covered"
  },
@@ -878,8 +921,10 @@
   "status": "covered"
  },
  "pad::Maximum number of input dimension supported is 6": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "pad-rank7"
+  ],
+  "status": "subsumed"
  },
  "pad::Only constant pad mode with constant_value = 0 is supported": {
   "cases": [
@@ -900,12 +945,16 @@
   "status": "subsumed"
  },
  "pooling::GlobalAveragePool does not support plane size > 1024": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "mean-plane-1056"
+  ],
+  "status": "covered"
  },
  "pooling::Input should be variable and not constant/initializer": {
-  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
-  "status": "untested"
+  "cases": [
+   "maxpool-constant-input"
+  ],
+  "status": "subsumed"
  },
  "pooling::Number of non-singleton variable input dimensions must be <= 4": {
   "cases": [
@@ -916,12 +965,14 @@
   "status": "covered"
  },
  "pooling::Number of outputs should be 1": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: Relax pooling ops have one output",
   "status": "untested"
  },
  "pooling::Only 1D and 2D GlobalAveragePool is supported": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "mean-rank5-three-axes"
+  ],
+  "status": "subsumed"
  },
  "pooling::Only default dilations values (1,1) are supported": {
   "cases": [
@@ -930,8 +981,12 @@
   "status": "covered"
  },
  "pooling::Pooling functionality is validated for 3x3,2x2 and 1x1 kernels with both stride 1 and stride 2 (horizontally and vertically), with the exception of 2x2 kernel with stride 1": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "avgpool-2x2-stride1",
+   "maxpool-2x2-stride1",
+   "maxpool-3x3-stride3"
+  ],
+  "status": "covered"
  },
  "pow::Number of non-singleton variable input dimensions must be <= 6": {
   "cases": [
@@ -965,8 +1020,10 @@
   "status": "covered"
  },
  "pow::Size of the constant tensor must be 1": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "power-tensor-exponent"
+  ],
+  "status": "covered"
  },
  "prelu::Number of non-singleton variable input dimensions must be <= 6": {
   "cases": [
@@ -1000,8 +1057,10 @@
   "status": "covered"
  },
  "prelu::PRelu slope should be same or broadcast-able to input channel dimension": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "prelu-slope-not-channels"
+  ],
+  "status": "covered"
  },
  "reduce::Number of non-singleton variable input dimensions must be <= 4": {
   "cases": [
@@ -1012,8 +1071,10 @@
   "status": "covered"
  },
  "reduce::Only keepdims = 1 is supported": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "max-no-keepdims"
+  ],
+  "status": "covered"
  },
  "reduce::Reduction is only supported along height axis": {
   "cases": [
@@ -1047,7 +1108,7 @@
   "status": "covered"
  },
  "reshape::Input volume should be equal to output volume": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: reshape struct inference rejects a volume change",
   "status": "untested"
  },
  "reshape::Number of non-singleton variable input dimensions must be <= 6": {
@@ -1080,20 +1141,28 @@
   "status": "untested"
  },
  "reshape::Output dimensions must be less than ": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "reshape-target-rank7"
+  ],
+  "status": "subsumed"
  },
  "reshape::Variable shape is not supported": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "reshape-variable-shape"
+  ],
+  "status": "subsumed"
  },
  "resize::'linear' resize mode is not supported when coordinate_transformation_mode is 'asymmetric'": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "resize-linear-asymmetric"
+  ],
+  "status": "covered"
  },
  "resize::'pytorch_half_pixel' coordinate_transformation_mode is not supported for Resize output shapes <= 1": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "resize-pytorch-half-pixel-1x1"
+  ],
+  "status": "subsumed"
  },
  "resize::Number of non-singleton variable input dimensions must be <= 4": {
   "cases": [
@@ -1104,12 +1173,16 @@
   "status": "covered"
  },
  "resize::Only 'floor' nearest mode is supported when coordinate_transformation_mode is 'asymmetric'": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "resize-nearest-asymmetric-round"
+  ],
+  "status": "covered"
  },
  "resize::Only 'half_pixel', 'pytorch_half_pixel' and 'asymmetric' coordinate_transformation_mode is supported": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "resize-tf-half-pixel-for-nn"
+  ],
+  "status": "subsumed"
  },
  "resize::Only 'nearest' and 'linear' resize mode are supported": {
   "cases": [
@@ -1118,12 +1191,16 @@
   "status": "subsumed"
  },
  "resize::Only 'round_prefer_ceil' nearest mode is supported when coordinate_transformation_mode is 'half_pixel' or 'pytorch_half_pixel'": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "resize-nearest-half-pixel-floor"
+  ],
+  "status": "covered"
  },
  "resize::Only Power of 2 scales are supported": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "resize-scale-3"
+  ],
+  "status": "covered"
  },
  "resize::Only default antialias = 0 is supported": {
   "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
@@ -1138,8 +1215,10 @@
   "status": "untested"
  },
  "resize::Resize is only supported along width and height axis": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "resize-nhwc"
+  ],
+  "status": "subsumed"
  },
  "resize::Scales < 1 are not supported": {
   "cases": [
@@ -1148,8 +1227,10 @@
   "status": "covered"
  },
  "resize::Width and Height scale should be same": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "resize-unequal-scales"
+  ],
+  "status": "covered"
  },
  "scatterElements::For ScatterND, indices tensor's last dimension must be at most (output_rank - 1)": {
   "cases": [
@@ -1158,8 +1239,10 @@
   "status": "covered"
  },
  "scatterElements::For ScatterND, number of non-singleton indices dimensions must be <= 4": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "scatter-nd-indices-rank5"
+  ],
+  "status": "covered"
  },
  "scatterElements::Number of non-singleton variable input dimensions must be <= 4": {
   "cases": [
@@ -1176,24 +1259,35 @@
   "status": "covered"
  },
  "scatterElements::ScatterElements only supports the 'none' reduction type": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "scatter-elements-add",
+   "scatter-elements-mul"
+  ],
+  "status": "covered"
  },
  "scatterElements::ScatterND does not support the 'add' reduction type in 16bit precision": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "scatter-nd-add-16bit"
+  ],
+  "status": "covered"
  },
  "scatterElements::ScatterND does not support the 'mul' reduction type": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "scatter-nd-mul"
+  ],
+  "status": "covered"
  },
  "scatterElements::The constant input 'data' must be a zero tensor": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "scatter-elements-const-data"
+  ],
+  "status": "subsumed"
  },
  "scatterElements::Updates tensor should not have more than 1 channel": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "scatter-nd-add-updates-2-channels"
+  ],
+  "status": "covered"
  },
  "sigmoid::Number of non-singleton variable input dimensions must be <= 6": {
   "cases": [
@@ -1279,7 +1373,7 @@
   "status": "untested"
  },
  "slice::Must have 4 inputs": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: the check applies only to the TFLite model types",
   "status": "untested"
  },
  "slice::Number of dimensions for constant/initializer inputs must be 1": {
@@ -1287,28 +1381,33 @@
   "status": "untested"
  },
  "slice::Number of dimensions for output tensor must be 4": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: the check applies only to the TFLite model types",
   "status": "untested"
  },
  "slice::Number of dimensions for variable inputs must be 4": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: the check applies only to the TFLite model types",
   "status": "untested"
  },
  "slice::Only batch size = 1 is supported": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: the check applies only to the TFLite model types",
   "status": "untested"
  },
  "slice::Only one input should be variable": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: the check applies only to the TFLite model types",
   "status": "untested"
  },
  "slice::Only supports non-batch dimension": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "slice-rank6-batch-axis",
+   "split-rank6-batch-axis"
+  ],
+  "status": "covered"
  },
  "slice::Slice with stride greater than 0 is supported": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "slice-negative-stride"
+  ],
+  "status": "subsumed"
  },
  "softmax::Number of non-singleton variable input dimensions must be <= 6": {
   "cases": [
@@ -1421,16 +1520,20 @@
   "status": "untested"
  },
  "topK::TopK axis other than width and height is not supported": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "topk-channel-axis"
+  ],
+  "status": "subsumed"
  },
  "topK::TopK is not supported with 'sorted' attribute is set to 0": {
-  "note": "needs a decline-table case",
+  "note": "not reachable from Relax: relax.topk has no 'sorted' attribute; results are always sorted",
   "status": "untested"
  },
  "transpose::For firmware version < 10_01_04_00, only permutes are suported when number of dimensions > 4": {
-  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
-  "status": "untested"
+  "cases": [
+   "transpose-5d-width-to-height-firmware-10_01_03_00"
+  ],
+  "status": "covered"
  },
  "transpose::For inputs with more than 4 dimensions (>4D), permutations where the width dimension is mapped to either the first or second position (Dim 0 or Dim 1) in the output shape are not supported. Unsupported permutation patterns: [W, X, X, X, X, X] - Width dimension at position 0; [X, W, X, X, X, X] - Width dimension at position 1": {
   "cases": [
@@ -1464,11 +1567,15 @@
   "status": "covered"
  },
  "transpose::Transpose over batch dimension is only supported in firmware version >= 10_01_04_00": {
-  "note": "not reachable from Relax: another frontend's attribute or a firmware gate",
-  "status": "untested"
+  "cases": [
+   "transpose-6d-batch-firmware-10_01_03_00"
+  ],
+  "status": "covered"
  },
  "unsqueeze::Output dimensions after unsqueeze must be <= 6": {
-  "note": "needs a decline-table case",
-  "status": "untested"
+  "cases": [
+   "expand-dims-to-rank7"
+  ],
+  "status": "subsumed"
  }
 }

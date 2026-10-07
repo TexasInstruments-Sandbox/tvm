@@ -12,10 +12,10 @@ Tests for TIDL subgraph offloading in the TVM/Relax c_static_lib backend.
 | `test_tidl_layer_offload.py` | 103 | Per-layer offload validation: pattern matching (Level 1, 61 tests) and hardware inference (Level 4, 42 tests) covering all supported layer types | Level 1: `.so` (partitioning); Level 4: + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_new_ops.py` | 4 | Newer composite ops (softmax, multiply, permute_dims, concat) through full build + AM67A pipeline | `.so` + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_allownode.py` | 63 | The eligibility gate: composite fidelity (synthesised == fused), `TIDL_relaxDescribeNode`, driver declines, name lists, fail-closed without the `.so` | `.so` |
-| `test_tidl_declines.py` | 152 | Accept/reject table for every eligibility rule, with parsed-layer (`DescribeNode`) checks on accepted cases | `.so` |
-| `test_tidl_constraint_coverage.py` | 5 | Inventory of TIDL's own allowlisting constraints vs. the decline table (covered / subsumed / untested), with a ratchet | `.so` + c7x-mma-tidl tree |
+| `test_tidl_declines.py` | 253 | Accept/reject table for every eligibility rule and every reachable TIDL constraint (including `tensor_bits` and `c7x_firmware_version` gates), with parsed-layer (`DescribeNode`) checks on accepted cases | `.so` |
+| `test_tidl_constraint_coverage.py` | 5 | Inventory of TIDL's own allowlisting constraints vs. the decline table (covered / subsumed / unreachable-with-reason); fails on any constraint left without one | `.so` + c7x-mma-tidl tree |
 | `test_tidl_partition_snapshot.py` | 58 | Partition of 54 layer models + ResNet-18, MobileNetV2, YOLOv5n, YOLOv8n vs. `snapshots/partition_snapshots.json` | `.so` |
-| `test_tidl_declines_hw.py` | 24 | Accepted configurations run on hardware and compared with a TVM CPU reference | `.so` + AM67A (`--dsp-mode=c7x_dload --board j722s-evm`) |
+| `test_tidl_declines_hw.py` | 29 | Accepted configurations run on hardware and compared with a TVM CPU reference | `.so` + AM67A (`--dsp-mode=c7x_dload --board j722s-evm`) |
 | `test_tidl_e2e.py` | 2 | Full pipeline on c7x_host: stub bridge (no TIDL libs) and real bridge (TIDL PC/AVX reference path) | `TI_CGT_C7000_PATH`; real-bridge test also needs `.so` + PC TIDL algo libs |
 | `test_tidl_import_e2e.py` | 2 | `compiler.build()` one-call pipeline -> deploy -> run on AM67A (single-subgraph ConvReluSoftmax + multi-subgraph 2-conv model) | `.so` + `TI_CGT_C7000_PATH` + AM67A |
 | `test_tidl_resnet_e2e.py` | 3 | ResNet-18 TIDL build pipeline validation, hardware correctness, cycle comparison | `.so` + `TI_CGT_C7000_PATH` (build test); + AM67A (hardware tests) |
@@ -105,8 +105,9 @@ behavior for math ops, etc.) see
 
 ### Level 1 — Partition (`TestLayerPartition`, 61 tests)
 
-Pure Python pattern-matching tests.  No `.so`, no hardware, no TI
-compiler required.  Runs in under a second.
+Pattern-matching tests.  Partitioning asks `tidl_model_import_relax.so`
+which ops may be offloaded, so the `.so` is required; no hardware or TI
+compiler.  Runs in seconds.
 
 Each test builds a minimal Relax IRModule with the target op, calls
 `partition_for_tidl()`, and asserts the expected composite name appears.

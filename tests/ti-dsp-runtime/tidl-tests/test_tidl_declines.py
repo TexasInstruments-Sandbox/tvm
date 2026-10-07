@@ -60,17 +60,19 @@ def _x(shape=(1, 8, 16, 16), dtype=F32):
 op = relax.op
 nn = relax.op.nn
 
-# (id, pattern, module, expected verdict, reason substring or describe-params dict)
-# Accept cases give the expected ``params`` entries; reject cases a reason fragment.
+# (id, pattern, module, expected verdict, reason substring or describe-params dict,
+# partition config). Accept cases give the expected ``params`` entries; reject
+# cases a reason fragment. ``config`` carries ``tidl_options`` for rules that
+# depend on them (tensor_bits, c7x_firmware_version).
 CASES = []
 
 
-def accept(cid, pattern, mod, **params):
-    CASES.append(pytest.param(pattern, mod, True, params, id=cid))
+def accept(cid, pattern, mod, config=None, **params):
+    CASES.append(pytest.param(pattern, mod, True, params, config or {}, id=cid))
 
 
-def reject(cid, pattern, mod, reason):
-    CASES.append(pytest.param(pattern, mod, False, reason, id=cid))
+def reject(cid, pattern, mod, reason, config=None):
+    CASES.append(pytest.param(pattern, mod, False, reason, config or {}, id=cid))
 
 
 # --- conv2d ---------------------------------------------------------------
@@ -737,15 +739,571 @@ reject(
     "Only supported across the width axis",
 )
 
+# --- conv2d / conv2d_transpose -----------------------------------------------------
+BITS16 = {"tidl_options": {"tensor_bits": 16}}
+reject(
+    "conv2d-width-less-than-pad",
+    "tidl.nn.conv2d",
+    _build(
+        _x((1, 8, 16, 4)), lambda bb, x: nn.conv2d(x, _const((16, 8, 3, 3)), padding=(1, 6, 1, 6))
+    ),
+    "Input width less than MAX(Pad Left, Pad Right)",
+)
+# The depthwise pad limit is the MMA width: 32 for 8-bit features on AM62A/AM67A, 16 for 16-bit.
+for cid, pad, config, ok in [
+    ("conv2d-depthwise-padw-17-8bit", 17, None, True),
+    ("conv2d-depthwise-padw-33-8bit", 33, None, False),
+    ("conv2d-depthwise-padw-17-16bit", 17, BITS16, False),
+]:
+    mod = _build(
+        _x((1, 8, 16, 80)),
+        lambda bb, x, pad=pad: nn.conv2d(
+            x, _const((8, 1, 3, 3)), padding=(1, pad, 1, pad), groups=8
+        ),
+    )
+    if ok:
+        accept(cid, "tidl.nn.conv2d", mod, config, padL=pad, padR=pad)
+    else:
+        reject(cid, "tidl.nn.conv2d", mod, "Pad (along width) greater than the MMA width", config)
+reject(
+    "conv2d-5x5-stride4",
+    "tidl.nn.conv2d",
+    _build(
+        _x((1, 8, 64, 64)),
+        lambda bb, x: nn.conv2d(x, _const((16, 8, 5, 5)), strides=(4, 4), padding=(2, 2)),
+    ),
+    "Stride 4 is only supported with Kernel size 11x11",
+)
+reject(
+    "conv2d-variable-weight",
+    "tidl.nn.conv2d",
+    _build(
+        {"x": ((1, 8, 16, 16), F32), "w": ((16, 8, 3, 3), F32)},
+        lambda bb, x, w: nn.conv2d(x, w, padding=(1, 1)),
+    ),
+    "no weight constant found",
+)
+reject(
+    "deconv-16bit",
+    "tidl.nn.conv2d_transpose",
+    _deconv((2, 2), k=4),
+    "16-bit Deconvolution is not suppported",
+    BITS16,
+)
+reject(
+    "deconv-variable-weight",
+    "tidl.nn.conv2d_transpose",
+    _build(
+        {"x": ((1, 8, 16, 16), F32), "w": ((8, 4, 4, 4), F32)},
+        lambda bb, x, w: nn.conv2d_transpose(x, w, strides=(2, 2), padding=(1, 1)),
+    ),
+    "the parser declined",
+)
+
+# --- depth_to_space ---------------------------------------------------------------
+accept(
+    "depth-to-space-4d",
+    "tidl.nn.depth_to_space",
+    _build(_x((1, 16, 8, 8)), lambda bb, x: nn.pixel_shuffle(x, 2)),
+)
+reject(
+    "depth-to-space-rank5",
+    "tidl.nn.depth_to_space",
+    _build(_x((1, 2, 16, 8, 8)), lambda bb, x: nn.pixel_shuffle(x, 2)),
+    "4-D",
+)
+
+# --- elementwise with a constant operand -------------------------------------------------
+# A constant with one non-singleton dim on the channel axis must match the variable's channels.
+reject(
+    "add-channel-vector-broadcasts-channel",
+    "tidl.add",
+    _build(_x((1, 1, 16, 16)), lambda bb, x: op.add(x, _const((1, 8, 1, 1)))),
+    "1D vector dimension should match with channel or width dimension",
+)
+
+# --- take (variable indices) ---------------------------------------------------------------
+_take_inputs = {"x": ((1, 8, 16, 16), F32), "i": ((4,), "int32")}
+reject(
+    "take-variable-indices-height",
+    "tidl.take",
+    _build(_take_inputs, lambda bb, x, i: op.take(x, i, axis=2)),
+    "Input shape of dimension higher than axis should be 1",
+)
+reject(
+    "take-output-rank7",
+    "tidl.take",
+    _build(
+        {"x": ((1, 1, 2, 2, 2, 2, 4), F32), "i": ((4,), "int32")},
+        lambda bb, x, i: op.take(x, i, axis=6),
+    ),
+    "Number of output dimensions must be <= 6",
+)
+
+
+# --- grid_sample --------------------------------------------------------------------------
+def _grid_sample(grid_shape=(1, 16, 16, 2), data_shape=(1, 8, 16, 16), **kw):
+    return _build(
+        {"d": (data_shape, F32), "g": (grid_shape, F32)},
+        lambda bb, d, g: op.image.grid_sample(d, g, **kw),
+    )
+
+
+accept("grid-sample-bilinear-zeros", "tidl.image.grid_sample", _grid_sample())
+reject(
+    "grid-sample-3d-grid",
+    "tidl.image.grid_sample",
+    _grid_sample((1, 16, 16, 3)),
+    "Only 2D grid indices are supported",
+)
+reject(
+    "grid-sample-border",
+    "tidl.image.grid_sample",
+    _grid_sample(padding_mode="border"),
+    "Only zero padding mode is supported",
+)
+reject(
+    "grid-sample-nhwc",
+    "tidl.image.grid_sample",
+    _grid_sample(data_shape=(1, 16, 16, 8), layout="NHWC"),
+    "only NCHW layout",
+)
+
+# --- matmul -------------------------------------------------------------------------------
+for cid, bias, ok in [
+    ("matmul-bias-n", (16,), True),
+    ("matmul-bias-1xn", (1, 16), True),
+    ("matmul-bias-mxn", (4, 16), False),
+]:
+    mod = _build(mm, lambda bb, a, bias=bias: op.add(op.matmul(a, _const((32, 16))), _const(bias)))
+    if ok:
+        accept(cid, "tidl.matmul_bias", mod)
+    else:
+        reject(
+            cid, "tidl.matmul_bias", mod, "Bias tensor input should be a vector of [1, N] or [N]"
+        )
+reject(
+    "matmul-1d-weight",
+    "tidl.matmul",
+    _build(mm, lambda bb, a: op.matmul(a, _const((32,)))),
+    "weight must be at least 2D",
+)
+
+# --- layer_norm / instance_norm: constant gamma/beta, supported axes ---------------------------
+_ln_x = {"x": ((1, 8, 16, 16), F32), "v": ((16,), F32)}
+accept(
+    "layer-norm-width",
+    "tidl.nn.layer_norm",
+    _build(_x(), lambda bb, x: nn.layer_norm(x, _const((16,)), _const((16,)), axes=[-1])),
+)
+reject(
+    "layer-norm-variable-gamma",
+    "tidl.nn.layer_norm",
+    _build(_ln_x, lambda bb, x, v: nn.layer_norm(x, v, _const((16,)), axes=[3])),
+    "gamma and beta must be constant",
+)
+reject(
+    "layer-norm-variable-beta",
+    "tidl.nn.layer_norm",
+    _build(_ln_x, lambda bb, x, v: nn.layer_norm(x, _const((16,)), v, axes=[3])),
+    "gamma and beta must be constant",
+)
+reject(
+    "layer-norm-no-center",
+    "tidl.nn.layer_norm",
+    _build(
+        _x(), lambda bb, x: nn.layer_norm(x, _const((16,)), _const((16,)), axes=[3], center=False)
+    ),
+    "center and scale must both be enabled",
+)
+reject(
+    "layer-norm-height-width",
+    "tidl.nn.layer_norm",
+    _build(_x(), lambda bb, x: nn.layer_norm(x, _const((16, 16)), _const((16, 16)), axes=[2, 3])),
+    "Only supported across the width axis",
+)
+
+
+def _instance_norm(channel_axis=1, axes=(2, 3), gamma=None, channels=8, **kw):
+    inputs = _x() if gamma is None else {"x": ((1, 8, 16, 16), F32), "g": ((channels,), F32)}
+    return _build(
+        inputs,
+        lambda bb, x, *g: nn.instance_norm(
+            x,
+            g[0] if g else _const((channels,)),
+            _const((channels,)),
+            channel_axis,
+            list(axes),
+            **kw,
+        ),
+    )
+
+
+accept("instance-norm-spatial", "tidl.nn.instance_norm", _instance_norm())
+accept("instance-norm-spatial-neg", "tidl.nn.instance_norm", _instance_norm(-3, (-2, -1)))
+reject(
+    "instance-norm-rank3",
+    "tidl.nn.instance_norm",
+    _build(_x((1, 8, 16)), lambda bb, x: nn.instance_norm(x, _const((8,)), _const((8,)), 1, [2])),
+    "4-D",
+)
+reject(
+    "instance-norm-variable-gamma",
+    "tidl.nn.instance_norm",
+    _instance_norm(gamma=True),
+    "gamma and beta must be constant",
+)
+reject(
+    "instance-norm-width-only",
+    "tidl.nn.instance_norm",
+    _instance_norm(axes=(3,)),
+    "only channel_axis 1 with axes (2, 3)",
+)
+reject(
+    "instance-norm-channel-last",
+    "tidl.nn.instance_norm",
+    _instance_norm(3, (1, 2), channels=16),
+    "only channel_axis 1 with axes (2, 3)",
+)
+reject(
+    "instance-norm-no-scale",
+    "tidl.nn.instance_norm",
+    _instance_norm(scale=False),
+    "center and scale must both be enabled",
+)
+
+# --- pad / mean / pooling -----------------------------------------------------------------
+reject(
+    "pad-rank7",
+    "tidl.nn.pad",
+    _build(_x((1, 1, 1, 2, 2, 4, 4)), lambda bb, x: nn.pad(x, [0] * 10 + [1, 1, 1, 1])),
+    "4-D",
+)
+# Global average pool is limited to a 1024-element plane.
+accept(
+    "mean-plane-1024",
+    "tidl.mean",
+    _build(_x((1, 8, 32, 32)), lambda bb, x: op.mean(x, axis=[2, 3], keepdims=True)),
+    kernelH=0,
+    kernelW=0,
+)
+reject(
+    "mean-plane-1056",
+    "tidl.mean",
+    _build(_x((1, 8, 33, 32)), lambda bb, x: op.mean(x, axis=[2, 3], keepdims=True)),
+    "GlobalAveragePool does not support plane size > 1024",
+)
+accept(
+    "mean-spatial-no-keepdims",
+    "tidl.mean",
+    _build(_x(), lambda bb, x: op.mean(x, axis=[2, 3], keepdims=False)),
+)
+reject(
+    "mean-rank5-three-axes",
+    "tidl.mean",
+    _build(_x((1, 8, 4, 16, 16)), lambda bb, x: op.mean(x, axis=[2, 3, 4], keepdims=True)),
+    "4-D",
+)
+VALIDATED_POOL = "Pooling functionality is validated for 3x3,2x2 and 1x1 kernels"
+for cid, fn, size, stride, ok in [
+    ("maxpool-3x3-stride1", nn.max_pool2d, 3, 1, True),
+    ("avgpool-2x2-stride2", nn.avg_pool2d, 2, 2, True),
+    ("maxpool-2x2-stride1", nn.max_pool2d, 2, 1, False),
+    ("avgpool-2x2-stride1", nn.avg_pool2d, 2, 1, False),
+    ("maxpool-3x3-stride3", nn.max_pool2d, 3, 3, False),
+]:
+    pattern = "tidl.nn.max_pool2d" if fn is nn.max_pool2d else "tidl.nn.avg_pool2d"
+    mod = _build(
+        _x((1, 8, 18, 18)),
+        lambda bb, x, fn=fn, size=size, stride=stride: fn(
+            x, pool_size=(size, size), strides=(stride, stride)
+        ),
+    )
+    if ok:
+        accept(cid, pattern, mod, kernelH=size, strideH=stride)
+    else:
+        reject(cid, pattern, mod, VALIDATED_POOL)
+
+# TIDL skips all constraints for a layer with no variable input, so constant-only
+# composites are declined up front.
+reject(
+    "maxpool-constant-input",
+    "tidl.nn.max_pool2d",
+    _build(
+        _x(),
+        lambda bb, x: op.add(
+            x, nn.max_pool2d(_const((1, 8, 32, 32)), pool_size=(2, 2), strides=(2, 2))
+        ),
+    ),
+    "needs at least one variable input",
+)
+
+# --- power / prelu / reductions --------------------------------------------------------------
+accept(
+    "power-scalar-exponent",
+    "tidl.power",
+    _build(_x(), lambda bb, x: op.power(x, _const((), value=2))),
+)
+reject(
+    "power-tensor-exponent",
+    "tidl.power",
+    _build(_x(), lambda bb, x: op.power(x, _const((1, 8, 1, 1), value=2))),
+    "Size of the constant tensor must be 1",
+)
+reject(
+    "power-int8-exponent",
+    "tidl.power",
+    _build(_x(dtype="int8"), lambda bb, x: op.power(x, _const((), "int8", value=2))),
+    "the exponent must be float32",
+)
+reject(
+    "prelu-slope-not-channels",
+    "tidl.nn.prelu",
+    _build(_x(), lambda bb, x: nn.prelu(x, _const((4,), value=0.25), axis=1)),
+    "PRelu slope should be same or broadcast-able to input channel dimension",
+)
+reject(
+    "max-no-keepdims",
+    "tidl.reduce_max",
+    _build(_x(), lambda bb, x: op.max(x, axis=[2], keepdims=False)),
+    "Only keepdims = 1 is supported",
+)
+
+
+# --- reshape / expand with a shape variable -----------------------------------------------------
+def _shape_var_module(fn, in_shape):
+    s = relax.Var("s", relax.ShapeStructInfo(ndim=4))
+    x = relax.Var("x", relax.TensorStructInfo(in_shape, F32))
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x, s]):
+        with bb.dataflow():
+            out = bb.emit_output(fn(x, s))
+        bb.emit_func_output(out)
+    return bb.get()
+
+
+reject(
+    "reshape-variable-shape",
+    "tidl.reshape",
+    _shape_var_module(op.reshape, (1, 8, 16, 16)),
+    "unknown or non-constant shape",
+)
+reject(
+    "expand-variable-shape",
+    "tidl.expand",
+    _shape_var_module(op.broadcast_to, (1, 1, 16, 16)),
+    "unknown or non-constant shape",
+)
+
+
+# --- resize2d ------------------------------------------------------------------------------------
+def _resize(size=(32, 32), shape=(1, 8, 16, 16), **kw):
+    return _build(_x(shape), lambda bb, x: op.image.resize2d(x, size, **kw))
+
+
+NEAREST = {"method": "nearest_neighbor"}
+for cid, kw, reason in [
+    (
+        "resize-linear-asymmetric",
+        {"coordinate_transformation_mode": "asymmetric"},
+        "'linear' resize mode is not supported when coordinate_transformation_mode is 'asymmetric'",
+    ),
+    (
+        "resize-nearest-asymmetric-round",
+        {**NEAREST, "coordinate_transformation_mode": "asymmetric"},
+        "Only 'floor' nearest mode is supported when coordinate_transformation_mode is",
+    ),
+    (
+        "resize-nearest-half-pixel-floor",
+        {**NEAREST, "coordinate_transformation_mode": "half_pixel", "rounding_method": "floor"},
+        "Only 'round_prefer_ceil' nearest mode is supported",
+    ),
+    ("resize-scale-3", {"size": (48, 48)}, "Only Power of 2 scales are supported"),
+    ("resize-unequal-scales", {"size": (32, 64)}, "Width and Height scale should be same"),
+    (
+        "resize-tf-half-pixel-for-nn",
+        {**NEAREST, "coordinate_transformation_mode": "tf_half_pixel_for_nn"},
+        "'tf_half_pixel_for_nn' is unsupported",
+    ),
+    (
+        "resize-pytorch-half-pixel-1x1",
+        {
+            "size": (1, 1),
+            "shape": (1, 8, 1, 1),
+            "coordinate_transformation_mode": "pytorch_half_pixel",
+        },
+        "'pytorch_half_pixel' is unsupported",
+    ),
+    ("resize-nhwc", {"shape": (1, 16, 16, 8), "layout": "NHWC"}, "only NCHW layout"),
+]:
+    reject(cid, "tidl.image.resize2d", _resize(**kw), reason)
+accept(
+    "resize-nearest-asymmetric-floor",
+    "tidl.image.resize2d",
+    _resize(**NEAREST, coordinate_transformation_mode="asymmetric", rounding_method="floor"),
+)
+accept(
+    "resize-nearest-half-pixel-round-prefer-ceil",
+    "tidl.image.resize2d",
+    _resize(**NEAREST, rounding_method="round_prefer_ceil"),
+)
+accept("resize-scale-4", "tidl.image.resize2d", _resize((64, 64)))
+
+
+# --- scatter_elements / scatter_nd ----------------------------------------------------------------
+def _scatter_elements(reduction="update", const_data=False):
+    inputs = {"i": ((1, 8, 16, 2), "int32"), "u": ((1, 8, 16, 2), F32)}
+    if const_data:
+        return _build(
+            inputs,
+            lambda bb, i, u: op.scatter_elements(
+                _const((1, 8, 16, 16), value=0), i, u, axis=3, reduction=reduction
+            ),
+        )
+    return _build(
+        {"d": ((1, 8, 16, 16), F32), **inputs},
+        lambda bb, d, i, u: op.scatter_elements(d, i, u, axis=3, reduction=reduction),
+    )
+
+
+ONLY_NONE = "ScatterElements only supports the 'none' reduction type"
+reject("scatter-elements-add", "tidl.scatter_elements", _scatter_elements("add"), ONLY_NONE)
+# "mul" used to import as a plain update.
+reject("scatter-elements-mul", "tidl.scatter_elements", _scatter_elements("mul"), ONLY_NONE)
+reject(
+    "scatter-elements-const-data",
+    "tidl.scatter_elements",
+    _scatter_elements(const_data=True),
+    "data type",
+)
+
+
+def _scatter_nd(reduction="update", indices=(16, 3), updates=(16, 16)):
+    return _build(
+        {"d": ((1, 8, 16, 16), F32), "i": (indices, "int64"), "u": (updates, F32)},
+        lambda bb, d, i, u: op.scatter_nd(d, i, u, reduction=reduction),
+    )
+
+
+accept(
+    "scatter-nd-add", "tidl.scatter_nd", _scatter_nd("add"), reduction=0
+)  # TIDL_ScatterElementsAdd
+reject(
+    "scatter-nd-mul",
+    "tidl.scatter_nd",
+    _scatter_nd("mul"),
+    "ScatterND does not support the 'mul' reduction type",
+)
+reject(
+    "scatter-nd-add-16bit",
+    "tidl.scatter_nd",
+    _scatter_nd("add"),
+    "ScatterND does not support the 'add' reduction type in 16bit precision",
+    BITS16,
+)
+reject(
+    "scatter-nd-indices-rank5",
+    "tidl.scatter_nd",
+    _scatter_nd(indices=(2, 2, 2, 2, 3), updates=(2, 2, 2, 2, 16)),
+    "number of non-singleton indices dimensions must be <= 4",
+)
+reject(
+    "scatter-nd-add-updates-2-channels",
+    "tidl.scatter_nd",
+    _scatter_nd("add", indices=(2, 16, 3), updates=(2, 16, 16)),
+    "Updates tensor should not have more than 1 channel",
+)
+accept(
+    "scatter-nd-add-updates-1-channel",
+    "tidl.scatter_nd",
+    _scatter_nd("add", indices=(1, 16, 3), updates=(1, 16, 16)),
+)
+
+# --- strided_slice / split on the 6-D batch axis ------------------------------------------------
+# TIDL's batch axis is dim 0 of its 6-D layout, i.e. axis 0 of a rank-6 tensor.
+R6 = (2, 1, 2, 8, 16, 16)
+reject(
+    "slice-rank6-batch-axis",
+    "tidl.strided_slice",
+    _build(_x(R6), lambda bb, x: op.strided_slice(x, [0], [0], [1])),
+    "Only supports non-batch dimension",
+)
+reject(
+    "split-rank6-batch-axis",
+    "tidl.split",
+    _build(_x(R6), lambda bb, x: op.split(x, 2, axis=0)),
+    "Only supports non-batch dimension",
+)
+
+
+# --- c7x firmware-version gates (Relay's parsers gate the same ops at the same versions) ----------
+def _fw(version):
+    return {"tidl_options": {"advanced_options:c7x_firmware_version": version}}
+
+
+for pattern, mod, minimum, older in [
+    ("tidl.log", _build(_x(), lambda bb, x: op.log(x)), "10_00_04_00", "10_00_03_00"),
+    ("tidl.asin", _build(_x(), lambda bb, x: op.asin(x)), "10_00_04_00", "10_00_03_00"),
+    ("tidl.asinh", _build(_x(), lambda bb, x: op.asinh(x)), "10_00_04_00", "10_00_03_00"),
+    ("tidl.nn.instance_norm", _instance_norm(), "10_00_04_00", "10_00_03_00"),
+    ("tidl.tan", _build(_x(), lambda bb, x: op.tan(x)), "10_01_06_00", "10_01_05_00"),
+    ("tidl.cos", _build(_x(), lambda bb, x: op.cos(x)), "10_01_06_00", "10_01_05_00"),
+    ("tidl.sinh", _build(_x(), lambda bb, x: op.sinh(x)), "10_01_06_00", "10_01_05_00"),
+    ("tidl.cosh", _build(_x(), lambda bb, x: op.cosh(x)), "10_01_06_00", "10_01_05_00"),
+    ("tidl.atan", _build(_x(), lambda bb, x: op.atan(x)), "10_01_06_00", "10_01_05_00"),
+    ("tidl.negative", _build(_x(), lambda bb, x: op.negative(x)), "10_01_06_00", "10_01_05_00"),
+]:
+    name = pattern.rsplit(".", 1)[1]
+    accept(f"{name}-firmware-{minimum}", pattern, mod, _fw(minimum))
+    reject(f"{name}-firmware-{older}", pattern, mod, "current c7x firmware version", _fw(older))
+# Gates in TIDL's own constraints rather than in a parser.
+_sub = _build(
+    {"a": ((1, 8, 16, 16), F32), "b": ((1, 8, 16, 16), F32)}, lambda bb, a, b: op.subtract(a, b)
+)
+accept("subtract-two-variables-firmware-10_01_06_00", "tidl.subtract", _sub, _fw("10_01_06_00"))
+reject(
+    "subtract-two-variables-firmware-10_01_05_00",
+    "tidl.subtract",
+    _sub,
+    "Both inputs as variable are supported in Sub only if firmware version >= 10_01_06_00",
+    _fw("10_01_05_00"),
+)
+for cid, shape, axes, reason in [
+    (
+        "transpose-6d-batch",
+        (2, 1, 2, 3, 4, 5),
+        [1, 0, 2, 3, 4, 5],
+        "Transpose over batch dimension is only supported in firmware version >= 10_01_04_00",
+    ),
+    (
+        "transpose-5d-width-to-height",
+        (2, 2, 3, 4, 5),
+        [0, 1, 2, 4, 3],
+        "For firmware version < 10_01_04_00, only permutes are suported when number of",
+    ),
+]:
+    mod = _build(_x(shape), lambda bb, x, axes=axes: op.permute_dims(x, axes))
+    accept(f"{cid}-firmware-10_01_04_00", "tidl.permute_dims", mod, _fw("10_01_04_00"))
+    reject(f"{cid}-firmware-10_01_03_00", "tidl.permute_dims", mod, reason, _fw("10_01_03_00"))
+# Relay's argmax/argmin set selectLastIndex = 1 for firmware before 11_00_07_00.
+for version, last in [("11_00_06_00", 1), ("11_00_07_00", 0)]:
+    accept(
+        f"argmax-firmware-{version}",
+        "tidl.argmax",
+        _build(_x(), lambda bb, x: op.argmax(x, axis=1, keepdims=True)),
+        _fw(version),
+        selectLastIndex=last,
+    )
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _library():
     _gate.load_relax_so(tidl_tools_path=os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools"))
 
 
-def _run(mod, pattern):
+def _run(mod, pattern, config=None):
     with _gate.recording() as records:
-        partition_for_tidl(mod, {})
+        partition_for_tidl(mod, dict(config or {}))
     matches = [r for r in records if r.pattern == pattern]
     assert matches, (
         f"{pattern} did not match (patterns tried: {sorted({r.pattern for r in records})})"
@@ -753,9 +1311,9 @@ def _run(mod, pattern):
     return matches[0]
 
 
-@pytest.mark.parametrize("pattern,mod,verdict,expect", CASES)
-def test_eligibility(pattern, mod, verdict, expect):
-    res = _run(mod, pattern)
+@pytest.mark.parametrize("pattern,mod,verdict,expect,config", CASES)
+def test_eligibility(pattern, mod, verdict, expect, config):
+    res = _run(mod, pattern, config)
     if verdict:
         assert res.verdict, f"expected accept, library said: {res.reason}"
         d = json.loads(str(tvm.get_global_func("TIDL_relaxDescribeNode")(res.call)))

@@ -59,9 +59,9 @@ def test_covered_constraints_are_still_triggered(coverage, cases):
         text = key.split("::", 1)[1]
         hit = []
         for cid in entry["cases"]:
-            pattern, mod, verdict, _ = cases[cid].values
+            pattern, mod, verdict, _, config = cases[cid].values
             assert not verdict, f"{cid} is listed as rejecting"
-            if f"[constraint: {text}" in D._run(mod, pattern).reason:
+            if f"[constraint: {text}" in D._run(mod, pattern, config).reason:
                 hit.append(cid)
         assert hit, f"no listed case still triggers {key!r}: {entry['cases']}"
 
@@ -71,8 +71,8 @@ def test_subsumed_constraints_are_still_rejected(coverage, cases):
         if entry["status"] != "subsumed":
             continue
         for cid in entry["cases"]:
-            pattern, mod, verdict, _ = cases[cid].values
-            assert not verdict and not D._run(mod, pattern).verdict, (key, cid)
+            pattern, mod, verdict, _, config = cases[cid].values
+            assert not verdict and not D._run(mod, pattern, config).verdict, (key, cid)
 
 
 def test_untested_count_does_not_grow(coverage):
@@ -91,6 +91,6 @@ def test_untested_entries_explain_themselves(coverage):
             assert entry.get("note"), key
 
 
-# Constraints that still need a decline-table case (see the JSON). Lower it as
-# cases are added.
-NEEDS_CASE_BASELINE = 63
+# Constraints that still need a decline-table case (see the JSON). Every in-scope
+# constraint is covered, subsumed or explained as unreachable; a new one must be too.
+NEEDS_CASE_BASELINE = 0

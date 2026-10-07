@@ -17,7 +17,9 @@ Every difference found by the move, classified as in the Track 1 plan (5.7):
 
 Fixtures changed so the gate judges a configuration TIDL can run (snapshot
 composites unchanged): `scatter_elements` (axis 3; TIDL supports only width),
-`scatter_nd` (indices' last dim = output_rank - 1). The variable-weight conv/prelu fixtures needed no
+`scatter_nd` (indices' last dim = output_rank - 1), `instance_norm` (constant
+gamma/beta: the parser took scale and bias only from constants, so variable ones
+were silently dropped; they are now declined). The variable-weight conv/prelu fixtures needed no
 change: `partition()` now runs `CanonicalizeBindings`, which inlines
 `w = R.const(...)` into the call as `prepare()` already does.
 
