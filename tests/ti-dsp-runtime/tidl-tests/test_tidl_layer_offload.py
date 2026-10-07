@@ -561,18 +561,18 @@ def _build_expand_model():
 
 
 def _build_instance_norm_model():
-    """Instance normalization on 4D NCHW input."""
+    """Instance normalization on 4D NCHW input (TIDL needs constant gamma/beta)."""
     x_var = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
-    gamma_var = relax.Var("gamma", relax.TensorStructInfo((8,), "float32"))
-    beta_var = relax.Var("beta", relax.TensorStructInfo((8,), "float32"))
+    gamma = relax.const(np.linspace(0.5, 1.5, 8, dtype="float32"))
+    beta = relax.const(np.linspace(-0.5, 0.5, 8, dtype="float32"))
     bb = relax.BlockBuilder()
-    with bb.function("main", [x_var, gamma_var, beta_var]):
+    with bb.function("main", [x_var]):
         with bb.dataflow():
             out = bb.emit(
                 relax.op.nn.instance_norm(
                     x_var,
-                    gamma_var,
-                    beta_var,
+                    gamma,
+                    beta,
                     channel_axis=1,
                     axes=[2, 3],
                 )

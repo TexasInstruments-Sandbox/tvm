@@ -111,6 +111,37 @@ CASES = {
     "take-const-indices-width-gather": _take([0, 2, 5, 9], 3),
     "take-const-indices-channel-gather": _take([0, 3, 4, 7], 1),
     "take-const-indices-height-slice": _take([2, 3, 4, 5], 2),
+    # Imported as a global average pool, whose NC11 output stands in for Relax's NC.
+    "mean-spatial-no-keepdims": _module(lambda bb, x: op.mean(x, axis=[2, 3], keepdims=False)),
+    "instance-norm-spatial": _module(
+        lambda bb, x: nn.instance_norm(
+            x,
+            relax.const(np.linspace(0.5, 1.5, 8).astype(F32)),
+            relax.const(np.linspace(-0.5, 0.5, 8).astype(F32)),
+            1,
+            [2, 3],
+        )
+    ),
+    "layer-norm-width": _module(
+        lambda bb, x: nn.layer_norm(
+            x,
+            relax.const(np.linspace(0.5, 1.5, 16).astype(F32)),
+            relax.const(np.linspace(-0.5, 0.5, 16).astype(F32)),
+            axes=[-1],
+        )
+    ),
+    "power-scalar-exponent": _module(
+        lambda bb, x: op.power(nn.relu(x), relax.const(np.float32(2)))
+    ),
+    "resize-nearest-asymmetric-floor-4x": _module(
+        lambda bb, x: op.image.resize2d(
+            x,
+            (64, 64),
+            method="nearest_neighbor",
+            coordinate_transformation_mode="asymmetric",
+            rounding_method="floor",
+        )
+    ),
 }
 
 
