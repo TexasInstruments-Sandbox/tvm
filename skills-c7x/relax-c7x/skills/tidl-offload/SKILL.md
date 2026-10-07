@@ -224,8 +224,8 @@ Device config: `DEVICE_NAME=4` = TIDL_AM62A (C7504 with MMA2, single-core).
    case with `TIDL_relaxDescribeNode` params for every field a decline protects.
     Also found this way: non-global `avg_pool2d` could never parse; the deconv
     parser never set `padW/padH` (TIDL's 4x4 rule reads them), and TIDL deconv
-    needs out == in * stride; `take` with constant indices returns wrong values
-    on hardware and is declined.
+    needs out == in * stride; `take` copied int32 constant indices through
+    `NDArrtoFloat`, so only index 0 was right (copy integer constants raw).
 10. **The Relax `.so` does not compile `tidlParseTVM/`.** Anything shared with
     the Relay parsers must live in a file both targets build
     (`tidl_import_common_model_check.cpp`); an `extern` to a Relay-only symbol

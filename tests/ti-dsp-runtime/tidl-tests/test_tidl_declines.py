@@ -434,11 +434,28 @@ accept(
     ),
     axis=5,
 )
+# Constant indices: contiguous ones become a TIDL Slice, others stay a gather.
+for cid, indices, dtype, axis in [
+    ("take-const-indices-width", [0, 2, 5, 9], "int32", 3),
+    ("take-const-indices-width-int64", [0, 2, 5, 9], "int64", 3),
+    ("take-const-indices-height-contiguous", [2, 3, 4, 5], "int32", 2),
+]:
+    accept(
+        cid,
+        "tidl.take",
+        _build(
+            _x(),
+            lambda bb, x, indices=indices, dtype=dtype, axis=axis: op.take(
+                x, relax.const(np.array(indices, dtype)), axis=axis
+            ),
+        ),
+        axis=axis + 2,
+    )
 reject(
-    "take-const-indices",
+    "take-const-indices-height-gather",
     "tidl.take",
-    _build(_x(), lambda bb, x: op.take(x, relax.const(np.arange(4, dtype="int32")), axis=3)),
-    "constant gather indices are imported incorrectly",
+    _build(_x(), lambda bb, x: op.take(x, relax.const(np.array([1, 3, 8, 15], "int32")), axis=2)),
+    "Input shape of dimension higher than axis should be 1",
 )
 reject(
     "take-const-data",
