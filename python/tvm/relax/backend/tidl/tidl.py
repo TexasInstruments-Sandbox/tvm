@@ -1307,12 +1307,16 @@ class TIDLOffloadCompiler:
             TIDL artifacts.  ``result.exec_mode`` reflects the mode used.
         """
         artifacts = artifacts or {}
+        board = _resolve_board(self.config)
         if target is None:
             target = (
                 "c_static_lib -mcpu=c7x -use-cpp-api=1"
                 if exec_mode == "c7x_dload"
                 else "c_static_lib -mcpu=c7x"
             )
+            if board == "am62d":
+                # 240 KB of L2 scratch rather than the 1.25 MB target default.
+                target += " -l2-sram-size=245760"
 
         # 2. Compile to C via relax.build
         # Honor profile_layers config: append -profile-layers to target
@@ -1395,6 +1399,7 @@ class TIDLOffloadCompiler:
                 build_dir=build_path,
                 tidl_bridge=tidl_bridge_sources,
                 use_tidl=bool(artifacts),
+                board=board,
             )
         else:
             module_path = _build_dynmod(
@@ -1406,6 +1411,7 @@ class TIDLOffloadCompiler:
                 use_tidl=bool(artifacts),
                 tidl_artifacts_dir=self._artifacts_dir if artifacts else None,
                 fp_reassoc_off=fp_reassoc_off,
+                board=board,
             )
 
         return TIDLBuildResult(
@@ -1423,6 +1429,15 @@ class TIDLOffloadCompiler:
 # ------------------------------------------------------------------
 
 
+def _resolve_board(config: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Target board for the native build: ``config["board"]``, else ``$TVM_BOARD``.
+
+    Only ``"am62d"`` changes behaviour (AM62A TIDL libs, C7504 toolchain);
+    None or any other value keeps the J722S defaults.
+    """
+    return (config or {}).get("board") or os.environ.get("TVM_BOARD") or None
+
+
 def _build_dynmod(
     generated_dir: Path,
     build_dir: Path,
@@ -1433,6 +1448,7 @@ def _build_dynmod(
     tidl_artifacts_dir: Optional[str] = None,
     build_type: str = "Release",
     fp_reassoc_off: bool = False,
+    board: Optional[str] = None,
 ) -> Path:
     """Build a C7x DLOAD relocatable module from generated code.
 
@@ -1462,6 +1478,9 @@ def _build_dynmod(
         floating-point reassociation optimization -- see
         ``dsp_utils.build_dsp_dynmod``'s docstring for why (ill-conditioned
         matmul accumulations reordered by -O2).
+    board : str, optional
+        Target board; ``"am62d"`` selects the AM62D toolchain, anything else
+        the J722S one.
 
     Returns
     -------
@@ -1485,7 +1504,10 @@ def _build_dynmod(
         dsp_runtime_dir = tvm_home / "src" / "runtime" / "ti_dsp"
 
     dynmod_cmake = dsp_runtime_dir / "dynmod"
-    toolchain_file = dsp_runtime_dir / "cmake" / "toolchain-j722s-c7x.cmake"
+    toolchain_name = (
+        "toolchain-am62d-c7x.cmake" if board == "am62d" else "toolchain-j722s-c7x.cmake"
+    )
+    toolchain_file = dsp_runtime_dir / "cmake" / toolchain_name
 
     if not toolchain_file.exists():
         raise FileNotFoundError(f"Toolchain file not found: {toolchain_file}")
@@ -1564,6 +1586,7 @@ def _build_c7x_host(
     use_tidl: bool = False,
     tidl_artifacts_dir: Optional[str] = None,
     build_type: str = "Release",
+    board: Optional[str] = None,
 ) -> Path:
     """Build a C7x host-emulation executable from generated code.
 
@@ -1586,6 +1609,9 @@ def _build_c7x_host(
         Directory containing TIDL net.bin / io.bin files.
     build_type : str
         CMake build type (Release or Debug).
+    board : str, optional
+        Target board; ``"am62d"`` links the AM62A TIDL PC libs and C7504
+        MMALIB host libs, anything else the J722S ones.
 
     Returns
     -------
@@ -1623,6 +1649,8 @@ def _build_c7x_host(
         cmake_cmd.append("-DUSE_TIDL=ON")
     if tidl_artifacts_dir:
         cmake_cmd.append(f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
+    if board == "am62d":
+        cmake_cmd.append("-DTVM_BOARD=am62d")
     cmake_cmd.append(str(dsp_cpp_dir))
 
     log_path = build_dir / "cmake.log"

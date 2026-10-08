@@ -5,10 +5,10 @@ accelerator, via the `TIDLOffloadCompiler` pipeline in
 `python/tvm/relax/backend/tidl/`. Non-offloaded ops remain in TVM and
 execute as generated C code on the C7x scalar pipeline.
 
-> **J722S only.** TIDL subgraph offload requires firmware built with
-> `--tidl ON` (the `j722s-evm`/AM67A default, which also forces
-> `--mmalib ON`). BeagleY-AI firmware is always built `--tidl OFF
-> --mmalib ON` — no TIDL offload path exists on that board. See
+> **J722S and AM62D only.** TIDL subgraph offload requires firmware built
+> with `--tidl ON` (the `j722s-evm`/AM67A default, which also forces
+> `--mmalib ON`; opt-in on `am62d`, see below). BeagleY-AI firmware is always
+> built `--tidl OFF --mmalib ON` — no TIDL offload path exists on that board. See
 > [MMALIB Integration](mmalib-integration.md#firmware-decoupling-mmalib-from-tidl)
 > for the firmware-side `USE_TIDL_RUNTIME`/`USE_TI_MMALIB` split, and pass
 > `-tidl-kernels=0` when compiling for BeagleY-AI regardless of whether a
@@ -18,6 +18,28 @@ execute as generated C code on the C7x scalar pipeline.
 Target string: `c_static_lib -mcpu=c7x` (TIDL artifacts are embedded and
 `-tidl-runtime=1` is applied automatically by `TIDLOffloadCompiler.build()`
 whenever a model actually produces TIDL subgraphs).
+
+## AM62D
+
+On `--board am62d` (C7504) the same flow applies with AM62A-flavoured TIDL
+libraries and the C7504 MMALIB:
+
+- Build the importer and TIDL libs with `c7x-mma-tidl/build_am62d.sh`
+  (`TARGET_SOC=AM62A`), then build the firmware with
+  `firmware/c7x/dsp/build.sh --board am62d --tidl ON` (needs
+  `C7X_MMA_TIDL_PATH`; default for `am62d` is `--tidl OFF`).
+- `TIDLOffloadCompiler` picks the AM62D toolchain and `-l2-sram-size=245760`
+  from `config["board"]` or `$TVM_BOARD`; `dsp_utils.set_current_board` exports
+  `TVM_BOARD` for `--board am62d`. The dynmod build takes the SDK root
+  (ivision headers) from `$PSDK_INSTALL_PATH`.
+- TIDL's "L2" is the 240 KB L2 AUX bank, which is also the TVM L2 heap; the two
+  users run sequentially. TIDL's "L3" is the 1 MB L2 MAIN bank.
+- Verified on an AM62D EVM: MobileNetV2 (`test_tidl_mv2_e2e.py -k correctness
+  --board am62d --dsp-mode=c7x_dload`). On hardware the top two classes swap,
+  which the test records as an xfail near-tie (`mean_diff` still checked).
+  Other tidl-tests have not been run on AM62D yet.
+- Use per-board work directories; a CMake cache reused across boards keeps the
+  other board's SDK path and flags.
 
 ## Files
 

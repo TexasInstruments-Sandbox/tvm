@@ -348,12 +348,18 @@ def main():
     """Standalone: build TIDL-partitioned MobileNetV2."""
     import argparse
 
+    from dsp_utils import add_board_arg  # noqa: PLC0415
+
     parser = argparse.ArgumentParser(description="MobileNetV2 TIDL E2E")
     parser.add_argument("--test", action="store_true", help="Run pytest instead")
+    add_board_arg(parser)
     args = parser.parse_args()
 
     if args.test:
-        pytest.main([__file__, "-v", "-s"])
+        pytest_args = [__file__, "-v", "-s"]
+        if args.board:
+            pytest_args += ["--board", args.board]
+        pytest.main(pytest_args)
         return
 
     from tvm.relax.backend.tidl import TIDLOffloadCompiler
@@ -363,7 +369,10 @@ def main():
     calib = _CALIB_INPUTS or [np.random.rand(1, 3, 224, 224).astype("float32")]
     print(f"Calibration: {len(calib)} frame(s) ({'real' if _CALIB_INPUTS else 'random'})")
 
-    artifacts_dir = "/tmp/tidl_mv2_artifacts"
+    # Per-board directories: TIDL artifacts and the CMake cache are device-specific,
+    # so a directory reused across boards would keep the other board's settings.
+    suffix = f"_{args.board}" if args.board else ""
+    artifacts_dir = f"/tmp/tidl_mv2_artifacts{suffix}"
     compiler = TIDLOffloadCompiler(
         config={
             "artifacts_dir": artifacts_dir,
@@ -372,7 +381,7 @@ def main():
             "calibration_inputs": calib,
         }
     )
-    result = compiler.build(mod, params=param_dict, build_dir="/tmp/tidl_mv2_build")
+    result = compiler.build(mod, params=param_dict, build_dir=f"/tmp/tidl_mv2_build{suffix}")
 
     print(f"Module: {result.module_path}")
     print(f"Subgraphs: {len(result.artifacts)}")

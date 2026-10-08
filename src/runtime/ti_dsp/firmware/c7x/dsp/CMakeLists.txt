@@ -321,9 +321,14 @@ option(USE_TIDL_RUNTIME "Link TIDL algo libs into firmware" OFF)
 # When enabled, links MMALIB conv2d/matmul kernels into the firmware for
 # direct offload (independent of TIDL subgraph offload).
 option(USE_TI_MMALIB "Link MMALIB direct-integration libs into firmware" OFF)
-if(TVM_SOC STREQUAL "am62dx" AND (USE_TIDL_RUNTIME OR USE_TI_MMALIB))
-    message(FATAL_ERROR "TIDL/MMALIB are not yet supported on TVM_BOARD=${TVM_BOARD}; "
-                        "build with --tidl OFF --mmalib OFF.")
+# c7x-mma-tidl ti_dl/lib/<SOC> directory and MMALIB silicon directory.  am62d
+# is built with TARGET_SOC=AM62A (see c7x-mma-tidl/build_am62d.sh).
+if(TVM_SOC STREQUAL "am62dx")
+    set(_TIDL_SOC_DIR "AM62A")
+    set(_MMALIB_SILICON "C7504")
+else()
+    set(_TIDL_SOC_DIR "J722S")
+    set(_MMALIB_SILICON "C7524")
 endif()
 if(USE_TIDL_RUNTIME AND NOT USE_TI_MMALIB)
     message(STATUS "USE_TIDL_RUNTIME=ON requires MMALIB (tidl_algo.lib "
@@ -338,9 +343,9 @@ if(USE_TIDL_RUNTIME)
     # C7X_MMA_TIDL_PATH is not board-keyed -- same override semantics as
     # before, just falling back to boards.cmake's SDK root.
     if(DEFINED ENV{C7X_MMA_TIDL_PATH})
-        set(TIDL_LIB_PATH "$ENV{C7X_MMA_TIDL_PATH}/ti_dl/lib/J722S/dsp/algo/release")
+        set(TIDL_LIB_PATH "$ENV{C7X_MMA_TIDL_PATH}/ti_dl/lib/${_TIDL_SOC_DIR}/dsp/algo/release")
     else()
-        set(TIDL_LIB_PATH "${PSDK_INSTALL_PATH}/c7x-mma-tidl/ti_dl/lib/J722S/dsp/algo/release")
+        set(TIDL_LIB_PATH "${PSDK_INSTALL_PATH}/c7x-mma-tidl/ti_dl/lib/${_TIDL_SOC_DIR}/dsp/algo/release")
     endif()
 
     set(_TIDL_LIB_NAMES tidl_algo tidl_ref tidl_priv tidl_kernels tidl_custom)
@@ -394,6 +399,13 @@ if(USE_TIDL_RUNTIME)
         ${PSDK_INSTALL_PATH}/ivision
     )
     target_compile_definitions(${PROJECT_NAME}.out PRIVATE USE_TIDL_RUNTIME=1)
+    if(TVM_SOC STREQUAL "am62dx")
+        # itidl_ti.h sets TIDL_MAX_NUM_CORES from SOC_AM62A / SOC_J722S, neither
+        # of which the firmware defines for AM62D.  Use the value the AM62A
+        # algo libs were built with (SOC_AM62A => 1) so the headers agree with
+        # the linked libraries.
+        target_compile_definitions(${PROJECT_NAME}.out PRIVATE TIDL_MAX_NUM_CORES=1U)
+    endif()
 
     message(STATUS "TIDL Runtime: ENABLED")
     message(STATUS "  TIDL libs: ${TIDL_LIB_PATH}")
@@ -402,9 +414,9 @@ endif()
 if(USE_TI_MMALIB)
     # PSDK_INSTALL_PATH / MMALIB_PATH resolved by boards.cmake (env override
     # still wins).
-    set(MMALIB_LIB_PATH "${MMALIB_PATH}/lib/C7524/release")
+    set(MMALIB_LIB_PATH "${MMALIB_PATH}/lib/${_MMALIB_SILICON}/release")
 
-    if(NOT EXISTS "${MMALIB_LIB_PATH}/mmalib_C7524.lib")
+    if(NOT EXISTS "${MMALIB_LIB_PATH}/mmalib_${_MMALIB_SILICON}.lib")
         message(FATAL_ERROR "MMALIB libraries not found at: ${MMALIB_LIB_PATH} "
                              "(MMALIB_PATH='${MMALIB_PATH}'). MMALIB_PATH is "
                              "derived from PSDK_INSTALL_PATH='${PSDK_INSTALL_PATH}' "
@@ -414,10 +426,15 @@ if(USE_TI_MMALIB)
     endif()
 
     list(APPEND TIDL_RUNTIME_LIBS
-        ${MMALIB_LIB_PATH}/mmalib_C7524.lib
-        ${MMALIB_LIB_PATH}/mmalib_cn_C7524.lib
-        ${MMALIB_LIB_PATH}/common_C7524.lib
+        ${MMALIB_LIB_PATH}/mmalib_${_MMALIB_SILICON}.lib
+        ${MMALIB_LIB_PATH}/mmalib_cn_${_MMALIB_SILICON}.lib
+        ${MMALIB_LIB_PATH}/common_${_MMALIB_SILICON}.lib
     )
+    if(TVM_SOC STREQUAL "am62dx")
+        # MMALIB 12.x references *_exec_perf / *_exec_perfEst symbols that live
+        # in perfEst_<silicon>.lib; the J722S (11.x) libs do not need it.
+        list(APPEND TIDL_RUNTIME_LIBS ${MMALIB_LIB_PATH}/perfEst_${_MMALIB_SILICON}.lib)
+    endif()
     # Force the linker to retain key MMALIB entry points that DLOAD modules
     # reference. Without --retain, the linker eliminates them as "unused"
     # since nothing in the firmware calls them directly.

@@ -140,14 +140,30 @@ def set_current_test_name(name: Optional[str]) -> None:
 
 
 def set_current_board(board: Optional[str]) -> None:
-    """Set the target board (j722s-evm|beagley-ai|am62d) selected via --board."""
+    """Set the target board (j722s-evm|beagley-ai|am62d) selected via --board.
+
+    For am62d this also exports TVM_BOARD, which TIDLOffloadCompiler reads (it
+    does not depend on the test utilities) to pick the AM62D toolchain and libs.
+    j722s boards leave the environment untouched.
+    """
     global _current_board
     _current_board = board
+    if board == "am62d":
+        os.environ["TVM_BOARD"] = board
 
 
 def get_current_board() -> Optional[str]:
     """Get the target board selected via --board, or None if unspecified."""
     return _current_board
+
+
+def get_tidl_soc_dir() -> str:
+    """Name of the c7x-mma-tidl ``ti_dl/lib/<SOC>`` directory for the current board.
+
+    am62d is built with TARGET_SOC=AM62A (see c7x-mma-tidl/build_am62d.sh);
+    every other board, and an unspecified board, uses J722S.
+    """
+    return "AM62A" if get_current_board() == "am62d" else "J722S"
 
 
 def get_board_hostname(board: Optional[str] = None) -> Optional[str]:
@@ -833,6 +849,9 @@ def build_dsp_c7x_host(
         cmake_cmd.append("-DUSE_TIDL=ON")
     if tidl_artifacts_dir:
         cmake_cmd.append(f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
+    if get_current_board() == "am62d":
+        # Selects the AM62A TIDL PC libs and C7504 MMALIB host libs in CMakeLists.txt.
+        cmake_cmd.append("-DTVM_BOARD=am62d")
     cmake_cmd.append(str(dsp_cpp_dir))
 
     log_path = build_dir / "cmake.log"

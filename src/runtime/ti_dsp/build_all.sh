@@ -22,9 +22,9 @@
 # Board-specific TIDL/MMALIB linkage follows this project's convention:
 # beagley-ai always builds --tidl OFF --mmalib ON (no TIDL subgraph
 # offload on that board); j722s-evm/am67a uses firmware/c7x/dsp/build.sh's
-# own default (--tidl ON, which forces --mmalib ON too). am62d builds
-# --tidl OFF --mmalib OFF (neither is supported there yet) and has no
-# --wheels support yet.
+# own default (--tidl ON, which forces --mmalib ON too). am62d uses that
+# script's am62d default (--tidl OFF --mmalib OFF; opt in with
+# firmware/c7x/dsp/build.sh --tidl ON) and has no --wheels support yet.
 
 set -euo pipefail
 
@@ -67,7 +67,6 @@ DDR_ARGS=()
 # Only beagley-ai needs an explicit TIDL/MMALIB override.
 FW_TIDL_ARGS=()
 [ "$TVM_BOARD" = "beagley-ai" ] && FW_TIDL_ARGS=(--tidl OFF --mmalib ON)
-[ "$TVM_BOARD" = "am62d" ] && FW_TIDL_ARGS=(--tidl OFF --mmalib OFF)
 
 # Speeds up repeat TVM core builds (e.g. the GitHub Actions wheel-build
 # workflow, which persists CCACHE_DIR across runs) wherever ccache
