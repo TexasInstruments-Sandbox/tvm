@@ -76,6 +76,11 @@ pipeline {
             defaultValue: 'relax-c7x-mma',
             description: 'Branch to build and test'
         )
+        string(
+            name: 'TIDL_BRANCH',
+            defaultValue: 'relay-parity',
+            description: 'c7x-mma-tidl branch providing the TIDL import library and algo libs'
+        )
         choice(
             name: 'BOARD',
             choices: ['j722s-evm', 'beagley-ai'],
@@ -183,6 +188,7 @@ pipeline {
         BOARD_TARGET_HOST              = "${params.BOARD == 'beagley-ai' ? 'beagley-ai' : 'am67a'}"
         ENABLE_SDK_11_0_COMPATIBILITY  = '1'
         SMOLLM_MODEL_DIR               = "${HOME}/.cache/smollm/SmolLM-135M-Instruct"
+        TIDL_BRANCH                    = "${params.TIDL_BRANCH}"
     }
 
     stages {
@@ -291,13 +297,12 @@ pipeline {
                         sh '''
                             if [ -d c7x-mma-tidl/.git ]; then
                                 cd c7x-mma-tidl
-                                git fetch --depth=1 origin tvm-relax-am62d-12.00.00.00
-                                git checkout tvm-relax-am62d-12.00.00.00
-                                git reset --hard origin/tvm-relax-am62d-12.00.00.00
-                                git submodule update --init --depth=1
+                                git fetch --depth=1 origin "${TIDL_BRANCH}"
+                                git checkout -f -B "${TIDL_BRANCH}" FETCH_HEAD
+                                git submodule update --init --force --depth=1
                             else
                                 rm -rf c7x-mma-tidl
-                                git clone --depth=1 --branch tvm-relax-am62d-12.00.00.00 \
+                                git clone --depth=1 --branch "${TIDL_BRANCH}" \
                                     --recurse-submodules --shallow-submodules \
                                     ssh://git@bitbucket.itg.ti.com/mctools/c7x-mma-tidl.git \
                                     c7x-mma-tidl
