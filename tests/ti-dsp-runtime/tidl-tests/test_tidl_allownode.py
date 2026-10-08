@@ -26,7 +26,7 @@ import test_tidl_layer_offload as layer_models
 
 import tvm
 from tvm import relax
-from tvm.relax.backend.tidl import _gate, partition_for_tidl
+from tvm.relax.backend.tidl import _gate, get_tidl_patterns, partition_for_tidl
 from tvm.script import ir as I
 from tvm.script import relax as R
 
@@ -405,6 +405,34 @@ class TestGateFailsClosed:
         proc = _run_script(tmp_path, code)
         assert proc.returncode == 0, proc.stderr[-2000:]
         assert "RAISED" in proc.stdout
+
+
+def _fuse_directly(mod, pattern_name):
+    """FuseOpsByPattern with one TIDL pattern, outside partition(), accepting all."""
+    pat = next(p for p in get_tidl_patterns() if p.name == pattern_name)
+    with _gate.active_allow_fn(lambda call: 1):
+        return relax.transform.FuseOpsByPattern([pat], bind_constants=True)(mod)
+
+
+class TestDirectPatternUse:
+    """Patterns driven without partition(), so no binding order is installed."""
+
+    def test_multi_branch_match_fails_closed(self):
+        # The dependency walk cannot tell which branch the block defines first.
+        with pytest.raises(Exception, match="binding_order"):
+            _fuse_directly(_two_branch_elu(relu_branch_first=True), "tidl.elu")
+
+    @pytest.mark.parametrize("relu_branch_first", [False, True])
+    def test_multi_branch_match_with_binding_order(self, relu_branch_first):
+        mod = _two_branch_elu(relu_branch_first)
+        with _gate.binding_order(mod):
+            out = _fuse_directly(mod, "tidl.elu")
+        assert any(str(f.attrs["Composite"]) == "tidl.elu" for f in _composites_in(out))
+
+    def test_single_chain_match_needs_no_binding_order(self):
+        # One valid order, so the fallback is exact and must not raise.
+        out = _fuse_directly(_single_op_module(relax.op.sigmoid), "tidl.sigmoid")
+        assert any(str(f.attrs["Composite"]) == "tidl.sigmoid" for f in _composites_in(out))
 
 
 class TestDefaultArtifactsDir:
