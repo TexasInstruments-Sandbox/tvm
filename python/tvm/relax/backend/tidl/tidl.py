@@ -339,6 +339,9 @@ class TIDLOffloadCompiler:
           it to keep the artifacts.
         - ``num_subgraphs`` (int): Max subgraphs to offload (0 = unlimited)
         - ``calibration_data`` (dict): Calibration inputs for quantized models
+
+    Not thread-safe: the TIDL import library keeps process-global state, so
+    run concurrent compiles in separate processes.
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):

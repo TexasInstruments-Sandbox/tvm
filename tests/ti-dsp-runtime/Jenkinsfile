@@ -78,7 +78,7 @@ pipeline {
         )
         string(
             name: 'TIDL_BRANCH',
-            defaultValue: 'relay-parity',
+            defaultValue: 'tvm-relax-am62d-12.00.00.00',
             description: 'c7x-mma-tidl branch providing the TIDL import library and algo libs'
         )
         choice(

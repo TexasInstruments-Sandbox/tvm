@@ -25,6 +25,10 @@ asks the library.
 
 This module sits below both ``patterns.py`` and ``tidl.py`` so that neither
 needs a top-level import of the other (``tidl.py`` imports ``patterns.py``).
+
+Not thread-safe. The state below is module-global, and so is the library's own
+(its options and global parameters), so per-thread Python state would not make
+concurrent partitioning safe. Run concurrent compiles in separate processes.
 """
 
 import atexit

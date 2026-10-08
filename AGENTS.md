@@ -315,7 +315,8 @@ once via Settings -> Pages -> Source -> Deploy from a branch -> `gh-pages`.
 
 Standard for any commit intended for upstream:
 
-- One logical change per commit — buildable and passing tests on its own.
+- One feature or logical change per commit — buildable and passing 
+  tests on its own.
 - Subject: imperative mood, `[Component] Short description` (matches TVM's
   own convention), ~50-72 chars.
 - Body: explain *why*, not *what* — the diff already shows what changed.
