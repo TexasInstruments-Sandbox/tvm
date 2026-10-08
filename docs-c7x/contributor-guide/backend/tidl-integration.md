@@ -141,7 +141,7 @@ needs to be excluded explicitly.
 
 | Key | Default | Description |
 |-----|---------|--------------|
-| `artifacts_dir` | `/tmp/tidl_artifacts` | Output directory for TIDL binaries |
+| `artifacts_dir` | per-process temp dir, removed at exit | Output directory for TIDL binaries; set it to keep them |
 | `tidl_tools_path` | auto-detect from `C7X_MMA_TIDL_PATH` env | Path to the TIDL import tool/config |
 | `calibration_inputs` | **required** | List of per-frame numpy arrays (one `(1,C,H,W)` array per calibration image). Random calibration data is rejected: TIDL derives int8 quantization scales from the statistics of these inputs, so unrepresentative data produces wrong scales and wrong classification results downstream |
 | `num_calibration_frames` | 1 | Number of calibration iterations |

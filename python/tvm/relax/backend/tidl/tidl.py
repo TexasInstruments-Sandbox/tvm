@@ -334,14 +334,16 @@ class TIDLOffloadCompiler:
     ----------
     config : dict, optional
         Configuration options:
-        - ``artifacts_dir`` (str): Directory for TIDL net.bin / params.bin
+        - ``artifacts_dir`` (str): Directory for TIDL net.bin / params.bin.
+          Defaults to a per-process temporary directory removed at exit; set
+          it to keep the artifacts.
         - ``num_subgraphs`` (int): Max subgraphs to offload (0 = unlimited)
         - ``calibration_data`` (dict): Calibration inputs for quantized models
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
-        self._artifacts_dir = self.config.get("artifacts_dir", "/tmp/tidl_artifacts")
+        self._artifacts_dir = self.config.get("artifacts_dir") or _gate.default_artifacts_dir()
         self._tidl_lib = None
 
     # ------------------------------------------------------------------

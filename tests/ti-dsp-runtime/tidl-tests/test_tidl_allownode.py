@@ -407,6 +407,28 @@ class TestGateFailsClosed:
         assert "RAISED" in proc.stdout
 
 
+class TestDefaultArtifactsDir:
+    def test_unique_per_process_and_removed_at_exit(self, tmp_path):
+        code = textwrap.dedent(
+            """
+            import os
+            from tvm.relax.backend.tidl import _gate, TIDLOffloadCompiler
+            d = _gate.default_artifacts_dir()
+            assert os.path.isdir(d)
+            assert _gate.default_artifacts_dir() == d
+            assert TIDLOffloadCompiler()._artifacts_dir == d
+            print(d)
+            """
+        )
+        dirs = []
+        for _ in range(2):
+            proc = _run_script(tmp_path, code)
+            assert proc.returncode == 0, proc.stderr[-2000:]
+            dirs.append(proc.stdout.strip().splitlines()[-1])
+        assert dirs[0] != dirs[1]
+        assert not any(os.path.exists(d) for d in dirs)
+
+
 @requires_so
 class TestFirmwareGates:
     """C7: ops the Relay parsers gate on the c7x firmware version."""
