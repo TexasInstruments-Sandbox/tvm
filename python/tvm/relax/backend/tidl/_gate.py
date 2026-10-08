@@ -27,10 +27,13 @@ This module sits below both ``patterns.py`` and ``tidl.py`` so that neither
 needs a top-level import of the other (``tidl.py`` imports ``patterns.py``).
 """
 
+import atexit
 import contextlib
 import dataclasses
 import logging
 import os
+import shutil
+import tempfile
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import tvm
@@ -58,6 +61,24 @@ _init_key: Optional[Tuple] = None
 # partition() before each FuseOpsByPattern call. None when a caller drives the
 # patterns directly, in which case the gate falls back to a dependency order.
 _binding_order: Optional[Dict[Any, int]] = None
+
+
+# Per-process artifacts directory, created by default_artifacts_dir().
+_default_artifacts_dir: Optional[str] = None
+
+
+def default_artifacts_dir() -> str:
+    """Artifacts directory for callers that name none: per process, removed at exit.
+
+    A fixed shared path lets concurrent processes clobber each other's
+    ``tidl_import`` output, and one created by another user makes the library's
+    ``tempDir`` mkdir, hence ``TIDL_relaxInit``, fail.
+    """
+    global _default_artifacts_dir  # noqa: PLW0603
+    if _default_artifacts_dir is None:
+        _default_artifacts_dir = tempfile.mkdtemp(prefix="tidl_artifacts_")
+        atexit.register(shutil.rmtree, _default_artifacts_dir, ignore_errors=True)
+    return _default_artifacts_dir
 
 
 def load_relax_so(path: Optional[str] = None, tidl_tools_path: Optional[str] = None) -> None:
@@ -185,7 +206,7 @@ def _so_allow_fn(call) -> int:
     defaults from the environment on first use.
     """
     if _init_key is None:
-        require_library({}, "/tmp/tidl_artifacts")
+        require_library({}, default_artifacts_dir())
     return int(tvm.get_global_func("TIDL_relaxAllowNode")(call))
 
 

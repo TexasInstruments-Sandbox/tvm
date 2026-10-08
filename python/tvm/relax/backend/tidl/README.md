@@ -12,7 +12,7 @@ execute as generated C code on the C7x scalar pipeline.
 from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
 compiler = TIDLOffloadCompiler(config={
-    "artifacts_dir": "/tmp/tidl_artifacts",
+    "artifacts_dir": "./tidl_artifacts",
     "tidl_tools_path": "~/ml/c7x-mma-tidl/tidl_tools",
     # Required: real per-frame inputs used to collect calibration
     # statistics for each TIDL subgraph (see Config keys below).
@@ -38,7 +38,7 @@ from tvm import relax
 from tvm.relax.backend.tidl import TIDLOffloadCompiler, LowerTIDLToTIR
 
 compiler = TIDLOffloadCompiler(config={
-    "artifacts_dir": "/tmp/tidl_artifacts",
+    "artifacts_dir": "./tidl_artifacts",
     "tidl_tools_path": "~/ml/c7x-mma-tidl/tidl_tools",
     "calibration_inputs": calib_frames,
 })
@@ -376,7 +376,7 @@ each subgraph gets its own `_process()` function and instance.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `artifacts_dir` | `/tmp/tidl_artifacts` | Output directory for TIDL binaries |
+| `artifacts_dir` | per-process temp dir, removed at exit | Output directory for TIDL binaries; set it to keep them |
 | `tidl_tools_path` | auto-detect from `C7X_MMA_TIDL_PATH` | Path to device_config.cfg; `tidl_model_import_relax.so` is derived from its parent dir |
 | `calibration_inputs` | **required** | List of per-frame numpy arrays (one `(1,C,H,W)` array per calibration image); random data is rejected -- TIDL derives int8 quantization scales from the *statistics* of these inputs, so random noise yields scales that don't reflect real activation ranges and produces wrong classification results downstream (use real, representative images) |
 | `num_calibration_frames` | 1 | Calibration iterations |
