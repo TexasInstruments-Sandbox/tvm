@@ -73,8 +73,21 @@ set(TIDL_BRIDGE_SOURCES "" CACHE STRING "Extra .c files for TIDL bridge")
 
 # === TIDL Integration (optional) ===
 option(USE_TIDL "Link TIDL libraries into model module" OFF)
-set(PSDK_PATH "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
-    CACHE PATH "Path to TI Processor SDK")
+# TVM_DSP_DEVICE is force-set by the toolchain file (project() above).
+if(TVM_DSP_DEVICE STREQUAL "am62d")
+    set(_PSDK_PATH_DEFAULT "/opt/ti/am62d")
+else()
+    set(_PSDK_PATH_DEFAULT "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06")
+endif()
+# PSDK_INSTALL_PATH is the repo-wide SDK root (see cmake/boards.cmake).  When set
+# it wins over a cached value (FORCE, same pattern as TVM_HOME above) so that a
+# reused build directory never keeps a stale SDK path; otherwise PSDK_PATH can
+# be passed with -D, falling back to the per-device default.
+if(NOT "$ENV{PSDK_INSTALL_PATH}" STREQUAL "")
+    set(PSDK_PATH "$ENV{PSDK_INSTALL_PATH}" CACHE PATH "Path to TI Processor SDK" FORCE)
+else()
+    set(PSDK_PATH "${_PSDK_PATH_DEFAULT}" CACHE PATH "Path to TI Processor SDK")
+endif()
 
 # === Weights ===
 set(WEIGHTS_FILE "${GENERATED_CODE_DIR}/weights.bin" CACHE FILEPATH "Path to weights.bin")

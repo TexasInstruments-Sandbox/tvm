@@ -50,14 +50,10 @@ while [ $# -gt 0 ]; do
 done
 
 # Backward-compat: TIDL defaulted ON unconditionally before --tidl existed.
-# am62d has no TIDL/MMALIB support yet: default both OFF and reject ON.
+# am62d is opt-in: it needs the AM62A c7x-mma-tidl libs (build_am62d.sh), so
+# it defaults to --tidl OFF.
 if [ "$TVM_BOARD" = "am62d" ]; then
-    if [ "${TVM_TIDL:-OFF}" = "ON" ] || [ "${TVM_MMALIB:-OFF}" = "ON" ]; then
-        echo "Error: --tidl/--mmalib ON are not supported for --board am62d" >&2
-        exit 1
-    fi
-    TVM_TIDL="OFF"
-    TVM_MMALIB="OFF"
+    TVM_TIDL="${TVM_TIDL:-OFF}"
 else
     TVM_TIDL="${TVM_TIDL:-ON}"
 fi

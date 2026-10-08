@@ -146,8 +146,9 @@ bash build_runtime.sh all        # c66x + c7x + c7x_host
 - `beagley-ai` → `--tidl OFF --mmalib ON` (no TIDL subgraph offload on this
   board).
 - `j722s-evm` → firmware default (`--tidl ON`, which forces `--mmalib ON`).
-- `am62d` → `--tidl OFF --mmalib OFF` (neither is supported yet; the scripts
-  reject `ON`).
+- `am62d` → `--tidl OFF --mmalib OFF` by default; opt in with
+  `firmware/c7x/dsp/build.sh --board am62d --tidl ON` (needs the AM62A libs from
+  `c7x-mma-tidl/build_am62d.sh`, `C7X_MMA_TIDL_PATH`, and the C7504 MMALIB).
 
 `build_all.sh` and the wheel build apply this convention automatically
 (`am62d` has no wheel support yet; `build_all.sh --wheels` rejects it).
@@ -164,14 +165,20 @@ export PSDK_INSTALL_PATH=/opt/ti/am62d TI_SYSCONFIG_ROOT=/opt/ti/sysconfig
 export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.0.LTS
 cd src/runtime/ti_dsp
 bash build_runtime.sh c7x --board am62d
-(cd firmware/c7x/dsp && ./build.sh --board am62d)
+(cd firmware/c7x/dsp && ./build.sh --board am62d)             # no TIDL/MMALIB
+# TIDL + MMALIB (links c7x-mma-tidl's ti_dl/lib/AM62A and MMALIB C7504):
+(cd firmware/c7x/dsp && C7X_MMA_TIDL_PATH=~/tvm-relax/c7x-mma-tidl \
+   ./build.sh --board am62d --tidl ON)
 # ARM client needs an aarch64 toolchain, e.g. the TI arm-gnu-toolchain:
 (cd firmware/c7x/arm && TVM_HOME=$(git rev-parse --show-toplevel) \
    CROSS_COMPILE=aarch64-none-linux-gnu- ./build.sh --board am62d)
 ```
 
 Not yet verified on AM62D hardware: the DMA path (DRU instance ID), conv2d
-DMA tiling, and the remoteproc firmware name used by `deploy-c7x.sh`.
+DMA tiling, and the remoteproc firmware name used by `deploy-c7x.sh`. TIDL
+offload (firmware built with `--tidl ON`) has run on an AM62D EVM for
+MobileNetV2 (`tidl-tests/test_tidl_mv2_e2e.py`, `--board am62d
+--dsp-mode=c7x_dload`); top-1/top-2 swap as an xfail near-tie, as in the test.
 
 The runtime library and firmware are built by independent CMake invocations
 and statically linked — **the runtime and firmware builds must use identical

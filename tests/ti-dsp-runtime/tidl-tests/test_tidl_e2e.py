@@ -64,6 +64,7 @@ _TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DSP_CPP_DIR = os.path.join(_TESTS_DIR, "dsp-cpp")
 sys.path.insert(0, _DSP_CPP_DIR)
 
+from dsp_utils import get_tidl_soc_dir  # noqa: E402
 
 _C7X_MMA_TIDL_PATH = os.environ.get(
     "C7X_MMA_TIDL_PATH",
@@ -74,7 +75,11 @@ _RELAX_SO_PATH = os.path.join(
     "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so",
 )
 _TIDL_TOOLS_PATH = os.path.join(_C7X_MMA_TIDL_PATH, "tidl_tools")
-_TIDL_PC_LIB_DIR = os.path.join(_C7X_MMA_TIDL_PATH, "ti_dl/lib/J722S/PC/algo/release")
+# get_tidl_soc_dir() follows --board (AM62A for am62d, J722S otherwise); the board
+# is set in pytest_configure, before this module is collected.
+_TIDL_PC_LIB_DIR = os.path.join(
+    _C7X_MMA_TIDL_PATH, f"ti_dl/lib/{get_tidl_soc_dir()}/PC/algo/release"
+)
 
 
 def _has_c7x_host_env():

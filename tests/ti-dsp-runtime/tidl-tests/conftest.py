@@ -91,7 +91,10 @@ def has_c7x_host_env():
 def has_tidl_pc_libs():
     """True if PC (x86-64) TIDL algo libs are present."""
     c7x = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-    return os.path.isfile(os.path.join(c7x, "ti_dl/lib/J722S/PC/algo/release/libtidl_algo.a"))
+    from dsp_utils import get_tidl_soc_dir
+
+    soc = get_tidl_soc_dir()
+    return os.path.isfile(os.path.join(c7x, f"ti_dl/lib/{soc}/PC/algo/release/libtidl_algo.a"))
 
 
 def tidl_build_and_run(compiler, mod, params, input_data, tmp_path, dsp_mode):

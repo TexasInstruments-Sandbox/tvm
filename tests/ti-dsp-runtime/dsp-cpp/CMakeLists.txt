@@ -60,6 +60,9 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 # === Target Selection ===
 set(TVM_DSP_TARGET "host" CACHE STRING "DSP target: host, c66x, c7x_host, c7x-dynmod")
 set(TVM_DSP_DEVICE "" CACHE STRING "Device variant (e.g., awrl6844, j722s)")
+# Board whose TIDL/MMALIB host libs the c7x_host build links.  Empty means the
+# J722S defaults; "am62d" selects the AM62A TIDL PC libs and C7504 MMALIB.
+set(TVM_BOARD "" CACHE STRING "Target board for c7x_host TIDL/MMALIB libs (am62d, or empty for J722S)")
 
 # Allow overriding target via C7X_DYNMOD option (since toolchain forces TVM_DSP_TARGET)
 option(C7X_DYNMOD "Build as DLOAD dynamic module" OFF)
@@ -473,7 +476,19 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
     # TVM generated code).  Skip it under USE_TIDL: in the TIDL path TVM code
     # never calls MMALIB directly — TIDL calls it internally — so the wrapper
     # would introduce a duplicate symbol conflict.
-    set(MMALIB_ROOT "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mmalib_11_02_00_06")
+    if(TVM_BOARD STREQUAL "am62d")
+        # TODO(am62d): confirm these.  C7504 host-emulation MMALIB; the SDK root
+        # can be overridden with MMALIB_PATH.
+        set(MMALIB_ROOT "/opt/ti/am62d/mmalib_12_01_00_09")
+        set(MMALIB_SILICON "C7504")
+        set(MMALIB_HOST_DEFS _HOST_BUILD __C7504__)  # TODO(am62d): MMA macro, if any
+        set(TIDL_SOC_DIR "AM62A")
+    else()
+        set(MMALIB_ROOT "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mmalib_11_02_00_06")
+        set(MMALIB_SILICON "C7524")
+        set(MMALIB_HOST_DEFS _HOST_BUILD __C7524__ __C7X_MMA_2_256__)
+        set(TIDL_SOC_DIR "J722S")
+    endif()
     if(DEFINED ENV{MMALIB_PATH})
         set(MMALIB_ROOT "$ENV{MMALIB_PATH}")
     endif()
@@ -486,11 +501,17 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
             list(APPEND DSP_SOURCES "${DSP_RUNTIME_DIR}/mmalib/mmalib_wrappers.cpp")
         endif()
         set(MMALIB_LIBS
-            "${MMALIB_ROOT}/lib/C7524/release/libmmalib_x86_64.a"
-            "${MMALIB_ROOT}/lib/C7524/release/libmmalib_cn_x86_64.a"
-            "${MMALIB_ROOT}/lib/C7524/release/libcommon_x86_64.a"
+            "${MMALIB_ROOT}/lib/${MMALIB_SILICON}/release/libmmalib_x86_64.a"
+            "${MMALIB_ROOT}/lib/${MMALIB_SILICON}/release/libmmalib_cn_x86_64.a"
+            "${MMALIB_ROOT}/lib/${MMALIB_SILICON}/release/libcommon_x86_64.a"
         )
-        add_compile_definitions(_HOST_BUILD __C7524__ __C7X_MMA_2_256__)
+        if(TVM_BOARD STREQUAL "am62d")
+            # TODO(am62d): the C7504 libmmalib_x86_64.a references *_exec_perf
+            # symbols that live in libperfEst_x86_64.a; it must follow mmalib
+            # in the link order.
+            list(APPEND MMALIB_LIBS "${MMALIB_ROOT}/lib/${MMALIB_SILICON}/release/libperfEst_x86_64.a")
+        endif()
+        add_compile_definitions(${MMALIB_HOST_DEFS})
         if(NOT USE_TIDL)
             set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include mmalib_wrappers.h")
         endif()
@@ -511,7 +532,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
         if(NOT C7X_MMA_TIDL_PATH)
             set(C7X_MMA_TIDL_PATH "$ENV{HOME}/ml/c7x-mma-tidl")
         endif()
-        set(TIDL_PC_LIB_DIR "${C7X_MMA_TIDL_PATH}/ti_dl/lib/J722S/PC/algo/release")
+        set(TIDL_PC_LIB_DIR "${C7X_MMA_TIDL_PATH}/ti_dl/lib/${TIDL_SOC_DIR}/PC/algo/release")
         set(TIDL_INC_PATH   "${C7X_MMA_TIDL_PATH}/ti_dl/inc")
         if(EXISTS "${TIDL_PC_LIB_DIR}/libtidl_algo.a" AND EXISTS "${TIDL_INC_PATH}/itidl_ti.h")
             message(STATUS "  TIDL (c7x_host): PC libs from ${TIDL_PC_LIB_DIR}")

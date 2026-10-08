@@ -244,4 +244,5 @@ class TestTIDLImportE2E:
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v", "-s"])
+    # Forward the command line so e.g. --board / --dsp-mode reach pytest.
+    sys.exit(pytest.main([__file__, "-v", "-s", *sys.argv[1:]]))

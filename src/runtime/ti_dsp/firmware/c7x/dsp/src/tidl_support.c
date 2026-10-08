@@ -22,6 +22,10 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(TVM_DSP_DEVICE_AM62DX)
+#include <kernel/dpl/CacheP.h>
+#include <kernel/dpl/HwiP.h>
+#endif
 
 /* --------------------------------------------------------------------------
  * UDMA driver handle
@@ -90,13 +94,21 @@ uint32_t g_l3_mem_size = 0;
  * -------------------------------------------------------------------------- */
 
 int32_t TVM_lockInterrupts(void) {
+#if defined(TVM_DSP_DEVICE_AM62DX)
+    return (int32_t)HwiP_disable();
+#else
     /* On single-core FreeRTOS C7x, TIDL runs in a single task context.
      * No preemption needed — return dummy state. */
     return 0;
+#endif
 }
 
 void TVM_unlockInterrupts(int32_t prev_state) {
+#if defined(TVM_DSP_DEVICE_AM62DX)
+    HwiP_restore((uintptr_t)(uint32_t)prev_state);
+#else
     (void)prev_state;
+#endif
 }
 
 /* --------------------------------------------------------------------------
@@ -105,10 +117,18 @@ void TVM_unlockInterrupts(int32_t prev_state) {
 extern void CacheP_wbInv(void*, uint32_t, uint32_t);
 
 void TVM_cacheWbInv(void) {
+#if defined(TVM_DSP_DEVICE_AM62DX)
+    /* AM62D: CacheP_wbInv(NULL, 0xFFFFFFFF) drives the Streaming Engine
+     * through the full 4 GB address range, and the AM62D MMU has a gap at
+     * 0x70000000 (between CONFIG_MMU_REGION3 and CLEC) that causes a uTLB
+     * fault.  Use the hardware global WB+INV command instead. */
+    CacheP_wbInvAll(CacheP_TYPE_L1D);
+#else
     /* Writeback+invalidate all data cache.
      * CacheP_wbInv with NULL ptr and 0 size flushes everything
      * on MCU+ SDK. Use large size as fallback. */
     CacheP_wbInv(NULL, 0xFFFFFFFFu, 0 /* CacheP_TYPE_ALL */);
+#endif
 }
 
 /* Properly-typed cache writeback for TIDL IVISION interface.
@@ -141,6 +161,22 @@ void tidl_support_init(void) {
     g_l1_mem_addr = (void*)0x7F03C000;
     g_l1_mem_size = 16 * 1024;
 
+#if defined(TVM_DSP_DEVICE_AM62DX)
+    /* AM62D follows the vision_apps AM62A convention (matches
+     * c7x-mma-tidl's am62a_config.cfg: L2MEMSIZE_KB=224, MSMCSIZE_KB=1024):
+     *
+     *  L2 scratch: L2RAM_C7x_1_AUX  @ 0x7F000000, 240 KB
+     *  L3 scratch: L2RAM_C7x_1_MAIN @ 0x7E000000, 1 MB (extended L2 as L3)
+     *
+     * The TVM runtime L2 heap (all of AUX, see the linker command file) and
+     * the generated-code L2 scratch alias the AUX bank.  That is safe because
+     * TVM kernels and TIDL layers run sequentially, never concurrently. */
+    g_l2_mem_addr = (void*)0x7F000000;
+    g_l2_mem_size = 0x3C000;   /* 240 KB */
+
+    g_l3_mem_addr = (void*)0x7E000000;
+    g_l3_mem_size = 0x100000;  /* 1 MB */
+#else
     /* L2 scratch — full 1.25 MB L2 SRAM (shared with TVM bump allocator).
      * J722S: L2RAM_C7x_1_MAIN @ 0x7E000000, 1.25 MB */
     g_l2_mem_addr = (void*)0x7E000000;
@@ -150,4 +186,5 @@ void tidl_support_init(void) {
      * J722S: L2RAM_C7x_1_AUX @ 0x7F000000, 240 KB */
     g_l3_mem_addr = (void*)0x7F000000;
     g_l3_mem_size = 240 * 1024;
+#endif
 }
