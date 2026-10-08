@@ -277,6 +277,19 @@ def _subst(expr, vmap):
     return expr
 
 
+def _uses(expr, var) -> bool:
+    """Whether *expr* references *var* directly (Var/Tuple/TupleGetItem/Call)."""
+    if isinstance(expr, relax.Var):
+        return expr.same_as(var)
+    if isinstance(expr, relax.Call):
+        return any(_uses(a, var) for a in expr.args)
+    if isinstance(expr, relax.Tuple):
+        return any(_uses(f, var) for f in expr.fields)
+    if isinstance(expr, relax.TupleGetItem):
+        return _uses(expr.tuple_value, var)
+    return False
+
+
 def _dependency_order(bindings, root_var) -> List[relax.Var]:
     """Matched bindings in a dependency DFS: operands before users, left first.
 
@@ -321,12 +334,24 @@ def _matched_binding_order(bindings, root_var) -> List[relax.Var]:
     which parsers index positionally). A multi-branch match ordered
     differently from the block would make the library judge a function that
     is not the one later imported.
+
+    Without that map the dependency order is used only where it is the sole
+    valid order: when each binding uses the one before it (a single chain).
+    Otherwise this fails closed rather than guess.
     """
     indices = _binding_order
     if indices is not None and all(v in indices for v in bindings):
         order = sorted(bindings, key=lambda v: indices[v])
     else:
         order = _dependency_order(bindings, root_var)
+        for prev, nxt in zip(order, order[1:]):
+            if not _uses(bindings[nxt], prev):
+                raise RuntimeError(
+                    f"TIDL gate: the match rooted at {root_var.name_hint} has more than one "
+                    "branch, and its binding order is unknown outside "
+                    "TIDLOffloadCompiler.partition(). Wrap the FuseOpsByPattern call in "
+                    "tvm.relax.backend.tidl._gate.binding_order(mod)."
+                )
     # The root is the match's output, so every other matched binding feeds it
     # and already precedes it; make that explicit rather than assumed.
     return [v for v in order if v is not root_var] + [root_var]
