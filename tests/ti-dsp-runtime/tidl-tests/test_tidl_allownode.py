@@ -375,6 +375,10 @@ class TestGateFailsClosed:
             from tvm.script import ir as I, relax as R
             import tvm
             from tvm import relax
+            # A wheel install bundles the .so, which load_relax_so prefers
+            # over C7X_MMA_TIDL_PATH; hide it too.
+            import tvm.data.ti_dsp.paths as _paths
+            _paths.find_tidl_relax_so = lambda: None
             from tvm.relax.backend.tidl import _gate
             from tvm.relax.dpl.pattern import is_op, wildcard
             from tvm.relax.transform import FusionPattern
