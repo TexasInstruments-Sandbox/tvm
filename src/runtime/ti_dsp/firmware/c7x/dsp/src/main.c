@@ -306,10 +306,17 @@ void MmuP_setConfig(void)
     appCacheInit();
 }
 
+/* Use default weak definition on SDK to leave L1D in WriteThrough (WT) mode.
+ * Otherwise, user program, auto-generated code, compiler auto-SE will all
+ * have to insert CacheWbInv everywhere to maintain correctness,
+ * with snooping being turned off to avoid a silicon defect that could cause SoC to hang.
+ */
+#if 0
 /* Override the weak function definition here to set cache write back after c_init */
 void CacheP_Module_startup(void)
 {
     CacheP_enable(CacheP_TYPE_L1D);
     CacheP_enableWB(CacheP_TYPE_L1D);
 }
+#endif
 #endif /* TVM_DSP_DEVICE_AM62DX */
