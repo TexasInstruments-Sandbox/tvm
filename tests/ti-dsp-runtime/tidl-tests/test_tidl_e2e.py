@@ -64,7 +64,7 @@ _TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DSP_CPP_DIR = os.path.join(_TESTS_DIR, "dsp-cpp")
 sys.path.insert(0, _DSP_CPP_DIR)
 
-from dsp_utils import get_tidl_soc_dir  # noqa: E402
+from dsp_utils import get_current_board, get_tidl_soc_dir  # noqa: E402
 
 _C7X_MMA_TIDL_PATH = os.environ.get(
     "C7X_MMA_TIDL_PATH",
@@ -306,6 +306,7 @@ class TestTIDLPipelineHostRealBridge:
         artifacts_dir = str(tmp_path / "tidl_artifacts")
         compiler = TIDLOffloadCompiler(
             config={
+                "board": get_current_board(),
                 "artifacts_dir": artifacts_dir,
                 "tidl_tools_path": _TIDL_TOOLS_PATH,
                 "num_calibration_frames": 1,

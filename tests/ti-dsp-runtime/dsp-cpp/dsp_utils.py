@@ -142,19 +142,24 @@ def set_current_test_name(name: Optional[str]) -> None:
 def set_current_board(board: Optional[str]) -> None:
     """Set the target board (j722s-evm|beagley-ai|am62d) selected via --board.
 
-    For am62d this also exports TVM_BOARD, which TIDLOffloadCompiler reads (it
-    does not depend on the test utilities) to pick the AM62D toolchain and libs.
-    j722s boards leave the environment untouched.
+    Tests that build with TIDLOffloadCompiler pass this board in its config
+    (``"board": get_current_board()``).
     """
     global _current_board
     _current_board = board
-    if board == "am62d":
-        os.environ["TVM_BOARD"] = board
 
 
 def get_current_board() -> Optional[str]:
     """Get the target board selected via --board, or None if unspecified."""
     return _current_board
+
+
+def get_current_device() -> Optional[str]:
+    """Compiler device (``j722s`` | ``am62d``) for the current board, or None."""
+    from tvm.relax.backend.tidl.tidl import board_to_device  # noqa: PLC0415
+
+    board = get_current_board()
+    return board_to_device(board) if board is not None else None
 
 
 def get_tidl_soc_dir() -> str:
@@ -163,7 +168,7 @@ def get_tidl_soc_dir() -> str:
     am62d is built with TARGET_SOC=AM62A (see c7x-mma-tidl/build_am62d.sh);
     every other board, and an unspecified board, uses J722S.
     """
-    return "AM62A" if get_current_board() == "am62d" else "J722S"
+    return "AM62A" if get_current_device() == "am62d" else "J722S"
 
 
 def get_board_hostname(board: Optional[str] = None) -> Optional[str]:
@@ -242,6 +247,7 @@ def get_target_string(
                 "(c7x_dload targets real deployed firmware, whose exported "
                 "kernels depend on which board it was built for)"
             )
+        target += f" -device={get_current_device()}"
         if board == "beagley-ai":
             # BeagleY-AI firmware is built --tidl OFF (no TIDL algo libs linked --
             # see tvm-relax-c7x:build / firmware/c7x/dsp/build.sh). The default
@@ -250,11 +256,6 @@ def get_target_string(
             # the board (not at compile time). c7x_host emulation is unaffected
             # -- it's a separate build, not the deployed board firmware.
             target += " -tidl-kernels=0"
-        elif board == "am62d":
-            # AM62D firmware is built --tidl OFF --mmalib OFF (same reason as
-            # BeagleY-AI above), and it has 240 KB of L2 scratch memory rather
-            # than the 1.25 MB target default (cf. target_kind.cc).
-            target += " -tidl-kernels=0 -l2-sram-size=245760"
     return target
 
 
@@ -849,7 +850,7 @@ def build_dsp_c7x_host(
         cmake_cmd.append("-DUSE_TIDL=ON")
     if tidl_artifacts_dir:
         cmake_cmd.append(f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
-    if get_current_board() == "am62d":
+    if get_current_device() == "am62d":
         # Selects the AM62A TIDL PC libs and C7504 MMALIB host libs in CMakeLists.txt.
         cmake_cmd.append("-DTVM_BOARD=am62d")
     cmake_cmd.append(str(dsp_cpp_dir))
@@ -945,14 +946,8 @@ def build_dsp_dynmod(
     generated_dir = Path(generated_dir).resolve()
     dsp_cpp_dir = Path(dsp_cpp_dir).resolve()
 
-    # Use the same C7x toolchain
-    # (am62d is a different SoC/core, so it has its own toolchain file.)
-    toolchain_name = (
-        "toolchain-am62d-c7x.cmake"
-        if get_current_board() == "am62d"
-        else "toolchain-j722s-c7x.cmake"
-    )
-    toolchain_file = _DSP_RUNTIME_DIR / "cmake" / toolchain_name
+    # Use the same C7x toolchain (the device selects the core variant)
+    toolchain_file = _DSP_RUNTIME_DIR / "cmake" / "toolchain-c7x.cmake"
     if not toolchain_file.exists():
         raise FileNotFoundError(f"Toolchain file not found: {toolchain_file}")
 
@@ -991,6 +986,7 @@ def build_dsp_dynmod(
         f"-DTVM_HOME={_TVM_HOME}",
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_TOOLCHAIN_FILE={toolchain_file}",
+        f"-DTVM_DSP_DEVICE={get_current_device() or 'j722s'}",
         f"-DGENERATED_CODE_DIR={generated_dir}",
         str(dsp_cpp_dir),
     ]

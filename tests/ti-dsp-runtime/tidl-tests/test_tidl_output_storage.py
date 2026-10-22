@@ -33,6 +33,8 @@ _TESTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_TESTS_DIR / "dsp-cpp"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from dsp_utils import get_current_board  # noqa: E402
+
 from tvm.relax.backend.tidl.output_storage import (  # noqa: E402
     MODULE_ATTR,
     PadTIDLOutputStorage,
@@ -239,6 +241,7 @@ class TestTIDLRepeatedInference:
 
         compiler = TIDLOffloadCompiler(
             config={
+                "board": get_current_board(),
                 "artifacts_dir": str(tmp_path / "tidl_artifacts"),
                 "tidl_tools_path": TIDL_TOOLS_PATH,
                 "num_calibration_frames": 2,

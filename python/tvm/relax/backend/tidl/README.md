@@ -477,7 +477,7 @@ lib0.c + weights.bin + tidl_bridge.c/h
     v
 Phase 6: _build_dynmod()
     |  CMakeLists.txt at src/runtime/ti_dsp/dynmod/
-    |  TI C7x cross-compile via toolchain-j722s-c7x.cmake
+    |  TI C7x cross-compile via toolchain-c7x.cmake
     |  Embeds TIDL artifacts (net.bin + io.bin as .rodata)
     |  Links tidl_api.c (IALG wrapper) + bridge
     v

@@ -85,7 +85,7 @@ class TestCompileWheelContents:
         dsp_dir = find_dsp_runtime_dir()
         assert dsp_dir is not None
         assert (dsp_dir / "dynmod" / "CMakeLists.txt").exists()
-        assert (dsp_dir / "cmake" / "toolchain-j722s-c7x.cmake").exists()
+        assert (dsp_dir / "cmake" / "toolchain-c7x.cmake").exists()
 
     def test_tidl_patterns_available(self):
         """TIDL partitioning patterns must load without the import .so."""

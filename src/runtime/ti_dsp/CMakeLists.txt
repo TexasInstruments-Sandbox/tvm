@@ -41,12 +41,12 @@ cmake_minimum_required(VERSION 3.16)
 # Board/DDR -> SDK roots + shared-DMA phys base (single source of truth,
 # only load-bearing for the c7x target; harmless no-op for host/c66x).
 # Included before project() so it resolves MCU_PLUS_SDK_PATH *before*
-# toolchain-{j722s,am62d}-c7x.cmake runs (toolchain files load during project()).
+# toolchain-c7x.cmake runs (toolchain files load during project()).
 # The c7x cross build is the only runtime target that consumes the TI
 # SDK; it is uniquely identified pre-project() by its toolchain file, so we
 # require the SDK (no default -- a missing/wrong root is a hard error) only
 # then.  host/c66x/c7x_host emulation builds need no SDK.
-if(CMAKE_TOOLCHAIN_FILE MATCHES "toolchain-(j722s|am62d)-c7x")
+if(CMAKE_TOOLCHAIN_FILE MATCHES "toolchain-c7x")
     set(TVM_REQUIRE_SDK TRUE)
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/boards.cmake")

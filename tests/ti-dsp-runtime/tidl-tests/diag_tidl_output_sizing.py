@@ -40,7 +40,7 @@ _TESTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_TESTS_DIR / "dsp-cpp"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dsp_utils import add_board_arg, run_dsp_dload  # noqa: E402
+from dsp_utils import add_board_arg, get_current_board, run_dsp_dload  # noqa: E402
 
 _HW = 16
 
@@ -135,6 +135,7 @@ def main() -> int:
 
     compiler = TIDLOffloadCompiler(
         config={
+            "board": get_current_board(),
             "artifacts_dir": str(work_dir / "tidl_artifacts"),
             "tidl_tools_path": os.path.join(
                 os.environ["C7X_MMA_TIDL_PATH"], "tidl_tools"),

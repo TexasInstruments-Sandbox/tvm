@@ -146,9 +146,9 @@ bash build_runtime.sh all        # c66x + c7x + c7x_host
 - `beagley-ai` → `--tidl OFF --mmalib ON` (no TIDL subgraph offload on this
   board).
 - `j722s-evm` → firmware default (`--tidl ON`, which forces `--mmalib ON`).
-- `am62d` → `--tidl OFF --mmalib OFF` by default; opt in with
-  `firmware/c7x/dsp/build.sh --board am62d --tidl ON` (needs the AM62A libs from
-  `c7x-mma-tidl/build_am62d.sh`, `C7X_MMA_TIDL_PATH`, and the C7504 MMALIB).
+- `am62d` → firmware default (`--tidl ON`, which forces `--mmalib ON`); needs
+  the AM62A libs from `c7x-mma-tidl/build_am62d.sh`, `C7X_MMA_TIDL_PATH`, and
+  the C7504 MMALIB. `--tidl OFF --mmalib OFF` is still accepted.
 
 `build_all.sh` and the wheel build apply this convention automatically
 (`am62d` has no wheel support yet; `build_all.sh --wheels` rejects it).
@@ -165,10 +165,9 @@ export PSDK_INSTALL_PATH=/opt/ti/am62d TI_SYSCONFIG_ROOT=/opt/ti/sysconfig
 export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.0.LTS
 cd src/runtime/ti_dsp
 bash build_runtime.sh c7x --board am62d
-(cd firmware/c7x/dsp && ./build.sh --board am62d)             # no TIDL/MMALIB
 # TIDL + MMALIB (links c7x-mma-tidl's ti_dl/lib/AM62A and MMALIB C7504):
 (cd firmware/c7x/dsp && C7X_MMA_TIDL_PATH=~/tvm-relax/c7x-mma-tidl \
-   ./build.sh --board am62d --tidl ON)
+   ./build.sh --board am62d)
 # ARM client needs an aarch64 toolchain, e.g. the TI arm-gnu-toolchain:
 (cd firmware/c7x/arm && TVM_HOME=$(git rev-parse --show-toplevel) \
    CROSS_COMPILE=aarch64-none-linux-gnu- ./build.sh --board am62d)

@@ -50,13 +50,9 @@ while [ $# -gt 0 ]; do
 done
 
 # Backward-compat: TIDL defaulted ON unconditionally before --tidl existed.
-# am62d is opt-in: it needs the AM62A c7x-mma-tidl libs (build_am62d.sh), so
-# it defaults to --tidl OFF.
-if [ "$TVM_BOARD" = "am62d" ]; then
-    TVM_TIDL="${TVM_TIDL:-OFF}"
-else
-    TVM_TIDL="${TVM_TIDL:-ON}"
-fi
+# On am62d, --tidl ON needs the AM62A c7x-mma-tidl libs (build_am62d.sh) and
+# C7X_MMA_TIDL_PATH.
+TVM_TIDL="${TVM_TIDL:-ON}"
 
 if [ -z "$TVM_BOARD" ]; then
     echo "Error: --board <j722s-evm|beagley-ai|am62d> is required" >&2

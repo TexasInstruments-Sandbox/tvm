@@ -35,6 +35,8 @@ _DSP_CPP_DIR = os.path.join(_TESTS_DIR, "dsp-cpp")
 _TEST_IMAGES_DIR = Path(_TESTS_DIR).parent / "cstatic" / "test_images"
 sys.path.insert(0, _DSP_CPP_DIR)
 
+from dsp_utils import get_current_board  # noqa: E402
+
 # ImageNet normalization constants (mean/std per channel)
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
@@ -155,6 +157,7 @@ class TestTIDLResNetE2E:
         artifacts_dir = str(tmp_path / "tidl_artifacts")
         compiler = TIDLOffloadCompiler(
             config={
+                "board": get_current_board(),
                 "artifacts_dir": artifacts_dir,
                 "tidl_tools_path": TIDL_TOOLS_PATH,
                 "num_calibration_frames": 2,
@@ -214,6 +217,7 @@ class TestTIDLResNetE2E:
         artifacts_dir = str(tmp_path / "tidl_artifacts")
         compiler = TIDLOffloadCompiler(
             config={
+                "board": get_current_board(),
                 "artifacts_dir": artifacts_dir,
                 "tidl_tools_path": TIDL_TOOLS_PATH,
                 "num_calibration_frames": len(calib_inputs),
@@ -326,6 +330,7 @@ class TestTIDLResNetE2E:
         ]
         compiler = TIDLOffloadCompiler(
             config={
+                "board": get_current_board(),
                 "artifacts_dir": artifacts_dir,
                 "tidl_tools_path": TIDL_TOOLS_PATH,
                 "num_calibration_frames": len(calib_inputs),
@@ -434,6 +439,7 @@ def main():
     print("Partitioning ResNet-18 with TIDL...")
     compiler = TIDLOffloadCompiler(
         config={
+            "board": get_current_board(),
             "artifacts_dir": "/tmp/tidl_viz_artifacts",
             "tidl_tools_path": TIDL_TOOLS_PATH,
             "num_calibration_frames": 2,

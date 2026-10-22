@@ -22,9 +22,9 @@
 # Board-specific TIDL/MMALIB linkage follows this project's convention:
 # beagley-ai always builds --tidl OFF --mmalib ON (no TIDL subgraph
 # offload on that board); j722s-evm/am67a uses firmware/c7x/dsp/build.sh's
-# own default (--tidl ON, which forces --mmalib ON too). am62d uses that
-# script's am62d default (--tidl OFF --mmalib OFF; opt in with
-# firmware/c7x/dsp/build.sh --tidl ON) and has no --wheels support yet.
+# own default (--tidl ON, which forces --mmalib ON too), as does am62d (which
+# also needs the AM62A TIDL libs from c7x-mma-tidl/build_am62d.sh and
+# C7X_MMA_TIDL_PATH); am62d has no --wheels support yet.
 
 set -euo pipefail
 

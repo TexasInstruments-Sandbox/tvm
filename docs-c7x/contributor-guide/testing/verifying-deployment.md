@@ -277,7 +277,7 @@ cmake --build .
 # C7x runtime (optional, for J722S hardware deployment)
 cd $TVM_HOME/src/runtime/ti_dsp
 mkdir -p build-c7x && cd build-c7x
-cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-j722s-c7x.cmake ..
+cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-c7x.cmake -DTVM_DSP_DEVICE=j722s ..
 cmake --build .
 ```
 
@@ -354,7 +354,8 @@ cd tests/ti-dsp-runtime/dsp-cpp
 # Debug build (default)
 mkdir -p build-j722s-debug && cd build-j722s-debug
 cmake \
-  -DCMAKE_TOOLCHAIN_FILE=$TVM_HOME/src/runtime/ti_dsp/cmake/toolchain-j722s-c7x.cmake \
+  -DCMAKE_TOOLCHAIN_FILE=$TVM_HOME/src/runtime/ti_dsp/cmake/toolchain-c7x.cmake \
+  -DTVM_DSP_DEVICE=j722s \
   -DGENERATED_CODE_DIR=/path/to/model_dir \
   ..
 cmake --build .
@@ -362,7 +363,8 @@ cmake --build .
 # Release build
 mkdir -p build-j722s && cd build-j722s
 cmake \
-  -DCMAKE_TOOLCHAIN_FILE=$TVM_HOME/src/runtime/ti_dsp/cmake/toolchain-j722s-c7x.cmake \
+  -DCMAKE_TOOLCHAIN_FILE=$TVM_HOME/src/runtime/ti_dsp/cmake/toolchain-c7x.cmake \
+  -DTVM_DSP_DEVICE=j722s \
   -DCMAKE_BUILD_TYPE=Release \
   -DGENERATED_CODE_DIR=/path/to/model_dir \
   ..

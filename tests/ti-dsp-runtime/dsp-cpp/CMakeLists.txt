@@ -638,7 +638,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
     #   Stage 2: lib0.c + dsp_syms.out → lib0.out (relocatable module)
     #
     # Usage:
-    #   cmake -DCMAKE_TOOLCHAIN_FILE=<path>/toolchain-j722s-c7x.cmake \
+    #   cmake -DCMAKE_TOOLCHAIN_FILE=<path>/toolchain-c7x.cmake -DTVM_DSP_DEVICE=j722s \
     #         -DTVM_DSP_TARGET=c7x-dynmod ..
     #   cmake --build .
 

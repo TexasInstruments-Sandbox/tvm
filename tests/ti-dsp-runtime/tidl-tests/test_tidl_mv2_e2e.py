@@ -35,6 +35,8 @@ _DSP_CPP_DIR = os.path.join(_TESTS_DIR, "dsp-cpp")
 _TEST_IMAGES_DIR = Path(_TESTS_DIR).parent / "cstatic" / "test_images"
 sys.path.insert(0, _DSP_CPP_DIR)
 
+from dsp_utils import get_current_board  # noqa: E402
+
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
 
@@ -186,6 +188,7 @@ class TestTIDLMV2E2E:
         artifacts_dir = str(tmp_path / "tidl_artifacts")
         compiler = TIDLOffloadCompiler(
             config={
+                "board": get_current_board(),
                 "artifacts_dir": artifacts_dir,
                 "tidl_tools_path": TIDL_TOOLS_PATH,
                 "num_calibration_frames": len(calib_inputs),
@@ -245,6 +248,7 @@ class TestTIDLMV2E2E:
         artifacts_dir = str(tmp_path / "tidl_artifacts")
         compiler = TIDLOffloadCompiler(
             config={
+                "board": get_current_board(),
                 "artifacts_dir": artifacts_dir,
                 "tidl_tools_path": TIDL_TOOLS_PATH,
                 "num_calibration_frames": len(calib_inputs),
@@ -375,6 +379,7 @@ def main():
     artifacts_dir = f"/tmp/tidl_mv2_artifacts{suffix}"
     compiler = TIDLOffloadCompiler(
         config={
+            "board": get_current_board(),
             "artifacts_dir": artifacts_dir,
             "tidl_tools_path": TIDL_TOOLS_PATH,
             "num_calibration_frames": len(calib),

@@ -181,7 +181,7 @@ function(_tvm_dsp_embed_weights_ti_asm WEIGHTS_FILE WEIGHTS_OBJ SYMBOL_PREFIX)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "c7.*")
     # C7x uses -mv flag instead of --silicon_version
     set(TI_TARGET_NAME "TI C7x")
-    # TVM_DSP_DEVICE is force-set by cmake/toolchain-<device>-c7x.cmake;
+    # TVM_DSP_DEVICE is validated by cmake/toolchain-c7x.cmake;
     # the embedded object must match the module's core variant.
     set(_WE_C7X_CPU_FLAG -mv7524)
     if(TVM_DSP_DEVICE STREQUAL "am62d")

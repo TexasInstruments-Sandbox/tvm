@@ -35,6 +35,8 @@ _TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DSP_CPP_DIR = os.path.join(_TESTS_DIR, "dsp-cpp")
 sys.path.insert(0, _DSP_CPP_DIR)
 
+from dsp_utils import get_current_board  # noqa: E402
+
 C7X_MMA_TIDL_PATH = os.environ.get(
     "C7X_MMA_TIDL_PATH",
     os.path.expanduser("~/ml/c7x-mma-tidl"),
@@ -1257,6 +1259,7 @@ def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape, 
 
     compiler = TIDLOffloadCompiler(
         config={
+            "board": get_current_board(),
             "artifacts_dir": str(tmp_path / "tidl_artifacts"),
             "tidl_tools_path": TIDL_TOOLS_PATH,
             "num_calibration_frames": 2,
