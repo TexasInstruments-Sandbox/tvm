@@ -22,7 +22,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
-#if defined(TVM_DSP_DEVICE_AM62DX)
+#if defined(TVM_DSP_DEVICE_AM62DX) || defined(TVM_DSP_DEVICE_J722S)
 #include <kernel/dpl/CacheP.h>
 #include <kernel/dpl/HwiP.h>
 #endif
@@ -94,7 +94,7 @@ uint32_t g_l3_mem_size = 0;
  * -------------------------------------------------------------------------- */
 
 int32_t TVM_lockInterrupts(void) {
-#if defined(TVM_DSP_DEVICE_AM62DX)
+#if defined(TVM_DSP_DEVICE_AM62DX) || defined(TVM_DSP_DEVICE_J722S)
     return (int32_t)HwiP_disable();
 #else
     /* On single-core FreeRTOS C7x, TIDL runs in a single task context.
@@ -104,7 +104,7 @@ int32_t TVM_lockInterrupts(void) {
 }
 
 void TVM_unlockInterrupts(int32_t prev_state) {
-#if defined(TVM_DSP_DEVICE_AM62DX)
+#if defined(TVM_DSP_DEVICE_AM62DX) || defined(TVM_DSP_DEVICE_J722S)
     HwiP_restore((uintptr_t)(uint32_t)prev_state);
 #else
     (void)prev_state;
@@ -114,8 +114,6 @@ void TVM_unlockInterrupts(int32_t prev_state) {
 /* --------------------------------------------------------------------------
  * Cache control
  * -------------------------------------------------------------------------- */
-extern void CacheP_wbInv(void*, uint32_t, uint32_t);
-
 void TVM_cacheWbInv(void) {
 #if defined(TVM_DSP_DEVICE_AM62DX)
     /* AM62D: CacheP_wbInv(NULL, 0xFFFFFFFF) drives the Streaming Engine
