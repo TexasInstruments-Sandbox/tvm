@@ -1,16 +1,21 @@
 #
-# CMake toolchain file for J722S C7x DSP cross-compilation
+# CMake toolchain file for C7x DSP cross-compilation (J722S and AM62D)
 #
-# This toolchain targets the TI J722S SoC's C75 DSP core (C7x architecture).
-# It requires TI C7000 compiler and MCU+ SDK.
+# This toolchain targets the C75 DSP core (C7x architecture) of the device
+# selected by TVM_DSP_DEVICE, which the caller must pass:
+#
+#   j722s  C7524 core (AM67A/J722S, BeagleY-AI); requires the TI C7000
+#          compiler and the MCU+ SDK.
+#   am62d  C7504 core; requires the TI C7000 compiler and the AM62D FreeRTOS
+#          SDK.
 #
 # Usage:
 #   mkdir build-c7x && cd build-c7x
-#   cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-j722s-c7x.cmake ..
+#   cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-c7x.cmake \
+#         -DTVM_DSP_DEVICE=j722s ..
 #   cmake --build .
 #
-#   For Release build with -O3:
-#   cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchain-j722s-c7x.cmake -DCMAKE_BUILD_TYPE=Release ..
+#   For Release build with -O3, add -DCMAKE_BUILD_TYPE=Release.
 #
 
 # Set the system name to Generic (bare-metal/embedded)
@@ -19,7 +24,24 @@ set(CMAKE_SYSTEM_PROCESSOR c7x)
 
 # Set TVM DSP target for CMakeLists.txt
 set(TVM_DSP_TARGET "c7x" CACHE STRING "DSP target" FORCE)
-set(TVM_DSP_DEVICE "j722s" CACHE STRING "Device variant" FORCE)
+
+# The device selects the core variant and SoC define below.  It must be passed
+# in (-DTVM_DSP_DEVICE=...): there is no default, so a missing or misspelled
+# device cannot silently build for the wrong core.  CMake re-reads this file
+# inside its internal try_compile projects, which do not inherit -D cache
+# variables, so forward the device to them.
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES TVM_DSP_DEVICE)
+if(TVM_DSP_DEVICE STREQUAL "j722s")
+    set(_C7X_CORE_FLAG "-mv7524")
+    set(_C7X_SOC_DEFINE "SOC_J722S")
+elseif(TVM_DSP_DEVICE STREQUAL "am62d")
+    set(_C7X_CORE_FLAG "-mv7504")
+    set(_C7X_SOC_DEFINE "SOC_AM62DX")
+else()
+    message(FATAL_ERROR "toolchain-c7x.cmake: set -DTVM_DSP_DEVICE=<j722s|am62d> "
+                        "(got '${TVM_DSP_DEVICE}')")
+endif()
+set(TVM_DSP_DEVICE "${TVM_DSP_DEVICE}" CACHE STRING "Device variant" FORCE)
 
 # TI C7000 compiler path - check environment or use default
 set(TI_CGT_C7000_PATH "$ENV{TI_CGT_C7000_PATH}")
@@ -45,7 +67,7 @@ if(NOT EXISTS "${TI_CGT_C7000_PATH}/bin/cl7x")
                         "Expected: ~/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
 endif()
 
-# MCU+ SDK path is resolved by cmake/boards.cmake (included before project()
+# SDK path (MCU+ SDK on j722s, FreeRTOS SDK on am62d) is resolved by cmake/boards.cmake (included before project()
 # in the runtime CMakeLists.txt) from PSDK_INSTALL_PATH / MCU_PLUS_SDK_PATH,
 # with no hardcoded default -- a required-but-missing SDK is a hard error
 # there.  We deliberately do NOT re-resolve or fall back here: a legacy
@@ -75,18 +97,17 @@ set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 set(CMAKE_C_COMPILER_ID TI)
 set(CMAKE_CXX_COMPILER_ID TI)
 
-# C7x (C7524 core on J722S) specific flags
-# -mv7524 targets the C7524 core variant (C75 family)
-set(C7X_COMMON_FLAGS "-mv7524 --abi=eabi --endian=little --display_error_number")
+# C7x core variant flag: -mv7524 (C7524, j722s) or -mv7504 (C7504, am62d), both C75 family
+set(C7X_COMMON_FLAGS "${_C7X_CORE_FLAG} --abi=eabi --endian=little --display_error_number")
 # Suppress common warnings that don't affect correctness
 set(C7X_COMMON_FLAGS "${C7X_COMMON_FLAGS} --diag_suppress=496 --diag_suppress=1311 --diag_suppress=303")
 set(C7X_COMMON_FLAGS "${C7X_COMMON_FLAGS} -I${TI_CGT_C7000_PATH}/include")
 
-# J722S-specific flags for FP optimization
+# Flags for FP optimization
 # Note: C7x doesn't use --mem_model options (that's C66x specific)
 set(C7X_COMMON_FLAGS "${C7X_COMMON_FLAGS} --fp_mode=relaxed")
 # Define NULL and SOC
-set(C7X_COMMON_FLAGS "${C7X_COMMON_FLAGS} -DNULL=0 -DSOC_J722S")
+set(C7X_COMMON_FLAGS "${C7X_COMMON_FLAGS} -DNULL=0 -D${_C7X_SOC_DEFINE}")
 
 # C99 mode for C files
 set(C7X_C_FLAGS "--c99")

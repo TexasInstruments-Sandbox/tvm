@@ -7,7 +7,7 @@ execute as generated C code on the C7x scalar pipeline.
 
 > **J722S and AM62D only.** TIDL subgraph offload requires firmware built
 > with `--tidl ON` (the `j722s-evm`/AM67A default, which also forces
-> `--mmalib ON`; opt-in on `am62d`, see below). BeagleY-AI firmware is always
+> `--mmalib ON`, as does `am62d`, see below). BeagleY-AI firmware is always
 > built `--tidl OFF --mmalib ON` — no TIDL offload path exists on that board. See
 > [MMALIB Integration](mmalib-integration.md#firmware-decoupling-mmalib-from-tidl)
 > for the firmware-side `USE_TIDL_RUNTIME`/`USE_TI_MMALIB` split, and pass
@@ -26,11 +26,14 @@ libraries and the C7504 MMALIB:
 
 - Build the importer and TIDL libs with `c7x-mma-tidl/build_am62d.sh`
   (`TARGET_SOC=AM62A`), then build the firmware with
-  `firmware/c7x/dsp/build.sh --board am62d --tidl ON` (needs
-  `C7X_MMA_TIDL_PATH`; default for `am62d` is `--tidl OFF`).
-- `TIDLOffloadCompiler` picks the AM62D toolchain and `-l2-sram-size=245760`
-  from `config["board"]` or `$TVM_BOARD`; `dsp_utils.set_current_board` exports
-  `TVM_BOARD` for `--board am62d`. The dynmod build takes the SDK root
+  `firmware/c7x/dsp/build.sh --board am62d` (`--tidl ON` is the default; it
+  needs `C7X_MMA_TIDL_PATH`).
+- `TIDLOffloadCompiler` takes the board from `config["board"]` (`j722s-evm`,
+  `beagley-ai` or `am62d`; default `j722s-evm`) and maps it to a device
+  (`j722s` or `am62d`). The `c_static_lib` target only knows the device: the
+  default target gets `-device=<device>`, an explicit target's `-device=` wins,
+  and `-device=am62d` defaults `l2-sram-size` to 240 KB. The AM62D toolchain
+  and PC libs follow from the device. The dynmod build takes the SDK root
   (ivision headers) from `$PSDK_INSTALL_PATH`.
 - TIDL's "L2" is the 240 KB L2 AUX bank, which is also the TVM L2 heap; the two
   users run sequentially. TIDL's "L3" is the 1 MB L2 MAIN bank.

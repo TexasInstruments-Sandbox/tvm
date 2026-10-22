@@ -306,7 +306,19 @@ TargetJSON UpdateCStaticLibAttrs(TargetJSON target) {
   if (target.count("device")) {
     ffi::String device = Downcast<ffi::String>(target.at("device"));
     std::string device_str = device;
-    LOG(INFO) << "c_static_lib target configured for device: " << device_str;
+    VLOG(1) << "c_static_lib target configured for device: " << device_str;
+
+    // The value is the runtime's TVM_DSP_DEVICE: j722s (AM67A/J722S, C7524) or am62d
+    // (C7504).  Reject typos, since the device selects the core ISA of the native build.
+    if (device_str != "awrl6844" && device_str != "j722s" && device_str != "am62d") {
+      TVM_FFI_THROW(ValueError) << "c_static_lib target: unknown device '" << device_str
+                                << "'. Known devices: j722s, am62d, awrl6844";
+    }
+
+    // AM62D: the 240 KB L2 AUX bank is the scratch memory, not the 1.25 MB J722S default.
+    if (device_str == "am62d" && !target.count("l2-sram-size")) {
+      target.Set("l2-sram-size", int64_t(245760));
+    }
 
     // AWR L6844: TI radar processor with C66x DSP
     if (device_str == "awrl6844") {

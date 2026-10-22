@@ -137,15 +137,15 @@ build_c7x() {
         echo "Error: --board <j722s-evm|beagley-ai|am62d> is required for the c7x target" >&2
         exit 1
     fi
-    # am62d is a different SoC (C7504): its own toolchain file.  The j722s
-    # boards keep the original toolchain file unchanged.
-    local toolchain="toolchain-j722s-c7x.cmake"
-    [ "$TVM_BOARD" = "am62d" ] && toolchain="toolchain-am62d-c7x.cmake"
+    # The toolchain needs the device (core variant); both j722s boards share one.
+    local device="j722s"
+    [ "$TVM_BOARD" = "am62d" ] && device="am62d"
     echo ""
     echo "=== Building C7x cross-compiled runtime (board=$BOARD ddr=$DDR) ==="
     rm -rf "build-c7x${BUILD_SUFFIX}"
     mkdir "build-c7x${BUILD_SUFFIX}" && cd "build-c7x${BUILD_SUFFIX}"
-    cmake -DCMAKE_TOOLCHAIN_FILE="../cmake/${toolchain}" \
+    cmake -DCMAKE_TOOLCHAIN_FILE="../cmake/toolchain-c7x.cmake" \
+          -DTVM_DSP_DEVICE="$device" \
           $CMAKE_BOARD_ARGS \
           ..
     cmake --build .

@@ -40,7 +40,7 @@ ti_dsp/
 │   └── ...                   # Other internal utilities
 ├── cmake/                    # CMake modules
 │   ├── toolchain-awrl6844.cmake  # C66x cross-compilation toolchain
-│   ├── toolchain-j722s-c7x.cmake # C7x cross-compilation toolchain
+│   ├── toolchain-c7x.cmake       # C7x cross-compilation toolchain (TVM_DSP_DEVICE=j722s|am62d)
 │   └── WeightEmbedding.cmake     # Binary weight embedding support
 ├── constants/                # weights.bin parser (internal)
 ├── container/                # NDArray, Shape, Array containers (internal)

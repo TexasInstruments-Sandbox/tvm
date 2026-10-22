@@ -19,6 +19,7 @@ import os
 
 import numpy as np
 import pytest
+from dsp_utils import get_current_board
 
 import tvm
 from conftest import tidl_build_and_run
@@ -160,6 +161,7 @@ def test_accepted_config_matches_reference(case, dsp_mode, tmp_path):
 
     compiler = TIDLOffloadCompiler(
         {
+            "board": get_current_board(),
             "artifacts_dir": str(tmp_path / "tidl_artifacts"),
             "tidl_tools_path": TIDL_TOOLS_PATH,
             "num_calibration_frames": len(calib),

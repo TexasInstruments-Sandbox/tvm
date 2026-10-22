@@ -1308,15 +1308,14 @@ class TIDLOffloadCompiler:
         """
         artifacts = artifacts or {}
         board = _resolve_board(self.config)
+        device = board_to_device(board)
         if target is None:
             target = (
                 "c_static_lib -mcpu=c7x -use-cpp-api=1"
                 if exec_mode == "c7x_dload"
                 else "c_static_lib -mcpu=c7x"
             )
-            if board == "am62d":
-                # 240 KB of L2 scratch rather than the 1.25 MB target default.
-                target += " -l2-sram-size=245760"
+            target += f" -device={device}"
 
         # 2. Compile to C via relax.build
         # Honor profile_layers config: append -profile-layers to target
@@ -1328,6 +1327,10 @@ class TIDLOffloadCompiler:
         if artifacts and "-tidl-runtime" not in target:
             target += " -tidl-runtime=1"
         tvm_target = tvm.target.Target(target)
+        # The target is authoritative: a user-supplied ``-device=`` wins over
+        # the device implied by config["board"], which only seeds the default
+        # target above.
+        device = tvm_target.attrs.get("device") or device
         # Use cpu_generic pipeline (FuseOps+FuseTIR for op fusion) and
         # target-aware TIR pipeline (ScheduleC7xDMATiling for loop
         # reorder, decompose_reduction, DMA tiling).
@@ -1399,7 +1402,7 @@ class TIDLOffloadCompiler:
                 build_dir=build_path,
                 tidl_bridge=tidl_bridge_sources,
                 use_tidl=bool(artifacts),
-                board=board,
+                device=device,
             )
         else:
             module_path = _build_dynmod(
@@ -1411,7 +1414,7 @@ class TIDLOffloadCompiler:
                 use_tidl=bool(artifacts),
                 tidl_artifacts_dir=self._artifacts_dir if artifacts else None,
                 fp_reassoc_off=fp_reassoc_off,
-                board=board,
+                device=device,
             )
 
         return TIDLBuildResult(
@@ -1429,13 +1432,27 @@ class TIDLOffloadCompiler:
 # ------------------------------------------------------------------
 
 
-def _resolve_board(config: Optional[Dict[str, Any]] = None) -> Optional[str]:
-    """Target board for the native build: ``config["board"]``, else ``$TVM_BOARD``.
+_DEFAULT_BOARD = "j722s-evm"
 
-    Only ``"am62d"`` changes behaviour (AM62A TIDL libs, C7504 toolchain);
-    None or any other value keeps the J722S defaults.
-    """
-    return (config or {}).get("board") or os.environ.get("TVM_BOARD") or None
+# Board -> device (the c_static_lib ``-device=`` value, same as the runtime's
+# TVM_DSP_DEVICE).  Boards sharing an SoC share a device; the compiler only
+# needs the device, the board matters for deployment.
+_BOARD_DEVICE = {"j722s-evm": "j722s", "beagley-ai": "j722s", "am62d": "am62d"}
+
+
+def board_to_device(board: str) -> str:
+    """Device (``j722s`` | ``am62d``) the compiler targets for ``board``."""
+    try:
+        return _BOARD_DEVICE[board]
+    except KeyError:
+        raise ValueError(
+            f"Unknown board {board!r}; known boards: {', '.join(_BOARD_DEVICE)}"
+        ) from None
+
+
+def _resolve_board(config: Optional[Dict[str, Any]] = None) -> str:
+    """Board from ``config["board"]``, else ``"j722s-evm"``."""
+    return (config or {}).get("board") or _DEFAULT_BOARD
 
 
 def _build_dynmod(
@@ -1448,7 +1465,7 @@ def _build_dynmod(
     tidl_artifacts_dir: Optional[str] = None,
     build_type: str = "Release",
     fp_reassoc_off: bool = False,
-    board: Optional[str] = None,
+    device: Optional[str] = None,
 ) -> Path:
     """Build a C7x DLOAD relocatable module from generated code.
 
@@ -1478,8 +1495,8 @@ def _build_dynmod(
         floating-point reassociation optimization -- see
         ``dsp_utils.build_dsp_dynmod``'s docstring for why (ill-conditioned
         matmul accumulations reordered by -O2).
-    board : str, optional
-        Target board; ``"am62d"`` selects the AM62D toolchain, anything else
+    device : str, optional
+        Target device; ``"am62d"`` selects the AM62D toolchain, anything else
         the J722S one.
 
     Returns
@@ -1504,10 +1521,7 @@ def _build_dynmod(
         dsp_runtime_dir = tvm_home / "src" / "runtime" / "ti_dsp"
 
     dynmod_cmake = dsp_runtime_dir / "dynmod"
-    toolchain_name = (
-        "toolchain-am62d-c7x.cmake" if board == "am62d" else "toolchain-j722s-c7x.cmake"
-    )
-    toolchain_file = dsp_runtime_dir / "cmake" / toolchain_name
+    toolchain_file = dsp_runtime_dir / "cmake" / "toolchain-c7x.cmake"
 
     if not toolchain_file.exists():
         raise FileNotFoundError(f"Toolchain file not found: {toolchain_file}")
@@ -1529,6 +1543,7 @@ def _build_dynmod(
         f"-DDSP_RUNTIME_DIR={dsp_runtime_dir}",
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_TOOLCHAIN_FILE={toolchain_file}",
+        f"-DTVM_DSP_DEVICE={device or board_to_device(_DEFAULT_BOARD)}",
         f"-DGENERATED_CODE_DIR={generated_dir}",
     ]
     if weights_file is not None and Path(weights_file).exists():
@@ -1586,7 +1601,7 @@ def _build_c7x_host(
     use_tidl: bool = False,
     tidl_artifacts_dir: Optional[str] = None,
     build_type: str = "Release",
-    board: Optional[str] = None,
+    device: Optional[str] = None,
 ) -> Path:
     """Build a C7x host-emulation executable from generated code.
 
@@ -1609,8 +1624,8 @@ def _build_c7x_host(
         Directory containing TIDL net.bin / io.bin files.
     build_type : str
         CMake build type (Release or Debug).
-    board : str, optional
-        Target board; ``"am62d"`` links the AM62A TIDL PC libs and C7504
+    device : str, optional
+        Target device; ``"am62d"`` links the AM62A TIDL PC libs and C7504
         MMALIB host libs, anything else the J722S ones.
 
     Returns
@@ -1649,7 +1664,7 @@ def _build_c7x_host(
         cmake_cmd.append("-DUSE_TIDL=ON")
     if tidl_artifacts_dir:
         cmake_cmd.append(f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
-    if board == "am62d":
+    if device == "am62d":
         cmake_cmd.append("-DTVM_BOARD=am62d")
     cmake_cmd.append(str(dsp_cpp_dir))
 

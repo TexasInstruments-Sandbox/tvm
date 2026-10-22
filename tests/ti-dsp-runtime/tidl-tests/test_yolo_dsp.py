@@ -51,6 +51,7 @@ from dsp_utils import (  # noqa: E402
     assert_dsp_comparison,
     compare_results,
     compile_and_run_dsp,
+    get_current_board,
     get_target_string,
 )
 
@@ -437,6 +438,7 @@ class TestYOLOTIDL:
 
         cfg = dict(self._COMPILER_CONFIG)
         cfg["artifacts_dir"] = str(tmp_path / "tidl_artifacts")
+        cfg["board"] = get_current_board()
         compiler = TIDLOffloadCompiler(config=cfg)
 
         # ------------------------------------------------------------------
@@ -613,6 +615,7 @@ def main():
         mod, param_dict, _wrapped, _input_data = _create_yolo_model_unbound(model_name, version)
         compiler = TIDLOffloadCompiler(
             config={
+                "board": get_current_board(),
                 "artifacts_dir": f"/tmp/tidl_viz_{model_name}",
                 "tidl_tools_path": TIDL_TOOLS_PATH,
                 "num_calibration_frames": 2,

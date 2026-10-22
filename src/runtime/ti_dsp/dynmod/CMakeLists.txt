@@ -26,7 +26,7 @@
 #   Stage 2: lib0.c + dsp_syms.out -> lib0.out (relocatable module)
 #
 # Usage (standalone):
-#   cmake -DCMAKE_TOOLCHAIN_FILE=<path>/toolchain-j722s-c7x.cmake \
+#   cmake -DCMAKE_TOOLCHAIN_FILE=<path>/toolchain-c7x.cmake -DTVM_DSP_DEVICE=j722s \
 #         -DGENERATED_CODE_DIR=<path_to_lib0> ..
 #   cmake --build .
 #
@@ -73,7 +73,7 @@ set(TIDL_BRIDGE_SOURCES "" CACHE STRING "Extra .c files for TIDL bridge")
 
 # === TIDL Integration (optional) ===
 option(USE_TIDL "Link TIDL libraries into model module" OFF)
-# TVM_DSP_DEVICE is force-set by the toolchain file (project() above).
+# TVM_DSP_DEVICE is passed in by the caller and validated by the toolchain file (project() above).
 if(TVM_DSP_DEVICE STREQUAL "am62d")
     set(_PSDK_PATH_DEFAULT "/opt/ti/am62d")
 else()
@@ -103,9 +103,9 @@ message(STATUS "  Generated code: ${GENERATED_CODE_DIR}")
 # === Dynmod infrastructure ===
 set(DYNMOD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/c7x_dynmod")
 
-# C7x core variant and SoC define.  TVM_DSP_DEVICE is force-set by the
-# cmake/toolchain-<device>-c7x.cmake toolchain file: am62d -> C7504, anything
-# else (j722s) -> C7524.
+# C7x core variant and SoC define.  TVM_DSP_DEVICE is passed in by the caller
+# and validated by cmake/toolchain-c7x.cmake: am62d -> C7504, anything else
+# (j722s) -> C7524.
 if(TVM_DSP_DEVICE STREQUAL "am62d")
     set(DYNMOD_CPU_FLAG "-mv7504")
     set(DYNMOD_SOC_DEFINE "-DSOC_AM62DX")

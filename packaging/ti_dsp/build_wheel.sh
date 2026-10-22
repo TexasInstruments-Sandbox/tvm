@@ -208,7 +208,7 @@ build_x86() {
     cp "$DSP_RT/tidl/"*.c "$DATA/tidl/"
 
     # Build infrastructure
-    cp "$DSP_RT/cmake/toolchain-j722s-c7x.cmake" "$DATA/cmake/"
+    cp "$DSP_RT/cmake/toolchain-c7x.cmake" "$DATA/cmake/"
     cp -a "$DSP_RT/dynmod/." "$DATA/dynmod/"
     rm -rf "$DATA/dynmod/build-dynmod" "$DATA/dynmod/build" 2>/dev/null || true
     mkdir -p "$DATA/scripts"
