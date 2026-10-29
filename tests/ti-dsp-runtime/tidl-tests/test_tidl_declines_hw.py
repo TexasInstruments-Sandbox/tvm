@@ -46,7 +46,7 @@ def _const(shape, seed=0, scale=0.5):
 
 
 def _module(fn, shape=SHAPE):
-    x = relax.Var("x", relax.TensorStructInfo(shape, F32))
+    x = relax.Var("x", relax.TensorType(shape, F32))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():

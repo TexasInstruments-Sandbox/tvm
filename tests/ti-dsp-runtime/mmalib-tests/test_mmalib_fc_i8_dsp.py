@@ -16,8 +16,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -58,13 +59,13 @@ def _create_qdq_fc_model(
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, n_in), "int8"))
 
-    w_const = relax.Constant(weight_data)
-    w_scale_const = relax.Constant(w_scale)
-    w_zp_const = relax.Constant(np.zeros(n_out, dtype=np.int8))
-    d_scale_const = relax.Constant(np.array(d_scale, dtype=np.float32))
-    d_zp_const = relax.Constant(np.array(0, dtype=np.int8))
-    o_scale_const = relax.Constant(np.array(o_scale, dtype=np.float32))
-    o_zp_const = relax.Constant(np.array(0, dtype=np.int8))
+    w_const = ti_tensor_const(weight_data)
+    w_scale_const = ti_tensor_const(w_scale)
+    w_zp_const = ti_tensor_const(np.zeros(n_out, dtype=np.int8))
+    d_scale_const = ti_tensor_const(np.array(d_scale, dtype=np.float32))
+    d_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
+    o_scale_const = ti_tensor_const(np.array(o_scale, dtype=np.float32))
+    o_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():
@@ -78,7 +79,7 @@ def _create_qdq_fc_model(
             mm = bb.emit(relax.op.matmul(data_dq, w_t))
             # Optional bias add
             if with_bias:
-                bias_const = relax.Constant(bias_data.reshape(1, n_out))
+                bias_const = ti_tensor_const(bias_data.reshape(1, n_out))
                 mm = bb.emit(relax.op.add(mm, bias_const))
             # Quantize output
             result = bb.emit(
@@ -289,13 +290,13 @@ def _create_qdq_fc_3d_model(
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, seq_len, n_in), "int8"))
 
-    w_const = relax.Constant(weight_data)
-    w_scale_const = relax.Constant(w_scale)
-    w_zp_const = relax.Constant(np.zeros(n_out, dtype=np.int8))
-    d_scale_const = relax.Constant(np.array(d_scale, dtype=np.float32))
-    d_zp_const = relax.Constant(np.array(0, dtype=np.int8))
-    o_scale_const = relax.Constant(np.array(o_scale, dtype=np.float32))
-    o_zp_const = relax.Constant(np.array(0, dtype=np.int8))
+    w_const = ti_tensor_const(weight_data)
+    w_scale_const = ti_tensor_const(w_scale)
+    w_zp_const = ti_tensor_const(np.zeros(n_out, dtype=np.int8))
+    d_scale_const = ti_tensor_const(np.array(d_scale, dtype=np.float32))
+    d_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
+    o_scale_const = ti_tensor_const(np.array(o_scale, dtype=np.float32))
+    o_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():
@@ -313,7 +314,7 @@ def _create_qdq_fc_3d_model(
             mm_3d = bb.emit(relax.op.reshape(mm, (1, seq_len, n_out)))
             # Optional bias add
             if with_bias:
-                bias_const = relax.Constant(bias_data.reshape(1, 1, n_out))
+                bias_const = ti_tensor_const(bias_data.reshape(1, 1, n_out))
                 mm_3d = bb.emit(relax.op.add(mm_3d, bias_const))
             # Quantize output
             result = bb.emit(

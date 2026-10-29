@@ -15,7 +15,7 @@ import pytest
 
 import tvm
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 _KERNEL = "c7x_int8_quantize_rgb"
 

@@ -8,17 +8,18 @@ No hardware needed — tests the pass at the Relax IR level.
 import numpy as np
 import pytest
 
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
 import tvm
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 
 def _build_qdq_model(op_fn, input_shape, scale, zp, **op_kwargs):
     """Build a minimal model: dequantize(x) → op → quantize(out)."""
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo(input_shape, "int8"))
-    s = relax.Constant(np.array(scale, dtype=np.float32))
-    z = relax.Constant(np.array(zp, dtype=np.int8))
+    s = ti_tensor_const(np.array(scale, dtype=np.float32))
+    z = ti_tensor_const(np.array(zp, dtype=np.int8))
 
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -66,9 +67,9 @@ class TestMaxPool2d:
     def test_preserves_when_scales_differ(self):
         bb = relax.BlockBuilder()
         x = relax.Var("x", TensorStructInfo((1, 64, 112, 112), "int8"))
-        s_in = relax.Constant(np.array(0.01, dtype=np.float32))
-        s_out = relax.Constant(np.array(0.02, dtype=np.float32))
-        z = relax.Constant(np.array(0, dtype=np.int8))
+        s_in = ti_tensor_const(np.array(0.01, dtype=np.float32))
+        s_out = ti_tensor_const(np.array(0.02, dtype=np.float32))
+        z = ti_tensor_const(np.array(0, dtype=np.int8))
 
         with bb.function("main", [x]):
             with bb.dataflow():
@@ -150,8 +151,8 @@ class TestConcat:
         bb = relax.BlockBuilder()
         x = relax.Var("x", TensorStructInfo((1, 32, 56, 56), "int8"))
         y = relax.Var("y", TensorStructInfo((1, 32, 56, 56), "int8"))
-        s = relax.Constant(np.array(0.05, dtype=np.float32))
-        z = relax.Constant(np.array(0, dtype=np.int8))
+        s = ti_tensor_const(np.array(0.05, dtype=np.float32))
+        z = ti_tensor_const(np.array(0, dtype=np.int8))
 
         with bb.function("main", [x, y]):
             with bb.dataflow():
@@ -173,10 +174,10 @@ class TestConcat:
         bb = relax.BlockBuilder()
         x = relax.Var("x", TensorStructInfo((1, 32, 56, 56), "int8"))
         y = relax.Var("y", TensorStructInfo((1, 32, 56, 56), "int8"))
-        s1 = relax.Constant(np.array(0.05, dtype=np.float32))
-        s2 = relax.Constant(np.array(0.10, dtype=np.float32))
-        s_out = relax.Constant(np.array(0.05, dtype=np.float32))
-        z = relax.Constant(np.array(0, dtype=np.int8))
+        s1 = ti_tensor_const(np.array(0.05, dtype=np.float32))
+        s2 = ti_tensor_const(np.array(0.10, dtype=np.float32))
+        s_out = ti_tensor_const(np.array(0.05, dtype=np.float32))
+        z = ti_tensor_const(np.array(0, dtype=np.int8))
 
         with bb.function("main", [x, y]):
             with bb.dataflow():

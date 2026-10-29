@@ -76,10 +76,10 @@ def _build_prefill_shaped_module(nest_logits: bool = True) -> tvm.IRModule:
     """
     bb = relax.BlockBuilder()
     params = [
-        relax.Var("input_ids", relax.TensorStructInfo([1, _PREFILL_LEN], "int64")),
-        relax.Var("cache_position", relax.TensorStructInfo([_PREFILL_LEN], "int64")),
+        relax.Var("input_ids", relax.TensorType([1, _PREFILL_LEN], "int64")),
+        relax.Var("cache_position", relax.TensorType([_PREFILL_LEN], "int64")),
     ] + [
-        relax.Var(f"kv_{i}", relax.TensorStructInfo(_KV_SHAPE, "float32"))
+        relax.Var(f"kv_{i}", relax.TensorType(_KV_SHAPE, "float32"))
         for i in range(_NUM_KV_TENSORS)
     ]
 
@@ -178,9 +178,9 @@ def test_compute_io_meta_agrees_with_the_packed_blob():
 def test_kv_resident_output_bytes_is_none_for_symbolic_shape():
     """Same defensive fallback as compute_io_meta_bytes(): a dim TVM never
     resolved to a constant means no exact byte count, so no declaration."""
-    n = tvm.tir.SizeVar("n", "int64")
+    n = tvm.tirx.Var("n", "int64")
     bb = relax.BlockBuilder()
-    x = relax.Var("x", relax.TensorStructInfo([1, 4], "float32"))
+    x = relax.Var("x", relax.TensorType([1, 4], "float32"))
     with bb.function("main", [x]):
         out = bb.emit(relax.op.zeros(relax.ShapeExpr([1, n]), "float32"))
         bb.emit_func_output(bb.emit(relax.Tuple([out, out])))

@@ -183,7 +183,7 @@ def test_int16_tvm_import_zero_point_is_int8():
                 if val.op not in (dequantize_op, quantize_op):
                     continue
                 zp = val.args[2]
-                if isinstance(zp, relax.Constant):
+                if isinstance(zp, tvm.ir.GenericConst):
                     dtype = str(zp.data.dtype)
                     if dtype not in ("int8", "float16"):
                         bad_zp_dtypes.add(dtype)

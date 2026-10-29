@@ -159,7 +159,7 @@ class TestTVMExport:
 
         # Check return structure
         main_func = mod["main"]
-        ret_info = main_func.ret_struct_info
+        ret_info = main_func.ret_ty
         assert ret_info is not None, "Return structure info should not be None"
 
     def test_model_returns_tuple(self):

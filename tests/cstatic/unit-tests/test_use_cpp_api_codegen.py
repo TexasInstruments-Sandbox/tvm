@@ -20,7 +20,7 @@ import tvm
 from tvm import relax
 from tvm.script import ir as I
 from tvm.script import relax as R
-from tvm.script import tir as T
+from tvm.script import tirx as T
 
 
 @I.ir_module
@@ -31,7 +31,7 @@ class MatmulModule:
         B = T.match_buffer(y, (16, 16))  # type: ignore
         C = T.match_buffer(z, (16, 16))  # type: ignore
         for i, j, k in T.grid(16, 16, 16):  # type: ignore
-            with T.block("matmul"):
+            with T.sblock("matmul"):
                 vi = T.axis.S(16, i)  # type: ignore
                 vj = T.axis.S(16, j)  # type: ignore
                 vk = T.axis.R(16, k)  # type: ignore

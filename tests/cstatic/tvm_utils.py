@@ -117,9 +117,9 @@ def model_returns_tuple(mod: tvm.IRModule, func_name: str = "main") -> bool:
     target_func = mod[func_name]
 
     # Handle different function types (Relax vs TIR)
-    if hasattr(target_func, "ret_struct_info"):
-        # Relax function - use ret_struct_info
-        ret_info = target_func.ret_struct_info
+    if hasattr(target_func, "ret_ty"):
+        # Relax function - use ret_ty
+        ret_info = target_func.ret_ty
         # Check if return struct info indicates tuple/array
         return (
             hasattr(ret_info, "fields")

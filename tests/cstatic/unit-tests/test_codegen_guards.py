@@ -13,7 +13,7 @@ import tempfile
 
 import pytest
 import tvm
-from tvm import tir
+from tvm import tirx
 from tvm.script import ir as I
 from tvm.script import relax as R
 
@@ -68,13 +68,13 @@ def test_read_if_cond_is_guarded():
 
 def test_unhandled_anylist_builtin_clear_error():
     """Unhandled compact-form builtins must raise an actionable error."""
-    r = tir.Var("r", "handle")
-    body = tir.Evaluate(
-        tir.op.anylist_setitem_call_packed(
-            r, 0, "vm.builtin.tuple_getitem", tir.IntImm("int32", 0)
+    r = tirx.Var("r", "handle")
+    body = tirx.Evaluate(
+        tirx.op.anylist_setitem_call_packed(
+            r, 0, "vm.builtin.tuple_getitem", tirx.IntImm("int32", 0)
         )
     )
-    func = tir.PrimFunc([r], body).with_attr("global_symbol", "main")
+    func = tirx.PrimFunc([r], body).with_attr("global_symbol", "main")
     mod = tvm.IRModule({"main": func})
 
     target = tvm.target.Target("c_static_lib -use-cpp-api=1")

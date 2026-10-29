@@ -32,7 +32,7 @@ import pytest
 
 import tvm
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 
 def _run_pass(mod):
@@ -121,7 +121,7 @@ class TestReshapeRescale:
                 )
                 reshaped = bb.emit(relax.op.reshape(dq, (16,)))
                 # o_scale is a non-constant Var (e.g. derived at runtime),
-                # not a relax.Constant -- the check callback must decline.
+                # not a tvm.ir.GenericConst -- the check callback must decline.
                 o_scale = bb.emit(relax.op.multiply(s_in, relax.const(1.0, "float32")))
                 q = bb.emit(
                     relax.op.quantize(reshaped, o_scale, relax.const(0, "int8"), out_dtype="int8")
@@ -134,9 +134,9 @@ class TestReshapeRescale:
         assert "c7x_int8_rescale" not in text
 
     def test_constant_tensor_input_declines_and_still_compiles(self):
-        """When x is itself a literal relax.Constant tensor -- a real,
+        """When x is itself a literal tvm.ir.GenericConst tensor -- a real,
         already-supported match per _check_single_input's isinstance(x,
-        relax.Constant) branch, not merely reachable from constants -- the
+        tvm.ir.GenericConst) branch, not merely reachable from constants -- the
         ConstReachability guard declines to fuse. Confirms both the decline
         AND that the module still compiles all the way through LegalizeOps
         -> FoldConstant -> FuseOps -> FuseTIR.
@@ -404,7 +404,7 @@ class TestFPNUpsampleConcat:
     def test_constant_tensor_branch_declines_and_still_compiles(self):
         """Same decline check as TestReshapeRescale's version above, for the
         FPN upsample-concat pattern: branch 2's data operand is itself a
-        literal relax.Constant tensor. See that test's docstring, including
+        literal tvm.ir.GenericConst tensor. See that test's docstring, including
         its caveat that this is a decline-path + still-compiles check, not a
         regression guard for the inline-on-decline fix."""
         C1, C2, H, W = 8, 4, 4, 4

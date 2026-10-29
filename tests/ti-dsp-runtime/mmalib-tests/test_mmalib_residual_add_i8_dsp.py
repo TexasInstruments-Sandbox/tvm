@@ -19,8 +19,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -60,12 +61,12 @@ def _make_residual_add_model(
     x_var = relax.Var("x", TensorStructInfo(shape, "int8"))
     skip_var = relax.Var("skip", TensorStructInfo(shape, "int8"))
 
-    x_scale_c = relax.Constant(np.array(x_scale, dtype=np.float32))
-    x_zp_c = relax.Constant(np.array(x_zp, dtype=np.int8))
-    skip_scale_c = relax.Constant(np.array(skip_scale, dtype=np.float32))
-    skip_zp_c = relax.Constant(np.array(skip_zp, dtype=np.int8))
-    o_scale_c = relax.Constant(np.array(o_scale, dtype=np.float32))
-    o_zp_c = relax.Constant(np.array(o_zp, dtype=np.int8))
+    x_scale_c = ti_tensor_const(np.array(x_scale, dtype=np.float32))
+    x_zp_c = ti_tensor_const(np.array(x_zp, dtype=np.int8))
+    skip_scale_c = ti_tensor_const(np.array(skip_scale, dtype=np.float32))
+    skip_zp_c = ti_tensor_const(np.array(skip_zp, dtype=np.int8))
+    o_scale_c = ti_tensor_const(np.array(o_scale, dtype=np.float32))
+    o_zp_c = ti_tensor_const(np.array(o_zp, dtype=np.int8))
 
     with bb.function("main", [x_var, skip_var], attrs={"num_input": 2}):
         with bb.dataflow():

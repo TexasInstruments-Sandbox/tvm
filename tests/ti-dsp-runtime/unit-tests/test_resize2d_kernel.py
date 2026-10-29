@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -45,14 +45,14 @@ def _build_resize2d_module(C, H, W):
 
     def te_kernel(x_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 _KERNEL,
                 ins[0].data,
                 outs[0].data,
-                tir.IntImm("int32", C_v),
-                tir.IntImm("int32", H_v),
-                tir.IntImm("int32", W_v),
+                tirx.IntImm("int32", C_v),
+                tirx.IntImm("int32", H_v),
+                tirx.IntImm("int32", W_v),
             )
 
         return te.extern(
@@ -60,7 +60,7 @@ def _build_resize2d_module(C, H, W):
         )
 
     bb = relax.BlockBuilder()
-    x_var = relax.Var("x", relax.TensorStructInfo([C_v, H_v, W_v], "int8"))
+    x_var = relax.Var("x", relax.TensorType([C_v, H_v, W_v], "int8"))
     with bb.function("main", [x_var], attrs={"num_input": 1}):
         with bb.dataflow():
             result = bb.emit_te(te_kernel, x_var, primfunc_name_hint=_KERNEL)

@@ -2,7 +2,7 @@
 
 Exercises the shared helper directly: build a small Composite(+Primitive)
 function via BlockBuilder whose data operand is a genuine tensor-shaped
-relax.Constant embedded directly in the body, then call it from main. A
+tvm.ir.GenericConst embedded directly in the body, then call it from main. A
 throwaway mutator declines the match (the same thing FuseQDQToC7xMovement/
 FuseQDQToC7xRelu's _lower_* methods do on a decline path) and calls the helper
 instead of leaving the call in place.
@@ -10,7 +10,7 @@ instead of leaving the call in place.
 Scope caveat -- this module is hand-built, NOT what the passes produce.
 FuseOpsByPattern(bind_constants=False) sets lift_constant_=true, so it lifts
 matched Constants to composite *parameters*; the composite body it emits holds
-no relax.Constant (measured on the dq-reshape-q and concat-tuple-field shapes
+no tvm.ir.GenericConst (measured on the dq-reshape-q and concat-tuple-field shapes
 alike). This test therefore validates that the helper correctly inlines and
 substitutes a body containing an embedded Constant, and that such a body would
 indeed crash FuseTIR if one ever reached it -- it does not demonstrate that any
@@ -18,7 +18,7 @@ pass on this tree emits one.
 
 A *scalar* embedded Constant (e.g. a quantization scale/zero-point) would not
 be enough even then: LegalizeOps bakes scalar operands into the generated TIR
-as literals, so no relax.Constant survives to reach FuseTIR. Only a
+as literals, so no tvm.ir.GenericConst survives to reach FuseTIR. Only a
 tensor-shaped Constant (passed through as an actual call_tir buffer argument)
 does.
 
@@ -33,7 +33,7 @@ import numpy as np
 
 import tvm
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 from tvm.relax.expr_functor import PyExprMutator, mutator
 from tvm.relax.transform.ti_c7x_composite_inline import inline_declined_composite
 
@@ -162,7 +162,7 @@ class TestInlineDeclinedComposite:
         mod = relax.transform.FuseOps()(mod)
         try:
             relax.transform.FuseTIR()(mod)
-        except tvm.error.TVMError as e:
-            assert "Relax.Constant is not supported in primitive functions" in str(e)
+        except tvm.error.InternalError as e:
+            assert "constants are not supported in primitive functions" in str(e)
         else:
             raise AssertionError("expected FuseTIR to raise on the un-inlined composite")

@@ -18,7 +18,7 @@ import pytest
 
 import tvm
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 
 def _run_pass(mod):
@@ -80,7 +80,7 @@ class TestDFLSoftmax:
         mod = _build_dfl_model(1, 4, 16, 32, d_scale=0.1, d_zp=0, o_scale=0.0078125, o_zp=0)
         new_mod = _run_pass(mod)
         main = new_mod["main"]
-        out_sinfo = main.ret_struct_info
+        out_sinfo = main.ret_ty
         assert [int(s) for s in out_sinfo.shape] == [1, 16, 4, 32]
 
     def test_wrong_permute_axes_declines_to_fuse(self):

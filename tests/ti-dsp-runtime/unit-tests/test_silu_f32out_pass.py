@@ -24,7 +24,7 @@ import pytest
 
 import tvm
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 
 def _run_pass(mod):
@@ -135,7 +135,7 @@ class TestSiluF32OutSplit:
         with bb.function("main", [x, s_in], attrs={"num_input": 2}):
             with bb.dataflow():
                 # d_scale is a non-constant Var (e.g. derived at runtime),
-                # not a relax.Constant -- the check callback must decline.
+                # not a tvm.ir.GenericConst -- the check callback must decline.
                 d_scale = bb.emit(relax.op.multiply(s_in, relax.const(1.0, "float32")))
                 dq = bb.emit(relax.op.dequantize(x, d_scale, relax.const(0, "int8")))
                 sig = bb.emit(relax.op.sigmoid(dq))

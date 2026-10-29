@@ -19,8 +19,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
-from tvm.relax import TensorStructInfo
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
+from tvm import relax, te, tirx
+from tvm.relax import TensorType as TensorStructInfo
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -52,7 +53,7 @@ def _build_i16_matmul_model(M, K, N, x_i16, w_i16_KN, shift):
 
     def te_matmul(data_t, w_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 "mmalib_matmul_i16",
                 ins[0].data,
@@ -74,7 +75,7 @@ def _build_i16_matmul_model(M, K, N, x_i16, w_i16_KN, shift):
                 bb.call_te(
                     te_matmul,
                     x,
-                    relax.Constant(w_i16_KN),
+                    ti_tensor_const(w_i16_KN),
                     primfunc_name_hint="matmul_i16",
                 )
             )

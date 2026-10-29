@@ -14,8 +14,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -35,7 +36,7 @@ def _create_int16_conv2d_model(
 
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, c_in, h, w), "int16"))
-    w_const = relax.Constant(kernel_data)
+    w_const = ti_tensor_const(kernel_data)
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():

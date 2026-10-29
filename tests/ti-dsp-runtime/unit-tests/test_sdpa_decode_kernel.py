@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -55,7 +55,7 @@ def _build_sdpa_module(num_q_heads, num_kv_heads, head_dim, max_cache_len):
 
     def te_sdpa(q_t, k_t, v_t, mask_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 "c7x_sdpa_decode",
                 ins[0].data,
@@ -79,12 +79,12 @@ def _build_sdpa_module(num_q_heads, num_kv_heads, head_dim, max_cache_len):
 
     bb = relax.BlockBuilder()
 
-    q_var = relax.Var("Q", relax.TensorStructInfo([num_q_heads, head_dim], "float32"))
-    k_var = relax.Var("K_cache", relax.TensorStructInfo(
+    q_var = relax.Var("Q", relax.TensorType([num_q_heads, head_dim], "float32"))
+    k_var = relax.Var("K_cache", relax.TensorType(
         [num_kv_heads, max_cache_len, head_dim], "float32"))
-    v_var = relax.Var("V_cache", relax.TensorStructInfo(
+    v_var = relax.Var("V_cache", relax.TensorType(
         [num_kv_heads, max_cache_len, head_dim], "float32"))
-    mask_var = relax.Var("mask", relax.TensorStructInfo([max_cache_len], "float32"))
+    mask_var = relax.Var("mask", relax.TensorType([max_cache_len], "float32"))
 
     with bb.function("main", [q_var, k_var, v_var, mask_var], attrs={"num_input": 4}):
         with bb.dataflow():

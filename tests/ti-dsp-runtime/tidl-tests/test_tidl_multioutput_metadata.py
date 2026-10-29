@@ -35,7 +35,7 @@ def _count_tidl_subgraphs(mod):
 
 
 def _build_split_model(indices_or_sections, axis=1, channel_dim=64, dtype="float32"):
-    x = relax.Var("x", relax.TensorStructInfo((1, channel_dim, 16, 16), dtype))
+    x = relax.Var("x", relax.TensorType((1, channel_dim, 16, 16), dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -49,7 +49,7 @@ def _build_split_model(indices_or_sections, axis=1, channel_dim=64, dtype="float
 def _build_take_model(data, indices_shape, axis, indices_dtype="int32"):
     bb = relax.BlockBuilder()
     inputs = [v for v in (data,) if isinstance(v, relax.Var)]
-    indices = relax.Var("indices", relax.TensorStructInfo(indices_shape, indices_dtype))
+    indices = relax.Var("indices", relax.TensorType(indices_shape, indices_dtype))
     inputs.append(indices)
     with bb.function("main", inputs):
         with bb.dataflow():
@@ -60,7 +60,7 @@ def _build_take_model(data, indices_shape, axis, indices_dtype="int32"):
 
 
 def _build_topk_model(shape, axis, k=1, ret_type="values", dtype="float32"):
-    x = relax.Var("x", relax.TensorStructInfo(shape, dtype))
+    x = relax.Var("x", relax.TensorType(shape, dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -94,7 +94,7 @@ class TestMultiOutputMetadata:
 
         relax.op.take only returns values. topk has ret_type option.
         """
-        data = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        data = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         mod = _build_take_model(data, indices_shape=(4,), axis=3)
         partitioned = partition_for_tidl(mod)
         assert _count_tidl_subgraphs(partitioned) == 1, (

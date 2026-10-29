@@ -38,7 +38,7 @@ F32 = "float32"
 def _build(inputs, body):
     """Module with ``main(*inputs)`` returning ``body(bb, *vars)``."""
     params = [
-        relax.Var(name, relax.TensorStructInfo(shape, dtype))
+        relax.Var(name, relax.TensorType(shape, dtype))
         for name, (shape, dtype) in inputs.items()
     ]
     bb = relax.BlockBuilder()
@@ -130,7 +130,7 @@ reject("avgpool-5x5", "tidl.nn.avg_pool2d", _pool(nn.avg_pool2d, (5, 5)), "pool 
 
 # --- relu / softmax / permute_dims: rank <= 6, dtype -----------------------
 def _permute_reversed(x):
-    return op.permute_dims(x, axes=list(range(x.struct_info.ndim))[::-1])
+    return op.permute_dims(x, axes=list(range(x.ty.ndim))[::-1])
 
 
 for name, pattern, fn in [
@@ -1072,8 +1072,8 @@ reject(
 
 # --- reshape / expand with a shape variable -----------------------------------------------------
 def _shape_var_module(fn, in_shape):
-    s = relax.Var("s", relax.ShapeStructInfo(ndim=4))
-    x = relax.Var("x", relax.TensorStructInfo(in_shape, F32))
+    s = relax.Var("s", relax.ShapeType(ndim=4))
+    x = relax.Var("x", relax.TensorType(in_shape, F32))
     bb = relax.BlockBuilder()
     with bb.function("main", [x, s]):
         with bb.dataflow():

@@ -15,8 +15,10 @@ Usage:
     pytest test_mmalib_inject_dma.py -v
 """
 
+import tvm_ffi
+
 import tvm
-from tvm import tir
+from tvm import tirx
 from tvm.relax.transform import InjectMMALIBDMA
 
 # ---------------------------------------------------------------------------
@@ -52,14 +54,14 @@ def _make_conv2d_primfunc(
     """
     # Buffer handles — the pass treats these as opaque pointers and does
     # not inspect their types, only passes them through to DMA calls.
-    h_input = tir.Var("input", "handle")
-    h_kernel = tir.Var("kernel", "handle")
-    h_bias = tir.Var("bias", "handle")
-    h_scale = tir.Var("scale", "handle")
-    h_shift = tir.Var("shift", "handle")
-    h_output = tir.Var("output", "handle")
+    h_input = tirx.Var("input", "handle")
+    h_kernel = tirx.Var("kernel", "handle")
+    h_bias = tirx.Var("bias", "handle")
+    h_scale = tirx.Var("scale", "handle")
+    h_shift = tirx.Var("shift", "handle")
+    h_output = tirx.Var("output", "handle")
 
-    call = tir.call_extern(
+    call = tirx.call_extern(
         "int32",
         kernel_name,
         h_input,          # args[1]
@@ -68,37 +70,36 @@ def _make_conv2d_primfunc(
         h_scale,          # args[4]
         h_shift,          # args[5]
         h_output,         # args[6]
-        tir.const(C_in,    "int32"),   # args[7]
-        tir.const(H_in,    "int32"),   # args[8]
-        tir.const(W_in,    "int32"),   # args[9]
-        tir.const(C_out,   "int32"),   # args[10]
-        tir.const(KH,      "int32"),   # args[11]
-        tir.const(KW,      "int32"),   # args[12]
-        tir.const(stride_h,"int32"),   # args[13]  ← was incorrectly used
-        tir.const(stride_w,"int32"),   # args[14]
-        tir.const(pad_top, "int32"),   # args[15]  ← correct guard source
-        tir.const(pad_bottom,"int32"), # args[16]
-        tir.const(pad_left,"int32"),   # args[17]
-        tir.const(pad_right,"int32"),  # args[18]
+        tirx.const(C_in,    "int32"),   # args[7]
+        tirx.const(H_in,    "int32"),   # args[8]
+        tirx.const(W_in,    "int32"),   # args[9]
+        tirx.const(C_out,   "int32"),   # args[10]
+        tirx.const(KH,      "int32"),   # args[11]
+        tirx.const(KW,      "int32"),   # args[12]
+        tirx.const(stride_h,"int32"),   # args[13]  ← was incorrectly used
+        tirx.const(stride_w,"int32"),   # args[14]
+        tirx.const(pad_top, "int32"),   # args[15]  ← correct guard source
+        tirx.const(pad_bottom,"int32"), # args[16]
+        tirx.const(pad_left,"int32"),   # args[17]
+        tirx.const(pad_right,"int32"),  # args[18]
     )
-    body = tir.Evaluate(call)
-    return tir.PrimFunc(
+    body = tirx.Evaluate(call)
+    return tirx.PrimFunc(
         [h_input, h_kernel, h_bias, h_scale, h_shift, h_output],
         body,
     )
 
 
 def _collect_allocate_sizes(func):
-    """Return a list of all Allocate extents (as ints) in the PrimFunc body."""
+    """Return a list of all AllocBuffer extents (as ints) in the PrimFunc body."""
     sizes = []
 
     def _visit(node):
-        if isinstance(node, tir.Allocate):
-            for ext in node.extents:
-                if isinstance(ext, tir.IntImm):
-                    sizes.append(int(ext.value))
+        for ext in node.buffer.shape:
+            if isinstance(ext, tirx.IntImm):
+                sizes.append(int(ext.value))
 
-    tir.stmt_functor.post_order_visit(func.body, _visit)
+    tvm_ffi.structural_walk(func.body, (tirx.AllocBuffer, _visit), order="post")
     return sizes
 
 
@@ -215,14 +216,14 @@ def _make_dwconv_primfunc(kernel_name, channels, H_in, W_in, KH, KW,
                 channels, H_in, W_in, KH, KW, stride_h, stride_w,
                 pad_top, pad_bottom, pad_left, pad_right, num_groups)
     """
-    h_input = tir.Var("input", "handle")
-    h_weight = tir.Var("weight", "handle")
-    h_bias = tir.Var("bias", "handle")
-    h_scale = tir.Var("scale", "handle")
-    h_shift = tir.Var("shift", "handle")
-    h_output = tir.Var("output", "handle")
+    h_input = tirx.Var("input", "handle")
+    h_weight = tirx.Var("weight", "handle")
+    h_bias = tirx.Var("bias", "handle")
+    h_scale = tirx.Var("scale", "handle")
+    h_shift = tirx.Var("shift", "handle")
+    h_output = tirx.Var("output", "handle")
 
-    call = tir.call_extern(
+    call = tirx.call_extern(
         "int32",
         kernel_name,
         h_input,
@@ -231,21 +232,21 @@ def _make_dwconv_primfunc(kernel_name, channels, H_in, W_in, KH, KW,
         h_scale,
         h_shift,
         h_output,
-        tir.const(channels, "int32"),   # args[7]
-        tir.const(H_in, "int32"),       # args[8]
-        tir.const(W_in, "int32"),       # args[9]
-        tir.const(KH, "int32"),         # args[10]
-        tir.const(KW, "int32"),         # args[11]
-        tir.const(stride_h, "int32"),   # args[12]
-        tir.const(stride_w, "int32"),   # args[13]
-        tir.const(pad_top, "int32"),    # args[14]
-        tir.const(pad_bottom, "int32"), # args[15]
-        tir.const(pad_left, "int32"),   # args[16]
-        tir.const(pad_right, "int32"),  # args[17]
-        tir.const(channels, "int32"),   # args[18] num_groups (== channels, true depthwise)
+        tirx.const(channels, "int32"),   # args[7]
+        tirx.const(H_in, "int32"),       # args[8]
+        tirx.const(W_in, "int32"),       # args[9]
+        tirx.const(KH, "int32"),         # args[10]
+        tirx.const(KW, "int32"),         # args[11]
+        tirx.const(stride_h, "int32"),   # args[12]
+        tirx.const(stride_w, "int32"),   # args[13]
+        tirx.const(pad_top, "int32"),    # args[14]
+        tirx.const(pad_bottom, "int32"), # args[15]
+        tirx.const(pad_left, "int32"),   # args[16]
+        tirx.const(pad_right, "int32"),  # args[17]
+        tirx.const(channels, "int32"),   # args[18] num_groups (== channels, true depthwise)
     )
-    body = tir.Evaluate(call)
-    return tir.PrimFunc([h_input, h_weight, h_bias, h_scale, h_shift, h_output], body)
+    body = tirx.Evaluate(call)
+    return tirx.PrimFunc([h_input, h_weight, h_bias, h_scale, h_shift, h_output], body)
 
 
 def test_dwconv_i8_weight_bytes_uses_groups_not_channels_squared():

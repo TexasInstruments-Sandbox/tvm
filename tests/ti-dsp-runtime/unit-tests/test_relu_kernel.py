@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -49,19 +49,19 @@ def _build_relu_module(n, clip_lo):
 
     def te_relu(x_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 _KERNEL,
                 ins[0].data,
                 outs[0].data,
-                tir.IntImm("int32", n_val),
-                tir.IntImm("int32", clip_lo_val),
+                tirx.IntImm("int32", n_val),
+                tirx.IntImm("int32", clip_lo_val),
             )
 
         return te.extern([n_val], [x_t], fcompute, name="relu_out", dtype="int8")
 
     bb = relax.BlockBuilder()
-    x_var = relax.Var("x", relax.TensorStructInfo([n_val], "int8"))
+    x_var = relax.Var("x", relax.TensorType([n_val], "int8"))
     with bb.function("main", [x_var], attrs={"num_input": 1}):
         with bb.dataflow():
             result = bb.emit_te(te_relu, x_var, primfunc_name_hint=_KERNEL)

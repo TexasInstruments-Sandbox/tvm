@@ -21,7 +21,7 @@ import sys
 
 import pytest
 
-from tvm import relax, tir
+from tvm import relax, tirx
 from tvm.relax.backend.tidl import partition_for_tidl
 
 # All tests in this file are quick (pure IR, no hardware, no .so)
@@ -52,7 +52,7 @@ def _count_tidl_subgraphs(mod):
 
 
 def _build_quantize_model(data_dtype="float32", out_dtype="int8"):
-    x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), data_dtype))
+    x = relax.Var("x", relax.TensorType((1, 8, 16, 16), data_dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -65,7 +65,7 @@ def _build_quantize_model(data_dtype="float32", out_dtype="int8"):
 
 
 def _build_dequantize_model(data_dtype="int8", out_dtype="float32"):
-    x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), data_dtype))
+    x = relax.Var("x", relax.TensorType((1, 8, 16, 16), data_dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -78,7 +78,7 @@ def _build_dequantize_model(data_dtype="int8", out_dtype="float32"):
 
 
 def _build_cast_model(data_dtype="float32", out_dtype="int8"):
-    x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), data_dtype))
+    x = relax.Var("x", relax.TensorType((1, 8, 16, 16), data_dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -182,7 +182,7 @@ class TestCastDenyByDefault:
 
 
 def _build_strided_slice_model(axes, begin, end, strides=None, dtype="float32"):
-    x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), dtype))
+    x = relax.Var("x", relax.TensorType((1, 8, 16, 16), dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -193,7 +193,7 @@ def _build_strided_slice_model(axes, begin, end, strides=None, dtype="float32"):
 
 
 def _build_pad_model(pad_width, pad_mode="constant", dtype="float32"):
-    x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), dtype))
+    x = relax.Var("x", relax.TensorType((1, 8, 16, 16), dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -205,8 +205,8 @@ def _build_pad_model(pad_width, pad_mode="constant", dtype="float32"):
 
 def _build_concat_model(axis, dtype="float32"):
     shape = (1, 8, 16, 16)
-    x1 = relax.Var("x1", relax.TensorStructInfo(shape, dtype))
-    x2 = relax.Var("x2", relax.TensorStructInfo(shape, dtype))
+    x1 = relax.Var("x1", relax.TensorType(shape, dtype))
+    x2 = relax.Var("x2", relax.TensorType(shape, dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x1, x2]):
         with bb.dataflow():
@@ -295,8 +295,8 @@ class TestConcatDenyByDefault:
         where "flatten-then-concat" and "concat along axis 0" are the same
         operation -- so this is not the mis-parse it might look like and
         should still offload."""
-        x1 = relax.Var("x1", relax.TensorStructInfo((8,), "float32"))
-        x2 = relax.Var("x2", relax.TensorStructInfo((8,), "float32"))
+        x1 = relax.Var("x1", relax.TensorType((8,), "float32"))
+        x2 = relax.Var("x2", relax.TensorType((8,), "float32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x1, x2]):
             with bb.dataflow():
@@ -331,7 +331,7 @@ class TestConcatDenyByDefault:
 
 
 def _build_split_model(indices_or_sections, axis=1, channel_dim=64, dtype="float32"):
-    x = relax.Var("x", relax.TensorStructInfo((1, channel_dim, 16, 16), dtype))
+    x = relax.Var("x", relax.TensorType((1, channel_dim, 16, 16), dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -342,7 +342,7 @@ def _build_split_model(indices_or_sections, axis=1, channel_dim=64, dtype="float
 
 
 def _build_reshape_model(target_shape, dtype="float32"):
-    x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), dtype))
+    x = relax.Var("x", relax.TensorType((1, 8, 16, 16), dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -353,7 +353,7 @@ def _build_reshape_model(target_shape, dtype="float32"):
 
 
 def _build_permute_dims_model(shape, axes=None, dtype="float32"):
-    x = relax.Var("x", relax.TensorStructInfo(shape, dtype))
+    x = relax.Var("x", relax.TensorType(shape, dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -419,18 +419,18 @@ def _build_unary_model(struct_info, op):
 
 
 def _symbolic_batch():
-    return relax.TensorStructInfo([tir.Var("n", "int64"), 8, 16, 16], "float32")
+    return relax.TensorType([tirx.Var("n", "int64"), 8, 16, 16], "float32")
 
 
 def _rank_only():
-    return relax.TensorStructInfo(dtype="float32", ndim=4)
+    return relax.TensorType(dtype="float32", ndim=4)
 
 
 class TestUnknownShapeFailsClosed:
     """_check_rank / the exact-rank guards decline when the shape cannot be
     established, instead of deferring to a C++ importer that has no denial
     path.  A symbolic dimension used to raise TypeError out of the callback
-    (``int()`` on a tir.Var)."""
+    (``int()`` on a tirx.Var)."""
 
     OPS = {
         "permute_dims": lambda x: relax.op.permute_dims(x, axes=[0, 2, 3, 1]),
@@ -443,7 +443,7 @@ class TestUnknownShapeFailsClosed:
     @pytest.mark.parametrize("op_name", sorted(OPS))
     def test_static_shape_partitioned(self, op_name):
         """Accept-side sibling: same op, fully static shape."""
-        static = relax.TensorStructInfo((1, 8, 16, 16), "float32")
+        static = relax.TensorType((1, 8, 16, 16), "float32")
         mod = _build_unary_model(static, self.OPS[op_name])
         assert _count_tidl_subgraphs(partition_for_tidl(mod)) == 1
 
@@ -493,7 +493,7 @@ class TestPermuteDimsDenyByDefault:
 def _build_take_model(data, indices_shape, axis, indices_dtype="int32"):
     bb = relax.BlockBuilder()
     inputs = [v for v in (data,) if isinstance(v, relax.Var)]
-    indices = relax.Var("indices", relax.TensorStructInfo(indices_shape, indices_dtype))
+    indices = relax.Var("indices", relax.TensorType(indices_shape, indices_dtype))
     inputs.append(indices)
     with bb.function("main", inputs):
         with bb.dataflow():
@@ -504,7 +504,7 @@ def _build_take_model(data, indices_shape, axis, indices_dtype="int32"):
 
 
 def _build_topk_model(shape, axis, dtype="float32"):
-    x = relax.Var("x", relax.TensorStructInfo(shape, dtype))
+    x = relax.Var("x", relax.TensorType(shape, dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -517,7 +517,7 @@ def _build_topk_model(shape, axis, dtype="float32"):
 class TestTakeDenyByDefault:
     def test_last_axis_partitioned(self):
         """Gather along the last (W) axis: dims after it are trivially empty."""
-        data = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        data = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         mod = _build_take_model(data, indices_shape=(4,), axis=3)
         partitioned = partition_for_tidl(mod)
         assert _count_tidl_subgraphs(partitioned) == 1
@@ -541,7 +541,7 @@ class TestTakeDenyByDefault:
         the axis and is gated behind conditions this check doesn't attempt
         to replicate.) This mirrors test_take in test_tidl_layer_offload.py,
         which is the regression this test guards against."""
-        data = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        data = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         mod = _build_take_model(data, indices_shape=(4,), axis=1)
         partitioned = partition_for_tidl(mod)
         assert _count_tidl_subgraphs(partitioned) == 1
@@ -549,7 +549,7 @@ class TestTakeDenyByDefault:
     def test_non_1d_indices_declined(self):
         """2-D indices with a non-singleton leading dim: TIDL's GatherLayer
         only supports effectively-1D indices."""
-        data = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        data = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         mod = _build_take_model(data, indices_shape=(2, 4), axis=3)
         partitioned = partition_for_tidl(mod)
         assert _count_tidl_subgraphs(partitioned) == 0, (

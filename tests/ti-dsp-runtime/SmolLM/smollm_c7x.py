@@ -54,7 +54,7 @@ from torch.export import export
 from transformers import AutoModelForCausalLM
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from tvm.contrib.c7x.io_meta import compute_io_meta, kv_resident_output_bytes
 from tvm.relax.frontend.torch import from_exported_program
 
@@ -609,7 +609,7 @@ def _substitute_vars(expr, var_map):
     if isinstance(expr, relax.Call):
         new_args = [_substitute_vars(a, var_map) for a in expr.args]
         if any(a is not b for a, b in zip(new_args, expr.args)):
-            return relax.Call(expr.op, new_args, expr.attrs, expr.sinfo_args, expr.span)
+            return relax.Call(expr.op, new_args, expr.attrs, expr.ty_args, expr.span)
         return expr
     if isinstance(expr, relax.Tuple):
         new_fields = [_substitute_vars(f, var_map) for f in expr.fields]
@@ -713,8 +713,8 @@ def _fuse_sdpa_decode(mod, seq_len):
 
         # Extract dims from scatter output: [1, kv_heads, cache_len, head_dim]
         try:
-            k_shape = [int(s) for s in k_scatter.struct_info.shape]
-            q_shape = [int(s) for s in q_rope.struct_info.shape]
+            k_shape = [int(s) for s in k_scatter.ty.shape]
+            q_shape = [int(s) for s in q_rope.ty.shape]
         except (TypeError, ValueError):
             continue
 
@@ -783,19 +783,19 @@ def _fuse_sdpa_decode(mod, seq_len):
             nqh, nkvh, hd, mcl = g["num_q_heads"], g["num_kv_heads"], g["head_dim"], g["max_cache_len"]
 
             # Build the extern call as a TIR PrimFunc
-            q_param = tir.Var("q", "handle")
-            k_param = tir.Var("k", "handle")
-            v_param = tir.Var("v", "handle")
-            m_param = tir.Var("m", "handle")
-            o_param = tir.Var("o", "handle")
+            q_param = tirx.Var("q", "handle")
+            k_param = tirx.Var("k", "handle")
+            v_param = tirx.Var("v", "handle")
+            m_param = tirx.Var("m", "handle")
+            o_param = tirx.Var("o", "handle")
 
-            body = tir.Evaluate(tir.call_extern(
+            body = tirx.Evaluate(tirx.call_extern(
                 "int32", "c7x_sdpa_decode",
-                tir.call_intrin("handle", "tir.tvm_struct_get", q_param, 0, 1),
-                tir.call_intrin("handle", "tir.tvm_struct_get", k_param, 0, 1),
-                tir.call_intrin("handle", "tir.tvm_struct_get", v_param, 0, 1),
-                tir.call_intrin("handle", "tir.tvm_struct_get", m_param, 0, 1),
-                tir.call_intrin("handle", "tir.tvm_struct_get", o_param, 0, 1),
+                tirx.call_intrin("handle", "tirx.tvm_struct_get", q_param, 0, 1),
+                tirx.call_intrin("handle", "tirx.tvm_struct_get", k_param, 0, 1),
+                tirx.call_intrin("handle", "tirx.tvm_struct_get", v_param, 0, 1),
+                tirx.call_intrin("handle", "tirx.tvm_struct_get", m_param, 0, 1),
+                tirx.call_intrin("handle", "tirx.tvm_struct_get", o_param, 0, 1),
                 nqh, nkvh, hd, mcl,
             ))
 
@@ -849,7 +849,7 @@ def _fuse_sdpa_decode(mod, seq_len):
                 def _te_sdpa(qt, kt, vt, mt,
                              _nqh=nqh, _nkvh=nkvh, _hd=hd, _mcl=mcl):
                     def fcompute(ins, outs):
-                        return tir.call_extern(
+                        return tirx.call_extern(
                             "int32", "c7x_sdpa_decode",
                             ins[0].data, ins[1].data, ins[2].data,
                             ins[3].data, outs[0].data,
@@ -865,7 +865,7 @@ def _fuse_sdpa_decode(mod, seq_len):
                     primfunc_name_hint="sdpa_decode",
                 )
                 # Reshape to original output shape [1, 1, nqh, hd]
-                out_shape = [int(s) for s in binding.var.struct_info.shape]
+                out_shape = [int(s) for s in binding.var.ty.shape]
                 new_val = bb.emit(relax.op.reshape(sdpa_out, relax.ShapeExpr(out_shape)))
                 self.set_var_remap(binding.var.vid, new_val)
                 self._count += 1
@@ -996,11 +996,11 @@ def _add_kv_scatter_outputs(mod):
     new_ret = relax.Tuple(new_fields)
 
     new_body = relax.SeqExpr(blocks=new_bindings, body=new_ret)
-    new_ret_sinfo = relax.TupleStructInfo([f.struct_info for f in new_fields])
+    new_ret_sinfo = relax.TupleType([f.ty for f in new_fields])
     new_func = relax.Function(
         params=func.params,
         body=new_body,
-        ret_struct_info=new_ret_sinfo,
+        ret_ty=new_ret_sinfo,
         attrs=func.attrs,
     )
 
@@ -1083,8 +1083,8 @@ def _compile_one_kvcache_mode(
         source_expr = importer.env[source]
 
         # Use static shapes from struct_info for broadcast_to target
-        src_sinfo = source_expr.struct_info
-        src_shape_static = list(src_sinfo.shape)  # list of int / tir.SizeVar
+        src_sinfo = source_expr.ty
+        src_shape_static = list(src_sinfo.shape)  # list of int / tirx.SizeVar
         ndim = len(src_shape_static)
 
         # Reshape index to [1, 1, seq, 1] → then broadcast_to source shape

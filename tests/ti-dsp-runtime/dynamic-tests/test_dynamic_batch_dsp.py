@@ -32,7 +32,7 @@ import pytest
 
 import tvm
 from tvm.script import relax as R
-from tvm.script import tir as T
+from tvm.script import tirx as T
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"

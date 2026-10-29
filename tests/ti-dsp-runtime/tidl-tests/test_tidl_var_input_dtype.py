@@ -48,8 +48,8 @@ class TestVariableInputDtype:
         GatherElementsLayer.
         """
         # Use a Var for data (variable input), not a Constant
-        data = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "int64"))
-        indices = relax.Var("indices", relax.TensorStructInfo((4,), "int32"))
+        data = relax.Var("x", relax.TensorType((1, 8, 16, 16), "int64"))
+        indices = relax.Var("indices", relax.TensorType((4,), "int32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [data, indices]):
             with bb.dataflow():
@@ -66,8 +66,8 @@ class TestVariableInputDtype:
 
     def test_take_uint64_data_declined(self):
         """take with uint64 data tensor should be declined."""
-        data = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "uint64"))
-        indices = relax.Var("indices", relax.TensorStructInfo((4,), "int32"))
+        data = relax.Var("x", relax.TensorType((1, 8, 16, 16), "uint64"))
+        indices = relax.Var("indices", relax.TensorType((4,), "int32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [data, indices]):
             with bb.dataflow():
@@ -94,8 +94,8 @@ class TestVariableInputDtype:
         this defect class: no fix needed, the Python dtype gate subsumes
         the per-op allowlist Relay needed).
         """
-        data = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "int32"))
-        indices = relax.Var("indices", relax.TensorStructInfo((4,), "int32"))
+        data = relax.Var("x", relax.TensorType((1, 8, 16, 16), "int32"))
+        indices = relax.Var("indices", relax.TensorType((4,), "int32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [data, indices]):
             with bb.dataflow():
@@ -120,7 +120,7 @@ class TestVariableInputDtype:
         the float32 baseline is unaffected: ret_type='values' with a
         float32 input still offloads.
         """
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x]):
             with bb.dataflow():
@@ -139,7 +139,7 @@ class TestVariableInputDtype:
 
         Relay rejects unsupported dtype on TopK input (varTensorIndices[0]).
         """
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "int64"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "int64"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x]):
             with bb.dataflow():
@@ -163,8 +163,8 @@ class TestVariableInputDtype:
         declined. Same conclusion as test_take_int32_data_declined above:
         more conservative than Relay, not a parity gap.
         """
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "int32"))
-        y = relax.Var("y", relax.TensorStructInfo((1, 8, 16, 16), "int32"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "int32"))
+        y = relax.Var("y", relax.TensorType((1, 8, 16, 16), "int32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x, y]):
             with bb.dataflow():

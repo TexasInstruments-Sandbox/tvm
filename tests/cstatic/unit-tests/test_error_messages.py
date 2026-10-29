@@ -26,7 +26,7 @@ import tvm
 from tvm import relax
 from tvm.script import ir as I
 from tvm.script import relax as R
-from tvm.script import tir as T
+from tvm.script import tirx as T
 from tvm_utils import compile_and_run_on_target
 
 
@@ -39,7 +39,7 @@ class SimpleModel:
         X = T.match_buffer(x, (1, 3, 224, 224))
         Z = T.match_buffer(z, (1, 3, 224, 224))
         for i, j, k, l in T.grid(1, 3, 224, 224):
-            with T.block("multiply"):
+            with T.sblock("multiply"):
                 vi, vj, vk, vl = T.axis.remap("SSSS", [i, j, k, l])
                 Z[vi, vj, vk, vl] = X[vi, vj, vk, vl] * T.float32(2)
 
@@ -119,7 +119,7 @@ class SmallModel:
         X = T.match_buffer(x, (1, 10))
         Z = T.match_buffer(z, (1, 10))
         for i, j in T.grid(1, 10):
-            with T.block("add"):
+            with T.sblock("add"):
                 vi, vj = T.axis.remap("SS", [i, j])
                 Z[vi, vj] = X[vi, vj] + T.float32(1)
 

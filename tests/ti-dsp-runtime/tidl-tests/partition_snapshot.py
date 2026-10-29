@@ -30,9 +30,9 @@ REAL_MODELS = ["resnet18", "mobilenet_v2", "yolov5n", "yolov8n"]
 
 
 def _shape(sinfo):
-    if isinstance(sinfo, relax.TensorStructInfo) and sinfo.shape is not None:
+    if isinstance(sinfo, relax.TensorType) and sinfo.shape is not None:
         return [int(d) for d in sinfo.shape]
-    if isinstance(sinfo, relax.TupleStructInfo):
+    if isinstance(sinfo, relax.TupleType):
         return [_shape(f) for f in sinfo.fields]
     return None
 
@@ -43,7 +43,7 @@ def snapshot_module(mod):
     for _, func in _find_tidl_subgraphs(mod):
         subgraphs.append(
             [
-                [str(fn.attrs["Composite"]), _shape(call.struct_info)]
+                [str(fn.attrs["Composite"]), _shape(call.ty)]
                 for fn, call, _ in _extract_composite_calls(func)
             ]
         )

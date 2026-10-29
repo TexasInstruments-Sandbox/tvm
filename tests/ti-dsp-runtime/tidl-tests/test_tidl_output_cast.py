@@ -17,7 +17,7 @@ These tests pin down three bugs found by review of the first implementation:
 1. ``OutputCastInserter.visit_call_`` matched subgraph calls with
    ``isinstance(call.op, relax.GlobalVar)``. By the time this pass runs,
    ``_TIDLCallReplacer`` (part of ``lower_tidl``) has already rewritten every
-   subgraph call into ``relax.call_tir(tir_gv, args, out_sinfo=...)``, whose
+   subgraph call into ``relax.call_tir(tir_gv, args, out_ty=...)``, whose
    ``.op`` is the ``relax.call_tir`` builtin Op -- never a ``GlobalVar``. The
    check never matched, so no cast was ever inserted.
 2. The dequant formula was ``data * (1/scale_inv) + zp``. TIDL's own
@@ -57,16 +57,12 @@ def _make_tidl_subgraph_stub(name, out_dtypes, sg_id):
     naming ``_fix_output_dtype_mismatches`` keys off of. The body is a no-op:
     this pass never executes the stub, only reads its signature.
     """
-    a = tvm.tir.Var("input0", "handle")
-    in_buf = tvm.tir.decl_buffer((4,), "int8", name="input0_buf")
+    # PrimFunc.buffer_map is gone in 0.27: buffer parameters are buffer-typed Vars.
+    a = tvm.tirx.decl_buffer((4,), "int8", name="input0")
     params = [a]
-    buffer_map = {a: in_buf}
     for i, dt in enumerate(out_dtypes):
-        b = tvm.tir.Var(f"output{i}", "handle")
-        out_buf = tvm.tir.decl_buffer((4,), dt, name=f"output{i}_buf")
-        params.append(b)
-        buffer_map[b] = out_buf
-    func = tvm.tir.PrimFunc(params, tvm.tir.Evaluate(0), buffer_map=buffer_map)
+        params.append(tvm.tirx.decl_buffer((4,), dt, name=f"output{i}"))
+    func = tvm.tirx.PrimFunc(params, tvm.tirx.Evaluate(0))
     func = func.with_attr("global_symbol", name)
     if sg_id is not None:
         func = func.with_attr("tidl_sg_id", sg_id)
@@ -80,16 +76,16 @@ def _build_module(sg_name, out_dtypes, sg_id: int | None = 0):
     """
     stub = _make_tidl_subgraph_stub(sg_name, out_dtypes, sg_id)
     if len(out_dtypes) == 1:
-        out_sinfo = relax.TensorStructInfo((4,), out_dtypes[0])
+        out_sinfo = relax.TensorType((4,), out_dtypes[0])
     else:
-        out_sinfo = [relax.TensorStructInfo((4,), dt) for dt in out_dtypes]
+        out_sinfo = [relax.TensorType((4,), dt) for dt in out_dtypes]
 
     bb = relax.BlockBuilder()
     stub_gv = bb.add_func(stub, sg_name)
-    x = relax.Var("x", relax.TensorStructInfo((4,), "int8"))
+    x = relax.Var("x", relax.TensorType((4,), "int8"))
     with bb.function("main", [x]):
         with bb.dataflow():
-            out = bb.emit_output(relax.call_tir(stub_gv, (x,), out_sinfo=out_sinfo))
+            out = bb.emit_output(relax.call_tir(stub_gv, (x,), out_ty=out_sinfo))
         bb.emit_func_output(out)
     return bb.get()
 
@@ -127,8 +123,8 @@ def _resolve(expr, bindings):
 
 
 def _const_value(expr):
-    assert isinstance(expr, relax.Constant), f"expected a Constant, got {type(expr)}"
-    return float(expr.data.numpy())
+    assert isinstance(expr, tvm.ir.GenericConst), f"expected a Constant, got {type(expr)}"
+    return float(expr.value.numpy())
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +294,7 @@ class TestNarrowIntegerOutput:
         new_mod = self._fix(monkeypatch)
         stub = new_mod["tidl_subgraph_0"]
         out_param = [p for p in stub.params if p.name.startswith("output")][0]
-        assert str(stub.buffer_map[out_param].dtype) == "uint8"
+        assert str(out_param.dtype) == "uint8"
         assert int(stub.attrs["tidl_sg_id"]) == 0
 
     def test_call_tir_declares_tidl_dtype_then_widens(self, monkeypatch):
@@ -307,8 +303,8 @@ class TestNarrowIntegerOutput:
         calls = _collect_calls(new_main.body)
         tir_calls = [c for c in calls if c.op == tvm.ir.Op.get("relax.call_tir")]
         assert len(tir_calls) == 1
-        assert tir_calls[0].struct_info.dtype == "uint8"
-        assert new_main.ret_struct_info.dtype == "int32"
+        assert tir_calls[0].ty.dtype == "uint8"
+        assert new_main.ret_ty.dtype == "int32"
         astypes = [c for c in calls if c.op == tvm.ir.Op.get("relax.astype")]
         assert len(astypes) == 1
 
@@ -320,7 +316,7 @@ class TestNarrowIntegerOutput:
         """
         new_mod = self._fix(monkeypatch)
         gv = new_mod.get_global_var("tidl_subgraph_0")
-        assert "uint8" in str(gv.struct_info)
+        assert "uint8" in str(gv.ty)
         relax.transform.CallTIRRewrite()(new_mod)
 
     def test_integer_widening_skips_dequant(self, monkeypatch):

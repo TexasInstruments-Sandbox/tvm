@@ -61,7 +61,7 @@ def _module_with_tidl_call(padded: int):
     a function result), and the subgraph is a direct GlobalVar call with the
     output appended to the arguments by CallTIRRewrite.
     """
-    from tvm.script import tir as T
+    from tvm.script import tirx as T
 
     @T.prim_func
     def tidl_subgraph_0(a: T.handle, b: T.handle):
@@ -70,16 +70,16 @@ def _module_with_tidl_call(padded: int):
     shape = (1, _CHANNELS, _HW, _HW)
     bb = relax.BlockBuilder()
     gv_sub = bb.add_func(tidl_subgraph_0, "tidl_subgraph_0")
-    x = relax.Var("x", relax.TensorStructInfo(shape, "float32"))
+    x = relax.Var("x", relax.TensorType(shape, "float32"))
     with bb.function("main", [x]):
         alloc = bb.emit(
             relax.op.builtin.alloc_tensor(
-                relax.ShapeExpr(list(shape)), relax.DataTypeImm("float32"), 0, "global"
+                relax.ShapeExpr(list(shape)), "float32", 0, "global"
             ),
             name_hint="alloc",
         )
         bb.emit(
-            relax.Call(gv_sub, [x, alloc], sinfo_args=[relax.ObjectStructInfo()]),
+            relax.Call(gv_sub, [x, alloc], ty_args=[relax.ObjectType()]),
             name_hint="_tidl_call",
         )
         bb.emit_func_output(alloc)
@@ -131,7 +131,7 @@ class TestPadTIDLOutputStoragePass:
         )
         # The tensor itself must be untouched: same shape and dtype, offset 0.
         # That is what makes this fix copy-free.
-        out_sinfo = mod["main"].ret_struct_info
+        out_sinfo = mod["main"].ret_ty
         assert list(out_sinfo.shape) == [1, _CHANNELS, _HW, _HW]
         assert out_sinfo.dtype == "float32"
 

@@ -28,7 +28,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -46,13 +47,13 @@ def _emit_grouped_loop_call(
 ):
     H_out = (H_in + 2 - 3) // stride + 1
     W_out = (W_in + 2 - 3) // stride + 1
-    kernel_c = relax.Constant(kernel_np)
-    bias_c = relax.Constant(bias_np)
-    scale_c = relax.Constant(scale_np)
-    shift_c = relax.Constant(shift_np)
+    kernel_c = ti_tensor_const(kernel_np)
+    bias_c = ti_tensor_const(bias_np)
+    scale_c = ti_tensor_const(scale_np)
+    shift_c = ti_tensor_const(shift_np)
 
     def fcompute(ins, outs):
-        return tir.call_extern(
+        return tirx.call_extern(
             "int32",
             _KERNEL,
             ins[0].data,
@@ -92,7 +93,7 @@ def _emit_grouped_loop_call(
 def _build_loop_chain(rng, n_calls, C, H, W, groups, stride):
     consts = []
     bb = relax.BlockBuilder()
-    x_var = relax.Var("x", relax.TensorStructInfo([1, C, H, W], "int8"))
+    x_var = relax.Var("x", relax.TensorType([1, C, H, W], "int8"))
     with bb.function("main", [x_var], attrs={"num_input": 1}):
         with bb.dataflow():
             cur, cur_H, cur_W = x_var, H, W

@@ -45,7 +45,10 @@ def load_relax_so():
         return  # already loaded by a prior test module in this session
     if not os.path.isfile(RELAX_SO_PATH):
         pytest.skip(f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}")
-    tvm.runtime.load_module(RELAX_SO_PATH)
+    # The gate's loader also re-opens libtvm_compiler.so RTLD_GLOBAL, which the .so needs.
+    from tvm.relax.backend.tidl._gate import load_relax_so as _load  # noqa: PLC0415
+
+    _load(RELAX_SO_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -102,9 +105,9 @@ def _capture_c_stdout():
 
 def _build_composite_call(comp_fn, orig_call):
     """Build a synthetic relax.Call with the composite Function as op
-    and proper struct_info (AllowNode expects call->op to be a Function)."""
+    and proper type (AllowNode expects call->op to be a Function)."""
     new_call = relax.Call(comp_fn, orig_call.args)
-    relax._ffi_api.UpdateStructInfo(new_call, orig_call.struct_info)
+    relax.expr._update_type(new_call, orig_call.ty)
     return new_call
 
 
@@ -127,7 +130,7 @@ def _extract_composites(mod):
                 elif isinstance(val, relax.Call):
                     orig_call = val
 
-        if comp_fn and orig_call:
+        if comp_fn is not None and orig_call is not None:
             name = str(comp_fn.attrs["Composite"])
             results.append((name, _build_composite_call(comp_fn, orig_call)))
     return results

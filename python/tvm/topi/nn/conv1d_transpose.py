@@ -294,18 +294,18 @@ def conv1d_transpose_ncw_optimized(data, kernel, stride, padding, out_dtype, out
         dw_val = pad_left_trans - w
 
         # Check if this kernel position is valid
-        valid = tvm.tir.all(dw_val >= 0, dw_val < kernel_width)
+        valid = tvm.tirx.all(dw_val >= 0, dw_val < kernel_width)
 
         # For in_width=1: input index is always 0 when valid
         # For in_width>1: input index is w + dw - pad_left_trans = 0 when dw = pad_left_trans - w
         input_val = data[b, dc, 0].astype(out_dtype)
 
         # Use the computed kernel position (clamped to valid range for safety)
-        dw_clamped = tvm.tir.max(tvm.tir.min(dw_val, kernel_width - 1), 0)
+        dw_clamped = tvm.tirx.max(tvm.tirx.min(dw_val, kernel_width - 1), 0)
         kernel_val = kernel_flipped[c, dc, dw_clamped].astype(out_dtype)
 
         # Multiply input by kernel, zero if invalid position
-        product = tvm.tir.if_then_else(valid, input_val * kernel_val, tvm.tir.const(0.0, out_dtype))
+        product = tvm.tirx.if_then_else(valid, input_val * kernel_val, tvm.tirx.const(0.0, out_dtype))
 
         return te.sum(product, axis=[dc])
 
@@ -326,7 +326,7 @@ def conv1d_transpose_ncw_direct(data, kernel, stride, padding, out_dtype, output
     creating intermediate dilate/pad buffers. This avoids conditional branches
     in inner loops that can block software pipelining on DSP targets.
 
-    The key optimization is using tvm.tir.if_then_else at the element level
+    The key optimization is using tvm.tirx.if_then_else at the element level
     instead of creating a padded intermediate tensor, which allows the compiler
     to better optimize the memory access pattern.
 
@@ -414,23 +414,23 @@ def conv1d_transpose_ncw_direct(data, kernel, stride, padding, out_dtype, output
         if stride == 1:
             # Simple case: no dilation
             # Valid when: 0 <= dilated_pos < in_width
-            valid = tvm.tir.all(dilated_pos >= 0, dilated_pos < in_width)
-            input_val = tvm.tir.if_then_else(
+            valid = tvm.tirx.all(dilated_pos >= 0, dilated_pos < in_width)
+            input_val = tvm.tirx.if_then_else(
                 valid,
                 data[b, dc, dilated_pos].astype(out_dtype),
-                tvm.tir.const(0.0, out_dtype),
+                tvm.tirx.const(0.0, out_dtype),
             )
         else:
             # With dilation: only positions that are multiples of stride have data
             # Valid when: dilated_pos >= 0 AND dilated_pos % stride == 0 AND
             #             dilated_pos // stride < in_width
-            input_pos = tvm.tir.indexdiv(dilated_pos, stride)
-            is_aligned = tvm.tir.indexmod(dilated_pos, stride) == 0
-            valid = tvm.tir.all(dilated_pos >= 0, is_aligned, input_pos < in_width)
-            input_val = tvm.tir.if_then_else(
+            input_pos = tvm.tirx.indexdiv(dilated_pos, stride)
+            is_aligned = tvm.tirx.indexmod(dilated_pos, stride) == 0
+            valid = tvm.tirx.all(dilated_pos >= 0, is_aligned, input_pos < in_width)
+            input_val = tvm.tirx.if_then_else(
                 valid,
                 data[b, dc, input_pos].astype(out_dtype),
-                tvm.tir.const(0.0, out_dtype),
+                tvm.tirx.const(0.0, out_dtype),
             )
 
         return te.sum(

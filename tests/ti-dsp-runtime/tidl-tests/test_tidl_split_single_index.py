@@ -31,7 +31,7 @@ def _count_tidl_subgraphs(mod):
 
 
 def _build_split_model(indices_or_sections, axis=1, channel_dim=64, dtype="float32"):
-    x = relax.Var("x", relax.TensorStructInfo((1, channel_dim, 16, 16), dtype))
+    x = relax.Var("x", relax.TensorType((1, channel_dim, 16, 16), dtype))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():

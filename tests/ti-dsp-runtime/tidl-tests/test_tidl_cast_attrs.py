@@ -46,7 +46,7 @@ class TestCastAttributes:
 
     def test_cast_basic_partitioned(self):
         """Basic astype float32 -> int8 should partition."""
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x]):
             with bb.dataflow():
@@ -62,7 +62,7 @@ class TestCastAttributes:
 
     def test_cast_int8_to_float32_partitioned(self):
         """astype int8 -> float32 should partition."""
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "int8"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "int8"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x]):
             with bb.dataflow():
@@ -78,7 +78,7 @@ class TestCastAttributes:
 
     def test_cast_uint8_to_int16_partitioned(self):
         """astype uint8 -> int16 should partition."""
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "uint8"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "uint8"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x]):
             with bb.dataflow():

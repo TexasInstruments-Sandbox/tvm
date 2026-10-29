@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 from tvm.script import ir as I
 from tvm.script import relax as R
-from tvm.script import tir as T
+from tvm.script import tirx as T
 
 # Add dsp-cpp to path for dsp_utils
 _THIS_DIR = Path(__file__).parent
@@ -42,12 +42,12 @@ pytestmark = [pytest.mark.core, pytest.mark.c66x_only]
 class SimpleModel:
     """Simple model for testing - just multiplies input by 2"""
 
-    @T.prim_func(private=True)
+    @T.prim_func(private=True, s_tir=True)
     def multiply_by_two(x: T.handle, z: T.handle) -> None:
         X = T.match_buffer(x, (1, 3, 224, 224))
         Z = T.match_buffer(z, (1, 3, 224, 224))
         for i, j, k, m in T.grid(1, 3, 224, 224):
-            with T.block("multiply"):
+            with T.sblock("multiply"):
                 vi, vj, vk, vm = T.axis.remap("SSSS", [i, j, k, m])
                 Z[vi, vj, vk, vm] = X[vi, vj, vk, vm] * T.float32(2)
 
@@ -68,12 +68,12 @@ class SimpleModel:
 class SmallModel:
     """Smaller model for testing"""
 
-    @T.prim_func(private=True)
+    @T.prim_func(private=True, s_tir=True)
     def add_one(x: T.handle, z: T.handle) -> None:
         X = T.match_buffer(x, (1, 10))
         Z = T.match_buffer(z, (1, 10))
         for i, j in T.grid(1, 10):
-            with T.block("add"):
+            with T.sblock("add"):
                 vi, vj = T.axis.remap("SS", [i, j])
                 Z[vi, vj] = X[vi, vj] + T.float32(1)
 

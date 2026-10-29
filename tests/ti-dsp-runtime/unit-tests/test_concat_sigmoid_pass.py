@@ -26,7 +26,7 @@ import pytest
 
 import tvm
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 
 def _run_pass(mod):
@@ -142,7 +142,7 @@ class TestConcatSigmoid:
         text = new_mod.script()
         assert "c7x_int8_concat_sigmoid" in text
         main = new_mod["main"]
-        out_sinfo = main.ret_struct_info
+        out_sinfo = main.ret_ty
         assert [int(s) for s in out_sinfo.shape] == [1, 80, 2100]
         assert str(out_sinfo.dtype) == "float32"
 

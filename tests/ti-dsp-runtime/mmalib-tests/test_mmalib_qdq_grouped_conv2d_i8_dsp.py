@@ -23,8 +23,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -64,14 +65,14 @@ def _create_qdq_grouped_conv2d_model(
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, c_in, h, w), "int8"))
 
-    w_const = relax.Constant(kernel_data)
-    w_scale_const = relax.Constant(w_scale)
-    w_zp_const = relax.Constant(np.zeros(c_out, dtype=np.int8))
-    d_scale_const = relax.Constant(np.array(d_scale, dtype=np.float32))
-    d_zp_const = relax.Constant(np.array(0, dtype=np.int8))
-    o_scale_const = relax.Constant(np.array(o_scale, dtype=np.float32))
-    o_zp_const = relax.Constant(np.array(0, dtype=np.int8))
-    bias_const = relax.Constant(bias_data.reshape(1, c_out, 1, 1))
+    w_const = ti_tensor_const(kernel_data)
+    w_scale_const = ti_tensor_const(w_scale)
+    w_zp_const = ti_tensor_const(np.zeros(c_out, dtype=np.int8))
+    d_scale_const = ti_tensor_const(np.array(d_scale, dtype=np.float32))
+    d_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
+    o_scale_const = ti_tensor_const(np.array(o_scale, dtype=np.float32))
+    o_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
+    bias_const = ti_tensor_const(bias_data.reshape(1, c_out, 1, 1))
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():

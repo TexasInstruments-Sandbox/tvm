@@ -57,7 +57,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -149,22 +149,22 @@ def _build_hardswish_module(n, zx, sx, zy, sy):
 
     def te_kernel(x_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 "c7x_int8_hardswish",
                 ins[0].data,
                 outs[0].data,
-                tir.IntImm("int32", n_v),
-                tir.IntImm("int32", zx_v),
-                tir.FloatImm("float32", sx_v),
-                tir.IntImm("int32", zy_v),
-                tir.FloatImm("float32", sy_v),
+                tirx.IntImm("int32", n_v),
+                tirx.IntImm("int32", zx_v),
+                tirx.FloatImm("float32", sx_v),
+                tirx.IntImm("int32", zy_v),
+                tirx.FloatImm("float32", sy_v),
             )
 
         return te.extern([n_v], [x_t], fcompute, name="hardswish_out", dtype="int8")
 
     bb = relax.BlockBuilder()
-    x_var = relax.Var("x", relax.TensorStructInfo([n_v], "int8"))
+    x_var = relax.Var("x", relax.TensorType([n_v], "int8"))
     with bb.function("main", [x_var], attrs={"num_input": 1}):
         with bb.dataflow():
             result = bb.emit_te(te_kernel, x_var, primfunc_name_hint="c7x_int8_hardswish")
@@ -185,20 +185,20 @@ def _build_channel_scale_multiply_module(C, H_W, s_exc, z_exc, s_feat, z_feat, s
 
     def te_kernel(exc_t, fm_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 "c7x_int8_channel_scale_multiply",
                 ins[0].data,
                 ins[1].data,
                 outs[0].data,
-                tir.IntImm("int32", C_v),
-                tir.IntImm("int32", HW_v),
-                tir.FloatImm("float32", se_v),
-                tir.IntImm("int32", ze_v),
-                tir.FloatImm("float32", sf_v),
-                tir.IntImm("int32", zf_v),
-                tir.FloatImm("float32", so_v),
-                tir.IntImm("int32", zo_v),
+                tirx.IntImm("int32", C_v),
+                tirx.IntImm("int32", HW_v),
+                tirx.FloatImm("float32", se_v),
+                tirx.IntImm("int32", ze_v),
+                tirx.FloatImm("float32", sf_v),
+                tirx.IntImm("int32", zf_v),
+                tirx.FloatImm("float32", so_v),
+                tirx.IntImm("int32", zo_v),
             )
 
         return te.extern(
@@ -206,8 +206,8 @@ def _build_channel_scale_multiply_module(C, H_W, s_exc, z_exc, s_feat, z_feat, s
         )
 
     bb = relax.BlockBuilder()
-    exc_var = relax.Var("exc", relax.TensorStructInfo([C_v], "int8"))
-    fm_var = relax.Var("fm", relax.TensorStructInfo([C_v * HW_v], "int8"))
+    exc_var = relax.Var("exc", relax.TensorType([C_v], "int8"))
+    fm_var = relax.Var("fm", relax.TensorType([C_v * HW_v], "int8"))
     with bb.function("main", [exc_var, fm_var], attrs={"num_input": 2}):
         with bb.dataflow():
             result = bb.emit_te(

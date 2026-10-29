@@ -17,7 +17,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
+from tvm import relax, te, tirx
 from tvm.ir.module import IRModule  # noqa: F401 (used in type hint string)
 
 _THIS_DIR = Path(__file__).parent
@@ -51,23 +52,23 @@ def _build_conv_module(
     _stride, _padding = stride, padding
     _H_out, _W_out = H_out, W_out
 
-    kernel_c = relax.Constant(kernel_np)
-    bias_c   = relax.Constant(bias_np)
-    scale_c  = relax.Constant(scale_np)
-    shift_c  = relax.Constant(shift_np)
+    kernel_c = ti_tensor_const(kernel_np)
+    bias_c   = ti_tensor_const(bias_np)
+    scale_c  = ti_tensor_const(scale_np)
+    shift_c  = ti_tensor_const(shift_np)
 
     def te_conv(x_t, k_t, b_t, s_t, sh_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32", "mmalib_conv2d_i8",
                 ins[0].data, ins[1].data, ins[2].data, ins[3].data, ins[4].data,
                 outs[0].data,
-                tir.IntImm("int32", _C_in), tir.IntImm("int32", _H_in),
-                tir.IntImm("int32", _W_in), tir.IntImm("int32", _C_out),
-                tir.IntImm("int32", _KH),   tir.IntImm("int32", _KW),
-                tir.IntImm("int32", _stride), tir.IntImm("int32", _stride),
-                tir.IntImm("int32", _padding), tir.IntImm("int32", _padding),
-                tir.IntImm("int32", _padding), tir.IntImm("int32", _padding),
+                tirx.IntImm("int32", _C_in), tirx.IntImm("int32", _H_in),
+                tirx.IntImm("int32", _W_in), tirx.IntImm("int32", _C_out),
+                tirx.IntImm("int32", _KH),   tirx.IntImm("int32", _KW),
+                tirx.IntImm("int32", _stride), tirx.IntImm("int32", _stride),
+                tirx.IntImm("int32", _padding), tirx.IntImm("int32", _padding),
+                tirx.IntImm("int32", _padding), tirx.IntImm("int32", _padding),
             )
         return te.extern(
             [1, _C_out, _H_out, _W_out],
@@ -78,7 +79,7 @@ def _build_conv_module(
         )
 
     bb = relax.BlockBuilder()
-    x_var = relax.Var("x", relax.TensorStructInfo([1, C_in, H_in, W_in], "int8"))
+    x_var = relax.Var("x", relax.TensorType([1, C_in, H_in, W_in], "int8"))
     with bb.function("main", [x_var], attrs={"num_input": 1}):
         with bb.dataflow():
             out = bb.emit_te(

@@ -27,7 +27,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -76,22 +76,22 @@ def _build_fpn_module(C1, H, W, z1, s1, C2, z2, s2, s_out, z_out):
 
     def te_kernel(t1, t2):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 _KERNEL,
                 ins[0].data,
-                tir.IntImm("int32", C1_v),
-                tir.IntImm("int32", H_v),
-                tir.IntImm("int32", W_v),
-                tir.IntImm("int32", z1_v),
-                tir.FloatImm("float32", s1_v),
+                tirx.IntImm("int32", C1_v),
+                tirx.IntImm("int32", H_v),
+                tirx.IntImm("int32", W_v),
+                tirx.IntImm("int32", z1_v),
+                tirx.FloatImm("float32", s1_v),
                 ins[1].data,
-                tir.IntImm("int32", C2_v),
-                tir.IntImm("int32", z2_v),
-                tir.FloatImm("float32", s2_v),
+                tirx.IntImm("int32", C2_v),
+                tirx.IntImm("int32", z2_v),
+                tirx.FloatImm("float32", s2_v),
                 outs[0].data,
-                tir.FloatImm("float32", s_out_v),
-                tir.IntImm("int32", z_out_v),
+                tirx.FloatImm("float32", s_out_v),
+                tirx.IntImm("int32", z_out_v),
             )
 
         return te.extern(
@@ -99,8 +99,8 @@ def _build_fpn_module(C1, H, W, z1, s1, C2, z2, s2, s_out, z_out):
         )
 
     bb = relax.BlockBuilder()
-    v1 = relax.Var("in1", relax.TensorStructInfo([C1_v, H_v, W_v], "int8"))
-    v2 = relax.Var("in2", relax.TensorStructInfo([C2_v, H2_v, W2_v], "int8"))
+    v1 = relax.Var("in1", relax.TensorType([C1_v, H_v, W_v], "int8"))
+    v2 = relax.Var("in2", relax.TensorType([C2_v, H2_v, W2_v], "int8"))
     with bb.function("main", [v1, v2], attrs={"num_input": 2}):
         with bb.dataflow():
             result = bb.emit_te(te_kernel, v1, v2, primfunc_name_hint=_KERNEL)
@@ -215,29 +215,29 @@ def _build_fpn_module_ex(C1, H, W, z1, s1, C2, z2, s2, s_out, z_out):
 
     def te_kernel(t1, t2):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 _KERNEL_EX,
                 ins[0].data,
-                tir.IntImm("int32", C1_v),
-                tir.IntImm("int32", H_v),
-                tir.IntImm("int32", W_v),
-                tir.IntImm("int32", z1_v),
-                tir.FloatImm("float32", s1_v),
+                tirx.IntImm("int32", C1_v),
+                tirx.IntImm("int32", H_v),
+                tirx.IntImm("int32", W_v),
+                tirx.IntImm("int32", z1_v),
+                tirx.FloatImm("float32", s1_v),
                 ins[1].data,
-                tir.IntImm("int32", C2_v),
-                tir.IntImm("int32", z2_v),
-                tir.FloatImm("float32", s2_v),
+                tirx.IntImm("int32", C2_v),
+                tirx.IntImm("int32", z2_v),
+                tirx.FloatImm("float32", s2_v),
                 outs[0].data,
-                tir.FloatImm("float32", s_out_v),
-                tir.IntImm("int32", z_out_v),
+                tirx.FloatImm("float32", s_out_v),
+                tirx.IntImm("int32", z_out_v),
                 outs[1].data,
             )
 
-        out_buf0 = tir.decl_buffer(
+        out_buf0 = tirx.decl_buffer(
             [C1_v + C2_v, H2_v, W2_v], "int8", "fpn_out_ex_main", data_alignment=8
         )
-        out_buf1 = tir.decl_buffer(
+        out_buf1 = tirx.decl_buffer(
             [C1_v, H_v, W_v], "float32", "fpn_out_ex_presize", data_alignment=8
         )
         return te.extern(
@@ -250,8 +250,8 @@ def _build_fpn_module_ex(C1, H, W, z1, s1, C2, z2, s2, s_out, z_out):
         )
 
     bb = relax.BlockBuilder()
-    v1 = relax.Var("in1", relax.TensorStructInfo([C1_v, H_v, W_v], "int8"))
-    v2 = relax.Var("in2", relax.TensorStructInfo([C2_v, H2_v, W2_v], "int8"))
+    v1 = relax.Var("in1", relax.TensorType([C1_v, H_v, W_v], "int8"))
+    v2 = relax.Var("in2", relax.TensorType([C2_v, H2_v, W2_v], "int8"))
     with bb.function("main", [v1, v2], attrs={"num_input": 2}):
         with bb.dataflow():
             result = bb.emit_te(te_kernel, v1, v2, primfunc_name_hint=_KERNEL_EX)

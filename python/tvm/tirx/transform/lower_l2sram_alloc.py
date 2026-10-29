@@ -173,7 +173,7 @@ def LowerL2SramAlloc():
         for buf, extents, dtype in alloc_list:
             nbytes = _nbytes_expr(extents, dtype)
             alloc_call = tirx.call_extern("handle", "tvm_l2_alloc", nbytes)
-            stmts.append(tirx.DeclBuffer(buf, alloc_call))
+            stmts.append(tirx.DeclBuffer(buf, data=alloc_call))
             stmts.append(
                 tirx.IfThenElse(
                     tirx.isnullptr(tirx.buffer_data(buf)),

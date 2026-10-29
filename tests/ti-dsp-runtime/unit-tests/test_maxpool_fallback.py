@@ -9,9 +9,10 @@ IR level.
 import numpy as np
 import pytest
 
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
 import tvm
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 pytestmark = pytest.mark.quick
 
@@ -24,8 +25,8 @@ def _build_qdq_maxpool_model():
     """
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, 64, 112, 112), "int8"))
-    s = relax.Constant(np.array(0.00935, dtype=np.float32))
-    z = relax.Constant(np.array(0, dtype=np.int8))
+    s = ti_tensor_const(np.array(0.00935, dtype=np.float32))
+    z = ti_tensor_const(np.array(0, dtype=np.int8))
 
     with bb.function("main", [x]):
         with bb.dataflow():

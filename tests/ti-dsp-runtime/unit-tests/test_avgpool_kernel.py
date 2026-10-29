@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -120,27 +120,27 @@ def _build_avg_pool_module(N, C, H_in, W_in, H_out, W_out, kH, kW, sH, sW, pH, p
 
     def te_avg_pool(x_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 _KERNEL,
                 ins[0].data,
                 outs[0].data,
-                tir.IntImm("int32", _N),
-                tir.IntImm("int32", _C),
-                tir.IntImm("int32", _H_in),
-                tir.IntImm("int32", _W_in),
-                tir.IntImm("int32", _H_out),
-                tir.IntImm("int32", _W_out),
-                tir.IntImm("int32", _kH),
-                tir.IntImm("int32", _kW),
-                tir.IntImm("int32", _sH),
-                tir.IntImm("int32", _sW),
-                tir.IntImm("int32", _pH),
-                tir.IntImm("int32", _pW),
-                tir.IntImm("int32", _zx),
-                tir.FloatImm("float32", _sx),
-                tir.IntImm("int32", _zy),
-                tir.FloatImm("float32", _sy),
+                tirx.IntImm("int32", _N),
+                tirx.IntImm("int32", _C),
+                tirx.IntImm("int32", _H_in),
+                tirx.IntImm("int32", _W_in),
+                tirx.IntImm("int32", _H_out),
+                tirx.IntImm("int32", _W_out),
+                tirx.IntImm("int32", _kH),
+                tirx.IntImm("int32", _kW),
+                tirx.IntImm("int32", _sH),
+                tirx.IntImm("int32", _sW),
+                tirx.IntImm("int32", _pH),
+                tirx.IntImm("int32", _pW),
+                tirx.IntImm("int32", _zx),
+                tirx.FloatImm("float32", _sx),
+                tirx.IntImm("int32", _zy),
+                tirx.FloatImm("float32", _sy),
             )
 
         return te.extern(
@@ -152,7 +152,7 @@ def _build_avg_pool_module(N, C, H_in, W_in, H_out, W_out, kH, kW, sH, sW, pH, p
         )
 
     bb = relax.BlockBuilder()
-    x_var = relax.Var("x", relax.TensorStructInfo([N, C, H_in, W_in], "int8"))
+    x_var = relax.Var("x", relax.TensorType([N, C, H_in, W_in], "int8"))
     with bb.function("main", [x_var], attrs={"num_input": 1}):
         with bb.dataflow():
             result = bb.emit_te(te_avg_pool, x_var, primfunc_name_hint=_KERNEL)

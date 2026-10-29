@@ -16,9 +16,10 @@ import re
 import numpy as np
 import pytest
 
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
 import tvm
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 pytestmark = pytest.mark.quick
 
@@ -42,13 +43,13 @@ def _build_qdq_i16_conv2d_relu_model():
 
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, c_in, h, w), "int16"))
-    w_const = relax.Constant(kernel)
-    w_scale_const = relax.Constant(w_scale)
-    w_zp_const = relax.Constant(np.zeros(c_out, dtype=np.int8))
-    d_scale_const = relax.Constant(np.array(d_scale, dtype=np.float32))
-    d_zp_const = relax.Constant(np.array(0, dtype=np.int8))
-    o_scale_const = relax.Constant(np.array(o_scale, dtype=np.float32))
-    o_zp_const = relax.Constant(np.array(0, dtype=np.int8))
+    w_const = ti_tensor_const(kernel)
+    w_scale_const = ti_tensor_const(w_scale)
+    w_zp_const = ti_tensor_const(np.zeros(c_out, dtype=np.int8))
+    d_scale_const = ti_tensor_const(np.array(d_scale, dtype=np.float32))
+    d_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
+    o_scale_const = ti_tensor_const(np.array(o_scale, dtype=np.float32))
+    o_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():
@@ -87,13 +88,13 @@ def _build_qdq_i16_dwconv2d_relu_model():
 
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, channels, h, w), "int16"))
-    w_const = relax.Constant(kernel)
-    w_scale_const = relax.Constant(w_scale)
-    w_zp_const = relax.Constant(np.zeros(channels, dtype=np.int8))
-    d_scale_const = relax.Constant(np.array(d_scale, dtype=np.float32))
-    d_zp_const = relax.Constant(np.array(0, dtype=np.int8))
-    o_scale_const = relax.Constant(np.array(o_scale, dtype=np.float32))
-    o_zp_const = relax.Constant(np.array(0, dtype=np.int8))
+    w_const = ti_tensor_const(kernel)
+    w_scale_const = ti_tensor_const(w_scale)
+    w_zp_const = ti_tensor_const(np.zeros(channels, dtype=np.int8))
+    d_scale_const = ti_tensor_const(np.array(d_scale, dtype=np.float32))
+    d_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
+    o_scale_const = ti_tensor_const(np.array(o_scale, dtype=np.float32))
+    o_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():

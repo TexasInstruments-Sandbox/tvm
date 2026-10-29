@@ -13,7 +13,7 @@ Covers the pass's three patterns:
      (d_scale != o_scale, both zp == 0)               -> c7x_int8_requantize_clamp
 
 There is also a regression guard mirroring test_movement_pass.py's: when
-the composite's data operand x is itself a literal relax.Constant tensor
+the composite's data operand x is itself a literal tvm.ir.GenericConst tensor
 (a real, already-supported match per each pattern's isinstance(x, relax.
 Constant) branch, not merely reachable from constants), the
 ConstReachability guard declines to fuse. Before the inline-on-decline fix
@@ -31,7 +31,7 @@ import numpy as np
 
 import tvm
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 
 def _run_pass(mod):
@@ -84,7 +84,7 @@ class TestRelu:
         assert "R.nn.relu" not in text
 
     def test_constant_tensor_input_declines_and_still_compiles(self):
-        """Regression guard: x is itself a literal relax.Constant tensor.
+        """Regression guard: x is itself a literal tvm.ir.GenericConst tensor.
         See this module's docstring for the full crash-mode explanation."""
         const_x = relax.const(np.arange(16, dtype="int8").reshape(1, 4, 2, 2))
         mod = _build_relu_model(const_x, d_scale=0.03, d_zp=2, o_scale=0.03, o_zp=2)
@@ -132,7 +132,7 @@ class TestClamp:
         assert "R.clip" not in text
 
     def test_constant_tensor_input_declines_and_still_compiles(self):
-        """Regression guard: x is itself a literal relax.Constant tensor.
+        """Regression guard: x is itself a literal tvm.ir.GenericConst tensor.
         See this module's docstring for the full crash-mode explanation."""
         const_x = relax.const(np.arange(16, dtype="int8").reshape(1, 4, 2, 2))
         mod = _build_clamp_model(
@@ -162,7 +162,7 @@ class TestReqClamp:
         assert "R.clip" not in text
 
     def test_constant_tensor_input_declines_and_still_compiles(self):
-        """Regression guard: x is itself a literal relax.Constant tensor.
+        """Regression guard: x is itself a literal tvm.ir.GenericConst tensor.
         See this module's docstring for the full crash-mode explanation."""
         const_x = relax.const(np.arange(16, dtype="int8").reshape(1, 4, 2, 2))
         mod = _build_clamp_model(

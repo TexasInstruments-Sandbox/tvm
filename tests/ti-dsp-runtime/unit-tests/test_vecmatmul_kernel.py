@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -40,7 +40,7 @@ def _build_vecmatmul_module(M, K, N, w_int8, scale):
 
     def te_vecmatmul(act_t, w_t, scale_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 "c7x_dequantize_vecmatmul",
                 ins[0].data,
@@ -62,9 +62,9 @@ def _build_vecmatmul_module(M, K, N, w_int8, scale):
 
     bb = relax.BlockBuilder()
 
-    act_var = relax.Var("activation", relax.TensorStructInfo([M, K], "float32"))
-    w_var = relax.Var("weights", relax.TensorStructInfo([N, K], "int8"))
-    s_var = relax.Var("scale", relax.TensorStructInfo([N], "float32"))
+    act_var = relax.Var("activation", relax.TensorType([M, K], "float32"))
+    w_var = relax.Var("weights", relax.TensorType([N, K], "int8"))
+    s_var = relax.Var("scale", relax.TensorType([N], "float32"))
 
     with bb.function("main", [act_var, w_var, s_var], attrs={"num_input": 1}):
         with bb.dataflow():

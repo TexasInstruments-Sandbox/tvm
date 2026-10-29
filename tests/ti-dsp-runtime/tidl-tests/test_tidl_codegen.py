@@ -143,7 +143,7 @@ class TestLowerTIDLToTIR:
 
         found_stub = False
         for gv, func in lowered.functions.items():
-            if isinstance(func, tvm.tir.PrimFunc):
+            if isinstance(func, tvm.tirx.PrimFunc):
                 if "tidl_subgraph" in gv.name_hint:
                     found_stub = True
         assert found_stub, "Expected a TIR PrimFunc named tidl_subgraph_*"
@@ -311,7 +311,7 @@ class TestTIDLBridgeGeneration:
         stubs = [
             gv.name_hint
             for gv, func in lowered.functions.items()
-            if isinstance(func, tvm.tir.PrimFunc) and "tidl_subgraph" in gv.name_hint
+            if isinstance(func, tvm.tirx.PrimFunc) and "tidl_subgraph" in gv.name_hint
         ]
         assert len(stubs) == 2, f"Expected 2 TIR stubs, got {len(stubs)}: {stubs}"
 

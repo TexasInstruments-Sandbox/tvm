@@ -24,6 +24,8 @@ import numpy as np
 import pytest
 import test_tidl_layer_offload as layer_models
 
+import tvm_ffi
+
 import tvm
 from tvm import relax
 from tvm.relax.backend.tidl import _gate, get_tidl_patterns, partition_for_tidl
@@ -46,7 +48,7 @@ op = relax.op
 
 
 def _single_op_module(fn):
-    x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -102,7 +104,7 @@ def _flatten_blocks(fn, attrs):
         vmap = {}
         for block in fn.body.blocks:
             for b in block.bindings:
-                vmap[b.var] = bb.emit(_gate._subst(b.value, vmap), b.var.name_hint)
+                vmap[b.var] = bb.emit(_gate._subst(b.value, vmap), b.var.name)
         bb.emit_func_output(_gate._subst(fn.body.body, vmap))
     return bb.get()["canonical"].with_attrs(dict(attrs.items()))
 
@@ -116,7 +118,7 @@ def _equal_ignoring_attrs(synth, real):
     bindings, so none of those change what the library sees. ``Composite`` is
     checked separately by the caller.
     """
-    return tvm.ir.structural_equal(
+    return tvm_ffi.structural_equal(
         _flatten_blocks(synth, real.attrs), _flatten_blocks(real, real.attrs)
     )
 
@@ -129,7 +131,7 @@ def _two_branch_elu(relu_branch_first):
     branches in. ``relu_branch_first`` emits the right-hand operand's branch
     first, which is the opposite of a left-operand-first dependency walk.
     """
-    x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
     one = relax.const(np.ones((1, 8, 16, 16), "float32"))
     alpha = relax.const(np.full((1, 8, 16, 16), -1.0, "float32"))
     bb = relax.BlockBuilder()
@@ -327,9 +329,9 @@ class TestDriverDeclines:
 
     def test_rejection_reason_is_available(self):
         # TIDL ScatterElements only supports the width axis (3 in NCHW)
-        data = relax.Var("data", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
-        indices = relax.Var("indices", relax.TensorStructInfo((1, 2, 16, 16), "int32"))
-        updates = relax.Var("updates", relax.TensorStructInfo((1, 2, 16, 16), "float32"))
+        data = relax.Var("data", relax.TensorType((1, 8, 16, 16), "float32"))
+        indices = relax.Var("indices", relax.TensorType((1, 2, 16, 16), "int32"))
+        updates = relax.Var("updates", relax.TensorType((1, 2, 16, 16), "float32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [data, indices, updates]):
             with bb.dataflow():

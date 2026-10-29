@@ -19,7 +19,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -38,14 +39,14 @@ def _build_grouped_conv_module(
     H_out = (H_in + 2 * pad - KH) // stride + 1
     W_out = (W_in + 2 * pad - KW) // stride + 1
 
-    kernel_c = relax.Constant(kernel_np)
-    bias_c = relax.Constant(bias_np)
-    scale_c = relax.Constant(scale_np)
-    shift_c = relax.Constant(shift_np)
+    kernel_c = ti_tensor_const(kernel_np)
+    bias_c = ti_tensor_const(bias_np)
+    scale_c = ti_tensor_const(scale_np)
+    shift_c = ti_tensor_const(shift_np)
 
     def te_conv(x_t, k_t, b_t, s_t, sh_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 _KERNEL,
                 ins[0].data,
@@ -54,19 +55,19 @@ def _build_grouped_conv_module(
                 ins[3].data,
                 ins[4].data,
                 outs[0].data,
-                tir.IntImm("int32", C_in),
-                tir.IntImm("int32", H_in),
-                tir.IntImm("int32", W_in),
-                tir.IntImm("int32", C_out),
-                tir.IntImm("int32", KH),
-                tir.IntImm("int32", KW),
-                tir.IntImm("int32", stride),
-                tir.IntImm("int32", stride),
-                tir.IntImm("int32", pad),
-                tir.IntImm("int32", pad),
-                tir.IntImm("int32", pad),
-                tir.IntImm("int32", pad),
-                tir.IntImm("int32", groups),
+                tirx.IntImm("int32", C_in),
+                tirx.IntImm("int32", H_in),
+                tirx.IntImm("int32", W_in),
+                tirx.IntImm("int32", C_out),
+                tirx.IntImm("int32", KH),
+                tirx.IntImm("int32", KW),
+                tirx.IntImm("int32", stride),
+                tirx.IntImm("int32", stride),
+                tirx.IntImm("int32", pad),
+                tirx.IntImm("int32", pad),
+                tirx.IntImm("int32", pad),
+                tirx.IntImm("int32", pad),
+                tirx.IntImm("int32", groups),
             )
 
         return te.extern(
@@ -78,7 +79,7 @@ def _build_grouped_conv_module(
         )
 
     bb = relax.BlockBuilder()
-    x_var = relax.Var("x", relax.TensorStructInfo([1, C_in, H_in, W_in], "int8"))
+    x_var = relax.Var("x", relax.TensorType([1, C_in, H_in, W_in], "int8"))
     with bb.function("main", [x_var], attrs={"num_input": 1}):
         with bb.dataflow():
             out = bb.emit_te(

@@ -15,8 +15,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -34,7 +35,7 @@ def _create_int8_matmul_model(m: int, k: int, n: int, seed: int = 42):
 
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((m, k), "int8"))
-    w_const = relax.Constant(weight_data)
+    w_const = ti_tensor_const(weight_data)
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():

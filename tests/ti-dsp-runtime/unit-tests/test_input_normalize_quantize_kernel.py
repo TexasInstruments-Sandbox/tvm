@@ -49,7 +49,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -98,25 +98,25 @@ def _build_module(N, H, W, params):
 
     def te_quantize_rgb(x_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 _KERNEL,
                 ins[0].data,
                 outs[0].data,
-                tir.IntImm("int32", _N),
-                tir.IntImm("int32", _HW),
-                tir.FloatImm("float32", _is0),
-                tir.FloatImm("float32", _off0),
-                tir.FloatImm("float32", _is1),
-                tir.FloatImm("float32", _off1),
-                tir.FloatImm("float32", _is2),
-                tir.FloatImm("float32", _off2),
+                tirx.IntImm("int32", _N),
+                tirx.IntImm("int32", _HW),
+                tirx.FloatImm("float32", _is0),
+                tirx.FloatImm("float32", _off0),
+                tirx.FloatImm("float32", _is1),
+                tirx.FloatImm("float32", _off1),
+                tirx.FloatImm("float32", _is2),
+                tirx.FloatImm("float32", _off2),
             )
 
         return te.extern([N, 3, H, W], [x_t], fcompute, name="quantize_rgb_out", dtype="int8")
 
     bb = relax.BlockBuilder()
-    x_var = relax.Var("x", relax.TensorStructInfo([N, 3, H, W], "float32"))
+    x_var = relax.Var("x", relax.TensorType([N, 3, H, W], "float32"))
     with bb.function("main", [x_var], attrs={"num_input": 1}):
         with bb.dataflow():
             result = bb.emit_te(te_quantize_rgb, x_var, primfunc_name_hint=_KERNEL)

@@ -21,8 +21,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -46,7 +47,7 @@ def _create_fc_i16_model(
     - shift: uint8 [N_out]
     - output: int16 [1, N_out]
     """
-    from tvm import te, tir
+    from tvm import te, tirx
     from tvm.relax.transform.ti_mmalib_legalize import _float_to_scale_shift
 
     rng = np.random.default_rng(seed)
@@ -62,16 +63,16 @@ def _create_fc_i16_model(
     scale_u8, shift_u8 = _float_to_scale_shift(combined_rescale)
     bias_i64 = np.zeros(n_out, dtype=np.int64)
 
-    weight_const = relax.Constant(weight_data)
-    bias_const = relax.Constant(bias_i64)
-    scale_const = relax.Constant(scale_u8)
-    shift_const = relax.Constant(shift_u8)
+    weight_const = ti_tensor_const(weight_data)
+    bias_const = ti_tensor_const(bias_i64)
+    scale_const = ti_tensor_const(scale_u8)
+    shift_const = ti_tensor_const(shift_u8)
 
     M, K, N = 1, n_in, n_out
 
     def te_mmalib_fc_i16(data_t, w_t, b_t, s_t, sh_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 "mmalib_matmul_bias_i16",
                 ins[0].data, ins[1].data, ins[2].data,
@@ -249,14 +250,14 @@ def test_mmalib_fc_i16_bias_per_channel_shift(dsp_mode, record_cycles):
         ref[0, n] = np.clip(accum[0, n] >> int(shift_per_ch[n]), -32768, 32767)
 
     # Build model
-    from tvm import te, tir
+    from tvm import te, tirx
 
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((M, K), "int16"))
 
     def te_bias_i16(data_t, w_t, bias_t, scale_t, shift_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 "mmalib_matmul_bias_i16",
                 ins[0].data,
@@ -282,10 +283,10 @@ def test_mmalib_fc_i16_bias_per_channel_shift(dsp_mode, record_cycles):
                 bb.call_te(
                     te_bias_i16,
                     x,
-                    relax.Constant(weight_data),
-                    relax.Constant(bias_i64),
-                    relax.Constant(scale_i8),
-                    relax.Constant(shift_per_ch),
+                    ti_tensor_const(weight_data),
+                    ti_tensor_const(bias_i64),
+                    ti_tensor_const(scale_i8),
+                    ti_tensor_const(shift_per_ch),
                     primfunc_name_hint="mmalib_bias_i16",
                 )
             )
@@ -347,15 +348,15 @@ def _create_qdq_i16_fc_model(n_in: int, n_out: int, batch: int = 1, seed: int = 
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((batch, n_in), "int16"))
 
-    w_const = relax.Constant(weight_data)
-    w_scale_c = relax.Constant(w_scale)
+    w_const = ti_tensor_const(weight_data)
+    w_scale_c = ti_tensor_const(w_scale)
     # TVM's dequantize requires int8 zero_point (not int16); zp=0 so lossless.
-    w_zp_c = relax.Constant(np.zeros(n_out, dtype=np.int8))
-    d_scale_c = relax.Constant(np.array(d_scale, dtype=np.float32))
-    d_zp_c = relax.Constant(np.array(0, dtype=np.int8))
-    o_scale_c = relax.Constant(np.array(o_scale, dtype=np.float32))
-    o_zp_c = relax.Constant(np.array(0, dtype=np.int8))
-    bias_c = relax.Constant(bias_data)
+    w_zp_c = ti_tensor_const(np.zeros(n_out, dtype=np.int8))
+    d_scale_c = ti_tensor_const(np.array(d_scale, dtype=np.float32))
+    d_zp_c = ti_tensor_const(np.array(0, dtype=np.int8))
+    o_scale_c = ti_tensor_const(np.array(o_scale, dtype=np.float32))
+    o_zp_c = ti_tensor_const(np.array(0, dtype=np.int8))
+    bias_c = ti_tensor_const(bias_data)
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():
@@ -450,15 +451,15 @@ def test_mmalib_qdq_fc_i16_3d_reshape(dsp_mode, record_cycles):
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, seq, n_in), "int16"))
 
-    w_const = relax.Constant(weight_data)
-    w_scale_c = relax.Constant(w_scale)
+    w_const = ti_tensor_const(weight_data)
+    w_scale_c = ti_tensor_const(w_scale)
     # TVM's dequantize requires int8 zero_point (not int16); zp=0 so lossless.
-    w_zp_c = relax.Constant(np.zeros(n_out, dtype=np.int8))
-    d_scale_c = relax.Constant(np.array(d_scale, dtype=np.float32))
-    d_zp_c = relax.Constant(np.array(0, dtype=np.int8))
-    o_scale_c = relax.Constant(np.array(o_scale, dtype=np.float32))
-    o_zp_c = relax.Constant(np.array(0, dtype=np.int8))
-    bias_c = relax.Constant(bias_data)
+    w_zp_c = ti_tensor_const(np.zeros(n_out, dtype=np.int8))
+    d_scale_c = ti_tensor_const(np.array(d_scale, dtype=np.float32))
+    d_zp_c = ti_tensor_const(np.array(0, dtype=np.int8))
+    o_scale_c = ti_tensor_const(np.array(o_scale, dtype=np.float32))
+    o_zp_c = ti_tensor_const(np.array(0, dtype=np.int8))
+    bias_c = ti_tensor_const(bias_data)
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():
@@ -528,14 +529,14 @@ def test_fuse_fc_i16_rejects_nonzero_o_zp():
 
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, n_in), "int16"))
-    w_const = relax.Constant(weight_data)
-    w_scale = relax.Constant(np.ones(n_out, dtype=np.float32) * 0.001)
-    w_zp = relax.Constant(np.zeros(n_out, dtype=np.int8))
-    d_scale = relax.Constant(np.array(0.005, dtype=np.float32))
-    d_zp = relax.Constant(np.array(0, dtype=np.int8))
-    o_scale = relax.Constant(np.array(0.01, dtype=np.float32))
+    w_const = ti_tensor_const(weight_data)
+    w_scale = ti_tensor_const(np.ones(n_out, dtype=np.float32) * 0.001)
+    w_zp = ti_tensor_const(np.zeros(n_out, dtype=np.int8))
+    d_scale = ti_tensor_const(np.array(0.005, dtype=np.float32))
+    d_zp = ti_tensor_const(np.array(0, dtype=np.int8))
+    o_scale = ti_tensor_const(np.array(0.01, dtype=np.float32))
     # Non-zero o_zp — should cause the check function to reject fusion
-    o_zp_nonzero = relax.Constant(np.array(1, dtype=np.int8))
+    o_zp_nonzero = ti_tensor_const(np.array(1, dtype=np.int8))
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():

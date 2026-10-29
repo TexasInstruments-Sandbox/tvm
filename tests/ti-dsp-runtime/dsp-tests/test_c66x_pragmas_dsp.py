@@ -21,7 +21,7 @@ import tempfile
 import pytest
 import tvm
 from tvm import relax
-from tvm.script import tir as T
+from tvm.script import tirx as T
 
 pytestmark = [pytest.mark.core, pytest.mark.c66x_only]
 

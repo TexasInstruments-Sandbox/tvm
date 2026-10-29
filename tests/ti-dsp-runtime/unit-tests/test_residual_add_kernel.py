@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -85,19 +85,19 @@ def _build_residual_add_module(n, params_np, kernel_name, in_dtype, out_dtype,
 
     def te_kernel(x_t, skip_t, params_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32", kernel_name,
                 ins[0].data, ins[1].data, ins[2].data, outs[0].data,
-                tir.IntImm("int32", n_val),
-                tir.IntImm("int32", has_relu_val),
+                tirx.IntImm("int32", n_val),
+                tirx.IntImm("int32", has_relu_val),
             )
         return te.extern([n_val], [x_t, skip_t, params_t], fcompute,
                          name="residual_add_out", dtype=out_dtype)
 
     bb = relax.BlockBuilder()
-    x_var      = relax.Var("x",      relax.TensorStructInfo([n_val], in_dtype))
-    skip_var   = relax.Var("skip",   relax.TensorStructInfo([n_val], in_dtype))
-    params_var = relax.Var("params", relax.TensorStructInfo([16],    "int8"))
+    x_var      = relax.Var("x",      relax.TensorType([n_val], in_dtype))
+    skip_var   = relax.Var("skip",   relax.TensorType([n_val], in_dtype))
+    params_var = relax.Var("params", relax.TensorType([16],    "int8"))
 
     with bb.function("main", [x_var, skip_var, params_var],
                      attrs={"num_input": 2}):

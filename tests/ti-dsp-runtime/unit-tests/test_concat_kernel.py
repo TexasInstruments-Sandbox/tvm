@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 
 _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
@@ -95,29 +95,29 @@ def _build_concat_module(slots):
 
     def te_kernel(t0, t1, t2, t3):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",
                 _KERNEL,
                 ins[0].data,
-                tir.IntImm("int32", C0),
-                tir.FloatImm("float32", s0),
-                tir.IntImm("int32", z0),
+                tirx.IntImm("int32", C0),
+                tirx.FloatImm("float32", s0),
+                tirx.IntImm("int32", z0),
                 ins[1].data,
-                tir.IntImm("int32", C1),
-                tir.FloatImm("float32", s1),
-                tir.IntImm("int32", z1),
+                tirx.IntImm("int32", C1),
+                tirx.FloatImm("float32", s1),
+                tirx.IntImm("int32", z1),
                 ins[2].data,
-                tir.IntImm("int32", C2),
-                tir.FloatImm("float32", s2),
-                tir.IntImm("int32", z2),
+                tirx.IntImm("int32", C2),
+                tirx.FloatImm("float32", s2),
+                tirx.IntImm("int32", z2),
                 ins[3].data,
-                tir.IntImm("int32", C3),
-                tir.FloatImm("float32", s3),
-                tir.IntImm("int32", z3),
+                tirx.IntImm("int32", C3),
+                tirx.FloatImm("float32", s3),
+                tirx.IntImm("int32", z3),
                 outs[0].data,
-                tir.IntImm("int32", HW_v),
-                tir.FloatImm("float32", s_out_v),
-                tir.IntImm("int32", z_out_v),
+                tirx.IntImm("int32", HW_v),
+                tirx.FloatImm("float32", s_out_v),
+                tirx.IntImm("int32", z_out_v),
             )
 
         return te.extern(
@@ -129,10 +129,10 @@ def _build_concat_module(slots):
         )
 
     bb = relax.BlockBuilder()
-    v0 = relax.Var("in0", relax.TensorStructInfo([n0], "int8"))
-    v1 = relax.Var("in1", relax.TensorStructInfo([n1], "int8"))
-    v2 = relax.Var("in2", relax.TensorStructInfo([n2], "int8"))
-    v3 = relax.Var("in3", relax.TensorStructInfo([n3], "int8"))
+    v0 = relax.Var("in0", relax.TensorType([n0], "int8"))
+    v1 = relax.Var("in1", relax.TensorType([n1], "int8"))
+    v2 = relax.Var("in2", relax.TensorType([n2], "int8"))
+    v3 = relax.Var("in3", relax.TensorType([n3], "int8"))
     with bb.function("main", [v0, v1, v2, v3], attrs={"num_input": 4}):
         with bb.dataflow():
             result = bb.emit_te(te_kernel, v0, v1, v2, v3, primfunc_name_hint=_KERNEL)

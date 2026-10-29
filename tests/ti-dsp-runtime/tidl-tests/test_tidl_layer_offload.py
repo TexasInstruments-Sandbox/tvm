@@ -22,7 +22,7 @@ from tvm.relax.backend.tidl import get_tidl_patterns, partition_for_tidl
 from tvm.relax.frontend import nn
 from tvm.script import ir as I
 from tvm.script import relax as R
-from tvm.script import tir as T
+from tvm.script import tirx as T
 
 # Level 1 tests are quick (pure IR, no hardware, no .so)
 pytestmark = [pytest.mark.quick, pytest.mark.core]
@@ -374,7 +374,7 @@ def _build_strided_slice_model():
 
 def _build_strided_slice_to_end_model():
     """Strided slice x[:,1:,:,:] — end is INT64_MAX, TVM's 'slice to end' sentinel."""
-    x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -420,8 +420,8 @@ def _build_resize2d_model():
 
 def _build_take_model():
     """Take (gather) along channel axis."""
-    x_var = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
-    idx_var = relax.Var("idx", relax.TensorStructInfo((4,), "int32"))
+    x_var = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
+    idx_var = relax.Var("idx", relax.TensorType((4,), "int32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [x_var, idx_var]):
         with bb.dataflow():
@@ -433,7 +433,7 @@ def _build_take_model():
 
 def _build_topk_model():
     """TopK along HEIGHT axis (k=4 from 8-element axis), both outputs."""
-    x_var = relax.Var("x", relax.TensorStructInfo((1, 8, 8, 8), "float32"))
+    x_var = relax.Var("x", relax.TensorType((1, 8, 8, 8), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [x_var]):
         with bb.dataflow():
@@ -446,7 +446,7 @@ def _build_topk_model():
 
 def _build_split_model():
     """Split along channel axis into 4 equal slices."""
-    x_var = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    x_var = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [x_var]):
         with bb.dataflow():
@@ -540,7 +540,7 @@ def _build_mish_model():
 
 def _build_depth_to_space_model():
     """Depth-to-space (pixel shuffle) with upscale_factor=2."""
-    x_var = relax.Var("x", relax.TensorStructInfo((1, 16, 8, 8), "float32"))
+    x_var = relax.Var("x", relax.TensorType((1, 16, 8, 8), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [x_var]):
         with bb.dataflow():
@@ -552,7 +552,7 @@ def _build_depth_to_space_model():
 
 def _build_expand_model():
     """Expand (broadcast_to) from (1,1,1,16) to (1,8,16,16)."""
-    x_var = relax.Var("x", relax.TensorStructInfo((1, 1, 1, 16), "float32"))
+    x_var = relax.Var("x", relax.TensorType((1, 1, 1, 16), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [x_var]):
         with bb.dataflow():
@@ -564,7 +564,7 @@ def _build_expand_model():
 
 def _build_instance_norm_model():
     """Instance normalization on 4D NCHW input (TIDL needs constant gamma/beta)."""
-    x_var = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    x_var = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
     gamma = relax.const(np.linspace(0.5, 1.5, 8, dtype="float32"))
     beta = relax.const(np.linspace(-0.5, 0.5, 8, dtype="float32"))
     bb = relax.BlockBuilder()
@@ -586,9 +586,9 @@ def _build_instance_norm_model():
 
 def _build_scatter_elements_model():
     """Scatter elements along the width axis (the only axis TIDL supports)."""
-    data = relax.Var("data", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
-    indices = relax.Var("indices", relax.TensorStructInfo((1, 2, 16, 16), "int32"))
-    updates = relax.Var("updates", relax.TensorStructInfo((1, 2, 16, 16), "float32"))
+    data = relax.Var("data", relax.TensorType((1, 8, 16, 16), "float32"))
+    indices = relax.Var("indices", relax.TensorType((1, 2, 16, 16), "int32"))
+    updates = relax.Var("updates", relax.TensorType((1, 2, 16, 16), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [data, indices, updates]):
         with bb.dataflow():
@@ -600,9 +600,9 @@ def _build_scatter_elements_model():
 
 def _build_scatter_nd_model():
     """Scatter ND (indices' last dim is output_rank - 1, as TIDL requires)."""
-    data = relax.Var("data", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
-    indices = relax.Var("indices", relax.TensorStructInfo((2, 3), "int32"))
-    updates = relax.Var("updates", relax.TensorStructInfo((2, 16), "float32"))
+    data = relax.Var("data", relax.TensorType((1, 8, 16, 16), "float32"))
+    indices = relax.Var("indices", relax.TensorType((2, 3), "int32"))
+    updates = relax.Var("updates", relax.TensorType((2, 16), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [data, indices, updates]):
         with bb.dataflow():
@@ -614,8 +614,8 @@ def _build_scatter_nd_model():
 
 def _build_grid_sample_model():
     """Grid sample with bilinear interpolation."""
-    data = relax.Var("data", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
-    grid = relax.Var("grid", relax.TensorStructInfo((1, 16, 16, 2), "float32"))
+    data = relax.Var("data", relax.TensorType((1, 8, 16, 16), "float32"))
+    grid = relax.Var("grid", relax.TensorType((1, 16, 16, 2), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [data, grid]):
         with bb.dataflow():
@@ -646,7 +646,7 @@ def _build_conv2d_transpose_model():
 
 def _make_unary_module(op_fn):
     """Build an IRModule that applies a unary op to a (1,8,16,16) tensor."""
-    x_var = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+    x_var = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("main", [x_var]):
         with bb.dataflow():
@@ -988,7 +988,7 @@ class TestLayerPartition:
 
     def test_reduce_max_multi_axis_rejected(self):
         """Multi-axis reduce_max must not be partitioned (TIDL supports one axis)."""
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x]):
             with bb.dataflow():
@@ -1003,7 +1003,7 @@ class TestLayerPartition:
 
     def test_reduce_max_no_axis_rejected(self):
         """Global reduce_max (no axis) must not be partitioned."""
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x]):
             with bb.dataflow():
@@ -1018,7 +1018,7 @@ class TestLayerPartition:
 
     def test_reduce_min_multi_axis_rejected(self):
         """Multi-axis reduce_min must not be partitioned (TIDL supports one axis)."""
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x]):
             with bb.dataflow():
@@ -1033,7 +1033,7 @@ class TestLayerPartition:
 
     def test_reduce_min_no_axis_rejected(self):
         """Global reduce_min (no axis) must not be partitioned."""
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x]):
             with bb.dataflow():
@@ -1048,7 +1048,7 @@ class TestLayerPartition:
 
     def test_global_avg_pool_via_mean(self):
         """Spatial mean over axes=[2,3] should be partitioned as tidl.mean."""
-        x = relax.Var("x", relax.TensorStructInfo((1, 8, 16, 16), "float32"))
+        x = relax.Var("x", relax.TensorType((1, 8, 16, 16), "float32"))
         bb = relax.BlockBuilder()
         with bb.function("main", [x]):
             with bb.dataflow():

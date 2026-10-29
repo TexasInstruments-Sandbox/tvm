@@ -27,8 +27,9 @@ test_mmalib_qdq_bias_overflow.py for the same pattern.
 import numpy as np
 import pytest
 
+from tvm.relax.transform.ti_const_utils import ti_tensor_const
 from tvm import relax
-from tvm.relax import TensorStructInfo
+from tvm.relax import TensorType as TensorStructInfo
 from tvm.relax.transform import FuseMMALIBQDQConv2d, FuseMMALIBQDQDwConv2d
 
 pytestmark = pytest.mark.quick
@@ -48,14 +49,14 @@ def _build_qdq_conv2d_model(
 
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, c_in, h, w), "int8"))
-    w_const = relax.Constant(kernel)
-    w_scale_const = relax.Constant(w_scale)
-    w_zp_const = relax.Constant(np.zeros(c_out, dtype=np.int8))
-    d_scale_const = relax.Constant(np.array(0.01, dtype=np.float32))
-    d_zp_const = relax.Constant(np.array(0, dtype=np.int8))
-    o_scale_const = relax.Constant(np.array(_O_SCALE, dtype=np.float32))
-    o_zp_const = relax.Constant(np.array(0, dtype=np.int8))
-    bias_const = relax.Constant(bias)
+    w_const = ti_tensor_const(kernel)
+    w_scale_const = ti_tensor_const(w_scale)
+    w_zp_const = ti_tensor_const(np.zeros(c_out, dtype=np.int8))
+    d_scale_const = ti_tensor_const(np.array(0.01, dtype=np.float32))
+    d_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
+    o_scale_const = ti_tensor_const(np.array(_O_SCALE, dtype=np.float32))
+    o_zp_const = ti_tensor_const(np.array(0, dtype=np.int8))
+    bias_const = ti_tensor_const(bias)
 
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():

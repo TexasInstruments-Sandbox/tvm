@@ -15,8 +15,10 @@ Pure Python TIR-level tests -- no hardware / DSP build.
 
 import pytest
 
+import tvm_ffi
+
 import tvm
-from tvm import tir
+from tvm import tirx
 from tvm.relax.transform.ti_mmalib_inject_dma import InjectMMALIBDMA
 from tvm.relax.transform.ti_mmalib_legalize import _call_extern_checked
 
@@ -28,12 +30,12 @@ _L2_BUDGET = 2 * 1024 * 1024  # large enough to cache both input and weights
 def _make_checked_conv2d_primfunc(kernel_name: str):
     """Build a PrimFunc whose body matches what MMALIB legalization emits:
     a single status-checked call_extern, not a bare Evaluate."""
-    h_input = tir.Var("input", "handle")
-    h_kernel = tir.Var("kernel", "handle")
-    h_bias = tir.Var("bias", "handle")
-    h_scale = tir.Var("scale", "handle")
-    h_shift = tir.Var("shift", "handle")
-    h_output = tir.Var("output", "handle")
+    h_input = tirx.Var("input", "handle")
+    h_kernel = tirx.Var("kernel", "handle")
+    h_bias = tirx.Var("bias", "handle")
+    h_scale = tirx.Var("scale", "handle")
+    h_shift = tirx.Var("shift", "handle")
+    h_output = tirx.Var("output", "handle")
 
     body = _call_extern_checked(
         "int32",
@@ -44,20 +46,20 @@ def _make_checked_conv2d_primfunc(kernel_name: str):
         h_scale,  # args[4]
         h_shift,  # args[5]
         h_output,  # args[6]
-        tir.const(64, "int32"),  # C_in
-        tir.const(28, "int32"),  # H_in
-        tir.const(28, "int32"),  # W_in
-        tir.const(64, "int32"),  # C_out
-        tir.const(3, "int32"),  # KH
-        tir.const(3, "int32"),  # KW
-        tir.const(1, "int32"),  # stride_h
-        tir.const(1, "int32"),  # stride_w
-        tir.const(1, "int32"),  # pad_top
-        tir.const(1, "int32"),  # pad_bottom
-        tir.const(0, "int32"),  # pad_left
-        tir.const(0, "int32"),  # pad_right
+        tirx.const(64, "int32"),  # C_in
+        tirx.const(28, "int32"),  # H_in
+        tirx.const(28, "int32"),  # W_in
+        tirx.const(64, "int32"),  # C_out
+        tirx.const(3, "int32"),  # KH
+        tirx.const(3, "int32"),  # KW
+        tirx.const(1, "int32"),  # stride_h
+        tirx.const(1, "int32"),  # stride_w
+        tirx.const(1, "int32"),  # pad_top
+        tirx.const(1, "int32"),  # pad_bottom
+        tirx.const(0, "int32"),  # pad_left
+        tirx.const(0, "int32"),  # pad_right
     )
-    return tir.PrimFunc([h_input, h_kernel, h_bias, h_scale, h_shift, h_output], body)
+    return tirx.PrimFunc([h_input, h_kernel, h_bias, h_scale, h_shift, h_output], body)
 
 
 def _count_dma_copies(func):
@@ -66,14 +68,14 @@ def _count_dma_copies(func):
     def _visit(node):
         nonlocal count
         if (
-            isinstance(node, tir.Call)
-            and node.op.same_as(tvm.ir.Op.get("tir.call_extern"))
-            and isinstance(node.args[0], tir.StringImm)
+            isinstance(node, tvm.ir.Call)
+            and node.op.same_as(tvm.ir.Op.get("tirx.call_extern"))
+            and isinstance(node.args[0], tvm.ir.StringImm)
             and node.args[0].value == "tvm_dsp_dma_copy"
         ):
             count += 1
 
-    tir.stmt_functor.post_order_visit(func.body, _visit)
+    tvm_ffi.structural_walk(func.body, (tvm.ir.Call, _visit), order="post")
     return count
 
 
@@ -83,14 +85,14 @@ def _has_report_error(func):
     def _visit(node):
         nonlocal found
         if (
-            isinstance(node, tir.Call)
-            and node.op.same_as(tvm.ir.Op.get("tir.call_extern"))
-            and isinstance(node.args[0], tir.StringImm)
+            isinstance(node, tvm.ir.Call)
+            and node.op.same_as(tvm.ir.Op.get("tirx.call_extern"))
+            and isinstance(node.args[0], tvm.ir.StringImm)
             and node.args[0].value == "tvm_dsp_report_error"
         ):
             found = True
 
-    tir.stmt_functor.post_order_visit(func.body, _visit)
+    tvm_ffi.structural_walk(func.body, (tvm.ir.Call, _visit), order="post")
     return found
 
 

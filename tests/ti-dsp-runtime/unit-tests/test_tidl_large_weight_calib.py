@@ -50,7 +50,10 @@ pytestmark = pytest.mark.skipif(
 def _load_so():
     if tvm.get_global_func("TIDL_relaxInit", allow_missing=True) is not None:
         return
-    tvm.runtime.load_module(RELAX_SO_PATH)
+    # The gate's loader also re-opens libtvm_compiler.so RTLD_GLOBAL, which the .so needs.
+    from tvm.relax.backend.tidl._gate import load_relax_so  # noqa: PLC0415
+
+    load_relax_so(RELAX_SO_PATH)
 
 
 # ---------------------------------------------------------------------------

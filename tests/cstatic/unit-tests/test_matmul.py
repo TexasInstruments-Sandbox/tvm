@@ -6,7 +6,7 @@ import tvm
 from tvm import relax
 from tvm.script import ir as I
 from tvm.script import relax as R
-from tvm.script import tir as T
+from tvm.script import tirx as T
 from tvm_utils import compile_and_run_on_target
 
 
@@ -18,7 +18,7 @@ class InputModule:
         B = T.match_buffer(y, (16, 16))  # type: ignore
         C = T.match_buffer(z, (16, 16))  # type: ignore
         for i0, j, k0, i1, k1 in T.grid(4, 16, 4, 4, 4):  # type: ignore
-            with T.block("matmul"):
+            with T.sblock("matmul"):
                 vi = T.axis.S(16, i0 * 4 + i1)  # type: ignore
                 vj = T.axis.S(16, j)  # type: ignore
                 vk = T.axis.R(16, k0 * 4 + k1)  # type: ignore

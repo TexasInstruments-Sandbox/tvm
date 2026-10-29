@@ -285,15 +285,29 @@ def _l2_buffer(name, nbytes):
     return tirx.decl_buffer([int(nbytes)], "int8", name=name, scope="global.l2sram")
 
 
-def _with_l2_allocs(allocs, body):
+def _collect_decl_buffers(body):
+    """Return every ``DeclBuffer`` statement in ``body``, in source order.
+
+    After FlattenBuffer a PrimFunc's parameters are aliased through
+    ``DeclBuffer(x_1, data=x.data)`` statements, and the MMALIB call refers to
+    the aliases.  The pass rebuilds the function body from scratch, so the
+    declarations must be carried over or the aliases become free variables.
+    """
+    decls = []
+    tvm_ffi.structural_walk(body, (tirx.DeclBuffer, lambda node: decls.append(node)), order="pre")
+    return decls
+
+
+def _with_l2_allocs(allocs, body, decls=()):
     """Prepend ``AllocBuffer`` statements for ``allocs`` (in order) to ``body``.
 
     AllocBuffer has no body: the buffer is in scope for the statements that
     follow it in the enclosing SeqStmt.  LowerL2SramAlloc collects the leading
     run of ``global.l2sram`` AllocBuffer statements of the function body, so
-    the allocations must come first and in this order (guard outermost).
+    the allocations must come first and in this order (guard outermost).  The
+    original ``decls`` follow the allocations and precede ``body``.
     """
-    return tirx.SeqStmt([*(tirx.AllocBuffer(buf) for buf in allocs), body])
+    return tirx.SeqStmt([*(tirx.AllocBuffer(buf) for buf in allocs), *decls, body])
 
 
 def _inject_dma(func, l2_budget):
@@ -470,14 +484,20 @@ def _inject_dma(func, l2_budget):
                         bypass,
                     )
                 ),
-                tirx.Evaluate(tirx.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)),
+                tirx.Evaluate(
+                    tirx.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)
+                ),
                 tirx.Evaluate(tvm.ir.Call(call_node.op, sliced_args, ret_ty=call_node.ty)),
             ]
         )
         stmts.append(tirx.For(oc_idx, 0, n_tiles, tirx.ForKind.SERIAL, tile_body))
 
         # Guard outermost (first), then input, then the weight tile.
-        body = _with_l2_allocs([l2_guard_var, l2_input_var, l2_weight_var], tirx.SeqStmt(stmts))
+        body = _with_l2_allocs(
+            [l2_guard_var, l2_input_var, l2_weight_var],
+            tirx.SeqStmt(stmts),
+            _collect_decl_buffers(func.body),
+        )
         logger.info(
             "InjectMMALIBDMA OC-tiled: %s [input=%dKB, oc_tile=%d, n_tiles=%d, weight_tile=%dKB]",
             extern_name,
@@ -538,7 +558,9 @@ def _inject_dma(func, l2_budget):
     # allocation order the bump allocator saw with the old nested Allocate chain,
     # which was wrapped from the highest index outward (lowest index outermost).
     ordered = [l2_vars[i][0] for i in sorted(l2_vars.keys())]
-    body = _with_l2_allocs([l2_guard_var, *ordered], tirx.SeqStmt(stmts))
+    body = _with_l2_allocs(
+        [l2_guard_var, *ordered], tirx.SeqStmt(stmts), _collect_decl_buffers(func.body)
+    )
 
     cached = [f"input={input_bytes // 1024}KB"]
     if cache_weight:
