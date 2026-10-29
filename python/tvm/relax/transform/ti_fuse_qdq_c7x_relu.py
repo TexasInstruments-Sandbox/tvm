@@ -44,7 +44,7 @@ import logging
 import numpy as np
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
@@ -84,23 +84,23 @@ def _check_relu(ctx) -> bool:
     for quantized models produced by that quantizer.
     """
     x = ctx.annotated_expr["x"]
-    if isinstance(x, relax.Constant):
-        if x.data.dtype != "int8":
+    if isinstance(x, tvm.ir.GenericConst):
+        if x.value.dtype != "int8":
             return False
-    elif hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        if str(x.struct_info.dtype) != "int8":
+    elif hasattr(x, "ty") and hasattr(x.ty, "dtype"):
+        if str(x.ty.dtype) != "int8":
             return False
     else:
         return False
 
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
 
     # Transparent condition: zero-points must match (clip preserves scale).
     d_zp = ctx.annotated_expr["d_zp"]
     o_zp = ctx.annotated_expr["o_zp"]
-    if int(d_zp.data.numpy()) != int(o_zp.data.numpy()):
+    if int(d_zp.value.numpy()) != int(o_zp.value.numpy()):
         return False
 
     return True
@@ -120,11 +120,11 @@ def _make_clamp_pattern():
 
 
 def _get_scalar_float(expr) -> float:
-    """Extract a float value from relax.Constant or relax.PrimValue."""
-    if isinstance(expr, relax.Constant):
-        return float(expr.data.numpy())
-    if isinstance(expr, relax.PrimValue):
-        return float(expr.value.value)
+    """Extract a float value from tvm.ir.GenericConst or a primitive scalar."""
+    if isinstance(expr, tvm.ir.GenericConst):
+        return float(expr.value.numpy())
+    if tvm.ir.is_prim_expr(expr) and hasattr(expr, "value"):
+        return float(expr.value)
     return None
 
 
@@ -135,31 +135,31 @@ def _check_clamp(ctx) -> bool:
     (shared) scale.  Transparent means the QDQ context can be eliminated.
     """
     x = ctx.annotated_expr["x"]
-    if isinstance(x, relax.Constant):
-        if x.data.dtype != "int8":
+    if isinstance(x, tvm.ir.GenericConst):
+        if x.value.dtype != "int8":
             return False
-    elif hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        if str(x.struct_info.dtype) != "int8":
+    elif hasattr(x, "ty") and hasattr(x.ty, "dtype"):
+        if str(x.ty.dtype) != "int8":
             return False
     else:
         return False
 
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
-    # a_min/a_max may be Constant or PrimValue
+    # a_min/a_max may be Constant or primitive scalar
     if _get_scalar_float(ctx.annotated_expr["a_min"]) is None:
         return False
     if _get_scalar_float(ctx.annotated_expr["a_max"]) is None:
         return False
 
-    d_zp = int(ctx.annotated_expr["d_zp"].data.numpy())
-    o_zp = int(ctx.annotated_expr["o_zp"].data.numpy())
+    d_zp = int(ctx.annotated_expr["d_zp"].value.numpy())
+    o_zp = int(ctx.annotated_expr["o_zp"].value.numpy())
     if d_zp != o_zp:
         return False
 
-    d_scale = float(ctx.annotated_expr["d_scale"].data.numpy())
-    o_scale = float(ctx.annotated_expr["o_scale"].data.numpy())
+    d_scale = float(ctx.annotated_expr["d_scale"].value.numpy())
+    o_scale = float(ctx.annotated_expr["o_scale"].value.numpy())
     if not np.isclose(d_scale, o_scale, rtol=1e-5):
         return False
 
@@ -173,17 +173,17 @@ def _check_reqclamp(ctx) -> bool:
     the operation reduces to clamp(round(in * combined_scale), lo, hi).
     """
     x = ctx.annotated_expr["x"]
-    if isinstance(x, relax.Constant):
-        if x.data.dtype != "int8":
+    if isinstance(x, tvm.ir.GenericConst):
+        if x.value.dtype != "int8":
             return False
-    elif hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        if str(x.struct_info.dtype) != "int8":
+    elif hasattr(x, "ty") and hasattr(x.ty, "dtype"):
+        if str(x.ty.dtype) != "int8":
             return False
     else:
         return False
 
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
     if _get_scalar_float(ctx.annotated_expr["a_min"]) is None:
         return False
@@ -191,14 +191,14 @@ def _check_reqclamp(ctx) -> bool:
         return False
 
     # Require symmetric quantization (both zero-points == 0) for simplicity.
-    d_zp = int(ctx.annotated_expr["d_zp"].data.numpy())
-    o_zp = int(ctx.annotated_expr["o_zp"].data.numpy())
+    d_zp = int(ctx.annotated_expr["d_zp"].value.numpy())
+    o_zp = int(ctx.annotated_expr["o_zp"].value.numpy())
     if d_zp != 0 or o_zp != 0:
         return False
 
     # Must NOT be transparent (transparent case is handled by _check_clamp).
-    d_scale = float(ctx.annotated_expr["d_scale"].data.numpy())
-    o_scale = float(ctx.annotated_expr["o_scale"].data.numpy())
+    d_scale = float(ctx.annotated_expr["d_scale"].value.numpy())
+    o_scale = float(ctx.annotated_expr["o_scale"].value.numpy())
     if np.isclose(d_scale, o_scale, rtol=1e-5):
         return False
 
@@ -267,9 +267,9 @@ class _ReluLowerer(PyExprMutator):
                 x_param = val.args[0]
                 x_arg = param_to_arg.get(x_param, x_param)
                 z = param_to_arg.get(val.args[2], val.args[2])
-                d_zp_val = int(z.data.numpy())
-                if hasattr(binding.var, "struct_info"):
-                    x_sinfo = binding.var.struct_info
+                d_zp_val = int(z.value.numpy())
+                if hasattr(binding.var, "ty"):
+                    x_sinfo = binding.var.ty
 
         if x_arg is None or d_zp_val is None or x_sinfo is None:
             return self._decline(call, func)
@@ -287,8 +287,8 @@ class _ReluLowerer(PyExprMutator):
         if self._const_reach.is_const(x_arg):
             return self._decline(call, func)
 
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return self._decline(call, func)
 
         out_shape = [int(s) for s in call_sinfo.shape]
@@ -301,13 +301,13 @@ class _ReluLowerer(PyExprMutator):
 
         def te_relu(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_int8_relu",
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", _n),
-                    tir.IntImm("int32", _clip_lo),
+                    tirx.IntImm("int32", _n),
+                    tirx.IntImm("int32", _clip_lo),
                 )
 
             return te.extern(
@@ -345,8 +345,8 @@ class _ReluLowerer(PyExprMutator):
                 x_arg = param_to_arg.get(x_param, x_param)
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                d_scale_val = float(s.data.numpy())
-                d_zp_val = int(z.data.numpy())
+                d_scale_val = float(s.value.numpy())
+                d_zp_val = int(z.value.numpy())
             elif "clip" in op_name:
                 lo = param_to_arg.get(val.args[1], val.args[1])
                 hi = param_to_arg.get(val.args[2], val.args[2])
@@ -363,8 +363,8 @@ class _ReluLowerer(PyExprMutator):
         if self._const_reach.is_const(x_arg):
             return self._decline(call, func)
 
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return self._decline(call, func)
 
         out_shape = [int(s) for s in call_sinfo.shape]
@@ -382,14 +382,14 @@ class _ReluLowerer(PyExprMutator):
 
         def te_clamp(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_int8_clamp",
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", _n),
-                    tir.IntImm("int32", _clip_lo),
-                    tir.IntImm("int32", _clip_hi),
+                    tirx.IntImm("int32", _n),
+                    tirx.IntImm("int32", _clip_lo),
+                    tirx.IntImm("int32", _clip_hi),
                 )
 
             return te.extern(
@@ -431,7 +431,7 @@ class _ReluLowerer(PyExprMutator):
                 x_param = val.args[0]
                 x_arg = param_to_arg.get(x_param, x_param)
                 s = param_to_arg.get(val.args[1], val.args[1])
-                d_scale_val = float(s.data.numpy())
+                d_scale_val = float(s.value.numpy())
             elif "clip" in op_name:
                 lo = param_to_arg.get(val.args[1], val.args[1])
                 hi = param_to_arg.get(val.args[2], val.args[2])
@@ -439,7 +439,7 @@ class _ReluLowerer(PyExprMutator):
                 a_max_float = _get_scalar_float(hi)
             elif "quantize" in op_name and "de" not in op_name:
                 s = param_to_arg.get(val.args[1], val.args[1])
-                o_scale_val = float(s.data.numpy())
+                o_scale_val = float(s.value.numpy())
 
         if any(v is None for v in [x_arg, d_scale_val, o_scale_val, a_min_float, a_max_float]):
             return self._decline(call, func)
@@ -451,8 +451,8 @@ class _ReluLowerer(PyExprMutator):
         if self._const_reach.is_const(x_arg):
             return self._decline(call, func)
 
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return self._decline(call, func)
 
         out_shape = [int(s) for s in call_sinfo.shape]
@@ -467,15 +467,15 @@ class _ReluLowerer(PyExprMutator):
 
         def te_reqclamp(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_int8_requantize_clamp",
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", _n),
-                    tir.FloatImm("float32", _combined_scale),
-                    tir.IntImm("int32", _clip_lo),
-                    tir.IntImm("int32", _clip_hi),
+                    tirx.IntImm("int32", _n),
+                    tirx.FloatImm("float32", _combined_scale),
+                    tirx.IntImm("int32", _clip_lo),
+                    tirx.IntImm("int32", _clip_hi),
                 )
 
             return te.extern(

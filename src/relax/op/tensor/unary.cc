@@ -78,14 +78,13 @@ TVM_REGISTER_OP("relax.clip")
         [](const Call& call,
            const ffi::Map<ffi::String, ffi::Array<ffi::String>>& desired_layouts,
            const VarLayoutMap& var_layout_map) -> InferLayoutOutput {
-          ICHECK(NoDesiredLayout(call, desired_layouts));
+          TVM_FFI_ICHECK(NoDesiredLayout(call, desired_layouts));
           LayoutDecision layout = GetLayoutDecision(var_layout_map, call->args[0]);
-          const auto* sinfo = GetStructInfoAs<TensorStructInfoNode>(call->args[0]);
+          const auto* ty = GetTypeAs<TensorTypeNode>(call->args[0]);
           // Guard: fall back to initial layout if ndim doesn't match
           // (e.g., 4D layout propagated to a 3D YOLO detection tensor).
-          if (sinfo && !sinfo->IsUnknownNdim() &&
-              static_cast<int>(layout->layout.ndim()) != sinfo->ndim) {
-            layout = InitialLayoutDecision(sinfo->ndim);
+          if (ty && !ty->IsUnknownNdim() && static_cast<int>(layout->layout.ndim()) != ty->ndim) {
+            layout = InitialLayoutDecision(ty->ndim);
           }
           return InferLayoutOutput({layout}, {layout}, Attrs(call->attrs));
         })

@@ -491,7 +491,7 @@ void VirtualMachineImpl::Init(const std::vector<Device>& devices,
 
 void VirtualMachineImpl::InitAllocators(const std::vector<Device>& devices,
                               const std::vector<AllocatorType>& alloc_types) {
-  ICHECK_EQ(devices.size(), alloc_types.size());
+  TVM_FFI_ICHECK_EQ(devices.size(), alloc_types.size());
 
   this->devices.reserve(devices.size());
   this->allocators.reserve(alloc_types.size());

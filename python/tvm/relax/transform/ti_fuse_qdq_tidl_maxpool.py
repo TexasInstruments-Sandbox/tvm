@@ -48,7 +48,7 @@ Kernel: src/runtime/ti_dsp/mmalib/tidl_maxpool_wrapper.cpp
 import logging
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from .ti_mmalib_legalize import _call_extern_checked
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
@@ -86,23 +86,23 @@ def _check_maxpool(ctx) -> bool:
     for quantized models produced by that quantizer.
     """
     x = ctx.annotated_expr["x"]
-    if isinstance(x, relax.Constant):
-        if x.data.dtype != "int8":
+    if isinstance(x, tvm.ir.GenericConst):
+        if x.value.dtype != "int8":
             return False
-    elif hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        if str(x.struct_info.dtype) != "int8":
+    elif hasattr(x, "ty") and hasattr(x.ty, "dtype"):
+        if str(x.ty.dtype) != "int8":
             return False
     else:
         return False
 
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
 
     # Transparent condition: input and output zero-points must match.
     d_zp = ctx.annotated_expr["d_zp"]
     o_zp = ctx.annotated_expr["o_zp"]
-    if int(d_zp.data.numpy()) != int(o_zp.data.numpy()):
+    if int(d_zp.value.numpy()) != int(o_zp.value.numpy()):
         return False
 
     return True
@@ -153,19 +153,19 @@ class _MaxPoolLowerer(PyExprMutator):
             if "dequantize" in op_name:
                 x_param = val.args[0]
                 x_arg = param_to_arg.get(x_param, x_param)
-                if hasattr(binding.var, "struct_info"):
-                    x_sinfo = binding.var.struct_info
+                if hasattr(binding.var, "ty"):
+                    x_sinfo = binding.var.ty
             elif "max_pool" in op_name:
                 pool_call = val
 
         if x_arg is None or pool_call is None or x_sinfo is None:
             return super().visit_call_(call)
 
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return super().visit_call_(call)
 
-        if not isinstance(x_sinfo, relax.TensorStructInfo) or not x_sinfo.shape:
+        if not isinstance(x_sinfo, relax.TensorType) or not x_sinfo.shape:
             return super().visit_call_(call)
 
         in_shape = [int(s) for s in x_sinfo.shape]
@@ -198,18 +198,18 @@ class _MaxPoolLowerer(PyExprMutator):
                     kernel_name,
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", _N),
-                    tir.IntImm("int32", _C),
-                    tir.IntImm("int32", _H_in),
-                    tir.IntImm("int32", _W_in),
-                    tir.IntImm("int32", _H_out),
-                    tir.IntImm("int32", _W_out),
-                    tir.IntImm("int32", _kH),
-                    tir.IntImm("int32", _kW),
-                    tir.IntImm("int32", _sH),
-                    tir.IntImm("int32", _sW),
-                    tir.IntImm("int32", _pH),
-                    tir.IntImm("int32", _pW),
+                    tirx.IntImm("int32", _N),
+                    tirx.IntImm("int32", _C),
+                    tirx.IntImm("int32", _H_in),
+                    tirx.IntImm("int32", _W_in),
+                    tirx.IntImm("int32", _H_out),
+                    tirx.IntImm("int32", _W_out),
+                    tirx.IntImm("int32", _kH),
+                    tirx.IntImm("int32", _kW),
+                    tirx.IntImm("int32", _sH),
+                    tirx.IntImm("int32", _sW),
+                    tirx.IntImm("int32", _pH),
+                    tirx.IntImm("int32", _pW),
                 )
 
             return te.extern(

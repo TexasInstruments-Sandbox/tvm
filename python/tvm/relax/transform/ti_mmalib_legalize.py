@@ -41,8 +41,9 @@ from typing import Union
 
 import numpy as np
 
+from .ti_const_utils import ti_tensor_const
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, s_tir, te, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 
@@ -59,12 +60,12 @@ logger = logging.getLogger(__name__)
 
 def _is_mmalib_eligible(call: relax.Call) -> bool:
     """Check if a matmul call can be handled by MMALIB."""
-    lhs_sinfo = call.args[0].struct_info
-    rhs_sinfo = call.args[1].struct_info
+    lhs_sinfo = call.args[0].ty
+    rhs_sinfo = call.args[1].ty
 
-    if not isinstance(lhs_sinfo, relax.TensorStructInfo):
+    if not isinstance(lhs_sinfo, relax.TensorType):
         return False
-    if not isinstance(rhs_sinfo, relax.TensorStructInfo):
+    if not isinstance(rhs_sinfo, relax.TensorType):
         return False
 
     if lhs_sinfo.dtype != "int16" or rhs_sinfo.dtype != "int16":
@@ -82,12 +83,12 @@ def _is_mmalib_eligible(call: relax.Call) -> bool:
 
     mma_size_i16 = MMA_SIZE_I16
     for s in lhs_shape:
-        if not isinstance(s, tir.IntImm):
+        if not isinstance(s, tirx.IntImm):
             return False
         if int(s) % mma_size_i16 != 0:
             return False
     for s in rhs_shape:
-        if not isinstance(s, tir.IntImm):
+        if not isinstance(s, tirx.IntImm):
             return False
         if int(s) % mma_size_i16 != 0:
             return False
@@ -100,8 +101,8 @@ def _mmalib_matmul_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
     if not _is_mmalib_eligible(call):
         return _matmul(bb, call)
 
-    lhs_sinfo = call.args[0].struct_info
-    rhs_sinfo = call.args[1].struct_info
+    lhs_sinfo = call.args[0].ty
+    rhs_sinfo = call.args[1].ty
     M = int(lhs_sinfo.shape[0])
     K = int(lhs_sinfo.shape[1])
     N = int(rhs_sinfo.shape[1])
@@ -183,14 +184,14 @@ def _check_conv2d_mmalib_constraints(
     if data_sinfo.shape is None or kernel_sinfo.shape is None:
         return False
     for s in data_sinfo.shape:
-        if not isinstance(s, tir.IntImm):
+        if not isinstance(s, tirx.IntImm):
             return False
     for s in kernel_sinfo.shape:
-        if not isinstance(s, tir.IntImm):
+        if not isinstance(s, tirx.IntImm):
             return False
 
-    data_layout = tir.layout(attrs.data_layout)
-    kernel_layout = tir.layout(attrs.kernel_layout)
+    data_layout = s_tir.slayout(attrs.data_layout)
+    kernel_layout = s_tir.slayout(attrs.kernel_layout)
 
     if attrs.groups != 1:
         if not allow_groups or attrs.groups <= 0:
@@ -298,12 +299,12 @@ def _check_conv2d_row_kernel_geometry(
 
 def _is_conv2d_mmalib_eligible(call: relax.Call) -> bool:
     """Check if a conv2d call can be handled by MMALIB (int16 path)."""
-    data_sinfo = call.args[0].struct_info
-    kernel_sinfo = call.args[1].struct_info
+    data_sinfo = call.args[0].ty
+    kernel_sinfo = call.args[1].ty
 
-    if not isinstance(data_sinfo, relax.TensorStructInfo):
+    if not isinstance(data_sinfo, relax.TensorType):
         return False
-    if not isinstance(kernel_sinfo, relax.TensorStructInfo):
+    if not isinstance(kernel_sinfo, relax.TensorType):
         return False
     if data_sinfo.dtype != "int16" or kernel_sinfo.dtype != "int16":
         return False
@@ -319,11 +320,11 @@ def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
         return _nn_conv2d(bb, call)
 
     attrs = call.attrs
-    data_sinfo = call.args[0].struct_info
-    kernel_sinfo = call.args[1].struct_info
+    data_sinfo = call.args[0].ty
+    kernel_sinfo = call.args[1].ty
 
-    data_layout = tir.layout(attrs.data_layout)
-    kernel_layout = tir.layout(attrs.kernel_layout)
+    data_layout = s_tir.slayout(attrs.data_layout)
+    kernel_layout = s_tir.slayout(attrs.kernel_layout)
 
     C_in = int(data_sinfo.shape[data_layout.index_of("C")])
     H_in = int(data_sinfo.shape[data_layout.index_of("H")])
@@ -348,9 +349,9 @@ def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
     # Identity params: zero bias, scale=1, shift=0 for all channels.
     # The QDQ fusion pass (FuseMMALIBQDQConv2dI16) will pass real per-channel
     # values; this legalize path handles plain float32 conv2d with no requant.
-    bias_const = relax.Constant(np.zeros(C_out, dtype=np.int64))
-    scale_const = relax.Constant(np.ones(C_out, dtype=np.uint8))
-    shift_const = relax.Constant(np.zeros(C_out, dtype=np.uint8))
+    bias_const = ti_tensor_const(np.zeros(C_out, dtype=np.int64))
+    scale_const = ti_tensor_const(np.ones(C_out, dtype=np.uint8))
+    shift_const = ti_tensor_const(np.zeros(C_out, dtype=np.uint8))
 
     def te_mmalib_conv2d(
         data: te.Tensor,
@@ -537,7 +538,7 @@ def _call_extern_checked(dtype: str, op_name: str, *args):
     via ``tvm_throw_last_error`` -- the same builtin lower_l2sram_alloc.py
     uses for its own tvm_l2_alloc null-check, confirmed (by inspecting
     generated code) to compile to a plain early ``return -1;`` here, not
-    the packed-call "set the return value" path ``tir.ret`` would take.
+    the packed-call "set the return value" path ``tirx.ret`` would take.
     Without this, the wrapper function fell through to its own
     unconditional ``return 0`` on the very next line: it reported the
     error but still told the caller the call succeeded, so execution
@@ -548,33 +549,36 @@ def _call_extern_checked(dtype: str, op_name: str, *args):
     so aborting here is sufficient to turn the failure into a real,
     surfaced ModelError instead of a log line next to garbage output.
     """
-    call = tir.call_extern(dtype, op_name, *args)
-    status = tir.Var("status", "int64")
-    return tir.LetStmt(
-        status,
-        tir.Cast("int64", call),
-        tir.IfThenElse(
-            status != 0,
-            tir.SeqStmt(
-                [
-                    tir.Evaluate(
-                        tir.call_extern(
-                            "int32",
-                            "tvm_dsp_report_error",
-                            tir.StringImm(op_name),
-                            tir.Cast("int32", status),
-                        )
-                    ),
-                    tir.Evaluate(tir.tvm_throw_last_error()),
-                ]
+    call = tirx.call_extern(dtype, op_name, *args)
+    status = tirx.Var("status", "int64")
+    # Bind has no body: ``status`` is visible to the statements that follow it in
+    # the enclosing sequence, which is exactly the old ``let status = ... in if ...``.
+    return tirx.SeqStmt(
+        [
+            tirx.Bind(status, tirx.Cast("int64", call)),
+            tirx.IfThenElse(
+                status != 0,
+                tirx.SeqStmt(
+                    [
+                        tirx.Evaluate(
+                            tirx.call_extern(
+                                "int32",
+                                "tvm_dsp_report_error",
+                                tvm.ir.StringImm(op_name),
+                                tirx.Cast("int32", status),
+                            )
+                        ),
+                        tirx.Evaluate(tirx.tvm_throw_last_error()),
+                    ]
+                ),
+                None,
             ),
-            None,
-        ),
+        ]
     )
 
 
 # Shape-only ops that PT2E/ATen's conv-bias decomposition may interpose
-# between a bias `relax.Constant` leaf and the `relax.add` that broadcasts
+# between a bias `tvm.ir.GenericConst` leaf and the `relax.add` that broadcasts
 # it against the conv/matmul output (e.g. reshape (C,) -> (1, C, 1, 1)).
 _CONSTANT_FOLDABLE_SHAPE_OPS = (
     "relax.reshape",
@@ -587,12 +591,12 @@ _CONSTANT_FOLDABLE_SHAPE_OPS = (
 def _resolve_constant_tensor(expr, lookup=None):
     """Resolve `expr` to a numpy array if it is a compile-time constant.
 
-    Returns the literal array for a bare `relax.Constant`. Also unwraps
+    Returns the literal array for a bare `tvm.ir.GenericConst`. Also unwraps
     chains of shape-only ops (reshape/expand_dims/squeeze/astype) applied
-    to a `relax.Constant` leaf -- e.g. PT2E's conv-bias decomposition
+    to a `tvm.ir.GenericConst` leaf -- e.g. PT2E's conv-bias decomposition
     represents `add(conv_out, bias)` as `add(conv_out, reshape(bias_const,
     (1, C, 1, 1)))` rather than passing the bias constant directly, so a
-    bare `isinstance(x, relax.Constant)` check misses it and the bias is
+    bare `isinstance(x, tvm.ir.GenericConst)` check misses it and the bias is
     silently dropped (folded as all-zero) by every MMALIB QDQ lowering
     pass. Returns None if `expr` is not a compile-time constant.
 
@@ -603,8 +607,8 @@ def _resolve_constant_tensor(expr, lookup=None):
     rather than from `PatternCheckContext.annotated_expr` (which is already
     fully dereferenced during pattern matching).
     """
-    if isinstance(expr, relax.Constant):
-        return expr.data.numpy()
+    if isinstance(expr, tvm.ir.GenericConst):
+        return expr.value.numpy()
     if isinstance(expr, relax.Var):
         if lookup is None:
             return None
@@ -616,15 +620,15 @@ def _resolve_constant_tensor(expr, lookup=None):
         isinstance(expr, relax.Call)
         and hasattr(expr.op, "name")
         and expr.op.name in _CONSTANT_FOLDABLE_SHAPE_OPS
-        and expr.struct_info is not None
-        and expr.struct_info.shape is not None
+        and expr.ty is not None
+        and expr.ty.shape is not None
     ):
         inner = _resolve_constant_tensor(expr.args[0], lookup)
         if inner is None:
             return None
         if expr.op.name == "relax.astype":
-            return inner.astype(str(expr.struct_info.dtype))
-        out_shape = [int(s) for s in expr.struct_info.shape]
+            return inner.astype(str(expr.ty.dtype))
+        out_shape = [int(s) for s in expr.ty.shape]
         return inner.reshape(out_shape)
     return None
 

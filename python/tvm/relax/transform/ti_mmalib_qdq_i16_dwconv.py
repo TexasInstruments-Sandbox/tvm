@@ -38,8 +38,9 @@ import logging
 
 import numpy as np
 
+from .ti_const_utils import ti_tensor_const
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, s_tir, te, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.expr_functor import PyExprMutator, mutator
@@ -68,8 +69,8 @@ logger = logging.getLogger(__name__)
 
 
 def _is_const_zero(expr) -> bool:
-    if isinstance(expr, relax.Constant):
-        return np.all(expr.data.numpy() == 0)
+    if isinstance(expr, tvm.ir.GenericConst):
+        return np.all(expr.value.numpy() == 0)
     return False
 
 
@@ -98,21 +99,21 @@ def _check_mmalib_qdq_dwconv2d_i16(ctx) -> bool:
 
     # Weight must be int16
     w = ctx.annotated_expr["w_int8"]  # keyed "w_int8" for compat with _extract_roles
-    if isinstance(w, relax.Constant):
-        if w.data.dtype != "int16":
+    if isinstance(w, tvm.ir.GenericConst):
+        if w.value.dtype != "int16":
             return False
-    elif hasattr(w, "struct_info") and hasattr(w.struct_info, "dtype"):
-        if str(w.struct_info.dtype) != "int16":
+    elif hasattr(w, "ty") and hasattr(w.ty, "dtype"):
+        if str(w.ty.dtype) != "int16":
             return False
     else:
         return False
 
     # Data must be int16 (not a constant — it's the dynamic input)
     data = ctx.annotated_expr["data"]
-    if isinstance(data, relax.Constant):
+    if isinstance(data, tvm.ir.GenericConst):
         return False
-    if hasattr(data, "struct_info") and hasattr(data.struct_info, "dtype"):
-        if str(data.struct_info.dtype) != "int16":
+    if hasattr(data, "ty") and hasattr(data.ty, "dtype"):
+        if str(data.ty.dtype) != "int16":
             return False
 
     # Bias (if present) must resolve to a compile-time constant -- see the
@@ -214,24 +215,24 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
         data_arg = param_to_arg[roles["data"]]
 
         w_i16_arg = param_to_arg[roles["w_int8"]]
-        w_i16_np = w_i16_arg.data.numpy() if isinstance(w_i16_arg, relax.Constant) else None
+        w_i16_np = w_i16_arg.value.numpy() if isinstance(w_i16_arg, tvm.ir.GenericConst) else None
         if w_i16_np is None:
             return super().visit_call_(call)
 
         w_scale_arg = param_to_arg[roles["w_scale"]]
-        if not isinstance(w_scale_arg, relax.Constant):
+        if not isinstance(w_scale_arg, tvm.ir.GenericConst):
             return super().visit_call_(call)
-        w_scale_np = w_scale_arg.data.numpy().flatten()
+        w_scale_np = w_scale_arg.value.numpy().flatten()
 
         d_scale_arg = param_to_arg[roles["d_scale"]]
-        if not isinstance(d_scale_arg, relax.Constant):
+        if not isinstance(d_scale_arg, tvm.ir.GenericConst):
             return super().visit_call_(call)
-        d_scale_val = float(d_scale_arg.data.numpy())
+        d_scale_val = float(d_scale_arg.value.numpy())
 
         o_scale_arg = param_to_arg[roles["o_scale"]]
-        if not isinstance(o_scale_arg, relax.Constant):
+        if not isinstance(o_scale_arg, tvm.ir.GenericConst):
             return super().visit_call_(call)
-        o_scale_val = float(o_scale_arg.data.numpy())
+        o_scale_val = float(o_scale_arg.value.numpy())
 
         # int16 always uses symmetric activation (d_zp=0), so no ZP correction.
 
@@ -247,8 +248,8 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
         channels = w_i16_np.shape[0]
         KH, KW = w_i16_np.shape[2], w_i16_np.shape[3]
 
-        data_sinfo = data_arg.struct_info
-        data_layout = tir.layout(attrs.data_layout)
+        data_sinfo = data_arg.ty
+        data_layout = s_tir.slayout(attrs.data_layout)
         H_in = int(data_sinfo.shape[data_layout.index_of("H")])
         W_in = int(data_sinfo.shape[data_layout.index_of("W")])
 
@@ -289,10 +290,10 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
         # The C wrapper reorders at runtime via reorderWeights_exec.
         nat_weights = w_i16_np.reshape(channels, KH * KW).flatten()
 
-        weights_relax = relax.Constant(nat_weights)
-        bias_relax = relax.Constant(bias_i64)
-        scale_relax = relax.Constant(scale_u8)
-        shift_relax = relax.Constant(shift_u8)
+        weights_relax = ti_tensor_const(nat_weights)
+        bias_relax = ti_tensor_const(bias_i64)
+        scale_relax = ti_tensor_const(scale_u8)
+        shift_relax = ti_tensor_const(shift_u8)
 
         def te_mmalib_dwconv2d_i16(
             data_t: te.Tensor,
@@ -358,7 +359,7 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
             # MMALIB kernel saturates but does not apply ReLU.  Clip at the
             # output zero-point to zero negative pre-activations (the previous
             # [-32768, 32767] clip was a full-range no-op that dropped ReLU).
-            result = relax.op.clip(result, relax.PrimValue(0), relax.PrimValue(32767))
+            result = relax.op.clip(result, relax.prim_value(0), relax.prim_value(32767))
 
         self.count += 1
         logger.info(

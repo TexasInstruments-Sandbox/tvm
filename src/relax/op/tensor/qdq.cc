@@ -173,13 +173,13 @@ InferLayoutOutput InferLayoutQuantizeDequantize(
     const Call& call,
     const ffi::Map<ffi::String, ffi::Array<ffi::String>>& desired_layouts,
     const VarLayoutMap& var_layout_map) {
-  ICHECK(NoDesiredLayout(call, desired_layouts));
+  TVM_FFI_ICHECK(NoDesiredLayout(call, desired_layouts));
   const auto* attrs = call->attrs.as<QuantizeAttrs>();
-  ICHECK(attrs) << "Invalid Call";
+  TVM_FFI_ICHECK(attrs) << "Invalid Call";
 
-  const auto* data_sinfo = GetStructInfoAs<TensorStructInfoNode>(call->args[0]);
-  ICHECK(data_sinfo) << "Invalid Call";
-  int ndim = data_sinfo->ndim;
+  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  TVM_FFI_ICHECK(data_ty) << "Invalid Call";
+  int ndim = data_ty->ndim;
 
   // Propagate layout from data input (arg 0).
   LayoutDecision data_layout = GetLayoutDecision(var_layout_map, call->args[0]);
@@ -193,16 +193,16 @@ InferLayoutOutput InferLayoutQuantizeDequantize(
   // Scale and zero_point are scalar or 1-D per-channel tensors --
   // keep their initial layout (no transpose needed).
   LayoutDecision scale_layout = InitialLayoutDecision(
-      GetStructInfoAs<TensorStructInfoNode>(call->args[1])->ndim);
+      GetTypeAs<TensorTypeNode>(call->args[1])->ndim);
   LayoutDecision zp_layout = InitialLayoutDecision(
-      GetStructInfoAs<TensorStructInfoNode>(call->args[2])->ndim);
+      GetTypeAs<TensorTypeNode>(call->args[2])->ndim);
 
   // Remap the quantization axis to match the new data layout.
   // axis<0 means per-tensor quantization (scalar scale/zp) — leave unchanged.
   // ndim==0 means the data is a scalar tensor (e.g., a bias zero-point
   // remaining after QDQ fusion).  FindAxis computes axis % ndim, which
   // triggers SIGFPE (division by zero) when ndim is 0.
-  ObjectPtr<QuantizeAttrs> new_attrs = ffi::make_object<QuantizeAttrs>(*attrs);
+  ffi::ObjectPtr<QuantizeAttrs> new_attrs = ffi::make_object<QuantizeAttrs>(*attrs);
   if (attrs->axis >= 0 && ndim > 0) {
     new_attrs->axis = FindAxis(data_layout->layout, attrs->axis);
   }

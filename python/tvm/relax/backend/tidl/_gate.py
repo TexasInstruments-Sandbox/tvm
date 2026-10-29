@@ -33,6 +33,7 @@ concurrent partitioning safe. Run concurrent compiles in separate processes.
 
 import atexit
 import contextlib
+import ctypes
 import dataclasses
 import logging
 import os
@@ -85,6 +86,19 @@ def default_artifacts_dir() -> str:
     return _default_artifacts_dir
 
 
+def _expose_compiler_symbols() -> None:
+    """Make ``libtvm_compiler.so`` symbols visible to the import library.
+
+    ``tvm`` loads the compiler library ``RTLD_LOCAL``, so a library opened afterwards cannot
+    resolve symbols it defines (e.g. ``tvm::Type::IsMissing``); the failure is a
+    ``symbol lookup error`` at the first call, not at load time.  Re-opening an already loaded
+    library ``RTLD_GLOBAL`` promotes it in place.
+    """
+    lib = getattr(tvm.base, "_LOADED_LIBS", {}).get("tvm_compiler")
+    if lib is not None:
+        ctypes.CDLL(lib._name, mode=ctypes.RTLD_GLOBAL)
+
+
 def load_relax_so(path: Optional[str] = None, tidl_tools_path: Optional[str] = None) -> None:
     """Load ``tidl_model_import_relax.so`` and verify its FFI functions.
 
@@ -114,6 +128,7 @@ def load_relax_so(path: Optional[str] = None, tidl_tools_path: Optional[str] = N
             f"tidl_model_import_relax.so not found (tried: {path!r}).  "
             "Pass 'tidl_tools_path' in config or set C7X_MMA_TIDL_PATH."
         )
+    _expose_compiler_symbols()
     tvm.runtime.load_module(path)
     required = [
         "TIDL_relaxInit",
@@ -276,7 +291,7 @@ def _subst(expr, vmap):
         return relax.TupleGetItem(_subst(expr.tuple_value, vmap), expr.index)
     if isinstance(expr, relax.Call):
         return relax.Call(
-            expr.op, [_subst(a, vmap) for a in expr.args], expr.attrs, expr.sinfo_args
+            expr.op, [_subst(a, vmap) for a in expr.args], expr.attrs, expr.ty_args
         )
     return expr
 
@@ -351,7 +366,7 @@ def _matched_binding_order(bindings, root_var) -> List[relax.Var]:
         for prev, nxt in zip(order, order[1:]):
             if not _uses(bindings[nxt], prev):
                 raise RuntimeError(
-                    f"TIDL gate: the match rooted at {root_var.name_hint} has more than one "
+                    f"TIDL gate: the match rooted at {root_var.name} has more than one "
                     "branch, and its binding order is unknown outside "
                     "TIDLOffloadCompiler.partition(). Wrap the FuseOpsByPattern call in "
                     "tvm.relax.backend.tidl._gate.binding_order(mod)."
@@ -396,18 +411,18 @@ def synthesize_composite(
         collect_free(bindings[v])
     order = order[:-1]
 
-    params = [relax.Var(v.name_hint, v.struct_info) for v in free]
+    params = [relax.Var(v.name, v.ty) for v in free]
     vmap = {f: p for f, p in zip(free, params)}
     bb = relax.BlockBuilder()
     with bb.function("tidl_gate_composite", params, private=True):
         with bb.dataflow():
             for v in order:
-                vmap[v] = bb.emit(_subst(bindings[v], vmap), v.name_hint)
+                vmap[v] = bb.emit(_subst(bindings[v], vmap), v.name)
             out = bb.emit_output(_subst(bindings[root_var], vmap), "gv")
         bb.emit_func_output(out)
     func = bb.get()["tidl_gate_composite"]
 
-    node_name = f"{pattern_name}:{root_var.name_hint}"
+    node_name = f"{pattern_name}:{root_var.name}"
     func = func.with_attrs(
         {"Composite": pattern_name, "Primitive": True, NODE_NAME_ATTR: node_name}
     )
@@ -428,10 +443,10 @@ def lift_constants_in_composite(func):
             if isinstance(val, relax.Call):
                 new_args = list(val.args)
                 for k, arg in enumerate(val.args):
-                    if isinstance(arg, relax.Constant):
+                    if isinstance(arg, tvm.ir.GenericConst):
                         const_var = relax.DataflowVar(
                             f"tidl_const_{len(new_bindings)}",
-                            arg.struct_info,
+                            arg.ty,
                         )
                         new_bindings.append(relax.VarBinding(const_var, arg))
                         new_args[k] = const_var
@@ -440,9 +455,9 @@ def lift_constants_in_composite(func):
                     val.op,
                     new_args,
                     val.attrs,
-                    val.sinfo_args,
+                    val.ty_args,
                 )
-                relax._ffi_api.UpdateStructInfo(new_call, val.struct_info)  # pyright: ignore[reportAttributeAccessIssue]
+                relax.expr._update_type(new_call, val.ty)  # pyright: ignore[reportAttributeAccessIssue]
                 new_bindings.append(relax.VarBinding(b.var, new_call))
             else:
                 new_bindings.append(b)
@@ -452,7 +467,7 @@ def lift_constants_in_composite(func):
     return relax.Function(
         func.params,
         new_body,
-        func.ret_struct_info,
+        func.ret_ty,
         func.is_pure,
         func.attrs,
     )
@@ -461,7 +476,7 @@ def lift_constants_in_composite(func):
 def make_import_call(func, call_args, struct_info):
     """Synthetic call the library parses: Function as op, constants lifted."""
     call = relax.Call(lift_constants_in_composite(func), call_args)
-    relax._ffi_api.UpdateStructInfo(call, struct_info)  # pyright: ignore[reportAttributeAccessIssue]
+    relax.expr._update_type(call, struct_info)  # pyright: ignore[reportAttributeAccessIssue]
     return call
 
 
@@ -482,7 +497,7 @@ def evaluate_match(pattern_name: str, ctx) -> GateResult:
     func, args, node_name = synthesize_composite(
         pattern_name, ctx.matched_expr, ctx.matched_bindings
     )
-    call = make_import_call(func, args, ctx.matched_expr.struct_info)
+    call = make_import_call(func, args, ctx.matched_expr.ty)
     verdict = bool(current_allow_fn()(call))
     reason = ""
     if not verdict:

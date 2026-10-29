@@ -206,20 +206,19 @@ class CodeGenVMTIR : public ExprFunctor<ffi::Optional<Expr>(const Expr&)> {
     tir_func = WithAttr(tir_func, tvm::attr::kSTir, true);
 
     // Propagate num_input attribute from Relax function to TIR function
-    ffi::Optional<IntImm> num_input_attr = func->GetAttr<IntImm>(attr::kNumInput);
-    if (num_input_attr.has_value()) {
+    if (auto num_input_attr = func->GetAttr<int64_t>(attr::kNumInput)) {
       tir_func = WithAttr(tir_func, "tir.num_input", num_input_attr.value());
     }
 
     // Propagate returns_tuple information from Relax function to TIR function
-    auto tuple_info = func->ret_struct_info.as<TupleStructInfoNode>();
-    bool returns_tuple = tuple_info != nullptr;
-    tir_func = WithAttr(tir_func, "tir.returns_tuple", Bool(returns_tuple));
+    const auto* tuple_ty = func->ret_ty.as<TupleTypeNode>();
+    bool returns_tuple = tuple_ty != nullptr;
+    tir_func = WithAttr(tir_func, "tir.returns_tuple", returns_tuple);
 
     // Propagate number of outputs for multi-output functions
     if (returns_tuple) {
-      int64_t num_outputs = static_cast<int64_t>(tuple_info->fields.size());
-      tir_func = WithAttr(tir_func, "tir.num_outputs", IntImm(DataType::Int(64), num_outputs));
+      int64_t num_outputs = static_cast<int64_t>(tuple_ty->fields.size());
+      tir_func = WithAttr(tir_func, "tir.num_outputs", num_outputs);
     }
 
     registers_num_ = 0;

@@ -35,9 +35,10 @@ Other combinations raise a clear error rather than silently producing wrong
 results.
 """
 
-from tvm import te, tir
+from tvm import te, tirx
 from tvm.relax.block_builder import BlockBuilder
-from tvm.relax.expr import Call, Expr
+from tvm.ir import Call
+from tvm.relax.expr import Expr
 
 from .ti_c7x_span_utils import propagate_span
 
@@ -56,12 +57,12 @@ def _te_c7x_topk(data: te.Tensor, k: int, dtype: str) -> list:
         batch *= s
     out_shape = in_shape[:-1] + [k]
 
-    data_buf = tir.decl_buffer(data.shape, data.dtype, "topk_data_buf", data_alignment=8)
-    val_buf = tir.decl_buffer(out_shape, data.dtype, "topk_val_buf", data_alignment=8)
-    idx_buf = tir.decl_buffer(out_shape, dtype, "topk_idx_buf", data_alignment=8)
+    data_buf = tirx.decl_buffer(data.shape, data.dtype, "topk_data_buf", data_alignment=8)
+    val_buf = tirx.decl_buffer(out_shape, data.dtype, "topk_val_buf", data_alignment=8)
+    idx_buf = tirx.decl_buffer(out_shape, dtype, "topk_idx_buf", data_alignment=8)
 
     def fcompute(ins, outs):
-        return tir.call_extern(
+        return tirx.call_extern(
             "int32", "c7x_topk", ins[0].data, outs[0].data, outs[1].data, batch, n, k
         )
 
@@ -80,7 +81,7 @@ def c7x_topk_legalize(bb: BlockBuilder, call: Call) -> Expr:
     """``customize_legalize_map`` entry for ``relax.topk`` on C7x/c_static_lib."""
     attrs = call.attrs
     data = call.args[0]
-    sinfo = data.struct_info
+    sinfo = data.ty
     ndim = sinfo.ndim
     axis = attrs.axis if attrs.axis >= 0 else attrs.axis + ndim
 

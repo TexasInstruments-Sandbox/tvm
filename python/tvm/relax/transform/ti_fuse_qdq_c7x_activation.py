@@ -35,7 +35,7 @@ Kernels: src/runtime/ti_dsp/kernels/c7x_activation.c
 import logging
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
@@ -250,17 +250,17 @@ _DFL_SOFTMAX_NAMES = frozenset({"tidl_act.dfl_softmax"})
 def _check_activation(ctx) -> bool:
     """Require int8 input and compile-time quantization constants."""
     x = ctx.annotated_expr["x"]
-    if isinstance(x, relax.Constant):
-        if x.data.dtype != "int8":
+    if isinstance(x, tvm.ir.GenericConst):
+        if x.value.dtype != "int8":
             return False
-    elif hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        if str(x.struct_info.dtype) != "int8":
+    elif hasattr(x, "ty") and hasattr(x.ty, "dtype"):
+        if str(x.ty.dtype) != "int8":
             return False
     else:
         return False
 
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
     return True
 
@@ -270,17 +270,17 @@ def _check_silu_f32out(ctx) -> bool:
     pattern has no trailing quantize, so there is no output scale/zp to
     validate."""
     x = ctx.annotated_expr["x"]
-    if isinstance(x, relax.Constant):
-        if x.data.dtype != "int8":
+    if isinstance(x, tvm.ir.GenericConst):
+        if x.value.dtype != "int8":
             return False
-    elif hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        if str(x.struct_info.dtype) != "int8":
+    elif hasattr(x, "ty") and hasattr(x.ty, "dtype"):
+        if str(x.ty.dtype) != "int8":
             return False
     else:
         return False
 
     for name in ("d_scale", "d_zp"):
-        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
     return True
 
@@ -290,24 +290,24 @@ def _check_channel_scale_multiply(ctx) -> bool:
     trailing [1,1] spatial dims (excitation) and the other with H×W > 1."""
     for inp_name in ("in1", "in2"):
         inp = ctx.annotated_expr[inp_name]
-        if isinstance(inp, relax.Constant):
-            if inp.data.dtype != "int8":
+        if isinstance(inp, tvm.ir.GenericConst):
+            if inp.value.dtype != "int8":
                 return False
-        elif hasattr(inp, "struct_info") and hasattr(inp.struct_info, "dtype"):
-            if str(inp.struct_info.dtype) != "int8":
+        elif hasattr(inp, "ty") and hasattr(inp.ty, "dtype"):
+            if str(inp.ty.dtype) != "int8":
                 return False
         else:
             return False
 
     for name in ("s1", "z1", "s2", "z2", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
 
     # Verify shape constraint: exactly one input has trailing [1, 1] dims.
     in1 = ctx.annotated_expr["in1"]
     in2 = ctx.annotated_expr["in2"]
-    in1_si = getattr(in1, "struct_info", None)
-    in2_si = getattr(in2, "struct_info", None)
+    in1_si = getattr(in1, "ty", None)
+    in2_si = getattr(in2, "ty", None)
     if in1_si is None or in2_si is None:
         return False
     in1_shape = getattr(in1_si, "shape", None)
@@ -317,7 +317,7 @@ def _check_channel_scale_multiply(ctx) -> bool:
     if len(in1_shape) < 4 or len(in2_shape) < 4:
         return False
     for s in [*in1_shape, *in2_shape]:
-        if not isinstance(s, tir.IntImm):
+        if not isinstance(s, tirx.IntImm):
             return False
     s1_last2 = int(in1_shape[-2]) == 1 and int(in1_shape[-1]) == 1
     s2_last2 = int(in2_shape[-2]) == 1 and int(in2_shape[-1]) == 1
@@ -372,9 +372,9 @@ class _ActivationLowerer(PyExprMutator):
         it). Decline rather than guess at the right reconstruction if it
         ever occurs.
         """
-        if isinstance(call_sinfo, relax.TupleStructInfo):
+        if isinstance(call_sinfo, relax.TupleType):
             return super().visit_call_(call)
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return super().visit_call_(call)
 
         output_shape = [int(s) for s in call_sinfo.shape]
@@ -389,14 +389,14 @@ class _ActivationLowerer(PyExprMutator):
 
         def te_silu_f32out(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     extern_name,
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", n),
-                    tir.IntImm("int32", d_zp_v),
-                    tir.FloatImm("float32", d_scale_v),
+                    tirx.IntImm("int32", n),
+                    tirx.IntImm("int32", d_zp_v),
+                    tirx.FloatImm("float32", d_scale_v),
                 )
 
             return te.extern(output_shape, [x_t], fcompute, name="tidl_act_f32out", dtype="float32")
@@ -429,20 +429,20 @@ class _ActivationLowerer(PyExprMutator):
                 x_arg = param_to_arg.get(x_param, x_param)
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                d_scale_val = float(s.data.numpy())
-                d_zp_val = int(z.data.numpy())
+                d_scale_val = float(s.value.numpy())
+                d_zp_val = int(z.value.numpy())
             elif "quantize" in op_name and x_arg is not None:
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                o_scale_val = float(s.data.numpy())
-                o_zp_val = int(z.data.numpy())
+                o_scale_val = float(s.value.numpy())
+                o_zp_val = int(z.value.numpy())
 
         if x_arg is None or d_scale_val is None:
             return super().visit_call_(call)
         if not is_f32out and o_scale_val is None:
             return super().visit_call_(call)
 
-        call_sinfo = call.struct_info
+        call_sinfo = call.ty
         composite_span = find_composite_span(func)
 
         if is_f32out:
@@ -455,14 +455,14 @@ class _ActivationLowerer(PyExprMutator):
         # tuple-output composite: R.Tuple(int8_tensor, float32_tensor).
         # We emit c7x_int8_hardswish for the int8 part and re-dequantize it
         # to recover the float32 part for the downstream SE multiply.
-        is_tuple_out = isinstance(call_sinfo, relax.TupleStructInfo)
+        is_tuple_out = isinstance(call_sinfo, relax.TupleType)
         if is_tuple_out:
             # Find the int8 field.
             int8_idx = next(
                 (
                     i
                     for i, f in enumerate(call_sinfo.fields)
-                    if isinstance(f, relax.TensorStructInfo) and str(f.dtype) == "int8"
+                    if isinstance(f, relax.TensorType) and str(f.dtype) == "int8"
                 ),
                 None,
             )
@@ -472,7 +472,7 @@ class _ActivationLowerer(PyExprMutator):
             if not int8_sinfo.shape:
                 return super().visit_call_(call)
             output_shape = [int(s) for s in int8_sinfo.shape]
-        elif not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        elif not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return super().visit_call_(call)
         else:
             output_shape = [int(s) for s in call_sinfo.shape]
@@ -493,16 +493,16 @@ class _ActivationLowerer(PyExprMutator):
 
         def te_activation(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     extern_name,
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", n),
-                    tir.IntImm("int32", d_zp_v),
-                    tir.FloatImm("float32", d_scale_v),
-                    tir.IntImm("int32", o_zp_v),
-                    tir.FloatImm("float32", o_scale_v),
+                    tirx.IntImm("int32", n),
+                    tirx.IntImm("int32", d_zp_v),
+                    tirx.FloatImm("float32", d_scale_v),
+                    tirx.IntImm("int32", o_zp_v),
+                    tirx.FloatImm("float32", o_scale_v),
                 )
 
             return te.extern(output_shape, [x_t], fcompute, name="tidl_act_out", dtype="int8")
@@ -563,24 +563,24 @@ class _ActivationLowerer(PyExprMutator):
                 inp = param_to_arg.get(val.args[0], val.args[0])
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                dq_entries.append((inp, float(s.data.numpy()), int(z.data.numpy())))
+                dq_entries.append((inp, float(s.value.numpy()), int(z.value.numpy())))
             elif "quantize" in op_name and dq_entries:
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                o_scale_val = float(s.data.numpy())
-                o_zp_val = int(z.data.numpy())
+                o_scale_val = float(s.value.numpy())
+                o_zp_val = int(z.value.numpy())
 
         if len(dq_entries) < 2 or o_scale_val is None:
             return super().visit_call_(call)
 
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return super().visit_call_(call)
 
         # Determine which dq input is excitation [1,C,1,1] and which is feature map.
         (arg0, s0, z0), (arg1, s1, z1) = dq_entries[0], dq_entries[1]
-        shape0 = [int(x) for x in arg0.struct_info.shape]
-        shape1 = [int(x) for x in arg1.struct_info.shape]
+        shape0 = [int(x) for x in arg0.ty.shape]
+        shape1 = [int(x) for x in arg1.ty.shape]
 
         if shape0[-2] == 1 and shape0[-1] == 1:
             exc_arg, fm_arg = arg0, arg1
@@ -610,20 +610,20 @@ class _ActivationLowerer(PyExprMutator):
 
         def te_channel_scale_multiply(exc_t, fm_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_int8_channel_scale_multiply",
                     ins[0].data,
                     ins[1].data,
                     outs[0].data,
-                    tir.IntImm("int32", C_v),
-                    tir.IntImm("int32", H_W_v),
-                    tir.FloatImm("float32", s_exc_v),
-                    tir.IntImm("int32", z_exc_v),
-                    tir.FloatImm("float32", s_fm_v),
-                    tir.IntImm("int32", z_fm_v),
-                    tir.FloatImm("float32", s_out_v),
-                    tir.IntImm("int32", z_out_v),
+                    tirx.IntImm("int32", C_v),
+                    tirx.IntImm("int32", H_W_v),
+                    tirx.FloatImm("float32", s_exc_v),
+                    tirx.IntImm("int32", z_exc_v),
+                    tirx.FloatImm("float32", s_fm_v),
+                    tirx.IntImm("int32", z_fm_v),
+                    tirx.FloatImm("float32", s_out_v),
+                    tirx.IntImm("int32", z_out_v),
                 )
 
             return te.extern(
@@ -677,8 +677,8 @@ class _ActivationLowerer(PyExprMutator):
                 x_arg = param_to_arg.get(x_param, x_param)
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                d_scale_val = float(s.data.numpy())
-                d_zp_val = int(z.data.numpy())
+                d_scale_val = float(s.value.numpy())
+                d_zp_val = int(z.value.numpy())
             elif op_name == "relax.permute_dims":
                 axes = val.attrs["axes"] if val.attrs else None
                 permute_axes = [int(a) for a in axes] if axes is not None else None
@@ -687,17 +687,17 @@ class _ActivationLowerer(PyExprMutator):
             elif "quantize" in op_name and x_arg is not None:
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                o_scale_val = float(s.data.numpy())
-                o_zp_val = int(z.data.numpy())
+                o_scale_val = float(s.value.numpy())
+                o_zp_val = int(z.value.numpy())
 
         if x_arg is None or d_scale_val is None or o_scale_val is None:
             return super().visit_call_(call)
 
-        x_sinfo = getattr(x_arg, "struct_info", None)
-        if not isinstance(x_sinfo, relax.TensorStructInfo) or not x_sinfo.shape:
+        x_sinfo = getattr(x_arg, "ty", None)
+        if not isinstance(x_sinfo, relax.TensorType) or not x_sinfo.shape:
             return super().visit_call_(call)
         pre_shape = list(x_sinfo.shape)
-        if len(pre_shape) != 4 or any(not isinstance(s, tir.IntImm) for s in pre_shape):
+        if len(pre_shape) != 4 or any(not isinstance(s, tirx.IntImm) for s in pre_shape):
             return super().visit_call_(call)
 
         # Only the one real shape this kernel implements: permute swaps
@@ -716,19 +716,19 @@ class _ActivationLowerer(PyExprMutator):
 
         def te_dfl_softmax(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_int8_dfl_softmax",
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", B_v),
-                    tir.IntImm("int32", A_v),
-                    tir.IntImm("int32", K_v),
-                    tir.IntImm("int32", N_v),
-                    tir.IntImm("int32", d_zp_v),
-                    tir.FloatImm("float32", d_scale_v),
-                    tir.IntImm("int32", o_zp_v),
-                    tir.FloatImm("float32", o_scale_v),
+                    tirx.IntImm("int32", B_v),
+                    tirx.IntImm("int32", A_v),
+                    tirx.IntImm("int32", K_v),
+                    tirx.IntImm("int32", N_v),
+                    tirx.IntImm("int32", d_zp_v),
+                    tirx.FloatImm("float32", d_scale_v),
+                    tirx.IntImm("int32", o_zp_v),
+                    tirx.FloatImm("float32", o_scale_v),
                 )
 
             return te.extern(
@@ -882,7 +882,7 @@ class FuseQDQToC7xActivation:
                     # Re-emit the dequantize with remapped args (new node, not shared).
                     new_args = [self.visit_expr(a) for a in bval.args]
                     return self.builder_.emit(
-                        relax.Call(bval.op, new_args, bval.attrs, bval.sinfo_args)
+                        relax.Call(bval.op, new_args, bval.attrs, bval.ty_args)
                     )
                 return super().visit_tuple_getitem_(op)
 

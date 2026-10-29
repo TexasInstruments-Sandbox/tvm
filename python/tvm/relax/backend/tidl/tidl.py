@@ -145,7 +145,7 @@ def _normalize_shape_6d(shape) -> List[int]:
 
 def _flatten_sinfos(sinfo) -> List:
     """Recursively flatten TupleStructInfo into a flat list of TensorStructInfos."""
-    if isinstance(sinfo, relax.TupleStructInfo):
+    if isinstance(sinfo, relax.TupleType):
         result = []
         for field in sinfo.fields:
             result.extend(_flatten_sinfos(field))
@@ -164,8 +164,14 @@ def _prim_params(func):
 
 
 def _prim_buffer_map(func):
-    """``PrimFunc.buffer_map`` (present at runtime, missing from TVM's type stubs)."""
-    return func.buffer_map  # pyright: ignore[reportAttributeAccessIssue]
+    """Map each buffer parameter of ``func`` to itself.
+
+    TVM 0.27 removed ``PrimFunc.buffer_map``: a buffer parameter is a ``Var``
+    that carries its ``BufferType`` (shape, dtype, scope) directly.  This keeps
+    the old ``param -> buffer`` lookup shape for the callers below; scalar
+    parameters (no ``BufferType``) are simply absent, like unmapped handles were.
+    """
+    return {p: p for p in _prim_params(func) if tvm.tirx.is_buffer_var(p)}
 
 
 def _find_tidl_subgraphs(mod: IRModule):
@@ -618,9 +624,9 @@ class TIDLOffloadCompiler:
             logger.info("Importing TIDL subgraph %d: %s", sg_id, sg_name)
 
             # -- Tensor descriptors for inputs + outputs ----------------
-            input_sinfos = [p.struct_info for p in func.params]
-            output_sinfo = func.ret_struct_info
-            if isinstance(output_sinfo, relax.TupleStructInfo):
+            input_sinfos = [p.ty for p in func.params]
+            output_sinfo = func.ret_ty
+            if isinstance(output_sinfo, relax.TupleType):
                 output_sinfos = _flatten_sinfos(output_sinfo)
             else:
                 output_sinfos = [output_sinfo]
@@ -696,8 +702,8 @@ class TIDLOffloadCompiler:
 
                 # Synthetic call: Function as op (C++ expects FunctionNode)
                 syn_call = relax.Call(lifted_fn, orig_call.args)
-                relax._ffi_api.UpdateStructInfo(  # pyright: ignore[reportAttributeAccessIssue]
-                    syn_call, orig_call.struct_info
+                relax.expr._update_type(  # pyright: ignore[reportAttributeAccessIssue]
+                    syn_call, orig_call.ty
                 )
 
                 # No per-tensor quantization for float32 models
@@ -718,7 +724,7 @@ class TIDLOffloadCompiler:
                 in_names = []
                 for arg in orig_call.args:
                     if isinstance(arg, relax.Var):
-                        in_names.append(var_map.get(arg, arg.name_hint))
+                        in_names.append(var_map.get(arg, arg.name))
 
                 # Output consumer names (use Var.same_as for identity)
                 out_names = []
@@ -967,7 +973,7 @@ class TIDLOffloadCompiler:
         # Find all TIDL subgraph TIR stubs in the module
         tidl_stubs = {}
         for gv, func in mod.functions_items():
-            if isinstance(func, tvm.tir.PrimFunc) and "tidl_subgraph" in gv.name_hint:
+            if isinstance(func, tvm.tirx.PrimFunc) and "tidl_subgraph" in gv.name_hint:
                 sg_id = _stub_sg_id(gv.name_hint, func)
                 # Find matching artifact by sg_id
                 art = None
@@ -996,10 +1002,10 @@ class TIDLOffloadCompiler:
                 logger.warning(f"Could not read TIDL output descriptor for {stub_name}: {err}")
                 continue
 
-            # Get Relax declared output dtypes from TIR stub buffer_map
+            # Get Relax declared output dtypes from the TIR stub's buffer parameters
             output_sinfos = []
             for param in func.params:
-                buf = func.buffer_map.get(param)
+                buf = _prim_buffer_map(func).get(param)
                 if buf is not None and param.name.startswith("output"):
                     output_sinfos.append(buf.dtype)
 
@@ -1061,20 +1067,20 @@ class TIDLOffloadCompiler:
             tidl_dtypes = {m[0]: m[2] for m in stub_mismatches}
             in_sinfos, out_sinfos = [], []
             for param in func.params:
-                buf = func.buffer_map[param]
-                sinfo = relax.TensorStructInfo(buf.shape, str(buf.dtype))
+                buf = _prim_buffer_map(func)[param]
+                sinfo = relax.TensorType(buf.shape, str(buf.dtype))
                 (out_sinfos if param.name.startswith("output") else in_sinfos).append(sinfo)
             out_sinfos = [
-                relax.TensorStructInfo(si.shape, tidl_dtypes.get(k, si.dtype))
+                relax.TensorType(si.shape, tidl_dtypes.get(k, si.dtype))
                 for k, si in enumerate(out_sinfos)
             ]
             out_sinfo = (
                 out_sinfos[0]
                 if len(out_sinfos) == 1
-                else relax.TupleStructInfo(cast(List[relax.StructInfo], out_sinfos))
+                else relax.TupleType(cast(List[relax.Type], out_sinfos))
             )
             new_func = cast(
-                tvm.tir.PrimFunc,
+                tvm.tirx.PrimFunc,
                 _make_tidl_tir_stub(gv.name_hint, in_sinfos, out_sinfo, sg_id=_sg_id),
             )
             # A GlobalVar's R.Callable struct info is derived from the stub's
@@ -1083,15 +1089,15 @@ class TIDLOffloadCompiler:
             # GlobalVar under the same name (the bridge symbols derive from it).
             stub_buffers = _prim_buffer_map(new_func)
             params_sinfo = [
-                relax.TensorStructInfo(stub_buffers[p].shape, str(stub_buffers[p].dtype))
+                relax.TensorType(stub_buffers[p].shape, str(stub_buffers[p].dtype))
                 for p in _prim_params(new_func)
             ]
             new_gv = relax.GlobalVar(gv.name_hint)  # pyright: ignore[reportCallIssue]
-            relax.expr._update_struct_info(
+            relax.expr._update_type(
                 new_gv,
-                relax.FuncStructInfo(
-                    cast(List[relax.StructInfo], params_sinfo),
-                    relax.TupleStructInfo([]),
+                relax.FuncType(
+                    cast(List[relax.Type], params_sinfo),
+                    relax.TupleType([]),
                     purity=True,
                 ),
             )
@@ -1138,13 +1144,13 @@ class TIDLOffloadCompiler:
                 # for the bytes TIDL actually writes, otherwise a cast reads a
                 # 1-byte-per-element result as if it were 4-byte elements.
                 output_mismatches = self.mismatches[sg_name]
-                is_tuple = isinstance(call.struct_info, relax.TupleStructInfo)
+                is_tuple = isinstance(call.ty, relax.TupleType)
                 tidl_dtypes = {m[0]: m[2] for m in output_mismatches}
                 call = cast(relax.Call, self._retype_call_tir(call, tidl_dtypes))
 
                 if is_tuple:
                     fields = []
-                    for i in range(len(cast(relax.TupleStructInfo, call.struct_info).fields)):
+                    for i in range(len(cast(relax.TupleType, call.ty).fields)):
                         field = relax.TupleGetItem(call, i)
                         for idx, tvm_dt, tidl_dt, scale, zp in output_mismatches:
                             if idx == i:
@@ -1160,19 +1166,19 @@ class TIDLOffloadCompiler:
                 """Re-declare ``call_tir``'s out_sinfo with TIDL's dtype per slot."""
 
                 def retype(sinfo, dtype):
-                    return relax.TensorStructInfo(sinfo.shape, dtype)
+                    return relax.TensorType(sinfo.shape, dtype)
 
-                if isinstance(call.struct_info, relax.TupleStructInfo):
+                if isinstance(call.ty, relax.TupleType):
                     out_sinfo = [
                         retype(f, tidl_dtypes.get(i, f.dtype))
                         for i, f in enumerate(
-                            cast(List[relax.TensorStructInfo], list(call.struct_info.fields))
+                            cast(List[relax.TensorType], list(call.ty.fields))
                         )
                     ]
                 else:
-                    out_sinfo = retype(call.struct_info, tidl_dtypes[0])
+                    out_sinfo = retype(call.ty, tidl_dtypes[0])
                 callee = self.new_gvars.get(call.args[0].name_hint, call.args[0])
-                new_call = relax.call_tir(callee, call.args[1], out_sinfo=out_sinfo)
+                new_call = relax.call_tir(callee, call.args[1], out_ty=out_sinfo)
                 return self.builder_.normalize(new_call)
 
             def _apply_output_conversion(self, tensor, tidl_dt, tvm_dt, scale, zp):
@@ -1735,9 +1741,9 @@ def _collect_tidl_subgraph_info(mod):
     """
     subgraphs = []
     for gv, func in _module_functions(mod).items():
-        if isinstance(func, tvm.tir.PrimFunc) and "tidl_subgraph" in gv.name_hint:
+        if isinstance(func, tvm.tirx.PrimFunc) and "tidl_subgraph" in gv.name_hint:
             name = gv.name_hint
-            # Extract shapes/dtypes from buffer_map
+            # Extract shapes/dtypes from the buffer parameters
             inputs = []
             outputs = []
             for param in _prim_params(func):
@@ -2022,45 +2028,41 @@ def _make_tidl_tir_stub(name, input_sinfos, output_sinfo, sg_id):
         can recover it for correct bridge symbol naming.
     """
     params = []
-    buffer_map = {}
 
     for i, si in enumerate(input_sinfos):
         shape = [int(d) for d in si.shape]
         dtype = str(si.dtype)
-        handle = tvm.tir.Var(f"input{i}", "handle")
-        buf = tvm.tir.decl_buffer(shape, dtype, f"inp{i}")
-        params.append(handle)
-        buffer_map[handle] = buf
+        # A buffer parameter is a Var carrying its BufferType; the parameter name
+        # is what the readers above match on ("input*" / "output*").
+        params.append(tvm.tirx.decl_buffer(shape, dtype, f"input{i}"))
 
     # Collect output buffers (one for tensor, N for tuple)
-    if isinstance(output_sinfo, relax.TupleStructInfo):
+    if isinstance(output_sinfo, relax.TupleType):
         out_fields = list(output_sinfo.fields)
     else:
         out_fields = [output_sinfo]
 
     out_bufs = []
-    for k, field_si in enumerate(cast(List[relax.TensorStructInfo], out_fields)):
+    for k, field_si in enumerate(cast(List[relax.TensorType], out_fields)):
         out_shape = [int(d) for d in field_si.shape]  # pyright: ignore
         out_dtype = str(field_si.dtype)
-        out_handle = tvm.tir.Var(f"output{k}", "handle")
-        out_buf = tvm.tir.decl_buffer(out_shape, out_dtype, f"out{k}")
-        params.append(out_handle)
-        buffer_map[out_handle] = out_buf
+        out_buf = tvm.tirx.decl_buffer(out_shape, out_dtype, f"output{k}")
+        params.append(out_buf)
         out_bufs.append(out_buf)
 
-    extern_args = [buffer_map[h].data for h in params[: len(input_sinfos)]]
+    extern_args = [tvm.tirx.buffer_data(p) for p in params[: len(input_sinfos)]]
     for ob in out_bufs:
-        extern_args.append(ob.data)
+        extern_args.append(tvm.tirx.buffer_data(ob))
 
     # Wrap the extern call in a Block → BlockRealize so that Relax
     # analysis passes (e.g., HasReshapePattern) don't crash when
     # inspecting this function.
-    extern_call = tvm.tir.Evaluate(tvm.tir.call_extern("int32", f"{name}_process", *extern_args))
-    block = tvm.tir.Block([], [], [], name + "_block", extern_call)
-    body = tvm.tir.BlockRealize([], tvm.tir.const(True, "bool"), block)
+    extern_call = tvm.tirx.Evaluate(tvm.tirx.call_extern("int32", f"{name}_process", *extern_args))
+    block = tvm.s_tir.SBlock([], [], [], name + "_block", extern_call)
+    body = tvm.s_tir.SBlockRealize([], tvm.tirx.const(True, "bool"), block)
 
-    func = tvm.tir.PrimFunc(params, body, buffer_map=buffer_map)
-    func = func.with_attr("tir.noalias", True)
+    func = tvm.tirx.PrimFunc(params, body)
+    func = func.with_attr("tirx.noalias", True)
     func = func.with_attr("tidl_sg_id", sg_id)
     return func
 
@@ -2154,7 +2156,7 @@ def _strip_codegen_attr(func: relax.Function) -> relax.Function:
     backend checks for a non-null Codegen attr and treats such functions
     as external, emitting packed function dispatch instead of inlining.
     """
-    return relax.Function(func.params, func.body, func.ret_struct_info, func.is_pure)
+    return relax.Function(func.params, func.body, func.ret_ty, func.is_pure)
 
 
 def _estimate_subgraph_flops(func: relax.Function) -> float:
@@ -2175,7 +2177,7 @@ def _estimate_subgraph_flops(func: relax.Function) -> float:
         return p
 
     def _out_elems(expr):
-        si = getattr(expr, "struct_info", None)
+        si = getattr(expr, "ty", None)
         if si is not None and hasattr(si, "shape") and si.shape is not None:
             return _prod([int(d) for d in si.shape])
         return 0
@@ -2193,7 +2195,7 @@ def _estimate_subgraph_flops(func: relax.Function) -> float:
                 name = op.name  # pyright: ignore[reportAttributeAccessIssue]
                 if name == "relax.nn.conv2d":
                     if len(expr.args) >= 2:
-                        w_si = getattr(expr.args[1], "struct_info", None)
+                        w_si = getattr(expr.args[1], "ty", None)
                         if w_si is not None and hasattr(w_si, "shape") and w_si.shape:
                             w = [int(d) for d in w_si.shape]
                             if len(w) == 4:  # OIHW
@@ -2202,7 +2204,7 @@ def _estimate_subgraph_flops(func: relax.Function) -> float:
                     total[0] += 2.0 * out
                 elif name == "relax.matmul":
                     if len(expr.args) >= 1:
-                        a_si = getattr(expr.args[0], "struct_info", None)
+                        a_si = getattr(expr.args[0], "ty", None)
                         if a_si is not None and hasattr(a_si, "shape") and a_si.shape:
                             a = [int(d) for d in a_si.shape]
                             k = a[-1] if a else 1
@@ -2251,7 +2253,7 @@ def _expand_inline_composites(func: relax.Function) -> relax.Function:
     tmp_mod = relax.transform.ToNonDataflow()(tmp_mod)
     result = tmp_mod["_f"]
     # Strip the temporary global_symbol before returning.
-    result = relax.Function(result.params, result.body, result.ret_struct_info, result.is_pure)
+    result = relax.Function(result.params, result.body, result.ret_ty, result.is_pure)
     return relax.analysis.remove_all_unused(result)
 
 
@@ -2283,14 +2285,14 @@ class _TIDLCallReplacer(PyExprMutator):
                 tir_gv = self._stub_gvars[name]
                 # call_tir expects a list of TensorStructInfo for multi-output;
                 # passing TupleStructInfo directly raises a type error.
-                if isinstance(output_sinfo, relax.TupleStructInfo):
+                if isinstance(output_sinfo, relax.TupleType):
                     out_sinfo_arg = list(output_sinfo.fields)
                 else:
                     out_sinfo_arg = output_sinfo
                 return relax.call_tir(
                     tir_gv,
                     relax.Tuple(list(call.args)),
-                    out_sinfo=out_sinfo_arg,  # pyright: ignore[reportArgumentType]
+                    out_ty=out_sinfo_arg,  # pyright: ignore[reportArgumentType]
                 )
             if name in self._fallback_gvars:
                 # Remap old GlobalVar → new GlobalVar in the builder.
@@ -2299,7 +2301,7 @@ class _TIDLCallReplacer(PyExprMutator):
                     new_gv,
                     call.args,
                     call.attrs,
-                    call.sinfo_args,
+                    call.ty_args,
                 )
         return call
 
@@ -2335,8 +2337,8 @@ def _lower_tidl_pass(
     for gv, func in _module_functions(mod).items():
         if isinstance(func, relax.Function) and func.attrs:
             if func.attrs.get("Codegen") == "tidl":
-                input_sinfos = [p.struct_info for p in func.params]
-                output_sinfo = func.ret_struct_info
+                input_sinfos = [p.ty for p in func.params]
+                output_sinfo = func.ret_ty
                 is_failed = gv.name_hint in failed_subgraphs
                 if is_failed:
                     fallback_funcs[gv.name_hint] = (gv, func)
@@ -2388,7 +2390,7 @@ def _lower_tidl_pass(
             new_func = cast(relax.Function, replacer.visit_expr(func))
             new_func = relax.analysis.remove_all_unused(new_func)
             builder.add_func(new_func, name)
-        elif isinstance(func, tvm.tir.PrimFunc):
+        elif isinstance(func, tvm.tirx.PrimFunc):
             builder.add_func(func, name)
 
     result = builder.finalize()
@@ -2397,7 +2399,7 @@ def _lower_tidl_pass(
     # Fallback functions have no global_symbol (private) and are called by
     # main via regular Relax Call nodes.  Without inlining, relax.build
     # would lower those calls through the packed API
-    # (tir.anylist_setitem_call_packed) which codegen_c_static_lib cannot emit.
+    # (tirx.anylist_setitem_call_packed) which codegen_c_static_lib cannot emit.
     # Inlining eliminates the cross-function calls entirely.
     if fallback_funcs:
         result = relax.transform.ToNonDataflow()(result)
@@ -2550,7 +2552,7 @@ def _build_calibration_module(
             for _key, arg in extra_args:
                 if isinstance(arg, relax.DataflowVar):
                     # DataflowVar → wrap in a regular Var so it can escape scope.
-                    ev = relax.Var(f"_calib_{len(exposure_vars)}", arg.struct_info)
+                    ev = relax.Var(f"_calib_{len(exposure_vars)}", arg.ty)
                     new_bindings.append(relax.VarBinding(ev, arg))
                     exposure_vars.append(ev)
                 else:
@@ -2563,8 +2565,8 @@ def _build_calibration_module(
     # Replace main's return with Tuple([original_ret, calib_var0, ...]).
     original_ret = main_func.body.body
     new_ret = relax.Tuple([original_ret] + exposure_vars)
-    new_ret_sinfo = relax.TupleStructInfo(
-        [main_func.ret_struct_info] + [v.struct_info for v in exposure_vars]
+    new_ret_sinfo = relax.TupleType(
+        [main_func.ret_ty] + [v.ty for v in exposure_vars]
     )
     new_body = relax.SeqExpr(new_blocks, new_ret)
     new_main = relax.Function(

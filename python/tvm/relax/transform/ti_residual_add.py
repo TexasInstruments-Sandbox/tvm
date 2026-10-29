@@ -41,8 +41,9 @@ import logging
 
 import numpy as np
 
+from .ti_const_utils import ti_tensor_const
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from .ti_mmalib_legalize import _call_extern_checked
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
@@ -232,11 +233,11 @@ def _check_dtype(ctx, expected_dtype: str) -> bool:
     skip = ctx.annotated_expr["skip"]
 
     for tensor in (x, skip):
-        if isinstance(tensor, relax.Constant):
-            if tensor.data.dtype != expected_dtype:
+        if isinstance(tensor, tvm.ir.GenericConst):
+            if tensor.value.dtype != expected_dtype:
                 return False
-        elif hasattr(tensor, "struct_info") and hasattr(tensor.struct_info, "dtype"):
-            if str(tensor.struct_info.dtype) != expected_dtype:
+        elif hasattr(tensor, "ty") and hasattr(tensor.ty, "dtype"):
+            if str(tensor.ty.dtype) != expected_dtype:
                 return False
         else:
             return False
@@ -244,7 +245,7 @@ def _check_dtype(ctx, expected_dtype: str) -> bool:
     # Scales and zero-points must be compile-time constants
     for name in ("x_scale", "skip_scale", "o_scale", "x_zp", "skip_zp", "o_zp"):
         val = ctx.annotated_expr[name]
-        if not isinstance(val, relax.Constant):
+        if not isinstance(val, tvm.ir.GenericConst):
             return False
 
     return True
@@ -269,8 +270,8 @@ def _check_residual_add_i16(ctx) -> bool:
     # Int16 activation quantization is symmetric only — all zp must be 0.
     for name in ("x_zp", "skip_zp", "o_zp"):
         zp = ctx.annotated_expr[name]
-        if isinstance(zp, relax.Constant):
-            if int(zp.data.numpy()) != 0:
+        if isinstance(zp, tvm.ir.GenericConst):
+            if int(zp.value.numpy()) != 0:
                 return False
         else:
             return False
@@ -396,24 +397,24 @@ class _ResidualAddLowerer(PyExprMutator):
                     zp_resolved = param_to_arg.get(zp_param, zp_param)
                     if x_arg is None:
                         x_arg = data_resolved
-                        x_scale_val = float(scale_resolved.data.numpy())
-                        x_zp_val = int(zp_resolved.data.numpy())
+                        x_scale_val = float(scale_resolved.value.numpy())
+                        x_zp_val = int(zp_resolved.value.numpy())
                     else:
                         skip_arg = data_resolved
-                        skip_scale_val = float(scale_resolved.data.numpy())
-                        skip_zp_val = int(zp_resolved.data.numpy())
+                        skip_scale_val = float(scale_resolved.value.numpy())
+                        skip_zp_val = int(zp_resolved.value.numpy())
                 elif "quantize" in op_name:
                     scale_param = val.args[1]
                     zp_param = val.args[2]
-                    o_scale_val = float(param_to_arg.get(scale_param, scale_param).data.numpy())
-                    o_zp_val = int(param_to_arg.get(zp_param, zp_param).data.numpy())
+                    o_scale_val = float(param_to_arg.get(scale_param, scale_param).value.numpy())
+                    o_zp_val = int(param_to_arg.get(zp_param, zp_param).value.numpy())
 
         if x_arg is None or skip_arg is None or o_scale_val is None:
             return super().visit_call_(call)
 
         # Get output shape from the quantize output struct_info
-        call_sinfo = call.struct_info
-        if isinstance(call_sinfo, relax.TensorStructInfo) and call_sinfo.shape:
+        call_sinfo = call.ty
+        if isinstance(call_sinfo, relax.TensorType) and call_sinfo.shape:
             output_shape = [int(s) for s in call_sinfo.shape]
         else:
             return super().visit_call_(call)
@@ -434,7 +435,7 @@ class _ResidualAddLowerer(PyExprMutator):
         params[12] = np.uint8(np.int8(x_zp_val).view(np.uint8))
         params[13] = np.uint8(np.int8(skip_zp_val).view(np.uint8))
         params[14] = np.uint8(np.int8(o_zp_val).view(np.uint8))
-        params_const = relax.Constant(params)
+        params_const = ti_tensor_const(params)
 
         has_relu_int = 1 if has_relu else 0
         n_elem = num_elements

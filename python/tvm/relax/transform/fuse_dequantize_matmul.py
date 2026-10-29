@@ -44,7 +44,7 @@ import logging
 import numpy as np
 
 import tvm
-from tvm import IRModule, relax, te, tir
+from tvm import IRModule, relax, te, tirx
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
@@ -63,26 +63,26 @@ def _check_pattern(ctx):
     """Validate guards common to both bias and no-bias patterns."""
     # w_int8 must be int8
     w = ctx.annotated_expr["w_int8"]
-    if isinstance(w, relax.Constant):
-        if w.data.dtype != "int8":
+    if isinstance(w, tvm.ir.GenericConst):
+        if w.value.dtype != "int8":
             return False
-    elif hasattr(w, "struct_info") and hasattr(w.struct_info, "dtype"):
-        if str(w.struct_info.dtype) != "int8":
+    elif hasattr(w, "ty") and hasattr(w.ty, "dtype"):
+        if str(w.ty.dtype) != "int8":
             return False
     else:
         return False
 
     # w_zp must be constant zero
     z = ctx.annotated_expr["w_zp"]
-    if isinstance(z, relax.Constant):
-        if not np.all(z.data.numpy() == 0):
+    if isinstance(z, tvm.ir.GenericConst):
+        if not np.all(z.value.numpy() == 0):
             return False
     else:
         return False
 
     # activation must NOT be constant
     a = ctx.annotated_expr["act"]
-    if isinstance(a, relax.Constant):
+    if isinstance(a, tvm.ir.GenericConst):
         return False
 
     # bias (if present) must be a Constant, NOT a dynamic computation.
@@ -95,14 +95,14 @@ def _check_pattern(ctx):
     # Constant (via BindParams) should be fused here.
     if "bias" in ctx.annotated_expr:
         b = ctx.annotated_expr["bias"]
-        if not isinstance(b, relax.Constant):
+        if not isinstance(b, tvm.ir.GenericConst):
             return False  # dynamic bias (e.g. residual add) - skip bias fusion
 
     # permute_dims must be a standard transpose of the last two dims
     perm = ctx.annotated_expr["w_perm"]
     if isinstance(perm, relax.Call):
         src = perm.args[0]
-        ndim = src.struct_info.ndim
+        ndim = src.ty.ndim
         if ndim < 2:
             return False
         if perm.attrs.axes is not None:
@@ -303,8 +303,8 @@ class _DequantizeMatmulFuser(PyExprMutator):
 
     def _rewrite_extern(self, call, act, w_int8, w_scale):
         """Emit call_extern to c7x_dequantize_vecmatmul for C7x."""
-        act_sinfo = act.struct_info
-        w_sinfo = w_int8.struct_info
+        act_sinfo = act.ty
+        w_sinfo = w_int8.ty
 
         act_shape = [int(act_sinfo.shape[i]) for i in range(act_sinfo.ndim)]
         K = act_shape[-1]
@@ -322,13 +322,13 @@ class _DequantizeMatmulFuser(PyExprMutator):
         # The kernel reads scale[n] for n in 0..N-1, so it requires a
         # per-channel vector.  PT2E per-tensor quantization produces a
         # scalar scale — broadcast it to shape [N] before passing.
-        scale_sinfo = w_scale.struct_info
+        scale_sinfo = w_scale.ty
         if scale_sinfo.ndim == 0:
             w_scale = self.builder_.emit(relax.op.broadcast_to(w_scale, relax.ShapeExpr([N])))
 
         def te_vecmatmul(act_t, w_t, scale_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_dequantize_vecmatmul",
                     ins[0].data,

@@ -70,7 +70,7 @@ Kernel: src/runtime/ti_dsp/kernels/c7x_quantize.cpp (c7x_int8_quantize_rgb)
 import logging
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, is_tuple, wildcard
@@ -130,7 +130,7 @@ def _check_input_normalize(ctx) -> bool:
     if not is_raw_float32_input(x):
         return False
 
-    x_shape = getattr(x.struct_info, "shape", None)
+    x_shape = getattr(x.ty, "shape", None)
     if x_shape is None:
         return False
     x_shape = static_shape_or_none(x_shape)
@@ -139,7 +139,7 @@ def _check_input_normalize(ctx) -> bool:
 
     o_scale = ctx.annotated_expr["o_scale"]
     o_zp = ctx.annotated_expr["o_zp"]
-    if not is_per_tensor_scalar_constant(o_scale) or not isinstance(o_zp, relax.Constant):
+    if not is_per_tensor_scalar_constant(o_scale) or not isinstance(o_zp, tvm.ir.GenericConst):
         return False
 
     # The lowerer always emits the int8-only c7x_int8_quantize_rgb kernel, so
@@ -201,9 +201,9 @@ class _InputNormalizeLowerer(PyExprMutator):
                 if val.attrs is None or int(val.attrs.axis) != 1:
                     continue
                 idx_arg = param_to_arg.get(val.args[1], val.args[1])
-                if not isinstance(idx_arg, relax.Constant):
+                if not isinstance(idx_arg, tvm.ir.GenericConst):
                     continue
-                channel = int(idx_arg.data.numpy())
+                channel = int(idx_arg.value.numpy())
                 var_channel[var] = channel
                 x_param = val.args[0]
                 x_arg = param_to_arg.get(x_param, x_param)
@@ -214,23 +214,23 @@ class _InputNormalizeLowerer(PyExprMutator):
             elif op_name == "relax.multiply":
                 src = val.args[0]
                 other = param_to_arg.get(val.args[1], val.args[1])
-                if src in var_channel and isinstance(other, relax.Constant):
+                if src in var_channel and isinstance(other, tvm.ir.GenericConst):
                     channel = var_channel[src]
                     var_channel[var] = channel
-                    scale_by_channel[channel] = float(other.data.numpy())
+                    scale_by_channel[channel] = float(other.value.numpy())
             elif op_name == "relax.add":
                 # add's result feeds concat directly (not scanned further),
                 # so no need to propagate var_channel past this point.
                 src = val.args[0]
                 other = param_to_arg.get(val.args[1], val.args[1])
-                if src in var_channel and isinstance(other, relax.Constant):
-                    offset_by_channel[var_channel[src]] = float(other.data.numpy())
+                if src in var_channel and isinstance(other, tvm.ir.GenericConst):
+                    offset_by_channel[var_channel[src]] = float(other.value.numpy())
             elif op_name == "relax.quantize":
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                if isinstance(s, relax.Constant) and isinstance(z, relax.Constant):
-                    o_scale_val = float(s.data.numpy())
-                    o_zp_val = int(z.data.numpy())
+                if isinstance(s, tvm.ir.GenericConst) and isinstance(z, tvm.ir.GenericConst):
+                    o_scale_val = float(s.value.numpy())
+                    o_zp_val = int(z.value.numpy())
 
         expected_channels = set(range(_NUM_CHANNELS))
         if (
@@ -242,8 +242,8 @@ class _InputNormalizeLowerer(PyExprMutator):
         ):
             return super().visit_call_(call)
 
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return super().visit_call_(call)
         out_shape = static_shape_or_none(call_sinfo.shape)
         if out_shape is None or len(out_shape) != 4 or out_shape[1] != _NUM_CHANNELS:
@@ -262,19 +262,19 @@ class _InputNormalizeLowerer(PyExprMutator):
 
         def te_input_normalize_quantize(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_int8_quantize_rgb",
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", _N),
-                    tir.IntImm("int32", _HW),
-                    tir.FloatImm("float32", _is0),
-                    tir.FloatImm("float32", _off0),
-                    tir.FloatImm("float32", _is1),
-                    tir.FloatImm("float32", _off1),
-                    tir.FloatImm("float32", _is2),
-                    tir.FloatImm("float32", _off2),
+                    tirx.IntImm("int32", _N),
+                    tirx.IntImm("int32", _HW),
+                    tirx.FloatImm("float32", _is0),
+                    tirx.FloatImm("float32", _off0),
+                    tirx.FloatImm("float32", _is1),
+                    tirx.FloatImm("float32", _off1),
+                    tirx.FloatImm("float32", _is2),
+                    tirx.FloatImm("float32", _off2),
                 )
 
             return te.extern(

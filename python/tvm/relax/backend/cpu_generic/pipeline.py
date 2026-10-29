@@ -77,8 +77,18 @@ class _ConvertLayoutNHWC:
         return mod
 
 
-def library_dispatch_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
-    """The default library dispatch passes for CPU backend."""
+def library_dispatch_passes(target: tvm.target.Target):
+    """The default library dispatch passes for CPU backend.
+
+    Not run for C7x targets. DispatchSortScan rewrites ``relax.topk`` into a call to the
+    ``tvm.contrib.sort.topk`` packed function, which a standalone c_static_lib executable
+    cannot resolve, and which hides the op from ``c7x_topk_legalize`` (it only sees
+    ``relax.topk``). The generated C then fails to compile (``TVMBackendGetFuncFromGlobalRegistry``
+    undeclared in the kernel file, a misplaced ``tvm_stack_alloca``). DispatchSampling is skipped
+    for the same reason: its library kernels are packed calls too.
+    """
+    if _is_c7x_target(target):
+        return []
     return [
         relax.backend.DispatchSampling(),
         relax.backend.DispatchSortScan(),

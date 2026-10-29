@@ -44,7 +44,7 @@ and the pass itself use the `c7x_`/`C7x` prefix rather than `tidl_`.
 import logging
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
@@ -104,17 +104,17 @@ _COMPOSITE_NAMES = frozenset(name for name, _ in _PATTERN_REGISTRY)
 def _check_pool(ctx) -> bool:
     """Require int8 input and compile-time quantization constants."""
     x = ctx.annotated_expr["x"]
-    if isinstance(x, relax.Constant):
-        if x.data.dtype != "int8":
+    if isinstance(x, tvm.ir.GenericConst):
+        if x.value.dtype != "int8":
             return False
-    elif hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        if str(x.struct_info.dtype) != "int8":
+    elif hasattr(x, "ty") and hasattr(x.ty, "dtype"):
+        if str(x.ty.dtype) != "int8":
             return False
     else:
         return False
 
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
     return True
 
@@ -168,29 +168,29 @@ class _AvgPoolLowerer(PyExprMutator):
                 x_arg = param_to_arg.get(x_param, x_param)
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                d_scale_val = float(s.data.numpy())
-                d_zp_val = int(z.data.numpy())
+                d_scale_val = float(s.value.numpy())
+                d_zp_val = int(z.value.numpy())
                 # Resolve the input shape from the dequant output struct_info
-                if hasattr(binding.var, "struct_info"):
-                    x_sinfo = binding.var.struct_info
+                if hasattr(binding.var, "ty"):
+                    x_sinfo = binding.var.ty
             elif "quantize" in op_name and x_arg is not None:
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                o_scale_val = float(s.data.numpy())
-                o_zp_val = int(z.data.numpy())
+                o_scale_val = float(s.value.numpy())
+                o_zp_val = int(z.value.numpy())
             elif any(k in op_name for k in ("avg_pool", "mean")):
                 pool_call = val
 
         if x_arg is None or o_scale_val is None or pool_call is None:
             return super().visit_call_(call)
 
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return super().visit_call_(call)
         out_shape = [int(s) for s in call_sinfo.shape]
 
         # Decode input shape (NCHW)
-        if x_sinfo is None or not isinstance(x_sinfo, relax.TensorStructInfo) or not x_sinfo.shape:
+        if x_sinfo is None or not isinstance(x_sinfo, relax.TensorType) or not x_sinfo.shape:
             return super().visit_call_(call)
         in_shape = [int(s) for s in x_sinfo.shape]
         if len(in_shape) != 4 or len(out_shape) != 4:
@@ -240,19 +240,19 @@ class _AvgPoolLowerer(PyExprMutator):
     def _lower_global(self, x_arg, out_shape, N, C, H, W, d_zp, d_scale, o_zp, o_scale):
         def te_global_avg_pool(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_int8_global_avg_pool",
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", N),
-                    tir.IntImm("int32", C),
-                    tir.IntImm("int32", H),
-                    tir.IntImm("int32", W),
-                    tir.IntImm("int32", d_zp),
-                    tir.FloatImm("float32", d_scale),
-                    tir.IntImm("int32", o_zp),
-                    tir.FloatImm("float32", o_scale),
+                    tirx.IntImm("int32", N),
+                    tirx.IntImm("int32", C),
+                    tirx.IntImm("int32", H),
+                    tirx.IntImm("int32", W),
+                    tirx.IntImm("int32", d_zp),
+                    tirx.FloatImm("float32", d_scale),
+                    tirx.IntImm("int32", o_zp),
+                    tirx.FloatImm("float32", o_scale),
                 )
 
             return te.extern(
@@ -307,27 +307,27 @@ class _AvgPoolLowerer(PyExprMutator):
 
         def te_avg_pool(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_int8_avg_pool",
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", N),
-                    tir.IntImm("int32", C),
-                    tir.IntImm("int32", H_in),
-                    tir.IntImm("int32", W_in),
-                    tir.IntImm("int32", H_out),
-                    tir.IntImm("int32", W_out),
-                    tir.IntImm("int32", kH_v),
-                    tir.IntImm("int32", kW_v),
-                    tir.IntImm("int32", sH_v),
-                    tir.IntImm("int32", sW_v),
-                    tir.IntImm("int32", pH_v),
-                    tir.IntImm("int32", pW_v),
-                    tir.IntImm("int32", d_zp),
-                    tir.FloatImm("float32", d_scale),
-                    tir.IntImm("int32", o_zp),
-                    tir.FloatImm("float32", o_scale),
+                    tirx.IntImm("int32", N),
+                    tirx.IntImm("int32", C),
+                    tirx.IntImm("int32", H_in),
+                    tirx.IntImm("int32", W_in),
+                    tirx.IntImm("int32", H_out),
+                    tirx.IntImm("int32", W_out),
+                    tirx.IntImm("int32", kH_v),
+                    tirx.IntImm("int32", kW_v),
+                    tirx.IntImm("int32", sH_v),
+                    tirx.IntImm("int32", sW_v),
+                    tirx.IntImm("int32", pH_v),
+                    tirx.IntImm("int32", pW_v),
+                    tirx.IntImm("int32", d_zp),
+                    tirx.FloatImm("float32", d_scale),
+                    tirx.IntImm("int32", o_zp),
+                    tirx.FloatImm("float32", o_scale),
                 )
 
             return te.extern(

@@ -24,19 +24,20 @@ call, so the MMA coprocessor operates from fast scratchpad memory.
 
 The pass runs after StorageRewrite and before LowerL2SramAlloc in the
 C7x TIR pipeline.  It emits:
-  - Allocate(scope="global.l2sram") for L2 buffers
+  - AllocBuffer(scope="global.l2sram") for L2 buffers
   - call_extern("tvm_dsp_dma_copy") for async DMA transfers
   - call_extern("tvm_dsp_dma_wait") to block until complete
   - Modified MMALIB call_extern with L2 buffer pointers
 
-LowerL2SramAlloc converts the Allocate to tvm_l2_alloc at runtime.
+LowerL2SramAlloc converts the AllocBuffer statements to tvm_l2_alloc at runtime.
 """
 
 import logging
 
+import tvm_ffi
+
 import tvm
-from tvm import tir
-from tvm.ir import PointerType, PrimType
+from tvm import tirx
 
 from .ti_mmalib_constants import MMA_SIZE_I8
 from .ti_mmalib_legalize import _call_extern_checked
@@ -65,8 +66,8 @@ def _find_mmalib_call(body):
     """Find a call_extern to an MMALIB function in the statement tree.
 
     Matches both a bare ``Evaluate(call_extern(...))`` and the status-checked
-    form emitted by ``_call_extern_checked`` (``LetStmt(status, Cast(...,
-    call_extern(...)), IfThenElse(...))``) -- MMALIB legalization wraps its
+    form emitted by ``_call_extern_checked`` (``Bind(status, Cast(...,
+    call_extern(...)))`` followed by an ``IfThenElse``) -- MMALIB legalization wraps its
     calls in the latter to report kernel failures instead of discarding the
     status, so a matcher that only recognized the bare form would silently
     stop finding any MMALIB call to inject DMA for.
@@ -80,30 +81,30 @@ def _find_mmalib_call(body):
     call_node = None
     extern_name = None
     checked = False
-    op_call_extern = tvm.ir.Op.get("tir.call_extern")
+    op_call_extern = tvm.ir.Op.get("tirx.call_extern")
 
     def _visit(node):
         nonlocal call_node, extern_name, checked
         if call_node is not None:
             return
-        if isinstance(node, tir.Evaluate):
+        if isinstance(node, tirx.Evaluate):
             call = node.value
-        elif isinstance(node, tir.LetStmt):
-            call = node.value.value if isinstance(node.value, tir.Cast) else node.value
+        elif isinstance(node, tirx.Bind):
+            call = node.value.value if isinstance(node.value, tirx.Cast) else node.value
         else:
             return
         if (
-            isinstance(call, tir.Call)
+            isinstance(call, tvm.ir.Call)
             and call.op.same_as(op_call_extern)
             and len(call.args) > 0
-            and isinstance(call.args[0], tir.StringImm)
+            and isinstance(call.args[0], tvm.ir.StringImm)
             and call.args[0].value in _SUPPORTED
         ):
             call_node = call
             extern_name = call.args[0].value
-            checked = isinstance(node, tir.LetStmt)
+            checked = isinstance(node, tirx.Bind)
 
-    tir.stmt_functor.post_order_visit(body, _visit)
+    tvm_ffi.structural_walk(body, [(tirx.Evaluate, _visit), (tirx.Bind, _visit)], order="post")
     return call_node, extern_name, checked
 
 
@@ -279,6 +280,22 @@ def _extract_dims_fc_i16(call_args):
     }
 
 
+def _l2_buffer(name, nbytes):
+    """Create an int8 ``global.l2sram`` buffer variable of ``nbytes`` bytes."""
+    return tirx.decl_buffer([int(nbytes)], "int8", name=name, scope="global.l2sram")
+
+
+def _with_l2_allocs(allocs, body):
+    """Prepend ``AllocBuffer`` statements for ``allocs`` (in order) to ``body``.
+
+    AllocBuffer has no body: the buffer is in scope for the statements that
+    follow it in the enclosing SeqStmt.  LowerL2SramAlloc collects the leading
+    run of ``global.l2sram`` AllocBuffer statements of the function body, so
+    the allocations must come first and in this order (guard outermost).
+    """
+    return tirx.SeqStmt([*(tirx.AllocBuffer(buf) for buf in allocs), body])
+
+
 def _inject_dma(func, l2_budget):
     """Transform a MMALIB PrimFunc to prefetch data into L2 via DMA."""
     call_node, extern_name, checked = _find_mmalib_call(func.body)
@@ -350,9 +367,9 @@ def _inject_dma(func, l2_budget):
                 oc_tile = min(raw_tile, c_out)
                 weight_tile_bytes = oc_tile * weight_per_oc
 
-    queue_id = tir.const(0, "int32")
-    bypass = tir.const(0, "int32")
-    zero_inflight = tir.const(0, "int32")
+    queue_id = tirx.const(0, "int32")
+    bypass = tirx.const(0, "int32")
+    zero_inflight = tirx.const(0, "int32")
     stmts = []
 
     # Guard: prevents SE backward prefetch from underflowing L2 start.
@@ -366,11 +383,11 @@ def _inject_dma(func, l2_budget):
         # against symbolic values (e.g. from dynamic-padding graphs) that
         # have no .value attribute — fall back to the safe 128-byte default.
         arg15 = call_node.args[15]
-        pad_top = int(arg15.value) if isinstance(arg15, tir.IntImm) else 0
+        pad_top = int(arg15.value) if isinstance(arg15, tirx.IntImm) else 0
     else:
         pad_top = 0
     guard_bytes = pad_top * w_in * elem_bytes if pad_top > 0 else 128
-    l2_guard_var = tir.Var("l2_guard", PointerType(PrimType("int8"), "global.l2sram"))
+    l2_guard_var = _l2_buffer("l2_guard", guard_bytes)
 
     l2_vars = {}  # arg_idx -> (l2_var, nbytes)
 
@@ -379,49 +396,49 @@ def _inject_dma(func, l2_budget):
     # tile per iteration and calling mmalib_conv2d_i8_sliced.
     # -------------------------------------------------------------------------
     if oc_tile is not None:
-        l2_input_var = tir.Var("l2_input", PointerType(PrimType("int8"), "global.l2sram"))
-        l2_weight_var = tir.Var("l2_weight_tile", PointerType(PrimType("int8"), "global.l2sram"))
+        l2_input_var = _l2_buffer("l2_input", input_bytes)
+        l2_weight_var = _l2_buffer("l2_weight_tile", weight_tile_bytes)
 
         # DMA full input once (stays in L2 for all OC tiles)
         stmts.append(
-            tir.Evaluate(
-                tir.call_extern(
+            tirx.Evaluate(
+                tirx.call_extern(
                     "int32",
                     "tvm_dsp_dma_copy",
                     queue_id,
-                    l2_input_var,
+                    tirx.buffer_data(l2_input_var),
                     call_node.args[dims["input_arg_idx"]],
-                    tir.const(input_bytes, "int32"),
+                    tirx.const(input_bytes, "int32"),
                     bypass,
                 )
             )
         )
         stmts.append(
-            tir.Evaluate(tir.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight))
+            tirx.Evaluate(tirx.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight))
         )
 
         # Build For loop: one weight-tile DMA + sliced call per iteration
-        oc_idx = tir.Var("oc_chunk", "int32")
+        oc_idx = tirx.Var("oc_chunk", "int32")
         n_tiles = (c_out + oc_tile - 1) // oc_tile
-        oc_start = tir.Mul(oc_idx, tir.const(oc_tile, "int32"))
-        tile_c_out = tir.Min(
-            tir.const(oc_tile, "int32"), tir.Sub(tir.const(c_out, "int32"), oc_start)
+        oc_start = tirx.Mul(oc_idx, tirx.const(oc_tile, "int32"))
+        tile_c_out = tirx.Min(
+            tirx.const(oc_tile, "int32"), tirx.Sub(tirx.const(c_out, "int32"), oc_start)
         )
-        actual_dma = tir.Mul(tile_c_out, tir.const(c_in * kh * kw * elem_bytes, "int32"))
+        actual_dma = tirx.Mul(tile_c_out, tirx.const(c_in * kh * kw * elem_bytes, "int32"))
 
         # weight DDR pointer + oc_idx * weight_tile_bytes via tvm_ptr_add
         # (direct handle arithmetic is not valid in TVM TIR; use a C helper).
         wt_base = call_node.args[dims["weight_arg_idx"]]
-        wt_byte_off = tir.Mul(oc_idx, tir.const(weight_tile_bytes, "int32"))
-        wt_tile_src = tir.call_extern("handle", "tvm_ptr_add", wt_base, wt_byte_off)
+        wt_byte_off = tirx.Mul(oc_idx, tirx.const(weight_tile_bytes, "int32"))
+        wt_tile_src = tirx.call_extern("handle", "tvm_ptr_add", wt_base, wt_byte_off)
 
         # mmalib_conv2d_i8_sliced args: matches mmalib_conv2d_i8 minus C_out,
         # plus oc_start at the end.  Bias/scale/shift/output stay as DDR ptrs;
         # the wrapper advances them by oc_start internally.
         sliced_args = [
-            tir.StringImm("mmalib_conv2d_i8_sliced"),
-            l2_input_var,  # input  (L2)
-            l2_weight_var,  # kernel (L2 tile)
+            tvm.ir.StringImm("mmalib_conv2d_i8_sliced"),
+            tirx.buffer_data(l2_input_var),  # input  (L2)
+            tirx.buffer_data(l2_weight_var),  # kernel (L2 tile)
             call_node.args[3],  # bias   (DDR full)
             call_node.args[4],  # scale  (DDR full)
             call_node.args[5],  # shift  (DDR full)
@@ -440,39 +457,27 @@ def _inject_dma(func, l2_budget):
             call_node.args[18],  # pad_right
             oc_start,  # oc_start
         ]
-        tile_body = tir.SeqStmt(
+        tile_body = tirx.SeqStmt(
             [
-                tir.Evaluate(
-                    tir.call_extern(
+                tirx.Evaluate(
+                    tirx.call_extern(
                         "int32",
                         "tvm_dsp_dma_copy",
                         queue_id,
-                        l2_weight_var,
+                        tirx.buffer_data(l2_weight_var),
                         wt_tile_src,
                         actual_dma,
                         bypass,
                     )
                 ),
-                tir.Evaluate(tir.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)),
-                tir.Evaluate(tir.Call(call_node.dtype, call_node.op, sliced_args)),
+                tirx.Evaluate(tirx.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)),
+                tirx.Evaluate(tvm.ir.Call(call_node.op, sliced_args, ret_ty=call_node.ty)),
             ]
         )
-        stmts.append(tir.For(oc_idx, 0, n_tiles, tir.ForKind.SERIAL, tile_body))
+        stmts.append(tirx.For(oc_idx, 0, n_tiles, tirx.ForKind.SERIAL, tile_body))
 
-        body = tir.SeqStmt(stmts)
-        body = tir.Allocate(
-            l2_weight_var,
-            "int8",
-            [tir.const(weight_tile_bytes, "int64")],
-            tir.const(1, "bool"),
-            body,
-        )
-        body = tir.Allocate(
-            l2_input_var, "int8", [tir.const(input_bytes, "int64")], tir.const(1, "bool"), body
-        )
-        body = tir.Allocate(
-            l2_guard_var, "int8", [tir.const(guard_bytes, "int64")], tir.const(1, "bool"), body
-        )
+        # Guard outermost (first), then input, then the weight tile.
+        body = _with_l2_allocs([l2_guard_var, l2_input_var, l2_weight_var], tirx.SeqStmt(stmts))
         logger.info(
             "InjectMMALIBDMA OC-tiled: %s [input=%dKB, oc_tile=%d, n_tiles=%d, weight_tile=%dKB]",
             extern_name,
@@ -484,70 +489,56 @@ def _inject_dma(func, l2_budget):
         return func.with_body(body)
     # -------------------------------------------------------------------------
 
-    l2_input_var = tir.Var("l2_input", PointerType(PrimType("int8"), "global.l2sram"))
+    l2_input_var = _l2_buffer("l2_input", input_bytes)
     l2_vars[dims["input_arg_idx"]] = (l2_input_var, input_bytes)
-    dma_copy = tir.call_extern(
+    dma_copy = tirx.call_extern(
         "int32",
         "tvm_dsp_dma_copy",
         queue_id,
         l2_input_var,
         call_node.args[dims["input_arg_idx"]],
-        tir.const(input_bytes, "int32"),
+        tirx.const(input_bytes, "int32"),
         bypass,
     )
-    stmts.append(tir.Evaluate(dma_copy))
+    stmts.append(tirx.Evaluate(dma_copy))
 
     if cache_weight:
-        l2_weight_var = tir.Var("l2_weight", PointerType(PrimType("int8"), "global.l2sram"))
+        l2_weight_var = _l2_buffer("l2_weight", weight_bytes)
         l2_vars[dims["weight_arg_idx"]] = (l2_weight_var, weight_bytes)
-        dma_copy = tir.call_extern(
+        dma_copy = tirx.call_extern(
             "int32",
             "tvm_dsp_dma_copy",
             queue_id,
-            l2_weight_var,
+            tirx.buffer_data(l2_weight_var),
             call_node.args[dims["weight_arg_idx"]],
-            tir.const(weight_bytes, "int32"),
+            tirx.const(weight_bytes, "int32"),
             bypass,
         )
-        stmts.append(tir.Evaluate(dma_copy))
+        stmts.append(tirx.Evaluate(dma_copy))
 
     # Wait for all DMAs to complete
-    dma_wait = tir.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)
-    stmts.append(tir.Evaluate(dma_wait))
+    dma_wait = tirx.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)
+    stmts.append(tirx.Evaluate(dma_wait))
 
     # Modified MMALIB call with L2 pointers. Preserve the status-check
     # wrapper (_call_extern_checked) if the original call had one, or its
     # error reporting is silently lost.
     new_args = list(call_node.args)
     for arg_idx, (l2_var, _) in l2_vars.items():
-        new_args[arg_idx] = l2_var
+        new_args[arg_idx] = tirx.buffer_data(l2_var)
     if checked:
-        stmts.append(_call_extern_checked(call_node.dtype, extern_name, *new_args[1:]))
+        stmts.append(_call_extern_checked(call_node.ty, extern_name, *new_args[1:]))
     else:
-        stmts.append(tir.Evaluate(tir.Call(call_node.dtype, call_node.op, new_args)))
+        stmts.append(tirx.Evaluate(tvm.ir.Call(call_node.op, new_args, ret_ty=call_node.ty)))
 
-    # Build body: SeqStmt wrapped in Allocate nodes
-    body = tir.SeqStmt(stmts)
-
-    # Wrap with Allocate (innermost last, guard outermost)
-    for arg_idx in sorted(l2_vars.keys(), reverse=True):
-        l2_var, nbytes = l2_vars[arg_idx]
-        body = tir.Allocate(
-            l2_var,
-            "int8",
-            [tir.const(nbytes, "int64")],
-            tir.const(1, "bool"),
-            body,
-        )
-    # Guard allocation outermost — bumps L2 pointer past the danger zone
-    # so the input buffer doesn't start at the very beginning of L2.
-    body = tir.Allocate(
-        l2_guard_var,
-        "int8",
-        [tir.const(guard_bytes, "int64")],
-        tir.const(1, "bool"),
-        body,
-    )
+    # Build body: the L2 allocations first, then the DMA + call sequence.
+    # The guard allocation comes first -- it bumps the L2 pointer past the danger
+    # zone so the input buffer doesn't start at the very beginning of L2.  The
+    # remaining buffers follow in ascending argument-index order.  This is the same
+    # allocation order the bump allocator saw with the old nested Allocate chain,
+    # which was wrapped from the highest index outward (lowest index outermost).
+    ordered = [l2_vars[i][0] for i in sorted(l2_vars.keys())]
+    body = _with_l2_allocs([l2_guard_var, *ordered], tirx.SeqStmt(stmts))
 
     cached = [f"input={input_bytes // 1024}KB"]
     if cache_weight:
@@ -574,7 +565,7 @@ def InjectMMALIBDMA(l2_budget=393216):
     fpass : tvm.transform.Pass
     """
 
-    @tvm.tir.transform.prim_func_pass(opt_level=0, name="InjectMMALIBDMA")
+    @tvm.tirx.transform.prim_func_pass(opt_level=0, name="InjectMMALIBDMA")
     def _pass(func, mod, ctx):  # noqa: ARG001
         return _inject_dma(func, l2_budget)
 

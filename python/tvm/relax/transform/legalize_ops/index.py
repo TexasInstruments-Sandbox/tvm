@@ -68,9 +68,9 @@ def _strided_slice(bb: BlockBuilder, call: Call) -> Expr:
     end = _relax_tuple_to_tir(end)
 
     # Normalize negative axes (e.g. -1 -> ndim-1) before passing to TOPI
-    ndim = data.struct_info.ndim
+    ndim = data.ty.ndim
     if ndim >= 0:
-        axes = [tir.IntImm(a.dtype, a.value % ndim) if isinstance(a, tir.IntImm) and a.value < 0 else a for a in axes]
+        axes = [tirx.IntImm(a.dtype, a.value % ndim) if isinstance(a, tirx.IntImm) and a.value < 0 else a for a in axes]
 
     return bb.call_te(
         topi.strided_slice,

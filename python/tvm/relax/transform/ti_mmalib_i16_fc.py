@@ -56,8 +56,9 @@ import math
 
 import numpy as np
 
+from .ti_const_utils import ti_tensor_const
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from .ti_mmalib_legalize import _call_extern_checked
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
@@ -168,13 +169,13 @@ class _MMALIBInt16FCMutator(PyExprMutator):
         # Extract weight constant and scale from dequantize
         w_const = dequant_call.args[0]
         w_scale_expr = dequant_call.args[1]
-        if not isinstance(w_const, relax.Constant):
+        if not isinstance(w_const, tvm.ir.GenericConst):
             return None
-        if not isinstance(w_scale_expr, relax.Constant):
+        if not isinstance(w_scale_expr, tvm.ir.GenericConst):
             return None
 
-        w_np = w_const.data.numpy()  # [N, K] int8
-        w_scale_np = w_scale_expr.data.numpy().flatten()  # [N]
+        w_np = w_const.value.numpy()  # [N, K] int8
+        w_scale_np = w_scale_expr.value.numpy().flatten()  # [N]
 
         # Check weight is 2D
         if len(w_np.shape) != 2:
@@ -182,7 +183,7 @@ class _MMALIBInt16FCMutator(PyExprMutator):
         N, K = w_np.shape
 
         # Check dimension alignment for int16 MMALIB (32-element vectors)
-        act_sinfo = activation.struct_info
+        act_sinfo = activation.ty
         if act_sinfo is None or act_sinfo.shape is None:
             return None
         act_shape = [int(s) for s in act_sinfo.shape]
@@ -260,10 +261,10 @@ class _MMALIBInt16FCMutator(PyExprMutator):
             self.builder_.call_te(
                 te_mmalib_bias_i16,
                 x_i16,
-                relax.Constant(np.ascontiguousarray(w_i16_NK)),
-                relax.Constant(bias_i64),
-                relax.Constant(scale_i8),
-                relax.Constant(shift_per_ch),
+                ti_tensor_const(np.ascontiguousarray(w_i16_NK)),
+                ti_tensor_const(bias_i64),
+                ti_tensor_const(scale_i8),
+                ti_tensor_const(shift_per_ch),
                 primfunc_name_hint="mmalib_i16_fc",
                 primfunc_attrs={"c7x_offload_backend": "mmalib"},
             ),
@@ -276,7 +277,7 @@ class _MMALIBInt16FCMutator(PyExprMutator):
         pow2_shift = np.power(2.0, shift_per_ch.astype(np.float64))
         static_dequant = (pow2_shift * w_scale_np).astype(np.float32)
         out_float = self.builder_.emit(
-            relax.op.multiply(out_float, relax.Constant(static_dequant.reshape(1, N)))
+            relax.op.multiply(out_float, ti_tensor_const(static_dequant.reshape(1, N)))
         )
         # Dynamic part: x_scale (scalar, computed at runtime)
         out_float = self.builder_.emit(relax.op.multiply(out_float, x_scale))

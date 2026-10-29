@@ -556,7 +556,7 @@ class Inverse(OnnxOpConverter):
         data = inputs[0]
 
         # Get shape info
-        data_shape = data.struct_info.shape
+        data_shape = data.ty.shape
         if not data_shape:
             raise ValueError("Inverse: Cannot infer input shape")
 
@@ -647,8 +647,8 @@ class QLinearMatMul(OnnxOpConverter):
     def _impl_v10(cls, bb, inputs, attr, params):
         a, a_scale, a_zp, b, b_scale, b_zp, y_scale, y_zp = inputs
 
-        a_dtype = a.struct_info.dtype
-        b_dtype = b.struct_info.dtype
+        a_dtype = a.ty.dtype
+        b_dtype = b.ty.dtype
 
         assert a_dtype in ["int8", "uint8"], f"QLinearMatMul: a dtype must be int8/uint8, got {a_dtype}"
         assert b_dtype in ["int8", "uint8"], f"QLinearMatMul: b dtype must be int8/uint8, got {b_dtype}"
@@ -678,7 +678,7 @@ class QLinearMatMul(OnnxOpConverter):
         combined_scale = relax.op.multiply(a_scale_f32, b_scale_f32)
         result_scaled = relax.op.multiply(matmul_result_f32, combined_scale)
 
-        y_dtype = y_zp.struct_info.dtype
+        y_dtype = y_zp.ty.dtype
 
         # Requantize using relax.op.quantize: divides by y_scale, rounds to nearest
         # ties-to-even per ONNX spec, adds y_zp, and clamps to y_dtype range.
@@ -728,10 +728,10 @@ class QLinearConv(OnnxOpConverter):
         y_zero_point = get_constant(inputs[7], params)
 
         # Get shape info
-        data_shape = data.struct_info.shape
-        weight_shape = weight.struct_info.shape
-        if hasattr(data.struct_info, "ndim"):
-            ndim = data.struct_info.ndim
+        data_shape = data.ty.shape
+        weight_shape = weight.ty.shape
+        if hasattr(data.ty, "ndim"):
+            ndim = data.ty.ndim
         else:
             ndim = len(data_shape)
 
@@ -819,13 +819,13 @@ class QLinearConv(OnnxOpConverter):
             bias = inputs[8]
             # Reshape bias from [channels] to [1, channels, 1, ...] for proper broadcasting
             # This allows bias to broadcast across batch and spatial dimensions
-            bias_shape = [1, bias.struct_info.shape[0]] + [1] * (ndim - 2)
+            bias_shape = [1, bias.ty.shape[0]] + [1] * (ndim - 2)
             bias_reshaped = relax.op.reshape(bias, bias_shape)
             conv_out = relax.op.add(conv_out, bias_reshaped)
             conv_out = bb.normalize(conv_out)
 
         # Determine output dtype from y_zero_point
-        out_dtype = y_zero_point.struct_info.dtype
+        out_dtype = y_zero_point.ty.dtype
 
         # Convert convolution output to float32
         conv_out_f32 = relax.op.astype(conv_out, "float32")
@@ -1674,113 +1674,6 @@ class CastLike(OnnxOpConverter):
 
     @classmethod
     def _impl_v15(cls, bb, inputs, attr, params):
-        to_cast = inputs[0]
-        like_tensor = inputs[1]
-
-        target_dtype = like_tensor.struct_info.dtype
-        if isinstance(to_cast, relax.ShapeExpr):
-            shape = to_cast
-            if all([isinstance(x, tir.IntImm) for x in shape]):
-                shape = [int(x) for x in shape]
-                return relax.const(shape, target_dtype)
-        if isinstance(to_cast, relax.Constant):
-            output = to_cast.data.numpy().astype(str(target_dtype))
-            return relax.const(output, target_dtype)
-        if isinstance(to_cast, relax.PrimValue):
-            return relax.PrimValue(to_cast.value.astype(str(target_dtype)))
-        return relax.op.astype(to_cast, target_dtype)
-    
-    @classmethod
-    def _impl_v19(cls, bb, inputs, attr, params):
-        """CastLike v19: adds 'saturate' attribute for float8 conversion control.
-
-        The saturate parameter (default=1) controls overflow behavior for float8 types:
-        - saturate=1: Infinities and out-of-range values are clamped to FLT_MAX/-FLT_MAX
-        - saturate=0: Infinities and out-of-range values become NaN
-        """
-        to_cast = inputs[0]
-        like_tensor = inputs[1]
-        saturate = attr.get("saturate", 1)
-
-        target_dtype = like_tensor.struct_info.dtype
-        target_dtype_str = str(target_dtype)
-
-        if isinstance(to_cast, relax.ShapeExpr):
-            shape = to_cast
-            if all([isinstance(x, tir.IntImm) for x in shape]):
-                shape = [int(x) for x in shape]
-                return relax.const(shape, target_dtype)
-
-        if isinstance(to_cast, relax.Constant):
-            output = to_cast.data.numpy().astype(target_dtype_str)
-
-            # Apply saturate=False rules for float8 types on constant data
-            # Note: TVM uses "float8_e5m2" format (with underscore), normalize it
-            normalized_dtype = target_dtype_str.replace("_", "")
-
-            if not saturate and normalized_dtype in {
-                "float8e4m3fn", "float8e4m3fnuz", "float8e5m2", "float8e5m2fnuz"
-            }:
-                output = cls._apply_float8_no_saturate(output, normalized_dtype)
-
-            return relax.const(output, target_dtype)
-
-        if isinstance(to_cast, relax.PrimValue):
-            return relax.PrimValue(to_cast.value.astype(target_dtype_str))
-
-        return relax.op.astype(to_cast, target_dtype)
-
-    @classmethod
-    def _apply_float8_no_saturate(cls, data, target_dtype):
-        """Apply ONNX saturate=False conversion rules for float8 types.
-
-        When saturate=False, infinities and out-of-range values become NaN
-        instead of being clamped to FLT_MAX. The behavior differs per type:
-
-        - E4M3FN/E4M3FNUZ/E5M2FNUZ: All Inf and out-of-range → NaN
-        - E5M2: Positive Inf preserved, negative Inf and negative out-of-range → NaN
-
-        Args:
-            data: NumPy array to convert
-            target_dtype: Float8 type string, e.g., "float8e5m2" (without underscore)
-        """
-        import numpy as _np
-
-        data = data.copy()
-
-        # Float8 max values (NumPy doesn't have native float8 support)
-        # These are the maximum representable values for each type per ONNX spec
-        FLOAT8_MAX_VALUES = {
-            "float8e4m3fn": 240.0,
-            "float8e4m3fnuz": 240.0,
-            "float8e5m2": 57344.0,
-            "float8e5m2fnuz": 57344.0,
-        }
-
-        # Normalize dtype string (remove underscores: float8_e5m2 → float8e5m2)
-        normalized_dtype = target_dtype.replace("_", "")
-
-        flt_max = FLOAT8_MAX_VALUES.get(normalized_dtype)
-        if flt_max is None:
-            # Not a float8 type, return as-is
-            return data
-
-        if normalized_dtype == "float8e5m2":
-            # E5M2: Keep positive Inf, convert negative Inf and values < -FLT_MAX to NaN
-            mask = (_np.isneginf(data)) | (data < -flt_max)
-            data[mask] = _np.nan
-        else:
-            # E4M3FN, E4M3FNUZ, E5M2FNUZ: Convert all Inf and out-of-range to NaN
-            mask = (_np.isinf(data)) | (_np.abs(data) > flt_max)
-            data[mask] = _np.nan
-
-        return data
-
-class CastLike(OnnxOpConverter):
-    """Convert an onnx CastLike node into an equivalent Relax expression."""
-
-    @classmethod
-    def _impl_v15(cls, bb, inputs, attr, params):
         data = inputs[0]
         target = inputs[1]
         if isinstance(target, relax.ShapeExpr):
@@ -2561,7 +2454,7 @@ class Celu(OnnxOpConverter):
     def _impl_v12(cls, bb, inputs, attr, params):
         alpha = attr.get("alpha", 1.0)
         x = inputs[0]
-        dtype = x.struct_info.dtype
+        dtype = x.ty.dtype
 
         zero = relax.const(0.0, dtype=dtype)
         alpha_const = relax.const(alpha, dtype=dtype)
@@ -2716,7 +2609,7 @@ class ConvTranspose(OnnxOpConverter):
                 # input-size term, leaving a value that depends only on the
                 # kernel/dilation/stride/output_padding attributes. Avoiding the
                 # input shape keeps the converter usable when spatial dims are
-                # symbolic (`tir.Var`).
+                # symbolic (`tirx.Var`).
                 pads_begin: list[int] = []
                 pads_end: list[int] = []
                 for i in range(spatial_dims):
@@ -2760,23 +2653,6 @@ class ConvTranspose(OnnxOpConverter):
 
         return conv_out
 
-class GridSample(OnnxOpConverter):
-    """Converts an onnx GridSample node into an equivalent Relax expression."""
-
-    @classmethod
-    def _impl_v16(cls, bb, inputs, attr, params):
-        data = inputs[0]
-        grid = inputs[1]
-
-        # ONNX grid is of shape (N, H, W, 2) which should be transposed to (N, 2, H, W) for Relax
-        grid = bb.emit(relax.op.permute_dims(grid, axes=(0, 3, 1, 2)))
-
-        method = attr.get("mode", b"bilinear").decode("utf-8")
-        padding_mode = attr.get("padding_mode", b"zeros").decode("utf-8")
-        align_corners = attr.get("align_corners", 0) != 0
-
-        return bb.emit(relax.op.image.grid_sample(data=data, grid=grid, method=method, layout="NCHW", padding_mode=padding_mode, align_corners=align_corners))
-
 class ConvInteger(OnnxOpConverter):
     """Converts an onnx ConvInteger node into an equivalent Relax expression.
 
@@ -2792,13 +2668,13 @@ class ConvInteger(OnnxOpConverter):
         data_zp = inputs[2] if len(inputs) > 2 else None
         weight_zp = inputs[3] if len(inputs) > 3 else None
 
-        if hasattr(data.struct_info, "ndim"):
-            ndim = data.struct_info.ndim
+        if hasattr(data.ty, "ndim"):
+            ndim = data.ty.ndim
         else:
-            ndim = len(data.struct_info.shape)
+            ndim = len(data.ty.shape)
 
         if "kernel_shape" not in attr:
-            attr["kernel_shape"] = weight.struct_info.shape.values[2:]
+            attr["kernel_shape"] = weight.ty.shape.values[2:]
 
         data_zp_const = relax.const(0, dtype="int32") if data_zp is None else relax.op.astype(data_zp, "int32")
         weight_zp_const = relax.const(0, dtype="int32") if weight_zp is None else relax.op.astype(weight_zp, "int32")
@@ -6066,8 +5942,8 @@ class Upsample(OnnxOpConverter):
         if scales is None:
             if len(inputs) > 1:
                 scales = get_constant(inputs[1], params)
-                if isinstance(scales, relax.Constant):
-                    scales = scales.data.numpy()
+                if isinstance(scales, tvm.ir.GenericConst):
+                    scales = scales.value.numpy()
             if scales is None:
                 raise ValueError("Upsample requires 'scales' attribute or input")
         assert len(scales) == 4, f"Upsample scales must have 4 elements, got {len(scales)}"
@@ -6501,10 +6377,10 @@ class DFT(OnnxOpConverter):
         t1 = ["float16", "float32", "float64"]
         t2 = ["int32", "int64"]
 
-        input_dtype = input_tensor.struct_info.dtype
+        input_dtype = input_tensor.ty.dtype
         assert input_dtype in t1, f"DFT input dtype must be in {t1}, got {input_dtype}"
 
-        input_shape = input_tensor.struct_info.shape
+        input_shape = input_tensor.ty.shape
         assert len(input_shape) >= 3, f"DFT input must have rank >= 3, got {len(input_shape)}"
 
         if axis < 0:
@@ -6513,16 +6389,16 @@ class DFT(OnnxOpConverter):
 
         if dft_length is None:
             if inverse and onesided:
-                signal_dim = input_shape[axis].value if isinstance(input_shape[axis], tir.IntImm) else input_shape[axis]
+                signal_dim = input_shape[axis].value if isinstance(input_shape[axis], tirx.IntImm) else input_shape[axis]
                 dft_length = 2 * (signal_dim - 1)
             else:
                 dft_length = input_shape[axis]
         else:
             dft_length = get_constant(dft_length, params)
-            if isinstance(dft_length, relax.Constant):
-                dft_length_dtype = dft_length.struct_info.dtype
+            if isinstance(dft_length, tvm.ir.GenericConst):
+                dft_length_dtype = dft_length.ty.dtype
                 assert dft_length_dtype in t2, f"dft_length dtype must be in {t2}, got {dft_length_dtype}"
-                dft_length = int(dft_length.data.numpy())
+                dft_length = int(dft_length.value.numpy())
             else:
                 raise ValueError("Dynamic dft_length is not supported")
 
@@ -6570,9 +6446,9 @@ class DFT(OnnxOpConverter):
 
     @classmethod
     def _crop_axis(cls, tensor, axis, new_dim):
-        shape = tensor.struct_info.shape
+        shape = tensor.ty.shape
         slices_begin = [0] * len(shape)
-        slices_end = [s.value if isinstance(s, tir.IntImm) else int(s)
+        slices_end = [s.value if isinstance(s, tirx.IntImm) else int(s)
                       if isinstance(s, int) else s
                       for s in shape]
         slices_end[axis] = new_dim
@@ -6585,8 +6461,8 @@ class DFT(OnnxOpConverter):
 
     @classmethod
     def _maybe_crop_or_pad(cls, bb, input_tensor, axis, n_fft):
-        shape = input_tensor.struct_info.shape
-        shape_val = shape[axis].value if isinstance(shape[axis], tir.IntImm) else shape[axis]
+        shape = input_tensor.ty.shape
+        shape_val = shape[axis].value if isinstance(shape[axis], tirx.IntImm) else shape[axis]
 
         if isinstance(shape_val, int):
             if shape_val != n_fft:
@@ -6601,7 +6477,7 @@ class DFT(OnnxOpConverter):
 
     @classmethod
     def _swap_axes(cls, tensor, axis1, axis2):
-        shape_len = len(tensor.struct_info.shape)
+        shape_len = len(tensor.ty.shape)
         permutation = list(range(shape_len))
         permutation[axis1] = axis2
         permutation[axis2] = axis1
@@ -6609,8 +6485,8 @@ class DFT(OnnxOpConverter):
 
     @classmethod
     def _split_real_and_imag_parts(cls, bb, tensor):
-        shape = tensor.struct_info.shape
-        last_dim = shape[-1].value if isinstance(shape[-1], tir.IntImm) else shape[-1]
+        shape = tensor.ty.shape
+        last_dim = shape[-1].value if isinstance(shape[-1], tirx.IntImm) else shape[-1]
 
         if isinstance(last_dim, int) and last_dim == 1:
             re = tensor
@@ -6632,8 +6508,8 @@ class DFT(OnnxOpConverter):
 
     @classmethod
     def _crop_onesided(cls, tensor, axis):
-        shape = tensor.struct_info.shape
-        shape_val = shape[axis].value if isinstance(shape[axis], tir.IntImm) else shape[axis]
+        shape = tensor.ty.shape
+        shape_val = shape[axis].value if isinstance(shape[axis], tirx.IntImm) else shape[axis]
         new_dim = shape_val // 2 + 1
         return cls._crop_axis(tensor, axis, new_dim)
 
@@ -6815,7 +6691,7 @@ class RNN(OnnxOpConverter):
         sequence_lens = inputs[4] if len(inputs) > 4 else None
         Hp_0 = inputs[5] if len(inputs) > 5 else None
 
-        Wp_shape = Wp.struct_info.shape
+        Wp_shape = Wp.ty.shape
         num_directions = int(Wp_shape[0])
 
         if num_directions not in [1, 2]:
@@ -6825,9 +6701,9 @@ class RNN(OnnxOpConverter):
             X = relax.op.permute_dims(X, axes=(1, 0, 2))
 
         if Hp_0 is None:
-            W_dtype = Wp.struct_info.dtype
-            X_shape = X.struct_info.shape
-            Rp_shape = Rp.struct_info.shape
+            W_dtype = Wp.ty.dtype
+            X_shape = X.ty.shape
+            Rp_shape = Rp.ty.shape
             hidden_size = Rp_shape[-1]
             batch_size = X_shape[1]
             Hp_0 = relax.op.zeros(relax.ShapeExpr([num_directions, batch_size, hidden_size]), W_dtype)
@@ -7089,15 +6965,15 @@ class LSTM(RNN):
         X = inputs[0]
         Wp = inputs[1]
         Hp_0 = inputs[5] if len(inputs) > 5 else None
-        Wp_shape = Wp.struct_info.shape
+        Wp_shape = Wp.ty.shape
         # Wp shape: (num_directions, 4*hidden_size, feature_size)
 
         # Get batch_size from Hp_0 if available, otherwise from X
         if Hp_0 is not None:
-            Hp_shape = Hp_0.struct_info.shape
+            Hp_shape = Hp_0.ty.shape
             # Hp_0 shape: (num_directions, batch_size, hidden_size)
         else:
-            X_shape = X.struct_info.shape
+            X_shape = X.ty.shape
             # X shape: (seq_len, batch_size, feature_size) for layout==0
             # or (batch_size, seq_len, feature_size) for layout==1
 
@@ -7165,10 +7041,10 @@ class LSTM(RNN):
                 mati, mato, matf, matc = bh_split[0], bh_split[1], bh_split[2], bh_split[3]
                 weights_dict["b_hid"] = relax.op.concat([mati, matf, matc, mato], axis=0)
             else:
-                W_dtype = Wp.struct_info.dtype
+                W_dtype = Wp.ty.dtype
                 # Create zero biases: 4*hidden_size for each of b_inp and b_hid
                 # Use Wp shape directly since Ws[i] may not have struct_info populated after split
-                Wp_shape = Wp.struct_info.shape
+                Wp_shape = Wp.ty.shape
                 bias_size = int(Wp_shape[1])  # Wp shape: (num_directions, 4*hidden_size, feature_size)
                 weights_dict["b_inp"] = relax.op.zeros([bias_size], W_dtype)
                 weights_dict["b_hid"] = relax.op.zeros([bias_size], W_dtype)
@@ -7272,14 +7148,14 @@ class GRU(RNN):
         X = inputs[0]
         Wp = inputs[1]
         Rp = inputs[2]
-        input_dtype = Wp.struct_info.dtype
+        input_dtype = Wp.ty.dtype
 
         # Compute hidden_shape from X and Rp shapes (same logic as _inputs_helper)
         if layout == 1:
-            batch_size = int(X.struct_info.shape[0])
+            batch_size = int(X.ty.shape[0])
         else:
-            batch_size = int(X.struct_info.shape[1])
-        hidden_size = int(Rp.struct_info.shape[-1])
+            batch_size = int(X.ty.shape[1])
+        hidden_size = int(Rp.ty.shape[-1])
         hidden_shape = [batch_size, hidden_size]
 
         weights_dicts = []

@@ -60,7 +60,7 @@ class _SpanBlockBuilderProxy:
         span = self._span_fn()
         if span is not None and isinstance(expr, relax.Call):
             expr = relax.Call(
-                expr.op, expr.args, expr.attrs, expr.sinfo_args, span
+                expr.op, expr.args, expr.attrs, expr.ty_args, span
             )
         return self._bb.emit(expr, name_hint)
 
@@ -1676,11 +1676,11 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         scale = args[1]
         zero_point = args[2]
         axis = int(args[3])
-        n_channels = int(zero_point.struct_info.shape[0])
+        n_channels = int(zero_point.ty.shape[0])
         # relax.dequantize requires int8 zero_point. Per-channel zp from PT2E
         # may arrive as int64; always rebuild as int8 (values fit by construction).
-        if not (hasattr(zero_point, "struct_info") and zero_point.struct_info.dtype == "int8"):
-            zero_point = relax.Constant(np.zeros(n_channels, dtype=np.int8))
+        if not (hasattr(zero_point, "ty") and zero_point.ty.dtype == "int8"):
+            zero_point = relax.const(np.zeros(n_channels, dtype=np.int8), "int8")
         return self.block_builder.emit(
             relax.op.dequantize(data, scale, zero_point, axis=axis, out_dtype="float32")
         )

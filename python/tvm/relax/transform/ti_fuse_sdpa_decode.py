@@ -18,7 +18,7 @@ Must run BEFORE: LegalizeOps, FuseOps (i.e. before compile_for_dsp)
 import logging
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from .ti_mmalib_legalize import _call_extern_checked
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
@@ -76,8 +76,8 @@ def _check_sdpa_decode(ctx) -> bool:
         return False
 
     # K input shape should be [1, kv_heads, cache_len, head_dim]
-    k_sinfo = k_input.struct_info
-    if not isinstance(k_sinfo, relax.TensorStructInfo) or k_sinfo.shape is None:
+    k_sinfo = k_input.ty
+    if not isinstance(k_sinfo, relax.TensorType) or k_sinfo.shape is None:
         return False
     try:
         k_shape = [int(s) for s in k_sinfo.shape]
@@ -87,8 +87,8 @@ def _check_sdpa_decode(ctx) -> bool:
         return False
 
     # Q input shape should be [1, num_q_heads, 1, head_dim] — seq_q=1
-    q_sinfo = q_input.struct_info
-    if not isinstance(q_sinfo, relax.TensorStructInfo) or q_sinfo.shape is None:
+    q_sinfo = q_input.ty
+    if not isinstance(q_sinfo, relax.TensorType) or q_sinfo.shape is None:
         return False
     try:
         q_shape = [int(s) for s in q_sinfo.shape]
@@ -120,7 +120,7 @@ def _check_sdpa_decode(ctx) -> bool:
 
     # The kernel unconditionally reads mask[pos]; require a real mask tensor.
     mask = ctx.annotated_expr.get("mask")
-    if not isinstance(getattr(mask, "struct_info", None), relax.TensorStructInfo):
+    if not isinstance(getattr(mask, "ty", None), relax.TensorType):
         return False
 
     return True
@@ -219,8 +219,8 @@ class _SDPADecodeLowerer(PyExprMutator):
         # k_arg shape: [1, kv_heads, cache_len, head_dim]
         # q_arg shape: [1, num_q_heads, 1, head_dim]
         # mask_arg shape: [1, 1, 1, cache_len]
-        k_shape = [int(s) for s in k_arg.struct_info.shape]
-        q_shape = [int(s) for s in q_arg.struct_info.shape]
+        k_shape = [int(s) for s in k_arg.ty.shape]
+        q_shape = [int(s) for s in q_arg.ty.shape]
 
         num_kv_heads = k_shape[1]
         max_cache_len = k_shape[2]
@@ -259,7 +259,7 @@ class _SDPADecodeLowerer(PyExprMutator):
         )
 
         # Reshape to original attention_bias output shape
-        out_sinfo = call.struct_info
+        out_sinfo = call.ty
         out_shape = [int(s) for s in out_sinfo.shape]
         result = bb.emit(relax.op.reshape(sdpa_out, relax.ShapeExpr(out_shape)))
 

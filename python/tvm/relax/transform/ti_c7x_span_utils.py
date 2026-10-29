@@ -105,6 +105,6 @@ def propagate_span(new_call: relax.Call, source_expr) -> relax.Call:
         new_call.op,
         new_call.args,
         new_call.attrs,
-        new_call.sinfo_args,
+        new_call.ty_args,
         span=span,
     )

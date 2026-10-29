@@ -41,10 +41,12 @@ import logging
 
 import numpy as np
 
+from .ti_const_utils import ti_tensor_const
 from tvm import relax
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
-from tvm.relax import Constant, Expr
+from tvm.ir import Constant
+from tvm.relax import Expr
 from tvm.relax.dpl import is_op, rewrite_call, wildcard
 
 from . import function_pass
@@ -79,7 +81,7 @@ def _make_rewriter(int8_node, cast_node, scale_node):
         # Only rewrite if the source is an int8 constant
         if not isinstance(int8_const, Constant):
             return expr
-        arr = int8_const.data.numpy()
+        arr = int8_const.value.numpy()
         if arr.dtype != np.int8:
             return expr
 
@@ -99,7 +101,7 @@ def _make_rewriter(int8_node, cast_node, scale_node):
         # dequantize legalization expects scale/zp to be either scalar
         # or 1-D along the quantization axis.  Squeeze any trailing
         # dimensions (e.g. [out_channels, 1] -> [out_channels]).
-        scale_arr = scale_const.data.numpy()
+        scale_arr = scale_const.value.numpy()
         squeezed_scale = scale_arr.squeeze()
         new_scale = relax.const(squeezed_scale)
 
@@ -125,7 +127,7 @@ def _make_rewriter(int8_node, cast_node, scale_node):
 class RewriteDequantize:
     """Rewrite int8 cast+multiply into R.dequantize to prevent constant folding.
 
-    Matches: Constant(int8) -> astype(float32) -> multiply(Constant(float32))
+    Matches: ti_tensor_const(int8) -> astype(float32) -> multiply(ti_tensor_const(float32))
     Rewrites to: R.dequantize(int8_const, scale_const, zero_point=0, axis=0)
 
     This preserves int8 weight storage in the compiled binary instead of

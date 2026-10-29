@@ -41,6 +41,7 @@ import logging
 
 import numpy as np
 
+import tvm
 from tvm import relax
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
@@ -54,16 +55,16 @@ logger = logging.getLogger(__name__)
 
 def _is_const_zero(expr: Expr) -> bool:
     """Check if a Relax expression is a constant zero (scalar or vector)."""
-    if isinstance(expr, relax.Constant):
-        arr = expr.data.numpy()
+    if isinstance(expr, tvm.ir.GenericConst):
+        arr = expr.value.numpy()
         return np.all(arr == 0)
     return False
 
 
 def _get_const_value(expr: Expr):
     """Extract scalar value from a Relax constant, or None."""
-    if isinstance(expr, relax.Constant):
-        arr = expr.data.numpy()
+    if isinstance(expr, tvm.ir.GenericConst):
+        arr = expr.value.numpy()
         if arr.ndim == 0:
             return arr.item()
     return None
@@ -76,8 +77,8 @@ def _broadcast_channel_scale(scale: Expr, data_layout: str, out_ndim: int = 4) -
     For NHWC layouts the channel axis is the last dim: [C] -> [1, ..., 1, C].
     Scalar scales (ndim == 0) are returned unchanged.
     """
-    sinfo = scale.struct_info
-    if not isinstance(sinfo, relax.TensorStructInfo):
+    sinfo = scale.ty
+    if not isinstance(sinfo, relax.TensorType):
         return scale
     shape = sinfo.shape
     if shape is None or len(list(shape)) != 1:  # type: ignore[arg-type]

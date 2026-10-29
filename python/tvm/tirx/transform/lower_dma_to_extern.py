@@ -55,7 +55,7 @@ def LowerDMAToExtern():
 
     def _postorder(op):
         call = op.value
-        if isinstance(call, tirx.Call):
+        if isinstance(call, tvm.ir.Call):
             if call.op.same_as(op_dma_copy):
                 new_call = tirx.call_extern("int32", "tvm_dsp_dma_copy", *call.args)
                 return tirx.Evaluate(new_call)

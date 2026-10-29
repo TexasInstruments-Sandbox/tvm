@@ -32,7 +32,7 @@ import numpy as np
 
 import tvm
 from tvm import relax
-from tvm.contrib import tar
+from tvm.support import tar
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)

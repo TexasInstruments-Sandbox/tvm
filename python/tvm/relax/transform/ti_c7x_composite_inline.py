@@ -20,10 +20,10 @@
 The C7x QDQ-fusion passes (FuseQDQToC7xMovement, FuseQDQToC7xRelu, etc.) all
 call ``relax.transform.FuseOpsByPattern(patterns, bind_constants=False)``.
 ``bind_constants=False`` maps to ``lift_constant_=true`` in
-``src/relax/transform/fuse_ops.cc``, so matched ``relax.Constant`` leaves are
+``src/relax/transform/fuse_ops.cc``, so matched ``tvm.ir.GenericConst`` leaves are
 lifted to *parameters* of the Composite(+Primitive)-tagged function and passed
 in at the call site; the composite body itself normally holds no
-``relax.Constant``. (Verified on the shapes these patterns produce, including a
+``tvm.ir.GenericConst``. (Verified on the shapes these patterns produce, including a
 tensor Constant as the data operand and as a ``concat`` tuple field.)
 
 Every one of these passes' custom lowerers is expected to consume *every*
@@ -34,7 +34,7 @@ fuses *every* Primitive-tagged GlobalVar still present in the module,
 regardless of whether anything still calls it. So a composite left un-consumed
 (or merely inlined-but-not-deleted) makes compilation depend on a function
 nothing calls -- it must legalize and fuse cleanly on its own, and FuseTIR
-fatals outright on any ``relax.Constant`` that does reach a primitive body
+fatals outright on any ``tvm.ir.GenericConst`` that does reach a primitive body
 ("Relax.Constant is not supported in primitive functions"). A related
 already-observed failure mode for surviving composites is scalar scale/zp
 arriving as 0-d Buffer params rather than TIR literals -- see the comment at
@@ -67,6 +67,7 @@ parameters. Do not reach for a decline-path change when that error reappears
 without first ruling that out.
 """
 
+import tvm
 from tvm import relax
 
 
@@ -98,7 +99,7 @@ def _substitute(expr, subst):
             expr.op,
             [_substitute(a, subst) for a in expr.args],
             expr.attrs,
-            expr.sinfo_args,
+            expr.ty_args,
             span=expr.span,
         )
     if isinstance(expr, relax.Tuple):

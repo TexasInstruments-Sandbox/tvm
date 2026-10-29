@@ -43,6 +43,7 @@ import logging
 
 import numpy as np
 
+import tvm
 from tvm import relax
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
@@ -56,8 +57,8 @@ logger = logging.getLogger(__name__)
 
 def _is_const_zero(expr: Expr) -> bool:
     """Check if a Relax expression is a constant zero (scalar or vector)."""
-    if isinstance(expr, relax.Constant):
-        arr = expr.data.numpy()
+    if isinstance(expr, tvm.ir.GenericConst):
+        arr = expr.value.numpy()
         return np.all(arr == 0)
     return False
 

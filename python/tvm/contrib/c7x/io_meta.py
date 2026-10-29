@@ -45,23 +45,23 @@ def _round_up(nbytes: int, align: int = _ALIGN) -> int:
     return (nbytes + align - 1) & ~(align - 1)
 
 
-def _tensor_nbytes(sinfo: relax.StructInfo) -> Optional[int]:
+def _tensor_nbytes(sinfo: relax.Type) -> Optional[int]:
     """Byte size of one tensor, or None if it isn't a TensorStructInfo with an
     entirely compile-time-constant shape."""
-    if not isinstance(sinfo, relax.TensorStructInfo):
+    if not isinstance(sinfo, relax.TensorType):
         return None
     shape = sinfo.shape
     if not isinstance(shape, relax.ShapeExpr):
         return None
     nbytes = tvm.DataType(sinfo.dtype).itemsize
     for dim in shape.values:
-        if not isinstance(dim, tvm.tir.IntImm):
+        if not isinstance(dim, tvm.tirx.IntImm):
             return None
         nbytes *= int(dim.value)
     return nbytes
 
 
-def _sizes_or_none(sinfos: List[relax.StructInfo]) -> Optional[List[int]]:
+def _sizes_or_none(sinfos: List[relax.Type]) -> Optional[List[int]]:
     """[_tensor_nbytes(s) for s in sinfos], or None if any tensor's size is unknown."""
     sizes = []
     for sinfo in sinfos:
@@ -72,7 +72,7 @@ def _sizes_or_none(sinfos: List[relax.StructInfo]) -> Optional[List[int]]:
     return sizes
 
 
-def _flatten_output_tensors(sinfo: relax.StructInfo) -> Optional[List[relax.StructInfo]]:
+def _flatten_output_tensors(sinfo: relax.Type) -> Optional[List[relax.Type]]:
     """Flatten a return StructInfo into a list of TensorStructInfo, recursing
     through arbitrarily nested tuples.
 
@@ -85,9 +85,9 @@ def _flatten_output_tensors(sinfo: relax.StructInfo) -> Optional[List[relax.Stru
     must match that flattening rather than rejecting it. Returns None if
     sinfo contains anything that isn't a Tensor or a Tuple of such (e.g. an
     Object/PrimValue field)."""
-    if isinstance(sinfo, relax.TensorStructInfo):
+    if isinstance(sinfo, relax.TensorType):
         return [sinfo]
-    if isinstance(sinfo, relax.TupleStructInfo):
+    if isinstance(sinfo, relax.TupleType):
         flat = []
         for field in sinfo.fields:
             sub = _flatten_output_tensors(field)
@@ -137,10 +137,10 @@ def compute_io_meta(mod: tvm.IRModule, entry_name: str = "main") -> Optional[IoM
     """
     func = mod[entry_name]
 
-    input_sinfos = [p.struct_info for p in func.params]
-    if not all(isinstance(s, relax.TensorStructInfo) for s in input_sinfos):
+    input_sinfos = [p.ty for p in func.params]
+    if not all(isinstance(s, relax.TensorType) for s in input_sinfos):
         return None
-    output_sinfos = _flatten_output_tensors(func.ret_struct_info)
+    output_sinfos = _flatten_output_tensors(func.ret_ty)
     if output_sinfos is None:
         return None
 
@@ -207,7 +207,7 @@ def kv_resident_output_bytes(
     non-static shape), and goes through the same ``_buf_bytes()`` as the
     declaration so the two figures cannot drift apart.
     """
-    output_sinfos = _flatten_output_tensors(mod[entry_name].ret_struct_info)
+    output_sinfos = _flatten_output_tensors(mod[entry_name].ret_ty)
     if output_sinfos is None:
         return None
     sizes = _sizes_or_none(output_sinfos[:num_returned])

@@ -161,7 +161,7 @@ Pass AttachGlobalSymbol() {
         // First add the was_private attribute if the function was private
         tirx::PrimFunc updated_func = ffi::GetRef<tirx::PrimFunc>(prim_func);
         if (is_private) {
-          updated_func = WithAttr(updated_func, "was_private", Bool(true));
+          updated_func = WithAttr(updated_func, "was_private", true);
         }
         // Then add the global symbol
         new_func = WithAttr(updated_func, tvm::attr::kGlobalSymbol, new_name);
@@ -170,7 +170,7 @@ Pass AttachGlobalSymbol() {
         // First add the was_private attribute if the function was private
         Function updated_func = ffi::GetRef<Function>(relax_func);
         if (is_private) {
-          updated_func = WithAttr(updated_func, "was_private", Bool(true));
+          updated_func = WithAttr(updated_func, "was_private", true);
         }
         // Then add the global symbol
         new_func = WithAttr(updated_func, tvm::attr::kGlobalSymbol, new_name);

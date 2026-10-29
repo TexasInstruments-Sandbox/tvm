@@ -103,15 +103,15 @@ def _check_scales_match(ctx) -> bool:
     zp_in = ctx.annotated_expr["zp_in"]
     zp_out = ctx.annotated_expr["zp_out"]
 
-    if not isinstance(s_in, relax.Constant) or not isinstance(s_out, relax.Constant):
+    if not isinstance(s_in, tvm.ir.GenericConst) or not isinstance(s_out, tvm.ir.GenericConst):
         return False
-    if not isinstance(zp_in, relax.Constant) or not isinstance(zp_out, relax.Constant):
+    if not isinstance(zp_in, tvm.ir.GenericConst) or not isinstance(zp_out, tvm.ir.GenericConst):
         return False
 
-    sv_in = float(s_in.data.numpy())
-    sv_out = float(s_out.data.numpy())
-    zv_in = int(zp_in.data.numpy())
-    zv_out = int(zp_out.data.numpy())
+    sv_in = float(s_in.value.numpy())
+    sv_out = float(s_out.value.numpy())
+    zv_in = int(zp_in.value.numpy())
+    zv_out = int(zp_out.value.numpy())
 
     return _scales_match(sv_in, sv_out) and zv_in == zv_out
 
@@ -121,7 +121,7 @@ def _check_scales_match_relu(ctx) -> bool:
     if not _check_scales_match(ctx):
         return False
     zp_out = ctx.annotated_expr["zp_out"]
-    return int(zp_out.data.numpy()) == 0
+    return int(zp_out.value.numpy()) == 0
 
 
 def _check_input_int8(ctx) -> bool:
@@ -129,10 +129,10 @@ def _check_input_int8(ctx) -> bool:
     if not _check_scales_match(ctx):
         return False
     x = ctx.annotated_expr["x"]
-    if isinstance(x, relax.Constant):
-        return x.data.dtype == "int8"
-    if hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        return str(x.struct_info.dtype) == "int8"
+    if isinstance(x, tvm.ir.GenericConst):
+        return x.value.dtype == "int8"
+    if hasattr(x, "ty") and hasattr(x.ty, "dtype"):
+        return str(x.ty.dtype) == "int8"
     return False
 
 
@@ -141,10 +141,10 @@ def _check_input_int8_relu(ctx) -> bool:
     if not _check_scales_match_relu(ctx):
         return False
     x = ctx.annotated_expr["x"]
-    if isinstance(x, relax.Constant):
-        return x.data.dtype == "int8"
-    if hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        return str(x.struct_info.dtype) == "int8"
+    if isinstance(x, tvm.ir.GenericConst):
+        return x.value.dtype == "int8"
+    if hasattr(x, "ty") and hasattr(x.ty, "dtype"):
+        return str(x.ty.dtype) == "int8"
     return False
 
 
@@ -152,7 +152,7 @@ def _check_concat(ctx) -> bool:
     """Validate concat output scale is constant (input scales checked in lowerer)."""
     s_out = ctx.annotated_expr["s_out"]
     zp_out = ctx.annotated_expr["zp_out"]
-    return isinstance(s_out, relax.Constant) and isinstance(zp_out, relax.Constant)
+    return isinstance(s_out, tvm.ir.GenericConst) and isinstance(zp_out, tvm.ir.GenericConst)
 
 
 # =========================================================================
@@ -227,7 +227,7 @@ class _QDQTransparentLowerer(PyExprMutator):
             ]
 
         result = relax.Call(
-            op_call.op, new_args, op_call.attrs, op_call.sinfo_args, span=op_call.span
+            op_call.op, new_args, op_call.attrs, op_call.ty_args, span=op_call.span
         )
         result = self.builder_.emit(result)
 

@@ -74,7 +74,7 @@ Kernels: src/runtime/ti_dsp/kernels/c7x_rescale.cpp
 import logging
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, is_tuple, wildcard
@@ -107,17 +107,17 @@ def _make_reshape_pattern():
 def _check_single_input(ctx) -> bool:
     """Require int8 input and compile-time quantization constants."""
     x = ctx.annotated_expr["x"]
-    if isinstance(x, relax.Constant):
-        if x.data.dtype != "int8":
+    if isinstance(x, tvm.ir.GenericConst):
+        if x.value.dtype != "int8":
             return False
-    elif hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype"):
-        if str(x.struct_info.dtype) != "int8":
+    elif hasattr(x, "ty") and hasattr(x.ty, "dtype"):
+        if str(x.ty.dtype) != "int8":
             return False
     else:
         return False
 
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
     return True
 
@@ -179,16 +179,16 @@ def _make_resize_silu_concat_pattern():
 def _check_resize_silu_concat(ctx) -> bool:
     for inp_name in ("x1", "x2"):
         inp = ctx.annotated_expr[inp_name]
-        if isinstance(inp, relax.Constant):
-            if inp.data.dtype != "int8":
+        if isinstance(inp, tvm.ir.GenericConst):
+            if inp.value.dtype != "int8":
                 return False
-        elif hasattr(inp, "struct_info") and hasattr(inp.struct_info, "dtype"):
-            if str(inp.struct_info.dtype) != "int8":
+        elif hasattr(inp, "ty") and hasattr(inp.ty, "dtype"):
+            if str(inp.ty.dtype) != "int8":
                 return False
         else:
             return False
     for name in ("s1", "z1", "s2", "z2", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], relax.Constant):
+        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
     return True
 
@@ -267,13 +267,13 @@ class _MovementLowerer(PyExprMutator):
                 x_arg = param_to_arg.get(x_param, x_param)
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                d_scale_val = float(s.data.numpy())
-                d_zp_val = int(z.data.numpy())
+                d_scale_val = float(s.value.numpy())
+                d_zp_val = int(z.value.numpy())
             elif "quantize" in op_name and x_arg is not None:
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                o_scale_val = float(s.data.numpy())
-                o_zp_val = int(z.data.numpy())
+                o_scale_val = float(s.value.numpy())
+                o_zp_val = int(z.value.numpy())
 
         if x_arg is None or o_scale_val is None:
             return self._decline(call, func)
@@ -290,8 +290,8 @@ class _MovementLowerer(PyExprMutator):
         if self._const_reach.is_const(x_arg):
             return self._decline(call, func)
 
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return self._decline(call, func)
         output_shape = [int(s) for s in call_sinfo.shape]
         n_elem = 1
@@ -306,16 +306,16 @@ class _MovementLowerer(PyExprMutator):
 
         def te_rescale(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_int8_rescale",
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", n_v),
-                    tir.IntImm("int32", d_zp_v),
-                    tir.FloatImm("float32", d_scale_v),
-                    tir.IntImm("int32", o_zp_v),
-                    tir.FloatImm("float32", o_scale_v),
+                    tirx.IntImm("int32", n_v),
+                    tirx.IntImm("int32", d_zp_v),
+                    tirx.FloatImm("float32", d_scale_v),
+                    tirx.IntImm("int32", o_zp_v),
+                    tirx.FloatImm("float32", o_scale_v),
                 )
 
             return te.extern(
@@ -358,7 +358,7 @@ class _MovementLowerer(PyExprMutator):
                 inp = param_to_arg.get(val.args[0], val.args[0])
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                dq_entries[binding.var] = (inp, float(s.data.numpy()), int(z.data.numpy()))
+                dq_entries[binding.var] = (inp, float(s.value.numpy()), int(z.value.numpy()))
             elif op_name == "relax.image.resize2d":
                 resize_call = val
                 resize_out_var = binding.var
@@ -373,8 +373,8 @@ class _MovementLowerer(PyExprMutator):
             elif "quantize" in op_name and "de" not in op_name:
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                o_scale_val = float(s.data.numpy())
-                o_zp_val = int(z.data.numpy())
+                o_scale_val = float(s.value.numpy())
+                o_zp_val = int(z.value.numpy())
 
         if resize_call is None or concat_fields is None or o_scale_val is None:
             return self._decline(call, func)
@@ -392,8 +392,8 @@ class _MovementLowerer(PyExprMutator):
         ):
             return self._decline(call, func)
 
-        in_shape = resize_call.args[0].struct_info.shape
-        out_shape = resize_call.struct_info.shape
+        in_shape = resize_call.args[0].ty.shape
+        out_shape = resize_call.ty.shape
         if in_shape is None or out_shape is None or len(in_shape) != 4 or len(out_shape) != 4:
             return self._decline(call, func)
         in_shape = [int(s) for s in in_shape]
@@ -447,8 +447,8 @@ class _MovementLowerer(PyExprMutator):
         # both the branch-2 input and the (C1+C2)-channel output whenever the
         # two branches differ in width. Branch 2 is already at the upsampled
         # (2H, 2W) spatial size.
-        b2_sinfo = getattr(branch2_arg, "struct_info", None)
-        if not isinstance(b2_sinfo, relax.TensorStructInfo) or not b2_sinfo.shape:
+        b2_sinfo = getattr(branch2_arg, "ty", None)
+        if not isinstance(b2_sinfo, relax.TensorType) or not b2_sinfo.shape:
             return self._decline(call, func)
         b2_shape = [int(s) for s in b2_sinfo.shape]
         if (
@@ -460,7 +460,7 @@ class _MovementLowerer(PyExprMutator):
             return self._decline(call, func)
         C2 = b2_shape[1]
 
-        call_sinfo = call.struct_info
+        call_sinfo = call.ty
 
         # branch 1's SiLU output (pre-resize2d, [1,C1,H,W] float32) may be
         # independently consumed elsewhere in the graph too -- if so,
@@ -470,13 +470,13 @@ class _MovementLowerer(PyExprMutator):
         # Confirmed on both real FPN sites this backs (yolov8n/yolo26n),
         # not assumed -- see the pattern's comment above and
         # c7x_rescale.h's c7x_int8_fpn_upsample_concat_ex doc.
-        is_tuple_out = isinstance(call_sinfo, relax.TupleStructInfo)
+        is_tuple_out = isinstance(call_sinfo, relax.TupleType)
         if is_tuple_out:
             int8_idx = next(
                 (
                     i
                     for i, f in enumerate(call_sinfo.fields)
-                    if isinstance(f, relax.TensorStructInfo) and str(f.dtype) == "int8"
+                    if isinstance(f, relax.TensorType) and str(f.dtype) == "int8"
                 ),
                 None,
             )
@@ -487,7 +487,7 @@ class _MovementLowerer(PyExprMutator):
             if float_idx is None:
                 return self._decline(call, func)
             float_sinfo = call_sinfo.fields[float_idx]
-            if not isinstance(float_sinfo, relax.TensorStructInfo) or not float_sinfo.shape:
+            if not isinstance(float_sinfo, relax.TensorType) or not float_sinfo.shape:
                 return self._decline(call, func)
             float_shape = [int(s) for s in float_sinfo.shape]
             # The shared value is branch 1's SiLU output *before* resize2d:
@@ -499,7 +499,7 @@ class _MovementLowerer(PyExprMutator):
             if not int8_sinfo.shape:
                 return self._decline(call, func)
             output_shape = [int(s) for s in int8_sinfo.shape]
-        elif not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        elif not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return self._decline(call, func)
         else:
             output_shape = [int(s) for s in call_sinfo.shape]
@@ -521,22 +521,22 @@ class _MovementLowerer(PyExprMutator):
 
             def te_fpn_ex(t1, t2):
                 def fcompute(ins, outs):
-                    return tir.call_extern(
+                    return tirx.call_extern(
                         "int32",
                         "c7x_int8_fpn_upsample_concat_ex",
                         ins[0].data,
-                        tir.IntImm("int32", C1_v),
-                        tir.IntImm("int32", H_v),
-                        tir.IntImm("int32", W_v),
-                        tir.IntImm("int32", z1_vv),
-                        tir.FloatImm("float32", s1_vv),
+                        tirx.IntImm("int32", C1_v),
+                        tirx.IntImm("int32", H_v),
+                        tirx.IntImm("int32", W_v),
+                        tirx.IntImm("int32", z1_vv),
+                        tirx.FloatImm("float32", s1_vv),
                         ins[1].data,
-                        tir.IntImm("int32", C2_v),
-                        tir.IntImm("int32", z2_vv),
-                        tir.FloatImm("float32", s2_vv),
+                        tirx.IntImm("int32", C2_v),
+                        tirx.IntImm("int32", z2_vv),
+                        tirx.FloatImm("float32", s2_vv),
                         outs[0].data,
-                        tir.FloatImm("float32", o_scale_v),
-                        tir.IntImm("int32", o_zp_v),
+                        tirx.FloatImm("float32", o_scale_v),
+                        tirx.IntImm("int32", o_zp_v),
                         outs[1].data,
                     )
 
@@ -581,22 +581,22 @@ class _MovementLowerer(PyExprMutator):
 
             def te_fpn(t1, t2):
                 def fcompute(ins, outs):
-                    return tir.call_extern(
+                    return tirx.call_extern(
                         "int32",
                         "c7x_int8_fpn_upsample_concat",
                         ins[0].data,
-                        tir.IntImm("int32", C1_v),
-                        tir.IntImm("int32", H_v),
-                        tir.IntImm("int32", W_v),
-                        tir.IntImm("int32", z1_vv),
-                        tir.FloatImm("float32", s1_vv),
+                        tirx.IntImm("int32", C1_v),
+                        tirx.IntImm("int32", H_v),
+                        tirx.IntImm("int32", W_v),
+                        tirx.IntImm("int32", z1_vv),
+                        tirx.FloatImm("float32", s1_vv),
                         ins[1].data,
-                        tir.IntImm("int32", C2_v),
-                        tir.IntImm("int32", z2_vv),
-                        tir.FloatImm("float32", s2_vv),
+                        tirx.IntImm("int32", C2_v),
+                        tirx.IntImm("int32", z2_vv),
+                        tirx.FloatImm("float32", s2_vv),
                         outs[0].data,
-                        tir.FloatImm("float32", o_scale_v),
-                        tir.IntImm("int32", o_zp_v),
+                        tirx.FloatImm("float32", o_scale_v),
+                        tirx.IntImm("int32", o_zp_v),
                     )
 
                 return te.extern(

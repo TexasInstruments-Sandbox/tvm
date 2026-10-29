@@ -129,7 +129,7 @@ def autopad(
 
 def unbind(data, axis=0):
     """Unbind operation removes a tensor dimension and returns a list of all slices along a given dimension, with specified axis removed"""
-    shape = data.struct_info.shape
+    shape = data.ty.shape
     if axis >= len(shape):
         raise AttributeError("Please check input dim, it shouldn't be greater than or equal to rank.")
 
@@ -154,12 +154,12 @@ def rnn_cell(input_seqs, hidden_state, w_inp, w_hid, b_inp=None, b_hid=None, bac
 
     mask_seqs = None
     if sequence_lens is not None:
-        seq_len_dtype = sequence_lens.struct_info.dtype
+        seq_len_dtype = sequence_lens.ty.dtype
 
         arange = relax.op.arange(0, seq_len, dtype=seq_len_dtype)
         arange = relax.op.expand_dims(arange, 1)
 
-        seq_len_shape = sequence_lens.struct_info.shape
+        seq_len_shape = sequence_lens.ty.shape
         sequence_lens_broadcast = relax.op.broadcast_to(sequence_lens, [seq_len, seq_len_shape[0]])
 
         mask = relax.op.less(arange, sequence_lens_broadcast)
@@ -216,12 +216,12 @@ def lstm_cell(input_seqs, hidden_state, cell_state, w_inp, w_hid, b_inp=None, b_
 
     mask_seqs = None
     if sequence_lens is not None:
-        seq_len_dtype = sequence_lens.struct_info.dtype
+        seq_len_dtype = sequence_lens.ty.dtype
 
         arange = relax.op.arange(0, seq_len, dtype=seq_len_dtype)
         arange = relax.op.expand_dims(arange, 1)
 
-        seq_len_shape = sequence_lens.struct_info.shape
+        seq_len_shape = sequence_lens.ty.shape
         sequence_lens_broadcast = relax.op.broadcast_to(sequence_lens, [seq_len, seq_len_shape[0]])
 
         mask = relax.op.less(arange, sequence_lens_broadcast)
@@ -332,18 +332,18 @@ def gru_cell(
 
     seq_len = len(input_seqs)
     if input_dtype is None:
-        input_dtype = w_inp.struct_info.dtype
+        input_dtype = w_inp.ty.dtype
     if hidden_shape is None:
-        hidden_shape = list(hidden_state.struct_info.shape)
+        hidden_shape = list(hidden_state.ty.shape)
 
     mask_seqs = None
     if sequence_lens is not None:
-        seq_len_dtype = sequence_lens.struct_info.dtype
+        seq_len_dtype = sequence_lens.ty.dtype
 
         arange = relax.op.arange(0, seq_len, dtype=seq_len_dtype)
         arange = relax.op.expand_dims(arange, 1)
 
-        seq_len_shape = sequence_lens.struct_info.shape
+        seq_len_shape = sequence_lens.ty.shape
         sequence_lens_broadcast = relax.op.broadcast_to(sequence_lens, [seq_len, seq_len_shape[0]])
 
         mask = relax.op.less(arange, sequence_lens_broadcast)

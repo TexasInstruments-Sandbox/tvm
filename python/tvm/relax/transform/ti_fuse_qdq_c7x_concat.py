@@ -61,7 +61,7 @@ import logging
 import numpy as np
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, is_tuple, wildcard
@@ -138,16 +138,16 @@ def _check_dq_inputs(ctx, n: int) -> bool:
         inp = ctx.annotated_expr.get(f"in{i}")
         if inp is None:
             return False
-        if isinstance(inp, relax.Constant):
-            if inp.data.dtype != "int8":
+        if isinstance(inp, tvm.ir.GenericConst):
+            if inp.value.dtype != "int8":
                 return False
-        elif hasattr(inp, "struct_info") and hasattr(inp.struct_info, "dtype"):
-            if str(inp.struct_info.dtype) != "int8":
+        elif hasattr(inp, "ty") and hasattr(inp.ty, "dtype"):
+            if str(inp.ty.dtype) != "int8":
                 return False
         else:
             return False
         for key in (f"s{i}", f"z{i}"):
-            if not isinstance(ctx.annotated_expr.get(key), relax.Constant):
+            if not isinstance(ctx.annotated_expr.get(key), tvm.ir.GenericConst):
                 return False
     return True
 
@@ -156,9 +156,9 @@ def _make_check_concat(n: int):
     """Check callback factory: verify all QDQ params are constants, inputs int8."""
 
     def _check(ctx) -> bool:
-        if not isinstance(ctx.annotated_expr.get("o_scale"), relax.Constant):
+        if not isinstance(ctx.annotated_expr.get("o_scale"), tvm.ir.GenericConst):
             return False
-        if not isinstance(ctx.annotated_expr.get("o_zp"), relax.Constant):
+        if not isinstance(ctx.annotated_expr.get("o_zp"), tvm.ir.GenericConst):
             return False
         return _check_dq_inputs(ctx, n)
 
@@ -183,8 +183,8 @@ def _make_check_concat_sigmoid(n: int):
         cat = ctx.annotated_expr.get("concat")
         if cat is None:
             return False
-        sinfo = getattr(cat, "struct_info", None)
-        if not isinstance(sinfo, relax.TensorStructInfo) or sinfo.shape is None:
+        sinfo = getattr(cat, "ty", None)
+        if not isinstance(sinfo, relax.TensorType) or sinfo.shape is None:
             return False
         rank = len(sinfo.shape)
         if rank != 3:
@@ -269,7 +269,7 @@ class _ConcatLowerer(PyExprMutator):
                 inp = param_to_arg.get(val.args[0], val.args[0])
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                dq_entries.append((inp, float(s.data.numpy()), int(z.data.numpy())))
+                dq_entries.append((inp, float(s.value.numpy()), int(z.value.numpy())))
 
             elif "concat" in op_name:
                 try:
@@ -280,8 +280,8 @@ class _ConcatLowerer(PyExprMutator):
             elif "quantize" in op_name and dq_entries:
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                o_scale_val = float(s.data.numpy())
-                o_zp_val = int(z.data.numpy())
+                o_scale_val = float(s.value.numpy())
+                o_zp_val = int(z.value.numpy())
 
         if not dq_entries or o_scale_val is None:
             return super().visit_call_(call)
@@ -291,8 +291,8 @@ class _ConcatLowerer(PyExprMutator):
             return super().visit_call_(call)
 
         # Output shape — NCHW expected.
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return super().visit_call_(call)
         output_shape = [int(s) for s in call_sinfo.shape]
         if len(output_shape) != 4:
@@ -302,9 +302,9 @@ class _ConcatLowerer(PyExprMutator):
         # Per-slot channel counts from each int8 input's struct_info.
         C_vals = []
         for inp, _, _ in dq_entries:
-            if not hasattr(inp, "struct_info") or not hasattr(inp.struct_info, "shape"):
+            if not hasattr(inp, "ty") or not hasattr(inp.ty, "shape"):
                 return super().visit_call_(call)
-            shape = [int(s) for s in inp.struct_info.shape]
+            shape = [int(s) for s in inp.ty.shape]
             C_vals.append(shape[1])
 
         # Pad to _MAX_INPUTS slots; kernel skips slots with C_i=0.
@@ -323,29 +323,29 @@ class _ConcatLowerer(PyExprMutator):
 
         def te_concat_rescale(t0, t1, t2, t3):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     _KERNEL_NAME,
                     ins[0].data,
-                    tir.IntImm("int32", C0_v),
-                    tir.FloatImm("float32", s0_v),
-                    tir.IntImm("int32", z0_v),
+                    tirx.IntImm("int32", C0_v),
+                    tirx.FloatImm("float32", s0_v),
+                    tirx.IntImm("int32", z0_v),
                     ins[1].data,
-                    tir.IntImm("int32", C1_v),
-                    tir.FloatImm("float32", s1_v),
-                    tir.IntImm("int32", z1_v),
+                    tirx.IntImm("int32", C1_v),
+                    tirx.FloatImm("float32", s1_v),
+                    tirx.IntImm("int32", z1_v),
                     ins[2].data,
-                    tir.IntImm("int32", C2_v),
-                    tir.FloatImm("float32", s2_v),
-                    tir.IntImm("int32", z2_v),
+                    tirx.IntImm("int32", C2_v),
+                    tirx.FloatImm("float32", s2_v),
+                    tirx.IntImm("int32", z2_v),
                     ins[3].data,
-                    tir.IntImm("int32", C3_v),
-                    tir.FloatImm("float32", s3_v),
-                    tir.IntImm("int32", z3_v),
+                    tirx.IntImm("int32", C3_v),
+                    tirx.FloatImm("float32", s3_v),
+                    tirx.IntImm("int32", z3_v),
                     outs[0].data,
-                    tir.IntImm("int32", HW_v),
-                    tir.FloatImm("float32", s_out_v),
-                    tir.IntImm("int32", z_out_v),
+                    tirx.IntImm("int32", HW_v),
+                    tirx.FloatImm("float32", s_out_v),
+                    tirx.IntImm("int32", z_out_v),
                 )
 
             return te.extern(
@@ -421,8 +421,8 @@ class _ConcatLowerer(PyExprMutator):
                 raw_input = reshape_src.get(val.args[0])
                 if raw_input is None:
                     return super().visit_call_(call)
-                dq_sinfo = binding.var.struct_info
-                if not isinstance(dq_sinfo, relax.TensorStructInfo) or not dq_sinfo.shape:
+                dq_sinfo = binding.var.ty
+                if not isinstance(dq_sinfo, relax.TensorType) or not dq_sinfo.shape:
                     return super().visit_call_(call)
                 dq_shape = [int(v) for v in dq_sinfo.shape]
                 # [1, C, n_i] only: the kernel carries no batch dimension, so a
@@ -435,8 +435,8 @@ class _ConcatLowerer(PyExprMutator):
                     raw_input,
                     dq_shape[2],
                     dq_shape[1],
-                    float(s.data.numpy()),
-                    int(z.data.numpy()),
+                    float(s.value.numpy()),
+                    int(z.value.numpy()),
                 )
 
             elif "concat" in op_name:
@@ -466,8 +466,8 @@ class _ConcatLowerer(PyExprMutator):
 
         # Output shape -- [1, C, n0+n1+...] expected; concat must be on the
         # last axis (axis=-1 or the equivalent positive index).
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return super().visit_call_(call)
         output_shape = [int(s) for s in call_sinfo.shape]
         if len(output_shape) != 3 or output_shape[0] != 1:
@@ -497,27 +497,27 @@ class _ConcatLowerer(PyExprMutator):
 
         def te_concat_sigmoid(t0, t1, t2, t3):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     _SIGMOID_KERNEL_NAME,
                     ins[0].data,
-                    tir.IntImm("int32", n0_v),
-                    tir.FloatImm("float32", s0_v),
-                    tir.IntImm("int32", z0_v),
+                    tirx.IntImm("int32", n0_v),
+                    tirx.FloatImm("float32", s0_v),
+                    tirx.IntImm("int32", z0_v),
                     ins[1].data,
-                    tir.IntImm("int32", n1_v),
-                    tir.FloatImm("float32", s1_v),
-                    tir.IntImm("int32", z1_v),
+                    tirx.IntImm("int32", n1_v),
+                    tirx.FloatImm("float32", s1_v),
+                    tirx.IntImm("int32", z1_v),
                     ins[2].data,
-                    tir.IntImm("int32", n2_v),
-                    tir.FloatImm("float32", s2_v),
-                    tir.IntImm("int32", z2_v),
+                    tirx.IntImm("int32", n2_v),
+                    tirx.FloatImm("float32", s2_v),
+                    tirx.IntImm("int32", z2_v),
                     ins[3].data,
-                    tir.IntImm("int32", n3_v),
-                    tir.FloatImm("float32", s3_v),
-                    tir.IntImm("int32", z3_v),
+                    tirx.IntImm("int32", n3_v),
+                    tirx.FloatImm("float32", s3_v),
+                    tirx.IntImm("int32", z3_v),
                     outs[0].data,
-                    tir.IntImm("int32", C_v),
+                    tirx.IntImm("int32", C_v),
                 )
 
             return te.extern(

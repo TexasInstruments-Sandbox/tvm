@@ -22,7 +22,7 @@ run *before* relax.transform.FoldConstant, on purpose -- folding a weight's
 dequantize(int8_const, scale_const) too early would expand int8 weights back
 to float32 in weights.bin (see fuse_dequantize_matmul.py's module docstring).
 Because these passes run first, they see plain Vars, not yet the
-relax.Constant nodes FoldConstant would later produce.
+tvm.ir.GenericConst nodes FoldConstant would later produce.
 
 That ordering has a failure mode: if an *entire* matched subgraph happens to
 depend only on constants -- e.g. Swin V2's continuous-relative-position-bias
@@ -41,6 +41,7 @@ instead -- which is both crash-free and strictly better (the DSP kernel would
 otherwise recompute the same fixed value on every single inference).
 """
 
+import tvm
 from tvm import relax
 
 
@@ -72,7 +73,7 @@ class ConstReachability:
         # a stack overflow).
         self._memo[expr] = False
 
-        if isinstance(expr, (relax.Constant, relax.ShapeExpr, relax.PrimValue)):
+        if isinstance(expr, (tvm.ir.GenericConst, relax.ShapeExpr)) or tvm.ir.is_prim_expr(expr):
             result = True
         elif isinstance(expr, relax.Var):
             bound = self._bindings.get(expr)

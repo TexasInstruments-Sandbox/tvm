@@ -48,6 +48,50 @@ class TargetFeatures:
         return _ffi_api.TargetGetFeature(self.target, name)
 
 
+# TI fork: c_static_lib targets are written as CLI strings throughout the C7x tooling and
+# tests ("c_static_lib -mcpu=c7x -use-cpp-api=1"). TVM 0.27 only accepts the JSON dict
+# form, so legacy strings for this one kind are converted here.
+_C_STATIC_LIB_BOOL_OPTIONS = frozenset(
+    {
+        "profile-layers",
+        "debug-alloc",
+        "skip-runtime-checks",
+        "use-cpp-api",
+        "tidl-runtime",
+        "tidl-kernels",
+        "mmalib",
+    }
+)
+_C_STATIC_LIB_INT_OPTIONS = frozenset(
+    {"constants-byte-alignment", "l1d-cache-size", "l2-sram-size", "vector-width"}
+)
+
+
+def _parse_c_static_lib_cli(target: str) -> dict | None:
+    """Convert a legacy ``c_static_lib -opt=val ...`` string to a target dict.
+
+    Returns None if ``target`` is not a c_static_lib CLI string.
+    """
+    tokens = target.split()
+    if not tokens or tokens[0] != "c_static_lib":
+        return None
+    config: dict = {"kind": "c_static_lib"}
+    for token in tokens[1:]:
+        if not token.startswith("-"):
+            raise ValueError(f"Cannot parse c_static_lib target option '{token}' in '{target}'")
+        key, sep, value = token.lstrip("-").partition("=")
+        if key in _C_STATIC_LIB_BOOL_OPTIONS:
+            config[key] = (value.lower() not in ("0", "false")) if sep else True
+        elif key in _C_STATIC_LIB_INT_OPTIONS:
+            config[key] = int(value)
+        elif sep:
+            config[key] = value
+        else:
+            raise ValueError(f"c_static_lib target option '-{key}' needs a value in '{target}'")
+    return config
+
+
+
 @tvm_ffi.register_object("target.Target")
 class Target(Object):
     """Target device information, use through TVM API.
@@ -131,6 +175,10 @@ class Target(Object):
             When using a dictionary or json string to configure target, the possible values are
             same as target.
         """
+        if isinstance(target, str) and (legacy := _parse_c_static_lib_cli(target)) is not None:
+            target = legacy
+        if isinstance(host, str) and (legacy := _parse_c_static_lib_cli(host)) is not None:
+            host = legacy
         if isinstance(target, dict | str):
             target = convert(target)
         if isinstance(host, dict | str):

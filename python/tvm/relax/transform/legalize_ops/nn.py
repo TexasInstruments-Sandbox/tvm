@@ -152,7 +152,7 @@ def _nn_conv1d_transpose(bb: BlockBuilder, call: Call) -> Expr:
     if _is_c7x_target() and call.attrs.groups == 1:
         # Check if we can use the optimized version (in_width=1, stride=1)
         # This eliminates the inner dw loop entirely for 16x speedup
-        data_shape = call.args[0].struct_info.shape
+        data_shape = call.args[0].ty.shape
         strides = call.attrs.strides
         in_width = data_shape[2] if len(data_shape) > 2 else None
         stride_val = strides[0] if strides else 1
@@ -168,7 +168,7 @@ def _nn_conv1d_transpose(bb: BlockBuilder, call: Call) -> Expr:
                         call.args[1],
                         stride=call.attrs.strides,
                         padding=call.attrs.padding,
-                        out_dtype=call.struct_info.dtype,
+                        out_dtype=call.ty.dtype,
                         output_padding=call.attrs.output_padding,
                         primfunc_name_hint="conv1d_transpose",
                     )
@@ -181,7 +181,7 @@ def _nn_conv1d_transpose(bb: BlockBuilder, call: Call) -> Expr:
             call.args[1],
             stride=call.attrs.strides,
             padding=call.attrs.padding,
-            out_dtype=call.struct_info.dtype,
+            out_dtype=call.ty.dtype,
             output_padding=call.attrs.output_padding,
             primfunc_name_hint="conv1d_transpose",
         )

@@ -38,7 +38,7 @@ Two tiling strategies are supported:
 import logging
 
 import tvm
-from tvm import tir
+from tvm import s_tir, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 
@@ -127,18 +127,18 @@ def _schedule_conv2d_nhwc(func, l2_budget):
 
     Returns the scheduled PrimFunc, or the original if not applicable.
     """
-    sch = tir.Schedule(func)
+    sch = s_tir.Schedule(func)
 
     # --- Detect conv2d_nhwc block ---
     try:
-        root_block = sch.get_block("root")
+        root_block = sch.get_sblock("root")
     except Exception:
         return func  # No root block (e.g. TIDL extern stub)
     all_blocks = sch.get_child_blocks(root_block)
     block_names = [sch.get(b).name_hint for b in all_blocks]
     if "conv2d_nhwc" not in block_names:
         return func
-    conv_block = sch.get_block("conv2d_nhwc")
+    conv_block = sch.get_sblock("conv2d_nhwc")
 
     # --- Reorder ff (output channel) innermost ---
     # In HWIO layout, weight[ry, rx, rc, ff] is contiguous on ff.
@@ -161,9 +161,9 @@ def _schedule_conv2d_nhwc(func, l2_budget):
         # reads[0] = pad_temp: [N, IH_pad, IW_pad, IC]
         # reads[1] = weight (HWIO): [KH, KW, IC, OC]
         # writes[0] = output: [N, OH, OW, OC]
-        input_shape = block_stmt.reads[0].buffer.shape
-        weight_shape = block_stmt.reads[1].buffer.shape
-        output_shape = block_stmt.writes[0].buffer.shape
+        input_shape = block_stmt.reads[0].source.shape
+        weight_shape = block_stmt.reads[1].source.shape
+        output_shape = block_stmt.writes[0].source.shape
 
         ic = int(input_shape[3])
         iw_pad = int(input_shape[2])
@@ -176,7 +176,7 @@ def _schedule_conv2d_nhwc(func, l2_budget):
         return func
 
     # --- Compute h_tile ---
-    input_dtype = block_stmt.reads[0].buffer.dtype
+    input_dtype = block_stmt.reads[0].source.dtype
     elem_bytes = (input_dtype.bits * input_dtype.lanes + 7) // 8
     h_tile = _compute_h_tile(ic, iw_pad, kh, oh, l2_budget, elem_bytes)
     if h_tile >= oh:
@@ -266,7 +266,7 @@ def _schedule_conv2d_nhwc(func, l2_budget):
     # H-tiles).  Weights in HWIO layout are read repeatedly for each
     # tile — caching them in L2 avoids DDR latency on every access.
     # Only cache if weights + double-buffered input strip fit in L2.
-    weight_dtype = block_stmt.reads[1].buffer.dtype
+    weight_dtype = block_stmt.reads[1].source.dtype
     weight_elem = (weight_dtype.bits * weight_dtype.lanes + 7) // 8
     weight_bytes = kh * kw * ic * oc * weight_elem
     input_strip = (h_tile + kh - 1) * iw_pad * ic * elem_bytes
@@ -323,18 +323,18 @@ def _schedule_conv2d(func, l2_budget):
     Returns the scheduled PrimFunc, or the original if scheduling is
     not applicable.
     """
-    sch = tir.Schedule(func)
+    sch = s_tir.Schedule(func)
 
     # --- 1a. Detect conv2d block ---
     try:
-        root_block = sch.get_block("root")
+        root_block = sch.get_sblock("root")
     except Exception:
         return func  # No root block (e.g. TIDL extern stub)
     all_blocks = sch.get_child_blocks(root_block)
     block_names = [sch.get(b).name_hint for b in all_blocks]
     if "conv2d_nchw" not in block_names:
         return func
-    conv_block = sch.get_block("conv2d_nchw")
+    conv_block = sch.get_sblock("conv2d_nchw")
 
     # --- 1b. Extract dimensions from block reads/writes ---
     try:
@@ -342,8 +342,8 @@ def _schedule_conv2d(func, l2_budget):
         # block.reads[0] = input (pad_temp): [1, IC, IH_pad, IW_pad]
         # block.reads[1] = weight:           [OC, IC, KH, KW]
         # block.writes[0] = output:          [1, OC, OH, OW]
-        input_shape = block_stmt.reads[0].buffer.shape
-        weight_shape = block_stmt.reads[1].buffer.shape
+        input_shape = block_stmt.reads[0].source.shape
+        weight_shape = block_stmt.reads[1].source.shape
 
         ic = int(input_shape[1])
         ih_pad = int(input_shape[2])
@@ -370,7 +370,7 @@ def _schedule_conv2d(func, l2_budget):
         return func
 
     # --- 1c. Compute oc_tile ---
-    input_dtype = block_stmt.reads[0].buffer.dtype
+    input_dtype = block_stmt.reads[0].source.dtype
     elem_bytes = (input_dtype.bits * input_dtype.lanes + 7) // 8
     oc_tile = _compute_oc_tile(ic, ih_pad, iw_pad, oc, kh, kw, l2_budget, elem_bytes)
     if oc_tile >= oc:
@@ -432,17 +432,17 @@ def _schedule_dequantize_matmul(func, l2_budget):
 
     Returns the scheduled PrimFunc, or the original if not applicable.
     """
-    sch = tir.Schedule(func)
+    sch = s_tir.Schedule(func)
 
     try:
-        root_block = sch.get_block("root")
+        root_block = sch.get_sblock("root")
     except Exception:
         return func
     all_blocks = sch.get_child_blocks(root_block)
     block_names = [sch.get(b).name_hint for b in all_blocks]
     if "dequantize_matmul_acc" not in block_names:
         return func
-    acc_block = sch.get_block("dequantize_matmul_acc")
+    acc_block = sch.get_sblock("dequantize_matmul_acc")
 
     # Extract dimensions from block
     try:
@@ -450,8 +450,8 @@ def _schedule_dequantize_matmul(func, l2_budget):
         # reads[0] = activation: [M, K] float32
         # reads[1] = weight: [N, K] int8
         # writes[0] = acc: [M, N] float32
-        act_shape = block_stmt.reads[0].buffer.shape
-        w_shape = block_stmt.reads[1].buffer.shape
+        act_shape = block_stmt.reads[0].source.shape
+        w_shape = block_stmt.reads[1].source.shape
         M = int(act_shape[0])
         K = int(act_shape[1])
         N = int(w_shape[0])
@@ -565,7 +565,7 @@ class ScheduleC7xDMATiling:
     def transform_module(self, mod: IRModule, ctx: PassContext) -> IRModule:
         new_funcs = {}
         for gvar, func in mod.functions.items():
-            if isinstance(func, tir.PrimFunc):
+            if isinstance(func, tirx.PrimFunc):
                 # Try NHWC H-tiling first, then NCHW OC-tiling, then matmul
                 new_func = _schedule_conv2d_nhwc(func, self.l2_budget)
                 if new_func is func:

@@ -366,7 +366,7 @@ each subgraph gets its own `_process()` function and instance.
      (I/O shapes/dtypes)
    - For each composite:
      - Lift constants into VarBindings (`_lift_constants_in_composite`)
-     - Construct synthetic `relax.Call` with `UpdateStructInfo`
+     - Construct synthetic `relax.Call` with `relax.expr._update_type`
      - `TIDL_relaxImportNode()` — parse op attrs, register with TIDL
      - `TIDL_relaxImportLinkNode()` — connect data flow edges
 4. `TIDL_relaxOptimizeNet()` — run network compiler

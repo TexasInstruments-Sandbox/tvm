@@ -106,9 +106,9 @@ class PadTIDLOutputStorage:
                 if not isinstance(value, relax.Call):
                     continue
                 if value.op == _ALLOC_TENSOR and isinstance(value.args[0], relax.Var):
-                    tensor_to_storage[binding.var.name_hint] = value.args[0].name_hint
+                    tensor_to_storage[binding.var.name] = value.args[0].name
                 elif value.op == _BUILTIN_ALLOC_TENSOR:
-                    builtin_allocs.add(binding.var.name_hint)
+                    builtin_allocs.add(binding.var.name)
             # Second pass: for each TIDL call, map its output args to storages.
             for binding in _iter_bindings(func):
                 value = binding.value
@@ -125,11 +125,11 @@ class PadTIDLOutputStorage:
                 for slot, (arg, nbytes) in enumerate(zip(out_args, sizes)):
                     if not isinstance(arg, relax.Var):
                         continue
-                    storage = tensor_to_storage.get(arg.name_hint)
+                    storage = tensor_to_storage.get(arg.name)
                     if storage is not None:
                         wanted[storage] = max(wanted.get(storage, 0), nbytes)
-                    elif arg.name_hint in builtin_allocs:
-                        split[arg.name_hint] = max(split.get(arg.name_hint, 0), nbytes)
+                    elif arg.name in builtin_allocs:
+                        split[arg.name] = max(split.get(arg.name, 0), nbytes)
                     else:
                         logger.warning(
                             "PadTIDLOutputStorage: %s output %d (%s) comes from neither "
@@ -137,7 +137,7 @@ class PadTIDLOutputStorage:
                             "allocation alone",
                             value.op.name_hint,
                             slot,
-                            arg.name_hint,
+                            arg.name,
                         )
 
         if not wanted and not split:
@@ -188,7 +188,7 @@ class _StorageGrower(relax.PyExprMutator):
         self._current: str = ""
 
     def visit_var_binding_(self, binding: relax.VarBinding) -> None:
-        self._current = binding.var.name_hint
+        self._current = binding.var.name
         super().visit_var_binding_(binding)
         self._current = ""
 
@@ -212,7 +212,7 @@ class _StorageGrower(relax.PyExprMutator):
             )
             return call
         current = size_arg.values[0]
-        if not isinstance(current, tvm.tir.IntImm):
+        if not isinstance(current, tvm.tirx.IntImm):
             logger.warning(
                 "PadTIDLOutputStorage: %s has a symbolic storage size; leaving it alone",
                 self._current,
@@ -221,9 +221,9 @@ class _StorageGrower(relax.PyExprMutator):
         if int(current) >= nbytes:
             return call
         self._grown[self._current] = (int(current), nbytes)
-        new_size = relax.ShapeExpr([tvm.tir.IntImm(current.dtype, nbytes)])
+        new_size = relax.ShapeExpr([tvm.tirx.IntImm(current.dtype, nbytes)])
         new_args = [new_size] + list(call.args)[1:]
-        return relax.Call(call.op, new_args, call.attrs, call.sinfo_args)
+        return relax.Call(call.op, new_args, call.attrs, call.ty_args)
 
     def _split_builtin_alloc(self, call: relax.Call) -> relax.Expr:
         """Turn ``builtin.alloc_tensor`` into oversized storage + a tensor view.
@@ -252,7 +252,7 @@ class _StorageGrower(relax.PyExprMutator):
         # reporting a smaller requirement must not shrink the allocation.
         logical = 1
         for dim in shape.values:
-            if not isinstance(dim, tvm.tir.IntImm):
+            if not isinstance(dim, tvm.tirx.IntImm):
                 logger.warning(
                     "PadTIDLOutputStorage: %s has a symbolic dimension; leaving "
                     "its allocation alone",
@@ -265,10 +265,10 @@ class _StorageGrower(relax.PyExprMutator):
             return call
         # builtin.alloc_tensor(shape, dtype, runtime_device_index, storage_scope)
         storage_scope = call.args[3] if len(call.args) > 3 else relax.StringImm("global")
-        vdevice = call.args[2] if len(call.args) > 2 else relax.PrimValue(0)
+        vdevice = call.args[2] if len(call.args) > 2 else relax.prim_value(0)
         storage = self.builder_.emit(
             relax.op.memory.alloc_storage(
-                relax.ShapeExpr([tvm.tir.IntImm("int64", nbytes)]),
+                relax.ShapeExpr([tvm.tirx.IntImm("int64", nbytes)]),
                 vdevice,
                 storage_scope,
                 dtype,
@@ -276,4 +276,4 @@ class _StorageGrower(relax.PyExprMutator):
             name_hint=f"{self._current}_tidl_storage",
         )
         self._grown[self._current] = (0, nbytes)
-        return relax.op.memory.alloc_tensor(storage, relax.PrimValue(0), shape, dtype)
+        return relax.op.memory.alloc_tensor(storage, relax.prim_value(0), shape, dtype)

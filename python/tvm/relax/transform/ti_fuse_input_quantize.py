@@ -40,7 +40,7 @@ Only per-tensor quantize is matched (scalar scale constant, rank-0 or shape []).
 import logging
 
 import tvm
-from tvm import relax, te, tir
+from tvm import relax, te, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
 from tvm.relax.dpl.pattern import is_op, wildcard
@@ -58,9 +58,9 @@ def is_per_tensor_scalar_constant(expr) -> bool:
     trailing quantize's scale/zp: both kernels these lower to take one
     shared (scale, zp) pair for the whole tensor, not per-channel.
     """
-    if not isinstance(expr, relax.Constant):
+    if not isinstance(expr, tvm.ir.GenericConst):
         return False
-    shape = expr.struct_info.shape
+    shape = expr.ty.shape
     return shape is None or len(shape) == 0
 
 
@@ -75,15 +75,15 @@ def is_raw_float32_input(x) -> bool:
     """
     if not isinstance(x, relax.Var):
         return False
-    if not (hasattr(x, "struct_info") and hasattr(x.struct_info, "dtype")):
+    if not (hasattr(x, "ty") and hasattr(x.ty, "dtype")):
         return False
-    return str(x.struct_info.dtype) == "float32"
+    return str(x.ty.dtype) == "float32"
 
 
 def static_shape_or_none(shape):
     """Convert a Relax shape (an iterable of PrimExpr) to a list of Python
     ints, or None if any dimension is not a compile-time constant (e.g. a
-    dynamic batch size, represented as a tir.Var).
+    dynamic batch size, represented as a tirx.Var).
 
     Callers must treat None as "doesn't match" rather than calling int()
     unconditionally on the shape, which raises TypeError on a non-IntImm
@@ -91,7 +91,7 @@ def static_shape_or_none(shape):
     """
     dims = []
     for s in shape:
-        if not isinstance(s, tir.IntImm):
+        if not isinstance(s, tirx.IntImm):
             return None
         dims.append(int(s))
     return dims
@@ -131,7 +131,7 @@ def _check_quantize(ctx) -> bool:
     # scale and zp must be compile-time per-tensor scalar constants
     scale = ctx.annotated_expr["scale"]
     zp = ctx.annotated_expr["zp"]
-    if not is_per_tensor_scalar_constant(scale) or not isinstance(zp, relax.Constant):
+    if not is_per_tensor_scalar_constant(scale) or not isinstance(zp, tvm.ir.GenericConst):
         return False
 
     # The lowerer always emits the int8-only c7x_int8_quantize kernel, so only
@@ -193,16 +193,16 @@ class _QuantizeLowerer(PyExprMutator):
             x_arg = param_to_arg.get(x_param, x_param)
             s = param_to_arg.get(val.args[1], val.args[1])
             z = param_to_arg.get(val.args[2], val.args[2])
-            if isinstance(s, relax.Constant) and isinstance(z, relax.Constant):
-                scale_val = float(s.data.numpy())
-                zp_val = int(z.data.numpy())
+            if isinstance(s, tvm.ir.GenericConst) and isinstance(z, tvm.ir.GenericConst):
+                scale_val = float(s.value.numpy())
+                zp_val = int(z.value.numpy())
             break
 
         if x_arg is None or scale_val is None or scale_val == 0.0:
             return super().visit_call_(call)
 
-        call_sinfo = call.struct_info
-        if not isinstance(call_sinfo, relax.TensorStructInfo) or not call_sinfo.shape:
+        call_sinfo = call.ty
+        if not isinstance(call_sinfo, relax.TensorType) or not call_sinfo.shape:
             return super().visit_call_(call)
 
         out_shape = static_shape_or_none(call_sinfo.shape)
@@ -218,14 +218,14 @@ class _QuantizeLowerer(PyExprMutator):
 
         def te_quantize(x_t):
             def fcompute(ins, outs):
-                return tir.call_extern(
+                return tirx.call_extern(
                     "int32",
                     "c7x_int8_quantize",
                     ins[0].data,
                     outs[0].data,
-                    tir.IntImm("int32", _n),
-                    tir.FloatImm("float32", _inv_scale),
-                    tir.IntImm("int32", _zp),
+                    tirx.IntImm("int32", _n),
+                    tirx.FloatImm("float32", _inv_scale),
+                    tirx.IntImm("int32", _zp),
                 )
 
             return te.extern(

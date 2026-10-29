@@ -49,6 +49,7 @@ import json
 import re
 from typing import Dict, List, Optional
 
+import tvm
 from tvm import relax
 from tvm.ir import IRModule
 from tvm.relax.backend.tidl.tidl import _extract_composite_calls
@@ -250,8 +251,8 @@ def _extract_graph(
         nid = add_node(
             label=p.name_hint,
             op="input",
-            shape=_get_shape_str(p.struct_info),
-            dtype=_get_dtype_str(p.struct_info),
+            shape=_get_shape_str(p.ty),
+            dtype=_get_dtype_str(p.ty),
             tidl=False,
             mma=False,
             group="input",
@@ -266,7 +267,7 @@ def _extract_graph(
         for b in block.bindings:
             val = b.value
             bvar = b.var
-            shape = _get_shape_str(bvar.struct_info)
+            shape = _get_shape_str(bvar.ty)
 
             if isinstance(val, relax.Call):
                 is_tidl = False
@@ -321,7 +322,7 @@ def _extract_graph(
                             comps = _extract_composite_calls(called_fn)
                             for cf, orig_call, cv in comps:
                                 cname = str(cf.attrs["Composite"])
-                                cshape = _get_shape_str(cv.struct_info)
+                                cshape = _get_shape_str(cv.ty)
                                 # Extract source from inside the composite
                                 # function body (the partitioner preserves
                                 # spans on inner ops but not the outer call).
@@ -384,7 +385,7 @@ def _extract_graph(
                     label=bvar.name_hint,
                     op=op_name,
                     shape=shape,
-                    dtype=_get_dtype_str(bvar.struct_info),
+                    dtype=_get_dtype_str(bvar.ty),
                     tidl=is_tidl,
                     mma=is_mmalib,
                     group=group,
@@ -442,12 +443,12 @@ def _extract_graph(
                     var_nodes.append((bvar, field_nids[0]))
                     tuple_var_fields.append((bvar, field_nids))
 
-            elif isinstance(val, relax.Constant):
+            elif isinstance(val, tvm.ir.GenericConst):
                 nid = add_node(
                     label=bvar.name_hint,
                     op="constant",
                     shape=shape,
-                    dtype=_get_dtype_str(bvar.struct_info),
+                    dtype=_get_dtype_str(bvar.ty),
                     tidl=False,
                     mma=False,
                     group="const",
@@ -471,12 +472,12 @@ def _extract_graph(
         if src is None and nodes:
             src = nodes[-1]["id"]
         if src is not None:
-            out_shape = _get_shape_str(ret_expr.struct_info)
+            out_shape = _get_shape_str(ret_expr.ty)
             out_nid = add_node(
                 label="output",
                 op="output",
                 shape=out_shape,
-                dtype=_get_dtype_str(ret_expr.struct_info),
+                dtype=_get_dtype_str(ret_expr.ty),
                 tidl=False,
                 mma=False,
                 group="output",
