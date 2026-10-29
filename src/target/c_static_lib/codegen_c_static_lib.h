@@ -34,14 +34,14 @@
 
 #include "../source/codegen_c.h"
 #include "tvm/target/codegen.h"
-#include "tvm/tir/builtin.h"
-#include "tvm/tir/expr.h"
+#include "tvm/tirx/builtin.h"
+#include "tvm/tirx/expr.h"
 #include "tvm/ffi/c_api.h"  // For TVMFFITypeIndex enum constants
 
 namespace tvm {
 namespace codegen {
 
-using namespace tir;
+using namespace tirx;
 
 /*!
  * \brief Information about a single argument in a VM builtin call.
@@ -100,7 +100,8 @@ class CodeGenCStaticLib final : public CodeGenC {
   friend class ScopeGuard;
   CodeGenCStaticLib();
   void Init(bool output_ssa, bool emit_asserts, bool emit_fwd_func_decl,
-            const std::string& target_str, const std::unordered_set<std::string>& devices,
+            const std::string& target_str, const std::string& mcpu,
+            const std::string& device_name, const std::unordered_set<std::string>& devices,
             bool profile_layers = false, bool skip_runtime_checks = false,
             bool use_cpp_api = false, bool debug_alloc = false,
             bool tidl_runtime = false);
@@ -111,36 +112,31 @@ class CodeGenCStaticLib final : public CodeGenC {
   void PreFunctionBody(const PrimFunc& f) override;
   void DeclarePackedCalls(const PrimFunc& f);
 
-  void PrintType(DataType t, std::ostream& os) final;  // NOLINT(*)
-
-    /*!
-   * Print Type representation of type type.
-   * \param type The type representation.
-   * \param os The stream to print the ctype into
-   */
-  void PrintType(const Type& type, std::ostream& os) override;  // NOLINT(*)
+  using CodeGenC::PrintType;
+  void PrintType(const PrimType& t, std::ostream& os) final;  // NOLINT(*)
 
   void PrintFuncPrefix(std::ostream& os) final;        // NOLINT(*)
   void PrintTrailer();
 
   // expression visitors
-  void VisitExpr_(const CallNode* op, std::ostream& os) override;       // NOLINT(*)
-  void VisitExpr_(const BufferLoadNode* op, std::ostream& os) override;       // NOLINT(*)
-  void VisitExpr_(const BroadcastNode* op, std::ostream& os) override;  // NOLINT(*)
-  void VisitExpr_(const DivNode* op, std::ostream& os) override;       // NOLINT(*)
-  void VisitExpr_(const FloatImmNode* op, std::ostream& os) override;  // NOLINT(*)
-  void VisitExpr_(const MaxNode* op, std::ostream& os) override;       // NOLINT(*)
-  void VisitExpr_(const MinNode* op, std::ostream& os) override;       // NOLINT(*)
+  void Dispatch_(const CallNode* op, std::ostream& os) override;       // NOLINT(*)
+  void Dispatch_(const TensorLoadNode* op, std::ostream& os) override;       // NOLINT(*)
+  void Dispatch_(const prim::BroadcastNode* op, std::ostream& os) override;  // NOLINT(*)
+  void Dispatch_(const prim::DivNode* op, std::ostream& os) override;       // NOLINT(*)
+  void Dispatch_(const FloatImmNode* op, std::ostream& os) override;  // NOLINT(*)
+  void Dispatch_(const prim::MaxNode* op, std::ostream& os) override;       // NOLINT(*)
+  void Dispatch_(const prim::MinNode* op, std::ostream& os) override;       // NOLINT(*)
 
 
   // statment vistors
-  void VisitStmt_(const LetStmtNode* op) override;
-  void VisitStmt_(const BufferStoreNode* op) override;
-  void VisitStmt_(const AllocateNode* op) override;
-  void VisitStmt_(const AssertStmtNode* op) override;
-  void VisitStmt_(const SeqStmtNode* op) override;
-  void VisitStmt_(const EvaluateNode* op) override;
-  void VisitStmt_(const ForNode* op) override;
+  void Dispatch_(const BindNode* op) override;
+  void Dispatch_(const BufferStoreNode* op) override;
+  void Dispatch_(const AllocBufferNode* op) override;
+  void Dispatch_(const DeclBufferNode* op) override;
+  void Dispatch_(const AssertStmtNode* op) override;
+  void Dispatch_(const SeqStmtNode* op) override;
+  void Dispatch_(const EvaluateNode* op) override;
+  void Dispatch_(const ForNode* op) override;
 
   ffi::Array<ffi::String> GetMainFunctionNames() const { return main_function_names_; }
   const std::vector<ffi::Array<ffi::String>>& GetKernelFunctionNamesVec() const {
@@ -159,7 +155,7 @@ class CodeGenCStaticLib final : public CodeGenC {
    * \param skip_first_arg Whether to skip the first arguments.
    * \param os The output stream.
    */
-  void PrintCallExtern(Type ret_type, ffi::String global_symbol, const ffi::Array<PrimExpr>& args,
+  void PrintCallExtern(Type ret_type, ffi::String global_symbol, const ffi::Array<Expr>& args,
                                bool skip_first_arg, std::ostream& os) override; // NOLINT(*)
 
  private:
@@ -199,10 +195,6 @@ class CodeGenCStaticLib final : public CodeGenC {
   static constexpr const char* kPackedFuncSuffix = "_packed";
 
   // Target string parsing constants
-  static constexpr const char* kMcpuAttr = "mcpu=";
-  static constexpr size_t kMcpuAttrLen = 5;  // strlen("mcpu=")
-  static constexpr const char* kDeviceAttr = "device=";
-  static constexpr size_t kDeviceAttrLen = 7;  // strlen("device=")
   
   // TIR calling convention constants
   static constexpr int kTIRArgsSize = 4;
@@ -363,7 +355,7 @@ class CodeGenCStaticLib final : public CodeGenC {
   void PrintGetFuncFromBackend(const std::string& func_name, const std::string& packed_func_name);
   void EmitVMBuiltinInitFunction();
   void PrintStorageScope(const std::string& scope, std::ostream& os) override;  // NOLINT(*)
-  void UpdateMaxRegisterIndex(const ffi::Array<PrimExpr>& args);
+  void UpdateMaxRegisterIndex(const ffi::Array<Expr>& args);
 
   /*!
    * \brief Print ternary conditional operator implementing binary `op`

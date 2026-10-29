@@ -190,6 +190,20 @@ ffi::Map<ffi::String, ffi::Any> UpdateCStaticLibAttrs(ffi::Map<ffi::String, ffi:
     target.Set("vector-width", int64_t(128));  // 128-bit SIMD
   }
 
+  // The schema defaults of the boolean options are not stored in the target attributes in
+  // 0.27, so GetAttr<bool>(...) would see "absent" (false) for options whose default is
+  // true. Materialize them, as 0.23 did, so consumers read the documented defaults.
+  auto set_bool_default = [&target](const char* key, bool value) {
+    if (!target.count(key)) target.Set(key, value);
+  };
+  set_bool_default("profile-layers", false);
+  set_bool_default("debug-alloc", false);
+  set_bool_default("skip-runtime-checks", true);
+  set_bool_default("use-cpp-api", true);
+  set_bool_default("tidl-runtime", false);
+  set_bool_default("tidl-kernels", true);
+  set_bool_default("mmalib", false);
+
   return target;
 }
 

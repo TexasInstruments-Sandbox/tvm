@@ -34,7 +34,7 @@
 #define TVM_TARGET_SOURCE_CODEGEN_C_STATIC_LIB_DSP_H_
 
 #include <tvm/ir/expr.h>
-#include <tvm/tir/stmt.h>
+#include <tvm/tirx/stmt.h>
 
 #include <cstdint>
 #include <functional>
@@ -67,7 +67,7 @@ class DSPCodeGenExtension {
    * \param os Output stream
    * \param print_indent Function to emit current indentation
    */
-  static void EmitLoopPragmas(const PrimExpr& extent, tir::ForKind loop_kind,
+  static void EmitLoopPragmas(const PrimExpr& extent, tirx::ForKind loop_kind,
                               std::ostream& os,
                               const std::function<void()>& print_indent);
 

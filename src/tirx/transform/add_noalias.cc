@@ -45,7 +45,7 @@ PrimFunc AddNoAlias(PrimFunc func) {
   }
 
   // Add noalias attribute
-  return WithAttr(std::move(func), tirx::attr::kNoAlias, IntImm::Int32(1));
+  return WithAttr(std::move(func), tirx::attr::kNoAlias, true);
 }
 
 namespace transform {

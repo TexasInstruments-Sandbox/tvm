@@ -23,7 +23,7 @@
  */
 #include "codegen_c_static_lib_dsp.h"
 
-#include <tvm/tir/expr.h>
+#include <tvm/tirx/expr.h>
 
 #include <algorithm>
 
@@ -32,13 +32,13 @@
 namespace tvm {
 namespace codegen {
 
-void DSPCodeGenExtension::EmitLoopPragmas(const PrimExpr& extent, tir::ForKind loop_kind,
+void DSPCodeGenExtension::EmitLoopPragmas(const PrimExpr& extent, tirx::ForKind loop_kind,
                                           std::ostream& os,
                                           const std::function<void()>& print_indent) {
   // Collect pragmas to emit, then wrap in #ifdef only if non-empty.
-  bool is_dynamic = extent.as<tir::IntImmNode>() == nullptr;
-  bool is_unrolled = (loop_kind == tir::ForKind::kUnrolled) &&
-                     (extent.as<tir::IntImmNode>() != nullptr);
+  bool is_dynamic = extent.as<IntImmNode>() == nullptr;
+  bool is_unrolled = (loop_kind == tirx::ForKind::kUnrolled) &&
+                     (extent.as<IntImmNode>() != nullptr);
   if (!is_dynamic && !is_unrolled) return;
 
   print_indent();
@@ -53,7 +53,10 @@ void DSPCodeGenExtension::EmitLoopPragmas(const PrimExpr& extent, tir::ForKind l
 
   // UNROLL pragma for explicitly unrolled loops with a known bound.
   if (is_unrolled) {
-    int64_t factor = std::min(extent.as<tir::IntImmNode>()->value, static_cast<int64_t>(8));
+    // The extent is a compile-time constant (is_unrolled requires it); a value too large for
+    // int64_t is clamped to the unroll limit like any other large extent.
+    int64_t factor = extent.as<IntImmNode>()->value.as<int64_t>().value_or(8);
+    factor = std::min(factor, static_cast<int64_t>(8));
     print_indent();
     os << "#pragma UNROLL(" << factor << ")\n";
   }

@@ -47,13 +47,12 @@
  */
 #include <tvm/ffi/extra/module.h>
 #include <tvm/ffi/reflection/registry.h>
-#include <tvm/runtime/module.h>
 #include <tvm/target/codegen.h>
-#include <tvm/tir/stmt_functor.h>
+#include <tvm/tirx/stmt_functor.h>
 #include <tvm/ir/op.h>
-#include <tvm/tir/op_attr_types.h>
+#include <tvm/tirx/op_attr_types.h>
 #include <tvm/runtime/logging.h>
-#include <tvm/arith/analyzer.h>
+#include <tvm/sym/analyzer.h>
 
 #include <cmath>
 #include <sstream>
@@ -62,7 +61,7 @@
 #include <set>
 #include <map>
 
-#include "../../arith/pattern_match.h"
+#include "../../sym/pattern_match.h"
 #include "../../support/str_escape.h"
 #include "../build_common.h"
 #include "../source/codegen_c.h"
@@ -99,7 +98,8 @@ CodeGenCStaticLib::CodeGenCStaticLib() {
  * - Helper function declarations for FFI type conversions
  */
 void CodeGenCStaticLib::Init(bool output_ssa, bool emit_asserts, bool emit_fwd_func_decl,
-                      const std::string& target_str,
+                      const std::string& target_str, const std::string& mcpu,
+                      const std::string& device_name,
                       const std::unordered_set<std::string>& devices,
                       bool profile_layers, bool skip_runtime_checks, bool use_cpp_api,
                       bool debug_alloc, bool tidl_runtime) {
@@ -109,25 +109,11 @@ void CodeGenCStaticLib::Init(bool output_ssa, bool emit_asserts, bool emit_fwd_f
   use_cpp_api_ = use_cpp_api;
   declared_globals_.clear();
 
-  // Extract TI DSP target configuration from target string
-  dsp_.enabled = (target_str.find("mcpu=c66") != std::string::npos ||
-                  target_str.find("mcpu=c7") != std::string::npos);
-
-  // Extract mcpu value if present
-  size_t mcpu_pos = target_str.find(kMcpuAttr);
-  if (mcpu_pos != std::string::npos) {
-    size_t start = mcpu_pos + kMcpuAttrLen;
-    size_t end = target_str.find_first_of(" -", start);
-    dsp_.mcpu = target_str.substr(start, (end != std::string::npos) ? end - start : std::string::npos);
-  }
-
-  // Extract device name if present
-  size_t device_pos = target_str.find(kDeviceAttr);
-  if (device_pos != std::string::npos) {
-    size_t start = device_pos + kDeviceAttrLen;
-    size_t end = target_str.find_first_of(" -", start);
-    dsp_.device_name = target_str.substr(start, (end != std::string::npos) ? end - start : std::string::npos);
-  }
+  // Extract TI DSP target configuration. target->str() is JSON in 0.27, so
+  // the mcpu/device values are read from the typed target attributes passed in.
+  dsp_.mcpu = mcpu;
+  dsp_.device_name = device_name;
+  dsp_.enabled = (dsp_.mcpu.find("c66") == 0 || dsp_.mcpu.find("c7") == 0);
 
   // Set profile-layers option (enables per-layer cycle counting)
   dsp_.profile_layers = profile_layers;
@@ -181,7 +167,7 @@ void CodeGenCStaticLib::AddFunction(const GlobalVar& gvar, const PrimFunc& func)
 void CodeGenCStaticLib::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
                              bool emit_fwd_func_decl) {
   auto global_symbol = func->GetAttr<ffi::String>(tvm::attr::kGlobalSymbol);
-  ICHECK(global_symbol.has_value())
+  TVM_FFI_ICHECK(global_symbol.has_value())
       << "CodeGenCStaticLib: Expect PrimFunc to have the global_symbol attribute";
 
   // Track current function being processed
@@ -191,22 +177,21 @@ void CodeGenCStaticLib::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
   if (inserted) {
     // Use tir.num_input attribute if available, otherwise set to -1
     ffi::Optional<IntImm> num_input_attr = func->GetAttr<IntImm>("tir.num_input");
-    it->second.num_args = num_input_attr.has_value() ? num_input_attr.value()->value : -1;
+    it->second.num_args =
+        num_input_attr.has_value() ? static_cast<int64_t>(num_input_attr.value()->value) : -1;
     // Use tir.returns_tuple attribute if available, otherwise default to false
-    ffi::Optional<Bool> returns_tuple_attr = func->GetAttr<Bool>("tir.returns_tuple");
-    it->second.returns_tuple =
-        returns_tuple_attr.has_value() ? returns_tuple_attr.value()->value : false;
+    it->second.returns_tuple = func->GetAttr<bool>("tir.returns_tuple").value_or(false);
 
     // Read number of outputs for multi-output functions
     if (it->second.returns_tuple) {
       ffi::Optional<IntImm> num_outputs_attr = func->GetAttr<IntImm>("tir.num_outputs");
       if (num_outputs_attr.has_value()) {
-        it->second.num_outputs = num_outputs_attr.value()->value;
+        it->second.num_outputs = static_cast<int64_t>(num_outputs_attr.value()->value);
         // Check DSP output limit.  Raised to 128 to support KV cache models
         // (e.g. SmolLM with 60 KV outputs + 1 logits = 61 outputs total).
         constexpr int64_t kDSPMaxOutputs = 128;
         if (dsp_.enabled && it->second.num_outputs > kDSPMaxOutputs) {
-          LOG(FATAL) << "Function '" << current_function_name_ << "' returns "
+          TVM_FFI_THROW(InternalError) << "Function '" << current_function_name_ << "' returns "
                      << it->second.num_outputs << " outputs, but DSP runtime (mcpu="
                      << dsp_.mcpu << ") supports maximum " << kDSPMaxOutputs
                      << " outputs.";
@@ -215,7 +200,7 @@ void CodeGenCStaticLib::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
     }
 
     it->second.total_params = func->params.size();
-    it->second.was_private = func->GetAttr<Bool>("was_private").has_value();
+    it->second.was_private = func->GetAttr<bool>("was_private").has_value();
   }
 
   emit_fwd_func_decl_ = emit_fwd_func_decl;
@@ -244,8 +229,8 @@ void CodeGenCStaticLib::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
     main_function_names_.push_back(global_symbol.value());
   }
 
-  if (func->HasNonzeroAttr(tir::attr::kIsEntryFunc)) {
-    ICHECK(global_symbol.has_value())
+  if (func->HasNonzeroAttr(tirx::attr::kIsEntryFunc)) {
+    TVM_FFI_ICHECK(global_symbol.has_value())
         << "CodeGenCHost: The entry func must have the global_symbol attribute, "
         << "but function " << gvar << " only has attributes " << func->attrs;
 
@@ -261,59 +246,11 @@ void CodeGenCStaticLib::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
   }
 }
 
-/*!
- * \brief Pre-analysis visitor to collect buffer variable dtypes.
- *
- * This visitor walks the function body to find all BufferLoad and BufferStore
- * operations, recording the mapping from buffer data variables to their dtypes.
- * This information is used to generate typed restrict pointer declarations
- * for TI DSP targets.
- */
-class BufferTypeCollector : public tir::StmtExprVisitor {
- public:
-  void VisitExpr_(const tir::BufferLoadNode* op) final {
-    RegisterBufferType(op->buffer);
-    StmtExprVisitor::VisitExpr_(op);
-  }
-
-  void VisitStmt_(const tir::BufferStoreNode* op) final {
-    RegisterBufferType(op->buffer);
-    StmtExprVisitor::VisitStmt_(op);
-  }
-
-  const std::unordered_map<const tir::VarNode*, DataType>& GetBufferTypes() const {
-    return buffer_types_;
-  }
-
- private:
-  void RegisterBufferType(const tir::Buffer& buffer) {
-    const tir::VarNode* var = buffer->data.get();
-    auto it = buffer_types_.find(var);
-    if (it == buffer_types_.end()) {
-      buffer_types_[var] = buffer->dtype;
-    }
-  }
-
-  std::unordered_map<const tir::VarNode*, DataType> buffer_types_;
-};
-
 void CodeGenCStaticLib::InitFuncState(const PrimFunc& f) {
-   CodeGenC::InitFuncState(f);
-   this->stack_name_.clear();
-   this->stack_size_ = 0;
-   this->anyarray_decls_emitted_ = false;
-
-   // For TI DSP targets, collect buffer dtypes from the function body
-   // This enables typed restrict pointer declarations for better optimization
-   if (dsp_.enabled) {
-     BufferTypeCollector collector;
-     collector(f->body);
-     for (const auto& kv : collector.GetBufferTypes()) {
-       // Register the buffer variable's dtype
-       // This will be used when generating LetStmt for data pointer extraction
-       handle_data_type_[kv.first] = kv.second;
-     }
-   }
+  CodeGenC::InitFuncState(f);
+  this->stack_name_.clear();
+  this->stack_size_ = 0;
+  this->anyarray_decls_emitted_ = false;
 }
 
 // Override to add DSP-specific cycle counter initialization for profiling
@@ -348,23 +285,23 @@ void CodeGenCStaticLib::PrintFuncPrefix(std::ostream& os) {  // NOLINT(*)
 }
 
 // verbatim from CodegenCHost
-void CodeGenCStaticLib::PrintType(DataType t, std::ostream& os) {  // NOLINT(*)
+void CodeGenCStaticLib::PrintType(const PrimType& t, std::ostream& os) {  // NOLINT(*)
   int lanes = t.lanes();
-  if (t.is_handle()) {
-    ICHECK_EQ(lanes, 1) << "does not support vector types";
+  if (t.MatchesCode(DLDataTypeCode::kDLOpaqueHandle) && !t.IsVoid()) {
+    TVM_FFI_ICHECK_EQ(lanes, 1) << "does not support vector types";
     os << "void*";
     return;
   }
-  if (t.is_void()) {
+  if (t.IsVoid()) {
     os << "void";
     return;
   }
-  if (t == DataType::Bool()) {
+  if (t.MatchesCode(DLDataTypeCode::kDLBool) && lanes == 1) {
     os << "bool";
     return;
   }
   bool fail = false;
-  if (t.is_float()) {
+  if (t.MatchesCode(DLDataTypeCode::kDLFloat)) {
     switch (t.bits()) {
       case 16:
         os << "half";
@@ -384,21 +321,22 @@ void CodeGenCStaticLib::PrintType(DataType t, std::ostream& os) {  // NOLINT(*)
       os << lanes;
       return;
     }
-  } else if (t.is_uint() || t.is_int()) {
+  } else if (t.MatchesCode(DLDataTypeCode::kDLUInt, DLDataTypeCode::kDLInt)) {
+    bool is_uint = t.MatchesCode(DLDataTypeCode::kDLUInt);
     switch (t.bits()) {
       case 8:
         // Use explicitly-sized types to avoid platform-dependent signedness
         // of plain 'char' (e.g. TI cl7x defaults to unsigned char).
-        os << (t.is_uint() ? "uint8_t" : "int8_t");
+        os << (is_uint ? "uint8_t" : "int8_t");
         break;
       case 16:
-        os << (t.is_uint() ? "uint16_t" : "int16_t");
+        os << (is_uint ? "uint16_t" : "int16_t");
         break;
       case 32:
-        os << (t.is_uint() ? "uint32_t" : "int32_t");
+        os << (is_uint ? "uint32_t" : "int32_t");
         break;
       case 64:
-        os << (t.is_uint() ? "uint64_t" : "int64_t");
+        os << (is_uint ? "uint64_t" : "int64_t");
         break;
       case 1:
         os << "int";
@@ -413,22 +351,29 @@ void CodeGenCStaticLib::PrintType(DataType t, std::ostream& os) {  // NOLINT(*)
       return;
     }
   }
-  LOG(FATAL) << "Cannot convert type " << t << " to C type";
+  TVM_FFI_THROW(InternalError) << "Cannot convert type " << t->dtype << " to C type";
 }
 
+namespace {
+bool IsScalarFloat(const Type& ty) {
+  auto prim = ty.as<PrimType>();
+  return prim && prim.value().MatchesCode(DLDataTypeCode::kDLFloat) && prim.value().lanes() == 1;
+}
+}  // namespace
+
 // Simplified broadcast handling - relies on C++ compiler vector extensions
-void CodeGenCStaticLib::VisitExpr_(const BroadcastNode* op, std::ostream& os) {  // NOLINT(*)
+void CodeGenCStaticLib::Dispatch_(const prim::BroadcastNode* op, std::ostream& os) {  // NOLINT(*)
   std::string v = PrintExpr(op->value);
   os << "((";
-  PrintType(op->dtype, os);
+  PrintType(op->ty.as_or_throw<PrimType>(), os);
   os << ")(";
   os << v;
   os << "))";
 }
 
 // C7x intrinsic: float division → __recip, with rsqrt pattern detection
-void CodeGenCStaticLib::VisitExpr_(const DivNode* op, std::ostream& os) {  // NOLINT(*)
-  if (IsC7xTarget() && op->dtype.is_float() && op->dtype.lanes() == 1) {
+void CodeGenCStaticLib::Dispatch_(const prim::DivNode* op, std::ostream& os) {  // NOLINT(*)
+  if (IsC7xTarget() && IsScalarFloat(op->ty)) {
     // Detect 1.0f / sqrtf(x) pattern → __recip_sqrt(x)
     auto* float_imm = op->a.as<FloatImmNode>();
     if (float_imm && float_imm->value == 1.0) {
@@ -452,12 +397,12 @@ void CodeGenCStaticLib::VisitExpr_(const DivNode* op, std::ostream& os) {  // NO
     os << "))";
     return;
   }
-  CodeGenC::VisitExpr_(op, os);
+  CodeGenC::Dispatch_(op, os);
 }
 
 // Handle special floating-point constants (INFINITY, NAN) for C code generation
-void CodeGenCStaticLib::VisitExpr_(const FloatImmNode* op, std::ostream& os) {  // NOLINT(*)
-  switch (op->dtype.bits()) {
+void CodeGenCStaticLib::Dispatch_(const FloatImmNode* op, std::ostream& os) {  // NOLINT(*)
+  switch (op->ty.as_or_throw<PrimType>().bits()) {
     case 64:
     case 32: {
       if (std::isinf(op->value)) {
@@ -471,7 +416,7 @@ void CodeGenCStaticLib::VisitExpr_(const FloatImmNode* op, std::ostream& os) {  
       } else {
         std::ostringstream temp;
         temp << std::scientific << op->value;
-        if (op->dtype.bits() == 32) temp << 'f';
+        if (op->ty.as_or_throw<PrimType>().bits() == 32) temp << 'f';
         MarkConst(temp.str());
         os << temp.str();
       }
@@ -480,7 +425,7 @@ void CodeGenCStaticLib::VisitExpr_(const FloatImmNode* op, std::ostream& os) {  
     case 16: {
       if (std::isinf(op->value)) {
         os << '(';
-        PrintType(op->dtype, os);
+        PrintType(op->ty.as_or_throw<PrimType>(), os);
         os << ')';
         if (op->value > 0) {
           os << "INFINITY";
@@ -489,23 +434,23 @@ void CodeGenCStaticLib::VisitExpr_(const FloatImmNode* op, std::ostream& os) {  
         }
       } else if (std::isnan(op->value)) {
         os << '(';
-        PrintType(op->dtype, os);
+        PrintType(op->ty.as_or_throw<PrimType>(), os);
         os << ')' << "NAN";
       } else {
         os << '(';
-        PrintType(op->dtype, os);
+        PrintType(op->ty.as_or_throw<PrimType>(), os);
         os << ')' << std::scientific << op->value << 'f';
       }
       break;
     }
     default:
-      LOG(FATAL) << "Bad bit-width for float: " << op->dtype << "\n";
+      TVM_FFI_THROW(InternalError) << "Bad bit-width for float: " << op->ty << "\n";
   }
 }
 
 // C7x intrinsic: float max -> __max
-void CodeGenCStaticLib::VisitExpr_(const MaxNode* op, std::ostream& os) {  // NOLINT(*)
-  if (IsC7xTarget() && op->dtype.is_float() && op->dtype.lanes() == 1) {
+void CodeGenCStaticLib::Dispatch_(const prim::MaxNode* op, std::ostream& os) {  // NOLINT(*)
+  if (IsC7xTarget() && IsScalarFloat(op->ty)) {
     os << "__max((";
     PrintExpr(op->a, os);
     os << "), (";
@@ -514,20 +459,20 @@ void CodeGenCStaticLib::VisitExpr_(const MaxNode* op, std::ostream& os) {  // NO
     return;
   }
   // Use fmax for float types (C99 standard), fall back to base for integer
-  if (op->dtype.is_float() && op->dtype.lanes() == 1) {
+  if (IsScalarFloat(op->ty)) {
     os << "fmax(";
     PrintExpr(op->a, os);
     os << ", ";
     PrintExpr(op->b, os);
     os << ")";
   } else {
-    CodeGenC::VisitExpr_(op, os);
+    CodeGenC::Dispatch_(op, os);
   }
 }
 
 // C7x intrinsic: float min -> __min
-void CodeGenCStaticLib::VisitExpr_(const MinNode* op, std::ostream& os) {  // NOLINT(*)
-  if (IsC7xTarget() && op->dtype.is_float() && op->dtype.lanes() == 1) {
+void CodeGenCStaticLib::Dispatch_(const prim::MinNode* op, std::ostream& os) {  // NOLINT(*)
+  if (IsC7xTarget() && IsScalarFloat(op->ty)) {
     os << "__min((";
     PrintExpr(op->a, os);
     os << "), (";
@@ -536,14 +481,14 @@ void CodeGenCStaticLib::VisitExpr_(const MinNode* op, std::ostream& os) {  // NO
     return;
   }
   // Use fmin for float types (C99 standard), fall back to base for integer
-  if (op->dtype.is_float() && op->dtype.lanes() == 1) {
+  if (IsScalarFloat(op->ty)) {
     os << "fmin(";
     PrintExpr(op->a, os);
     os << ", ";
     PrintExpr(op->b, os);
     os << ")";
   } else {
-    CodeGenC::VisitExpr_(op, os);
+    CodeGenC::Dispatch_(op, os);
   }
 }
 
@@ -657,7 +602,7 @@ void CodeGenCStaticLib::EmitVMBuiltinInitFunction() {
 
 void CodeGenCStaticLib::PrintCallPacked(const CallNode* op) {
   const StringImmNode* func_name = op->args[0].as<StringImmNode>();
-  ICHECK(func_name != nullptr)
+  TVM_FFI_ICHECK(func_name != nullptr)
       << "tvm_call_[c]packed_lowered expects first argument as function name";
 
   // When skip_runtime_checks_ is enabled, skip validation-only builtins
@@ -718,8 +663,8 @@ void CodeGenCStaticLib::PrintCallPacked(const CallNode* op) {
   // path reports an error in that case; the direct path must fail the same way
   // instead of dereferencing an unchecked pointer.
   if (func_name->value == "vm.builtin.read_if_cond") {
-    int64_t begin = op->args[2].as<IntImmNode>()->value;
-    int64_t end = op->args[3].as<IntImmNode>()->value;
+    int64_t begin = static_cast<int64_t>(op->args[2].as<IntImmNode>()->value);
+    int64_t end = static_cast<int64_t>(op->args[3].as<IntImmNode>()->value);
     int64_t num_args = end - begin;
     std::string args_stack = PrintExpr(op->args[1]);
     this->PrintIndent();
@@ -751,8 +696,8 @@ void CodeGenCStaticLib::PrintCallPacked(const CallNode* op) {
   // TVMDSPBuiltinMatchShapePacked directly, bypassing FFI registry lookup.
   // On non-DSP targets, fall through to the generic FFI dispatch path.
   if (func_name->value == "vm.builtin.match_shape" && dsp_.enabled) {
-    int64_t begin = op->args[2].as<IntImmNode>()->value;
-    int64_t end = op->args[3].as<IntImmNode>()->value;
+    int64_t begin = static_cast<int64_t>(op->args[2].as<IntImmNode>()->value);
+    int64_t end = static_cast<int64_t>(op->args[3].as<IntImmNode>()->value);
     int64_t num_args = end - begin;
     std::string args_stack = PrintExpr(op->args[1]);
     this->PrintIndent();
@@ -793,19 +738,19 @@ void CodeGenCStaticLib::PrintCallPacked(const CallNode* op) {
                  << " - see cpp/vm_builtins.h\n";
   }
 
-  int64_t begin = op->args[2].as<IntImmNode>()->value;
-  int64_t end = op->args[3].as<IntImmNode>()->value;
+  int64_t begin = static_cast<int64_t>(op->args[2].as<IntImmNode>()->value);
+  int64_t end = static_cast<int64_t>(op->args[3].as<IntImmNode>()->value);
   int64_t num_args = end - begin;
-  ICHECK_GE(num_args, 0) << "packed call argument range is invalid (end < begin)";
+  TVM_FFI_ICHECK_GE(num_args, 0) << "packed call argument range is invalid (end < begin)";
 
   std::string packed_func_name;
-  bool is_cpacked = op->op.same_as(builtin::tvm_call_cpacked_lowered());
-  if (op->op.same_as(builtin::tvm_call_packed_lowered())) {
+  bool is_cpacked = op->op.same_as(tirx::builtin::tvm_call_cpacked_lowered());
+  if (op->op.same_as(tirx::builtin::tvm_call_packed_lowered())) {
     packed_func_name = GetPackedName(op);
     this->PrintGetFuncFromBackend(func_name->value, packed_func_name);
   } else {
     // directly use the original symbol with __tvm_ffi_ prefix (0.23.0 MakePackedAPI convention)
-    ICHECK(is_cpacked)
+    TVM_FFI_ICHECK(is_cpacked)
         << "expected tvm_call_cpacked_lowered but got unknown packed call builtin";
     packed_func_name = std::string(ffi::symbol::tvm_ffi_symbol_prefix) + func_name->value;
   }
@@ -838,7 +783,7 @@ void CodeGenCStaticLib::PrintCallPacked(const CallNode* op) {
     ScopeGuard func_call_scope(this);
     this->PrintIndent();
     this->stream << "int32_t __call_ret = ";
-    if (op->op.same_as(builtin::tvm_call_packed_lowered())) {
+    if (op->op.same_as(tirx::builtin::tvm_call_packed_lowered())) {
       this->stream << "TVMFFIFunctionCall(" << packed_func_name << ", ";
     } else {
       this->stream << packed_func_name << "(NULL, ";
@@ -861,7 +806,7 @@ void CodeGenCStaticLib::PrintCallPacked(const CallNode* op) {
 
 // Override to track register file usage for AnyList operations
 void CodeGenCStaticLib::PrintCallExtern(Type ret_type, ffi::String global_symbol,
-                                 const ffi::Array<PrimExpr>& args,
+                                 const ffi::Array<Expr>& args,
                                  bool skip_first_arg, std::ostream& os) {  // NOLINT(*)
   if (global_symbol == "TVMBackendAnyListSetPackedArg" ||
       global_symbol == "TVMBackendAnyListResetItem" ||
@@ -892,7 +837,7 @@ void CodeGenCStaticLib::PrintCallExtern(Type ret_type, ffi::String global_symbol
  */
 std::string CodeGenCStaticLib::GetPackedName(const CallNode* op) {
   const StringImmNode* s = op->args[0].as<StringImmNode>();
-  ICHECK(s != nullptr) << "tvm_call_packed_lowered expects first argument as function name";
+  TVM_FFI_ICHECK(s != nullptr) << "tvm_call_packed_lowered expects first argument as function name";
   std::string func_name = s->value;
   std::string packed_func_name = func_name + kPackedFuncSuffix;
   std::string unique_name;
@@ -916,23 +861,24 @@ std::string CodeGenCStaticLib::GetPackedName(const CallNode* op) {
 }
 
 // from CodeGenCHost
-void CodeGenCStaticLib::VisitExpr_(const CallNode* op, std::ostream& os) {  // NOLINT(*)
-  if (op->op.same_as(builtin::tvm_stack_alloca())) {
+void CodeGenCStaticLib::Dispatch_(const CallNode* op, std::ostream& os) {  // NOLINT(*)
+  if (op->op.same_as(tirx::builtin::tvm_stack_alloca())) {
     this->stack_name_ = name_supply_->FreshName("tvm_stack");
     const std::string& type = op->args[0].as<StringImmNode>()->value;
     const IntImmNode* num = op->args[1].as<IntImmNode>();
-    ICHECK(num != nullptr) << "tvm_stack_alloca size argument must be an integer immediate";
+    TVM_FFI_ICHECK(num != nullptr) << "tvm_stack_alloca size argument must be an integer immediate";
     static_assert(alignof(TVMFFIAny) % alignof(DLTensor) == 0, "invariant");
+    size_t count = num->value.as<size_t>().value();
     size_t unit = sizeof(TVMFFIAny);
     size_t size = 0;
     if (type == "shape") {
-      size = (num->value * sizeof(ffi::Shape::index_type) + unit - 1) / unit;
+      size = (count * sizeof(ffi::Shape::index_type) + unit - 1) / unit;
     } else if (type == "tvm_ffi_any") {
-      size = (num->value * sizeof(TVMFFIAny) + unit - 1) / unit;
+      size = (count * sizeof(TVMFFIAny) + unit - 1) / unit;
     } else if (type == "array") {
-      size = (num->value * sizeof(DLTensor) + unit - 1) / unit;
+      size = (count * sizeof(DLTensor) + unit - 1) / unit;
     } else {
-      LOG(FATAL) << "Unknown stack alloca type " << type;
+      TVM_FFI_THROW(InternalError) << "Unknown stack alloca type " << type;
     }
     this->stack_size_ = size;  // Track stack size for AnyArray wrapper
     this->PrintIndent();
@@ -943,7 +889,7 @@ void CodeGenCStaticLib::VisitExpr_(const CallNode* op, std::ostream& os) {  // N
       this->stream << "TVMFFIAny " << this->stack_name_ << "[" << size << "];\n";
     }
     os << this->stack_name_;
-  } else if (op->op.same_as(builtin::tvm_call_packed_lowered())) {
+  } else if (op->op.same_as(tirx::builtin::tvm_call_packed_lowered())) {
     this->PrintCallPacked(op);
     // vm.builtin.read_if_cond is the only packed call used as an expression
     // (as the condition of a Relax If node in codegen_vm_tir.cc).
@@ -961,14 +907,11 @@ void CodeGenCStaticLib::VisitExpr_(const CallNode* op, std::ostream& os) {  // N
         }
       }
     }
-  } else if (op->op.same_as(builtin::tvm_call_cpacked_lowered())) {
+  } else if (op->op.same_as(tirx::builtin::tvm_call_cpacked_lowered())) {
     this->PrintCallPacked(op);
-  } else if (op->op.same_as(builtin::tvm_throw_last_error())) {
+  } else if (op->op.same_as(tirx::builtin::tvm_throw_last_error())) {
     this->PrintIndent();
     this->stream << "return -1;\n";
-  } else if (op->op.same_as(builtin::ret())) {
-    os << "return ";
-    PrintExpr(op->args[0], os);
   } else {
     // C7x intrinsic replacements for scalar math functions
     if (IsC7xTarget() &&
@@ -979,8 +922,8 @@ void CodeGenCStaticLib::VisitExpr_(const CallNode* op, std::ostream& os) {  // N
         // Zero guard: __recip_sqrt(0) is undefined (inf), and 0 * inf = NaN
         if (func_name->value == "sqrtf" && op->args.size() >= 2) {
           std::ostringstream temp_x;
-          VisitExpr(op->args[1], temp_x);
-          std::string x = SSAGetID(temp_x.str(), op->args[1].dtype());
+          Dispatch(op->args[1], temp_x);
+          std::string x = SSAGetID(temp_x.str(), op->args[1]->ty);
           os << "((" << x << ") != 0.0f ? (" << x << ") * __recip_sqrt((" << x << ")) : 0.0f)";
           return;
         }
@@ -993,12 +936,13 @@ void CodeGenCStaticLib::VisitExpr_(const CallNode* op, std::ostream& os) {  // N
         }
       }
     }
-    CodeGenC::VisitExpr_(op, os);
+    CodeGenC::Dispatch_(op, os);
   }
 }
 
-// Override for precise type handling in stack allocation and ObjectRef unwrapping
-void CodeGenCStaticLib::VisitStmt_(const LetStmtNode* op) {
+// Override for precise type handling in stack allocation and ObjectRef unwrapping.
+// Bind is flat (no body): each special case emits its declaration and returns.
+void CodeGenCStaticLib::Dispatch_(const BindNode* op) {
   // When skip_runtime_checks is enabled, skip emitting type_index variables
   // that are generated by MakePackedAPI for runtime type checking. These variables
   // are unused in c_static_lib because UnwrapObjectRefArg handles type checking at runtime.
@@ -1006,19 +950,20 @@ void CodeGenCStaticLib::VisitStmt_(const LetStmtNode* op) {
   // Note: We only skip type_index variables as other variables (shape, dev_id) may be
   // used elsewhere in the generated code.
   if (skip_runtime_checks_) {
-    std::string var_name = op->var->name_hint;
-    // Check if this is a type_index variable from MakePackedAPI
     // Pattern: <param>.type_index or <param>_type_index
-    if (var_name.find("type_index") != std::string::npos) {
-      // Skip the LetStmt declaration, just emit the body
-      PrintStmt(op->body);
+    if (op->var->name.find("type_index") != std::string::npos) {
       return;
     }
   }
 
+  bool is_pointer = op->var->ty.as<PointerTypeNode>() != nullptr;
+  // The base class registers the pointee type of a pointer-valued Bind before printing it. The
+  // DSP restrict branch below needs that type, so register it first (it is idempotent).
+  RegisterHandleTypeFromPointer(op->var, &op->value);
+
   // Check for tvm_stack_alloca and emit with precise type
-  if (auto* call = op->value.as<tir::CallNode>()) {
-    if (call->op.same_as(builtin::tvm_stack_alloca()) && op->var.dtype().is_handle()) {
+  if (auto* call = op->value.as<CallNode>()) {
+    if (call->op.same_as(tirx::builtin::tvm_stack_alloca()) && is_pointer) {
       const std::string& type = call->args[0].as<StringImmNode>()->value;
       std::string value = PrintExpr(op->value);
       PrintIndent();
@@ -1029,38 +974,43 @@ void CodeGenCStaticLib::VisitStmt_(const LetStmtNode* op) {
         // For other types (shape, array), use void*
         this->stream << "void* " << AllocVarID(op->var.get()) << " = " << value << ";\n";
       }
-      PrintStmt(op->body);
       return;
     }
   }
 
-  // Check if this is an ObjectRef unwrapping pattern
-  // Pattern: void* var = (var_type_index == kTVMFFITensor) ? (cast)(ptr + offset) : ptr
-  if (auto* select = op->value.as<tir::SelectNode>()) {
-    if (auto* eq = select->condition.as<tir::EQNode>()) {
-      if (auto* int_imm = eq->b.as<IntImmNode>()) {
-        if (int_imm->value == kTVMFFITensor && op->var.dtype().is_handle()) {
-          // Look at false_value to find base expression
-          PrimExpr base_expr = select->false_value;
-          // Strip any casts
-          while (auto* cast = base_expr.as<tir::CastNode>()) {
-            base_expr = cast->value;
-          }
-          // Check if it's a tvm_struct_get call
-          if (auto* call = base_expr.as<tir::CallNode>()) {
-            if (call->op.same_as(tir::builtin::tvm_struct_get())) {
-              // Generate: void* var = UnwrapObjectRefArg(((TVMFFIAny*)buffer)[index]);
-              PrintIndent();
-              PrintType(op->var.dtype(), this->stream);
-              this->stream << ' ' << AllocVarID(op->var.get()) << " = UnwrapObjectRefArg(";
-              this->stream << "((TVMFFIAny*)";
-              PrintExpr(call->args[0], this->stream);
-              this->stream << ")[";
-              PrintExpr(call->args[1], this->stream);
-              this->stream << "]);\n";
-              PrintStmt(op->body);
-              return;
-            }
+  // Check if this is an ObjectRef unwrapping pattern emitted by the FFI binder:
+  //   var = if_then_else(type_index == kTVMFFITensor, handle_add_byte_offset(v, 24), v)
+  // where v is a tvm_struct_get of the packed argument (possibly under casts).
+  // MakePackedAPI wraps pointer params in reinterpret(...), so look through it first.
+  const CallNode* unwrap_call = op->value.as<CallNode>();
+  while (unwrap_call && unwrap_call->op.same_as(tirx::builtin::reinterpret()) &&
+         unwrap_call->args.size() == 1) {
+    auto* inner = unwrap_call->args[0].as<CallNode>();
+    if (!inner) break;
+    unwrap_call = inner;
+  }
+  if (auto* ite = unwrap_call) {
+    if (ite->op.same_as(prim::builtin::if_then_else()) && ite->args.size() == 3 && is_pointer) {
+      auto* eq = ite->args[0].as<prim::EQNode>();
+      auto* int_imm = eq ? eq->b.as<IntImmNode>() : nullptr;
+      if (int_imm && int_imm->value == static_cast<int64_t>(kTVMFFITensor)) {
+        Expr base_expr = ite->args[2];
+        // Strip any casts
+        while (auto* cast = base_expr.as<prim::CastNode>()) {
+          base_expr = cast->value;
+        }
+        if (auto* call = base_expr.as<CallNode>()) {
+          if (call->op.same_as(tirx::builtin::tvm_struct_get())) {
+            // Generate: void* var = UnwrapObjectRefArg(((TVMFFIAny*)buffer)[index]);
+            PrintIndent();
+            PrintType(op->var->ty, this->stream);
+            this->stream << ' ' << AllocVarID(op->var.get()) << " = UnwrapObjectRefArg(";
+            this->stream << "((TVMFFIAny*)";
+            PrintExpr(call->args[0], this->stream);
+            this->stream << ")[";
+            PrintExpr(call->args[1], this->stream);
+            this->stream << "]);\n";
+            return;
           }
         }
       }
@@ -1069,8 +1019,7 @@ void CodeGenCStaticLib::VisitStmt_(const LetStmtNode* op) {
 
   // For TI DSP targets, add restrict qualifier to typed pointer declarations
   // This helps the compiler with alias analysis for better optimization
-  if (dsp_.enabled && op->var.dtype() == DataType::Handle() &&
-      handle_data_type_.count(op->var.get())) {
+  if (dsp_.enabled && is_pointer && handle_data_type_.count(op->var.get())) {
     std::string value = PrintExpr(op->value);
     PrintIndent();
     PrintType(handle_data_type_.at(op->var.get()), this->stream);
@@ -1078,23 +1027,50 @@ void CodeGenCStaticLib::VisitStmt_(const LetStmtNode* op) {
     this->stream << "* " << restrict_keyword_ << " " << AllocVarID(op->var.get()) << " = (";
     PrintType(handle_data_type_.at(op->var.get()), this->stream);
     this->stream << "*)" << value << ";\n";
-    PrintStmt(op->body);
     return;
   }
 
-  CodeGenC::VisitStmt_(op);
+  CodeGenC::Dispatch_(op);
 }
 
 // Delegate to base class for standard allocation.
-// Note: global.l2sram buffers from DMA tiling are merged by StorageRewrite
-// into standard workspace allocations (TVMBackendAllocWorkspace).  The DSP
-// runtime's allocator attempts L2 SRAM first for all workspace requests.
-void CodeGenCStaticLib::VisitStmt_(const AllocateNode* op) {
-  CodeGenC::VisitStmt_(op);
+// Note: global.l2sram buffers from DMA tiling are lowered by LowerL2SramAlloc
+// into DeclBuffer(call_extern("tvm_l2_alloc")); the rest are standard allocations.
+void CodeGenCStaticLib::Dispatch_(const AllocBufferNode* op) {
+  CodeGenC::Dispatch_(op);
+}
+
+// A DeclBuffer that introduces a new data pointer (as opposed to aliasing an existing variable)
+// gets a __restrict__ qualifier on TI DSP targets, which helps the compiler's alias analysis.
+// This is where 0.23 emitted the typed restrict pointer for a buffer's data (LetStmt of
+// buffer->data); in 0.27 the buffer itself is the pointer variable.
+void CodeGenCStaticLib::Dispatch_(const DeclBufferNode* op) {
+  const VarNode* source = op->data.as<VarNode>();
+  if (const auto* call = op->data.as<CallNode>();
+      call && call->op.same_as(tirx::builtin::buffer_data()) && call->args.size() == 1) {
+    source = call->args[0].as<VarNode>();
+  }
+  bool aliases_existing_var = source && var_idmap_.count(source);
+  if (!dsp_.enabled || aliases_existing_var) {
+    CodeGenC::Dispatch_(op);
+    return;
+  }
+
+  std::string scope = op->buffer.scope();
+  alloc_storage_scope_[op->buffer.get()] = scope;
+  this->PrintIndent();
+  if (IsScopePartOfType()) {
+    PrintStorageScope(scope, stream);
+  }
+  PrintType(op->buffer.DataPointerType(), stream);
+  stream << ' ' << restrict_keyword_ << ' ' << AllocVarID(op->buffer.get()) << " = ";
+  PrintExpr(Call(op->buffer.DataPointerType(), tirx::builtin::reinterpret(), {op->data}), stream);
+  stream << ";\n";
+  RegisterHandleType(op->buffer.get(), op->buffer->dtype);
 }
 
 // Conditional assertion emission based on emit_asserts_ flag
-void CodeGenCStaticLib::VisitStmt_(const AssertStmtNode* op) {  // NOLINT(*)
+void CodeGenCStaticLib::Dispatch_(const AssertStmtNode* op) {  // NOLINT(*)
   if (emit_asserts_) {
     std::string cond = PrintExpr(op->condition);
     PrintIndent();
@@ -1102,42 +1078,50 @@ void CodeGenCStaticLib::VisitStmt_(const AssertStmtNode* op) {  // NOLINT(*)
     {
       ScopeGuard assert_if_scope(this);
       PrintIndent();
-      stream << "TVMAPISetLastError(\"" << op->message.as<StringImmNode>()->value << "\");\n";
+      std::string message;
+      for (const auto& part : op->message_parts) message += part->value;
+      stream << "TVMAPISetLastError(";
+      PrintEscapedCString(message, stream);
+      stream << ");\n";
       PrintIndent();
       stream << "return -1;\n";
     }
     PrintIndent();
     stream << "}\n";
   }
-  this->PrintStmt(op->body);
 }
 
 // Helper: extract struct_set info from a statement for TryEmitMergedStructSet.
 namespace {
 struct StructSetInfo {
-  const tir::CallNode* call = nullptr;
-  PrimExpr buffer;
-  PrimExpr index;
+  const CallNode* call = nullptr;
+  Expr buffer;
+  Expr index;
   int64_t kind = -1;
-  PrimExpr value;
+  Expr value;
   bool IsValid() const { return call != nullptr; }
   bool TargetsSameElement(const StructSetInfo& other) const {
     if (!IsValid() || !other.IsValid()) return false;
-    return tvm::StructuralEqual()(buffer, other.buffer) &&
-           tvm::StructuralEqual()(index, other.index);
+    return ffi::StructuralEqual()(buffer, other.buffer) &&
+           ffi::StructuralEqual()(index, other.index);
   }
 };
+
+bool IsZeroValue(const Expr& e) {
+  auto prim = e.as<PrimExpr>();
+  return prim && prim::is_zero(prim.value());
+}
 
 StructSetInfo ExtractStructSetInfo(const Stmt& stmt) {
   StructSetInfo info;
   if (auto* eval = stmt.as<EvaluateNode>()) {
     if (auto* call = eval->value.as<CallNode>()) {
-      if (call->op.same_as(builtin::tvm_struct_set()) && call->args.size() == 4) {
+      if (call->op.same_as(tirx::builtin::tvm_struct_set()) && call->args.size() == 4) {
         if (auto* kind_imm = call->args[2].as<IntImmNode>()) {
           info.call = call;
           info.buffer = call->args[0];
           info.index = call->args[1];
-          info.kind = kind_imm->value;
+          info.kind = static_cast<int64_t>(kind_imm->value);
           info.value = call->args[3];
         }
       }
@@ -1150,11 +1134,11 @@ StructSetInfo ExtractStructSetInfo(const Stmt& stmt) {
 
 bool CodeGenCStaticLib::TryEmitMergedStructSet(const ffi::Array<Stmt>& seq, size_t index,
                                             size_t* next_index) {
-  ICHECK(next_index != nullptr) << "TryEmitMergedStructSet: next_index output parameter is null";
+  TVM_FFI_ICHECK(next_index != nullptr) << "TryEmitMergedStructSet: next_index output parameter is null";
 
   // Try to detect type_index + value pair
   auto info1 = ExtractStructSetInfo(seq[index]);
-  if (!info1.IsValid() || info1.kind != builtin::kTVMFFIAnyTypeIndex) {
+  if (!info1.IsValid() || info1.kind != tirx::builtin::kTVMFFIAnyTypeIndex) {
     return false;
   }
 
@@ -1165,7 +1149,7 @@ bool CodeGenCStaticLib::TryEmitMergedStructSet(const ffi::Array<Stmt>& seq, size
   auto info2 = ExtractStructSetInfo(seq[index + 1]);
 
   // Check if next statement sets the value for the same element
-  if (!info2.IsValid() || info2.kind != builtin::kTVMFFIAnyUnionValue ||
+  if (!info2.IsValid() || info2.kind != tirx::builtin::kTVMFFIAnyUnionValue ||
       !info1.TargetsSameElement(info2)) {
     return false;
   }
@@ -1176,20 +1160,20 @@ bool CodeGenCStaticLib::TryEmitMergedStructSet(const ffi::Array<Stmt>& seq, size
     return false;
   }
 
-  int type_index = type_imm->value;
+  int type_index = static_cast<int>(static_cast<int64_t>(type_imm->value));
   std::string helper_func;
 
   // Determine which helper function to use based on type
-  if (type_index == kTVMFFINone && is_zero(info2.value)) {
+  if (type_index == kTVMFFINone && IsZeroValue(info2.value)) {
     // Special case: SetFFIAnyNone with C++ API AnyArray wrapper
     if (use_cpp_api_ && anyarray_decls_emitted_) {
       // Use direct AST inspection instead of PrintExpr to avoid SSA side effects
       std::string buffer_name;
       if (auto* var = info1.buffer.as<VarNode>()) {
-        buffer_name = var->name_hint;
+        buffer_name = var->name;
       }
       if (buffer_name == "stack_ffi_any" && info1.index.as<IntImmNode>()) {
-        int idx = info1.index.as<IntImmNode>()->value;
+        int idx = static_cast<int>(static_cast<int64_t>(info1.index.as<IntImmNode>()->value));
         this->PrintIndent();
         this->stream << "_stack.SetNone(" << idx << ");\n";
         *next_index = index + 2;  // Skip both statements
@@ -1244,11 +1228,11 @@ bool CodeGenCStaticLib::EmitAnylistVMBuiltinCall(const CallNode* call) {
 
   auto* list_var = call->args[0].as<VarNode>();
   if (!list_var) return false;
-  pattern.result_array = list_var->name_hint;
+  pattern.result_array = list_var->name;
 
   auto* slot_imm = call->args[1].as<IntImmNode>();
   if (!slot_imm) return false;
-  pattern.result_slot = static_cast<int>(slot_imm->value);
+  pattern.result_slot = static_cast<int>(static_cast<int64_t>(slot_imm->value));
 
   size_t num_actual = call->args.size() - 3;
   pattern.num_args = static_cast<int64_t>(num_actual);
@@ -1256,17 +1240,17 @@ bool CodeGenCStaticLib::EmitAnylistVMBuiltinCall(const CallNode* call) {
   for (size_t i = 3; i < call->args.size(); ++i) {
     PackedArgInfo info;
     if (auto* get = call->args[i].as<CallNode>();
-        get && get->op.same_as(builtin::anylist_getitem())) {
+        get && get->op.same_as(tirx::builtin::anylist_getitem())) {
       info.type = PackedArgInfo::kArray;
       if (auto* arr_var = get->args[0].as<VarNode>()) {
-        info.source_array = arr_var->name_hint;
+        info.source_array = arr_var->name;
       }
       if (auto* idx = get->args[1].as<IntImmNode>()) {
-        info.source_index = static_cast<int>(idx->value);
+        info.source_index = static_cast<int>(static_cast<int64_t>(idx->value));
       }
     } else if (auto* imm = call->args[i].as<IntImmNode>()) {
       info.type = PackedArgInfo::kLiteral;
-      info.literal_value = imm->value;
+      info.literal_value = static_cast<int64_t>(imm->value);
     }
     pattern.args.push_back(info);
   }
@@ -1282,7 +1266,7 @@ bool CodeGenCStaticLib::EmitAnylistVMBuiltinCall(const CallNode* call) {
       name = fn->value;
     }
   }
-  LOG(FATAL) << "c_static_lib: VM builtin \"" << name
+  TVM_FFI_THROW(InternalError) << "c_static_lib: VM builtin \"" << name
              << "\" has no compact-form handler under -use-cpp-api. "
              << "The DSP runtime only implements the vm.builtin.* ops emitted by "
              << "the Relax VM codegen; this builtin should have been eliminated "
@@ -1593,7 +1577,7 @@ bool CodeGenCStaticLib::EmitDirectVMBuiltinCallClean(const FFICallPattern& patte
 }
 
 // Override SeqStmt to handle compact anylist intrinsics and merge struct_set pairs
-void CodeGenCStaticLib::VisitStmt_(const SeqStmtNode* op) {
+void CodeGenCStaticLib::Dispatch_(const SeqStmtNode* op) {
   for (size_t i = 0; i < op->seq.size(); ++i) {
     // Preserved anylist intrinsics (compact form, use-cpp-api path).
     // When LowerTVMBuiltin skips anylist expansion, the codegen receives
@@ -1603,8 +1587,8 @@ void CodeGenCStaticLib::VisitStmt_(const SeqStmtNode* op) {
       auto* eval = op->seq[i].as<EvaluateNode>();
       if (eval) {
         auto* call = eval->value.as<CallNode>();
-        if (call && (call->op.same_as(builtin::anylist_setitem_call_packed()) ||
-                     call->op.same_as(builtin::anylist_setitem_call_cpacked()))) {
+        if (call && (call->op.same_as(tirx::builtin::anylist_setitem_call_packed()) ||
+                     call->op.same_as(tirx::builtin::anylist_setitem_call_cpacked()))) {
           if (EmitAnylistVMBuiltinCall(call)) continue;
           UnhandledAnylistVMBuiltin(call);
         }
@@ -1624,15 +1608,15 @@ void CodeGenCStaticLib::VisitStmt_(const SeqStmtNode* op) {
 }
 
 // Override for C++ API mode AnyArray wrappers and struct_set type handling
-void CodeGenCStaticLib::VisitStmt_(const EvaluateNode* op) {
-  if (is_const_int(op->value)) return;
+void CodeGenCStaticLib::Dispatch_(const EvaluateNode* op) {
+  if (auto prim = op->value.as<PrimExpr>(); prim && prim::is_const_int(prim.value())) return;
 
   const CallNode* call = op->value.as<CallNode>();
 
   // Preserved anylist intrinsics (compact form, use-cpp-api path)
   if (use_cpp_api_ && call &&
-      (call->op.same_as(builtin::anylist_setitem_call_packed()) ||
-       call->op.same_as(builtin::anylist_setitem_call_cpacked()))) {
+      (call->op.same_as(tirx::builtin::anylist_setitem_call_packed()) ||
+       call->op.same_as(tirx::builtin::anylist_setitem_call_cpacked()))) {
     if (EmitAnylistVMBuiltinCall(call)) return;
     UnhandledAnylistVMBuiltin(call);
   }
@@ -1642,15 +1626,15 @@ void CodeGenCStaticLib::VisitStmt_(const EvaluateNode* op) {
   if (use_cpp_api_ && call) {
     // TVMBackendAnyListSetPackedArg(src_array, src_idx, stack, stack_idx)
     // -> _stack.SetFrom(_src_array, stack_idx, src_idx)
-    static const Op& set_packed_arg_op = Op::Get("tir.TVMBackendAnyListSetPackedArg");
+    static const Op& set_packed_arg_op = Op::Get("tirx.TVMBackendAnyListSetPackedArg");
     if (call->op.same_as(set_packed_arg_op) && call->args.size() >= 4) {
       // Use direct AST inspection instead of PrintExpr to avoid SSA side effects
       std::string src_array;
       if (auto* var = call->args[0].as<VarNode>()) {
-        src_array = var->name_hint;
+        src_array = var->name;
       } else {
         // Fall back to base class for non-variable source
-        CodeGenC::VisitStmt_(op);
+        CodeGenC::Dispatch_(op);
         return;
       }
 
@@ -1683,22 +1667,23 @@ void CodeGenCStaticLib::VisitStmt_(const EvaluateNode* op) {
         this->PrintIndent();
         // Use SetFromUnchecked for stack - slots are zero-initialized or cleared by MoveFrom
         this->stream << "_stack.SetFromUnchecked(" << src_wrapper << ", "
-                     << stack_idx->value << ", " << src_idx->value << ");\n";
+                     << static_cast<int64_t>(stack_idx->value) << ", "
+                     << static_cast<int64_t>(src_idx->value) << ");\n";
         return;
       }
     }
 
     // TVMBackendAnyListMoveFromPackedReturn(dst_array, dst_idx, stack, stack_idx)
     // -> _dst_array.MoveFrom(_stack, dst_idx, stack_idx)
-    static const Op& move_from_return_op = Op::Get("tir.TVMBackendAnyListMoveFromPackedReturn");
+    static const Op& move_from_return_op = Op::Get("tirx.TVMBackendAnyListMoveFromPackedReturn");
     if (call->op.same_as(move_from_return_op) && call->args.size() >= 4 && anyarray_decls_emitted_) {
       // Use direct AST inspection instead of PrintExpr to avoid SSA side effects
       std::string dst_array;
       if (auto* var = call->args[0].as<VarNode>()) {
-        dst_array = var->name_hint;
+        dst_array = var->name;
       } else {
         // Fall back to base class for non-variable destination
-        CodeGenC::VisitStmt_(op);
+        CodeGenC::Dispatch_(op);
         return;
       }
 
@@ -1711,30 +1696,31 @@ void CodeGenCStaticLib::VisitStmt_(const EvaluateNode* op) {
           auto func_it = function_info_map_.find(current_function_name_);
           if (func_it != function_info_map_.end()) {
             func_it->second.max_register_index = std::max(
-                func_it->second.max_register_index, dst_idx->value);
+                func_it->second.max_register_index, static_cast<int64_t>(dst_idx->value));
           }
         }
         // Map destination array name to wrapper name
         std::string dst_wrapper = (dst_array == kRegisterFileIdentifier) ? "_r" : "_c";
         this->PrintIndent();
         this->stream << dst_wrapper << ".MoveFrom(_stack, "
-                     << dst_idx->value << ", " << stack_idx->value << ");\n";
+                     << static_cast<int64_t>(dst_idx->value) << ", "
+                     << static_cast<int64_t>(stack_idx->value) << ");\n";
         return;
       }
     }
   }
 
-  if (call && call->op.same_as(builtin::tvm_struct_set())) {
-    ICHECK_EQ(call->args.size(), 4)
+  if (call && call->op.same_as(tirx::builtin::tvm_struct_set())) {
+    TVM_FFI_ICHECK_EQ(call->args.size(), 4)
         << "tvm_struct_set expects 4 arguments: (handle, index, kind, value)";
-    int kind = call->args[2].as<IntImmNode>()->value;
+    int kind = static_cast<int>(static_cast<int64_t>(call->args[2].as<IntImmNode>()->value));
 
     // Special handling for type_index assignments - use enum constants instead of integers
-    if (kind == builtin::kTVMFFIAnyTypeIndex) {
+    if (kind == tirx::builtin::kTVMFFIAnyTypeIndex) {
       if (auto* int_imm = call->args[3].as<IntImmNode>()) {
         // Map integer type index to enum constant name
         std::string enum_name;
-        switch (int_imm->value) {
+        switch (static_cast<int64_t>(int_imm->value)) {
           case kTVMFFINone: enum_name = "kTVMFFINone"; break;
           case kTVMFFIInt: enum_name = "kTVMFFIInt"; break;
           case kTVMFFIBool: enum_name = "kTVMFFIBool"; break;
@@ -1744,13 +1730,14 @@ void CodeGenCStaticLib::VisitStmt_(const EvaluateNode* op) {
           case kTVMFFIModule: enum_name = "kTVMFFIModule"; break;
           default:
             // For unknown type indices, fall through to base class handler
-            CodeGenC::VisitStmt_(op);
+            CodeGenC::Dispatch_(op);
             return;
         }
 
         // Generate: ref = enum_name;
-        DataType store_dtype = call->args[3].dtype();
-        std::string ref = GetStructRef(store_dtype, call->args[0], call->args[1], kind);
+        Type store_ty = call->args[3]->ty;
+        std::string ref =
+            GetStructRef(store_ty, call->args[0], call->args[1].as_or_throw<PrimExpr>(), kind);
         this->PrintIndent();
         this->stream << ref << " = " << enum_name << ";\n";
         return;
@@ -1760,10 +1747,10 @@ void CodeGenCStaticLib::VisitStmt_(const EvaluateNode* op) {
   }
 
   // Fall back to base class for all other cases
-  CodeGenC::VisitStmt_(op);
+  CodeGenC::Dispatch_(op);
 }
 
-void CodeGenCStaticLib::VisitStmt_(const ForNode* op) {
+void CodeGenCStaticLib::Dispatch_(const ForNode* op) {
   // Emit TI-specific pragmas before the loop
   if (dsp_.enabled) {
     DSPCodeGenExtension::EmitLoopPragmas(op->extent, op->kind, stream,
@@ -1771,7 +1758,7 @@ void CodeGenCStaticLib::VisitStmt_(const ForNode* op) {
   }
 
   // Call base class implementation
-  CodeGenC::VisitStmt_(op);
+  CodeGenC::Dispatch_(op);
 }
 
 // No-op: CodeGenCStaticLib handles multiple storage scopes without restrictions
@@ -1784,47 +1771,48 @@ inline void CodeGenCStaticLib::PrintTernaryCondExpr(const BinaryOpNode* binary_o
                                                  const char* compare_op,
                                                  std::ostream& output_stream) {  // NOLINT(*)
   std::ostringstream temp_a;
-  VisitExpr(binary_op->a, temp_a);
-  std::string a_id = SSAGetID(temp_a.str(), binary_op->a.dtype());
+  Dispatch(binary_op->a, temp_a);
+  std::string a_id = SSAGetID(temp_a.str(), binary_op->a.ty());
   std::ostringstream temp_b;
-  VisitExpr(binary_op->b, temp_b);
-  std::string b_id = SSAGetID(temp_b.str(), binary_op->b.dtype());
+  Dispatch(binary_op->b, temp_b);
+  std::string b_id = SSAGetID(temp_b.str(), binary_op->b.ty());
 
   output_stream << "((" << a_id << ") " << compare_op << " (" << b_id << ") "
                 << "? (" << a_id << ") : (" << b_id << "))";
 }
 
 // Override for flat memory buffer loads with type casting support
-void CodeGenCStaticLib::VisitExpr_(const BufferLoadNode* op, std::ostream& os) {  // NOLINT(*)
-  ICHECK_EQ(op->indices.size(), 1) << "Load from non-flat memory not supported.";
+void CodeGenCStaticLib::Dispatch_(const TensorLoadNode* op, std::ostream& os) {  // NOLINT(*)
+  TVM_FFI_ICHECK_EQ(op->indices.size(), 1) << "Load from non-flat memory not supported.";
 
-  DataType value_dtype = op->dtype;
+  PrimType value_ty = op->ty.as_or_throw<PrimType>();
   PrimExpr index = op->indices[0];
-  Var buffer_var = op->buffer->data;
-  DataType element_dtype = op->buffer->dtype;
+  tirx::BufferVar buffer = op->source.as_or_throw<tirx::BufferVar>();
+  Var buffer_var = buffer.var();
+  const PrimType& element_ty = buffer->dtype;
 
-  int lanes = op->dtype.lanes();
-  if (value_dtype.lanes() == element_dtype.lanes()) {
-    std::string ref = GetBufferRef(op->dtype, op->buffer.get(), index);
+  int lanes = value_ty.lanes();
+  if (value_ty.lanes() == element_ty.lanes()) {
+    std::string ref = GetBufferRef(value_ty, buffer.get(), index);
     HandleVolatileLoads(ref, op, os);
   } else {
     // Check for ramp pattern (base, base+1, base+2, ...) to enable vector loads
     // Simplified from original: Trust that ramp patterns are properly aligned
     // instead of performing modular arithmetic analysis
-    arith::PVar<PrimExpr> base;
-    if (arith::ramp(base, 1, op->dtype.lanes()).Match(index)) {
-      std::string ref = GetVecLoad(op->dtype, op->buffer.get(), base.Eval());
+    sym::PVar<PrimExpr> base;
+    if (sym::ramp(base, 1, lanes).Match(index)) {
+      std::string ref = GetVecLoad(value_ty, buffer.get(), base.Eval());
       HandleVolatileLoads(ref, op, os);
     } else {
       std::ostringstream svalue_expr;
-      std::string sindex = SSAGetID(PrintExpr(index), index.dtype());
+      std::string sindex = SSAGetID(PrintExpr(index), index.ty());
       std::string vid = GetVarID(buffer_var.get());
-      DataType elem_type = op->dtype.element_of();
+      PrimType elem_type = value_ty.WithLanes(1);
       for (int i = 0; i < lanes; ++i) {
         std::ostringstream value_temp;
         if (!HandleTypeMatch(buffer_var.get(), elem_type)) {
           value_temp << "((";
-          if (buffer_var.get()->dtype.is_handle()) {
+          if (buffer_var->ty.as<PointerTypeNode>()) {
             auto it = alloc_storage_scope_.find(buffer_var.get());
             if (it != alloc_storage_scope_.end()) {
               PrintStorageScope(it->second, value_temp);
@@ -1836,9 +1824,9 @@ void CodeGenCStaticLib::VisitExpr_(const BufferLoadNode* op, std::ostream& os) {
           value_temp << vid;
         }
         value_temp << '[';
-        PrintVecElemLoad(sindex, index.dtype(), i, value_temp);
+        PrintVecElemLoad(sindex, index.ty(), i, value_temp);
         value_temp << ']';
-        PrintVecElemLoadExpr(op->dtype, i, value_temp.str(), svalue_expr);
+        PrintVecElemLoadExpr(value_ty, i, value_temp.str(), svalue_expr);
       }
       os << svalue_expr.str();
     }
@@ -1846,21 +1834,8 @@ void CodeGenCStaticLib::VisitExpr_(const BufferLoadNode* op, std::ostream& os) {
 }
 
 // Delegate to base class for buffer store operations
-void CodeGenCStaticLib::VisitStmt_(const BufferStoreNode* op) {
-  CodeGenC::VisitStmt_(op);
-}
-
-void CodeGenCStaticLib::PrintType(const Type& type, std::ostream& os) {  // NOLINT(*)
-  if (auto* ptr = type.as<PrimTypeNode>()) {
-    return PrintType(ptr->dtype, os);
-  } else if (auto* ptr = type.as<PointerTypeNode>()) {
-    PrintType(ptr->element_type, os);
-    os << '*';
-  } else if (IsVoidType(type)) {
-    os << "void";
-  } else {
-    LOG(FATAL) << "Type " << type << " does not have a corresponding C Type";
-  }
+void CodeGenCStaticLib::Dispatch_(const BufferStoreNode* op) {
+  CodeGenC::Dispatch_(op);
 }
 
 /*!
@@ -1931,7 +1906,7 @@ void CodeGenCStaticLib::DumpCGFunctionInfo() const {
  *
  * \note Only tracks accesses to the 'r' register file (not other identifiers)
  */
-void CodeGenCStaticLib::UpdateMaxRegisterIndex(const ffi::Array<PrimExpr>& args) {
+void CodeGenCStaticLib::UpdateMaxRegisterIndex(const ffi::Array<Expr>& args) {
   // Validate minimum argument count
   if (args.size() < kMinArgsForRegisterTracking) {
     DLOG(WARNING) << "UpdateMaxRegisterIndex: insufficient arguments (got "
@@ -1948,21 +1923,22 @@ void CodeGenCStaticLib::UpdateMaxRegisterIndex(const ffi::Array<PrimExpr>& args)
   }
 
   // Validate register index is non-negative
-  if (register_index->value < 0) {
+  int64_t register_value = static_cast<int64_t>(register_index->value);
+  if (register_value < 0) {
     LOG(WARNING) << "UpdateMaxRegisterIndex: negative register index "
-                 << register_index->value << " encountered";
+                 << register_value << " encountered";
     return;
   }
 
   // Extract register file identifier
   std::ostringstream first_arg_stream;
-  VisitExpr(args[kRegisterFileArgIndex], first_arg_stream);
+  Dispatch(args[kRegisterFileArgIndex], first_arg_stream);
 
   // Track register usage for functions if first argument is 'r' (return register file)
   if (first_arg_stream.str() == kRegisterFileIdentifier) {
     auto it = function_info_map_.find(current_function_name_);
     if (it != function_info_map_.end()) {
-      it->second.max_register_index = std::max(it->second.max_register_index, register_index->value);
+      it->second.max_register_index = std::max(it->second.max_register_index, register_value);
     } else {
       DLOG(WARNING) << "UpdateMaxRegisterIndex: current function '"
                     << current_function_name_ << "' not found in function_info_map_";
@@ -2048,23 +2024,26 @@ ffi::Module BuildCStaticLib(IRModule mod, Target target) {
   }
 
   CodeGenCStaticLib cg;
-  bool profile_layers = target->GetAttr<Integer>("profile-layers").value_or(0)->value != 0;
-  bool skip_runtime_checks = target->GetAttr<Integer>("skip-runtime-checks").value_or(0)->value != 0;
-  bool use_cpp_api = target->GetAttr<Integer>("use-cpp-api").value_or(0)->value != 0;
-  bool debug_alloc = target->GetAttr<Integer>("debug-alloc").value_or(0)->value != 0;
-  bool tidl_runtime = target->GetAttr<Integer>("tidl-runtime").value_or(0)->value != 0;
-  cg.Init(output_ssa, emit_asserts, emit_fwd_func_decl, target->str(), devices, profile_layers,
+  bool profile_layers = target->GetAttr<bool>("profile-layers").value_or(false);
+  bool skip_runtime_checks = target->GetAttr<bool>("skip-runtime-checks").value_or(false);
+  bool use_cpp_api = target->GetAttr<bool>("use-cpp-api").value_or(false);
+  bool debug_alloc = target->GetAttr<bool>("debug-alloc").value_or(false);
+  bool tidl_runtime = target->GetAttr<bool>("tidl-runtime").value_or(false);
+  std::string mcpu = target->GetAttr<ffi::String>("mcpu").value_or("");
+  std::string device_name = target->GetAttr<ffi::String>("device").value_or("");
+  cg.Init(output_ssa, emit_asserts, emit_fwd_func_decl, target->str(), mcpu, device_name, devices,
+          profile_layers,
           skip_runtime_checks, use_cpp_api, debug_alloc, tidl_runtime);
-  cg.SetConstantsByteAlignment(target->GetAttr<Integer>("constants-byte-alignment").value_or(16));
+  cg.SetConstantsByteAlignment(target->GetAttr<int64_t>("constants-byte-alignment").value_or(16));
 
   auto is_aot_executor_fn = [](const PrimFunc& func) -> bool {
-    return func->GetAttr<Bool>("runner_function", Bool(false)).value();
+    return func->GetAttr<bool>("runner_function", false).value();
   };
 
   std::vector<std::pair<GlobalVar, PrimFunc>> funcs;
   for (auto [gvar, base_func] : mod->functions) {
-    ICHECK(base_func->IsInstance<PrimFuncNode>()) << "CodegenCHost: Can only take PrimFunc";
-    auto prim_func = Downcast<PrimFunc>(base_func);
+    TVM_FFI_ICHECK(base_func->IsInstance<PrimFuncNode>()) << "CodegenCHost: Can only take PrimFunc";
+    auto prim_func = base_func.as_or_throw<PrimFunc>();
     funcs.push_back({gvar, prim_func});
   }
 
@@ -2084,7 +2063,7 @@ ffi::Module BuildCStaticLib(IRModule mod, Target target) {
   }
 
   // Codegen all functions.  Passing emit_fwd_func_decl=true adds a
-  // forward declaration for any `builtin::call_extern`, based on the
+  // forward declaration for any `tirx::builtin::call_extern`, based on the
   // arguments provided to it.
   for (const auto& [gvar, prim_func] : funcs) {
     cg.AddFunction(gvar, prim_func, emit_fwd_func_decl);
@@ -2106,7 +2085,7 @@ ffi::Module BuildCStaticLib(IRModule mod, Target target) {
 
   auto kernel_chunks = cg.FinishKernels();
   const auto& kernel_names = cg.GetKernelFunctionNamesVec();
-  ICHECK_EQ(kernel_chunks.size(), kernel_names.size())
+  TVM_FFI_ICHECK_EQ(kernel_chunks.size(), kernel_names.size())
       << "BUG: kernel chunk count mismatch — a kernel stream was created but generated no code";
   for (size_t i = 0; i < kernel_chunks.size(); ++i) {
     auto chunk_mod = CSourceModuleCreate(kernel_chunks[i], "c", kernel_names[i]);

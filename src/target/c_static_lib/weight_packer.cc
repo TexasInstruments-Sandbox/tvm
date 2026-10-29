@@ -28,15 +28,16 @@
  * bytecode stream.  Keeping this in c_static_lib avoids modifying the core
  * executable.h/cc files.
  */
-#include <dmlc/memory_io.h>
+#include <tvm/ffi/extra/module.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
-#include <tvm/runtime/module.h>
 #include <tvm/runtime/tensor.h>
 #include <tvm/runtime/vm/executable.h>
+#include <tvm/support/io.h>
 #include <tvm/target/target.h>
 
 #include "../../runtime/file_utils.h"
+#include "../../support/bytes_io.h"
 
 #include <fstream>
 #include <sstream>
@@ -49,12 +50,12 @@ namespace codegen {
 using runtime::vm::VMExecutable;
 
 /*!
- * \brief Serialize the constants vector to a dmlc::Stream.
+ * \brief Serialize the constants vector to a support::Stream.
  *
  * Mirrors VMExecutable::SaveConstantSection (which is private) but operates
  * on an externally-supplied constants vector.
  */
-static void SerializeConstants(dmlc::Stream* strm,
+static void SerializeConstants(support::Stream* strm,
                                const std::vector<ffi::Any>& constants) {
   strm->Write(static_cast<uint64_t>(constants.size()));
   for (const auto& it : constants) {
@@ -85,7 +86,7 @@ static void SerializeConstants(dmlc::Stream* strm,
       strm->Write<int32_t>(ffi::TypeIndex::kTVMFFIDataType);
       strm->Write(opt_dtype.value());
     } else {
-      LOG(FATAL) << "Unsupported constant pool type " << it.GetTypeKey();
+      TVM_FFI_THROW(InternalError) << "Unsupported constant pool type " << it.GetTypeKey();
     }
   }
 }
@@ -96,7 +97,7 @@ static void SerializeConstants(dmlc::Stream* strm,
  * For targets like TI C66x/C7x DSP that require aligned memory access,
  * this adds padding before Tensor entries to ensure data alignment.
  */
-static void SerializeConstantsAligned(dmlc::Stream* strm,
+static void SerializeConstantsAligned(support::Stream* strm,
                                       const std::vector<ffi::Any>& constants,
                                       std::string* data_buf,
                                       int alignment) {
@@ -150,7 +151,7 @@ static void SerializeConstantsAligned(dmlc::Stream* strm,
       strm->Write<int32_t>(ffi::TypeIndex::kTVMFFIDataType);
       strm->Write(opt_dtype.value());
     } else {
-      LOG(FATAL) << "Unsupported constant pool type " << it.GetTypeKey();
+      TVM_FFI_THROW(InternalError) << "Unsupported constant pool type " << it.GetTypeKey();
     }
   }
 }
@@ -161,13 +162,13 @@ static void SerializeConstantsAligned(dmlc::Stream* strm,
 static void SaveConstantSectionToFile(const std::vector<ffi::Any>& constants,
                                       const std::string& filename) {
   std::string data;
-  dmlc::MemoryStringStream writer(&data);
+  support::BytesOutStream writer(&data);
   SerializeConstants(&writer, constants);
 
   try {
     runtime::SaveBinaryToFile(filename, data);
   } catch (const std::exception& e) {
-    LOG(FATAL) << "Failed to save constants to " << filename << ": " << e.what();
+    TVM_FFI_THROW(RuntimeError) << "Failed to save constants to " << filename << ": " << e.what();
   }
 }
 
@@ -178,13 +179,13 @@ static void SaveConstantSectionToFileAligned(const std::vector<ffi::Any>& consta
                                              const std::string& filename,
                                              int alignment) {
   std::string data;
-  dmlc::MemoryStringStream writer(&data);
+  support::BytesOutStream writer(&data);
   SerializeConstantsAligned(&writer, constants, &data, alignment);
 
   try {
     runtime::SaveBinaryToFile(filename, data);
   } catch (const std::exception& e) {
-    LOG(FATAL) << "Failed to save constants to " << filename << ": " << e.what();
+    TVM_FFI_THROW(RuntimeError) << "Failed to save constants to " << filename << ": " << e.what();
   }
 }
 
@@ -302,7 +303,7 @@ std::string PackWeightsToBinary(const ffi::Module& mod,
                                 const std::string& const_filename,
                                 ffi::Optional<Target> target) {
   auto vm = mod.as<VMExecutable>();
-  ICHECK(vm != nullptr) << "Module must be a VMExecutable for weight packing";
+  TVM_FFI_ICHECK(vm != nullptr) << "Module must be a VMExecutable for weight packing";
 
   std::ostringstream os;
 
