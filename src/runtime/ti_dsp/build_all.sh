@@ -119,7 +119,7 @@ export PATH="$VIRTUAL_ENV/bin:$PATH"
 # the same file the builds above used) -- pass through the same board this
 # script just built for, or it silently defaults to j722s-evm/8gb and looks
 # for artifacts in the wrong build-<board>-<ddr>[-tidl-*-mmalib-*] directory.
-# `build/libtvm.so` is the one path it still expects unsuffixed.
+# `build/lib/libtvm_{runtime,compiler}.so` is the one path it still expects unsuffixed.
 ln -sfn "$TVM_BUILD_DIR" build
 BOARD_WHEEL_ARGS=(--board "$TVM_BOARD" "${DDR_ARGS[@]}")
 WHEEL_TIDL_ARGS=()

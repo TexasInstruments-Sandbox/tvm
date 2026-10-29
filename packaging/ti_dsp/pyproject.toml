@@ -1,6 +1,6 @@
 # tvm-ti-c7x-compile: TVM + TI C7x DSP compilation toolchain for AM67A.
 #
-# x86 wheel for model compilation. Includes libtvm.so, TIDL import
+# x86 wheel for model compilation. Includes libtvm_runtime.so and libtvm_compiler.so, TIDL import
 # library, dynmod build infrastructure, and cross-compile toolchains.
 # Use packaging/ti_dsp/build_wheel.sh to assemble and build the wheel.
 
@@ -13,9 +13,9 @@ name = "tvm-ti-c7x-compile"
 version = "0.23.0.post1"
 description = "TVM C7x DSP compilation toolchain for AM67A (J722S)"
 license = {text = "Apache-2.0"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "apache-tvm-ffi",
+    "apache-tvm-ffi>=0.1.14.post0",
     "cloudpickle",
     "ml_dtypes",
     "numpy",
@@ -34,6 +34,6 @@ packages = {find = {where = ["."], include = ["tvm*"]}}
 
 [tool.setuptools.package-data]
 "tvm" = ["*.so", "*.so.*"]
-"tvm.ffi" = ["*.so"]
+"tvm.lib" = ["*.so", "*.so.*"]
 "tvm.data" = ["**/*"]
 "tvm.data.ti_dsp" = ["**/*"]

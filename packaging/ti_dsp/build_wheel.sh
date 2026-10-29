@@ -6,7 +6,8 @@
 #   arm64            tvm-ti-c7x-inference  — minimal on-board inference runtime
 #
 # Prerequisites:
-#   - TVM built (cmake + ninja) with libtvm.so in $TVM_HOME/build/
+#   - TVM built (cmake + ninja) with libtvm_runtime.so and libtvm_compiler.so
+#     in $TVM_HOME/build/lib/
 #   - DSP runtime built: build_runtime.sh c7x_host && build_runtime.sh c7x
 #   - Firmware built: firmware/c7x/dsp/build.sh && firmware/c7x/arm/build.sh
 #   - TIDL .so built (x86 wheel only, and only when --tidl ON, the default --
@@ -123,7 +124,9 @@ build_x86() {
     echo ""
 
     # --- Validate ---
-    check_file "$TVM_HOME/build/libtvm.so" \
+    check_file "$TVM_HOME/build/lib/libtvm_runtime.so" \
+        "Build TVM first: cd build && cmake -G Ninja .. && ninja"
+    check_file "$TVM_HOME/build/lib/libtvm_compiler.so" \
         "Build TVM first: cd build && cmake -G Ninja .. && ninja"
     check_file "$DSP_RT/build-c7x-host/libtvm_dsp_runtime_c7x_host.a" \
         "Build DSP runtime: bash build_runtime.sh c7x_host"
@@ -157,16 +160,16 @@ build_x86() {
 
     # --- Native libraries ---
     echo ">>> Copying native libraries ..."
-    if [ "$STRIP_LIBS" = "1" ]; then
-        strip --strip-debug -o "$STAGING/tvm/libtvm.so" "$TVM_HOME/build/libtvm.so"
-        strip --strip-debug -o "$STAGING/tvm/libtvm_runtime.so" "$TVM_HOME/build/libtvm_runtime.so"
-    else
-        cp "$TVM_HOME/build/libtvm.so" "$STAGING/tvm/"
-        cp "$TVM_HOME/build/libtvm_runtime.so" "$STAGING/tvm/"
-    fi
-    if [ -f "$TVM_HOME/python/tvm/ffi/core.abi3.so" ]; then
-        cp "$TVM_HOME/python/tvm/ffi/core.abi3.so" "$STAGING/tvm/ffi/"
-    fi
+    # TVM 0.27 splits libtvm.so into libtvm_runtime.so and libtvm_compiler.so.
+    # python/tvm/libinfo.py searches <package>/lib/ first for the wheel layout.
+    mkdir -p "$STAGING/tvm/lib"
+    for lib in libtvm_runtime.so libtvm_compiler.so; do
+        if [ "$STRIP_LIBS" = "1" ]; then
+            strip --strip-debug -o "$STAGING/tvm/lib/$lib" "$TVM_HOME/build/lib/$lib"
+        else
+            cp "$TVM_HOME/build/lib/$lib" "$STAGING/tvm/lib/"
+        fi
+    done
 
     # --- DSP data directory ---
     echo ">>> Staging DSP artifacts ..."
@@ -274,7 +277,7 @@ build_arm64() {
     mkdir -p "$STAGING/tvm/contrib/c7x"
     mkdir -p "$STAGING/tvm/data/ti_dsp"
 
-    # Stub tvm/__init__.py — does not load libtvm.so
+    # Stub tvm/__init__.py — does not load libtvm_runtime.so/libtvm_compiler.so
     cat > "$STAGING/tvm/__init__.py" << 'PYEOF'
 """TVM C7x inference runtime (minimal aarch64 package)."""
 PYEOF

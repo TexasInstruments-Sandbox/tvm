@@ -1,10 +1,10 @@
 diff --git a/python/tvm_ffi/cython/device.pxi b/python/tvm_ffi/cython/device.pxi
-index 2eb36fc..25b577e 100644
+index 0f3fa86..e640635 100644
 --- a/python/tvm_ffi/cython/device.pxi
 +++ b/python/tvm_ffi/cython/device.pxi
-@@ -128,6 +128,7 @@ cdef class Device:
-         "hexagon": DLDeviceType.kDLHexagon,
+@@ -129,6 +129,7 @@ cdef class Device:
          "webgpu": DLDeviceType.kDLWebGPU,
+         "maia": DLDeviceType.kDLMAIA,
          "trn": DLDeviceType.kDLTrn,
 +        "c_static_lib": DLDeviceType.kDLCPU,
      }
