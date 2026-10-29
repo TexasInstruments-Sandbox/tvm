@@ -67,8 +67,7 @@ class BuiltinLower : public StmtExprMutator {
       // Targets with use-cpp-api skip anylist lowering so the codegen
       // receives the compact anylist_setitem_call_packed form directly
       // instead of the expanded struct_set + call_packed_lowered sequence.
-      skip_anylist_lowering =
-          target.value()->GetAttr<Integer>("use-cpp-api").value_or(0)->value != 0;
+      skip_anylist_lowering = target.value()->GetAttr<bool>("use-cpp-api").value_or(false);
     }
 
     auto mutator =
@@ -449,10 +448,10 @@ class BuiltinLower : public StmtExprMutator {
       return MakeCallPackedGeneric(op, 0, builtin::tvm_call_trace_packed_lowered(),
                                    /* use_last_value_as_traced_value*/ true);
     } else if (op->op.same_as(builtin::anylist_setitem_call_packed())) {
-      if (skip_anylist_lowering_) return StmtExprMutator::VisitExpr_(op);
+      if (skip_anylist_lowering_) return StmtExprMutator::Mutate_(op, inplace_mode);
       return MakeAnyListSetItemCallPacked(op, builtin::tvm_call_packed_lowered());
     } else if (op->op.same_as(builtin::anylist_setitem_call_cpacked())) {
-      if (skip_anylist_lowering_) return StmtExprMutator::VisitExpr_(op);
+      if (skip_anylist_lowering_) return StmtExprMutator::Mutate_(op, inplace_mode);
       return MakeAnyListSetItemCallPacked(op, builtin::tvm_call_cpacked_lowered());
     } else if (op->op.same_as(builtin::tvm_stack_make_shape())) {
       return MakeShape(op);

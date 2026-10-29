@@ -181,6 +181,54 @@ TVM_DLL Pass SplitHostDevice();
 TVM_DLL Pass SkipAssert();
 
 /*!
+ * \brief Hoist reduction initialization outside of reduction loops.
+ *
+ * This pass transforms patterns where reduction initialization is inside
+ * reduction loops with conditional guards (e.g., `if (rc == 0 && ry == 0)`)
+ * into code where initialization happens before the reduction loops.
+ *
+ * This transformation enables software pipelining on DSPs like TI C66x,
+ * where conditional statements inside loops prevent optimal scheduling.
+ *
+ * \return The pass.
+ */
+TVM_DLL Pass HoistReductionInit();
+
+/*!
+ * \brief Replace pow(x, 2) with x * x for better performance.
+ *
+ * This pass replaces calls to the power function with exponent 2
+ * with a simple multiplication, avoiding the overhead of the general
+ * powf() function.
+ *
+ * \return The pass.
+ */
+TVM_DLL Pass SimplifyPowerTwo();
+
+/*!
+ * \brief Add tirx.noalias attribute to all PrimFuncs.
+ *
+ * This pass adds the "tirx.noalias" attribute to all PrimFuncs, enabling
+ * the code generator to emit `restrict` qualifiers on pointer parameters.
+ * The restrict keyword informs the compiler that pointers do not alias,
+ * enabling more aggressive optimizations like software pipelining.
+ *
+ * \return The pass.
+ */
+TVM_DLL Pass AddNoAlias();
+
+/*!
+ * \brief Promote reduction accumulators from memory to registers.
+ *
+ * Rewrites `buf[idx] = buf[idx] + expr` accumulations whose index is
+ * invariant in the reduction loop into a scalar local accumulator that is
+ * written back once after the loop.
+ *
+ * \return The pass.
+ */
+TVM_DLL Pass PromoteReductionAccumulator();
+
+/*!
  * \brief This annotation is for nodes to be disabled for builtin lowering
  */
 static constexpr const char* kDisableLowerTVMBuiltin = "disable_lower_builtin";

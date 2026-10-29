@@ -27,51 +27,55 @@
  * 2. x * x is a single multiply instruction
  * 3. On DSPs like TI C66x, this enables better instruction scheduling
  */
-#include <tvm/tir/expr.h>
-#include <tvm/tir/op.h>
-#include <tvm/tir/stmt_functor.h>
-#include <tvm/tir/transform.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/prim/expr.h>
+#include <tvm/ir/prim/op.h>
+#include <tvm/tirx/expr.h>
+#include <tvm/tirx/op.h>
+#include <tvm/tirx/stmt_functor.h>
+#include <tvm/tirx/transform.h>
 
 namespace tvm {
-namespace tir {
+namespace tirx {
 
 /*!
  * \brief Replaces pow(x, 2) with x * x in expressions.
  */
 class PowerTwoSimplifier : public StmtExprMutator {
  public:
-  PrimExpr VisitExpr_(const CallNode* op) override {
-    // First visit children
-    PrimExpr expr = StmtExprMutator::VisitExpr_(op);
-    const CallNode* call = expr.as<CallNode>();
-    if (call == nullptr) {
-      return expr;
+  using StmtExprMutator::Mutate;
+  using StmtExprMutator::Mutate_;
+
+  UnchangedOr<Expr> Mutate_(const CallNode* op, InplaceMode inplace_mode) final {
+    // First visit children.
+    auto result = StmtExprMutator::Mutate_(op, inplace_mode);
+    if (!result.IsUnchanged()) {
+      op = ffi::AnyView(result).as<CallNode>();
     }
 
-    // Check if this is a pow call
-    static const Op& pow_op = Op::Get("tir.pow");
-    if (call->op.same_as(pow_op) && call->args.size() == 2) {
-      PrimExpr base = call->args[0];
-      PrimExpr exponent = call->args[1];
+    // Check if this is a pow call.
+    static const Op& pow_op = Op::Get("tirx.pow");
+    if (op != nullptr && op->op.same_as(pow_op) && op->args.size() == 2) {
+      PrimExpr base = op->args[0].as_or_throw<PrimExpr>();
+      PrimExpr exponent = op->args[1].as_or_throw<PrimExpr>();
 
-      // Check if exponent is constant 2.0 (or 2)
+      // Check if exponent is constant 2.0 (or 2).
       if (const FloatImmNode* float_imm = exponent.as<FloatImmNode>()) {
         if (float_imm->value == 2.0) {
-          // Replace pow(x, 2.0) with x * x
+          // Replace pow(x, 2.0) with x * x.
           ++num_replacements_;
-          return mul(base, base, call->span);
+          return mul(base, base, op->span);
         }
       } else if (const IntImmNode* int_imm = exponent.as<IntImmNode>()) {
         if (int_imm->value == 2) {
-          // Replace pow(x, 2) with x * x
+          // Replace pow(x, 2) with x * x.
           ++num_replacements_;
-          return mul(base, base, call->span);
+          return mul(base, base, op->span);
         }
       }
     }
 
-    return expr;
+    return result;
   }
 
   int num_replacements() const { return num_replacements_; }
@@ -81,9 +85,9 @@ class PowerTwoSimplifier : public StmtExprMutator {
 };
 
 PrimFunc SimplifyPowerTwo(PrimFunc func) {
-  PowerTwoSimplifier simplifier;
+  auto simplifier = ffi::make_object<PowerTwoSimplifier>();
   auto fptr = func.CopyOnWrite();
-  fptr->body = simplifier(std::move(fptr->body));
+  fptr->body = simplifier->Mutate(fptr->body, InplaceMode::kAllow).ValueOrUnchanged(fptr->body);
   return func;
 }
 
@@ -93,15 +97,15 @@ Pass SimplifyPowerTwo() {
   auto pass_func = [](PrimFunc f, IRModule m, PassContext ctx) {
     return SimplifyPowerTwo(std::move(f));
   };
-  return CreatePrimFuncPass(pass_func, 0, "tir.SimplifyPowerTwo", {});
+  return CreatePrimFuncPass(pass_func, 0, "tirx.SimplifyPowerTwo", {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  refl::GlobalDef().def("tir.transform.SimplifyPowerTwo", SimplifyPowerTwo);
+  refl::GlobalDef().def("tirx.transform.SimplifyPowerTwo", SimplifyPowerTwo);
 }
 
 }  // namespace transform
 
-}  // namespace tir
+}  // namespace tirx
 }  // namespace tvm

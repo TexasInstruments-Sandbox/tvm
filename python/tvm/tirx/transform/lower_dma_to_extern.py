@@ -21,10 +21,10 @@ After LowerAsyncDMA converts async copy loops into builtin::dma_copy()
 and builtin::dma_wait() calls, this pass converts them to call_extern()
 calls targeting the C7x DMA runtime functions:
 
-  - tir.dma_copy(qid, dst, src, size, bypass) ->
+  - tirx.dma_copy(qid, dst, src, size, bypass) ->
     call_extern("tvm_dsp_dma_copy", qid, dst, src, size, bypass)
 
-  - tir.dma_wait(qid, inflight) ->
+  - tirx.dma_wait(qid, inflight) ->
     call_extern("tvm_dsp_dma_wait", qid, inflight)
 
 This must run AFTER LowerAsyncDMA and BEFORE LowerTVMBuiltin (which
@@ -33,8 +33,10 @@ would otherwise lower these to device API packed calls).
 The c_static_lib codegen handles call_extern natively via PrintCallExtern.
 """
 
+import tvm_ffi
+
 import tvm
-from tvm import tir
+from tvm import tirx
 from tvm.ir import Op
 
 
@@ -46,32 +48,31 @@ def LowerDMAToExtern():
     fpass : tvm.transform.Pass
         The result pass.
     """
-    op_dma_copy = Op.get("tir.dma_copy")
-    op_dma_wait = Op.get("tir.dma_wait")
-    op_dma_start_group = Op.get("tir.dma_start_group")
-    op_dma_end_group = Op.get("tir.dma_end_group")
+    op_dma_copy = Op.get("tirx.dma_copy")
+    op_dma_wait = Op.get("tirx.dma_wait")
+    op_dma_start_group = Op.get("tirx.dma_start_group")
+    op_dma_end_group = Op.get("tirx.dma_end_group")
 
     def _postorder(op):
-        if isinstance(op, tir.Evaluate):
-            call = op.value
-            if isinstance(call, tir.Call):
-                if call.op.same_as(op_dma_copy):
-                    new_call = tir.call_extern("int32", "tvm_dsp_dma_copy", *call.args)
-                    return tir.Evaluate(new_call)
-                if call.op.same_as(op_dma_wait):
-                    new_call = tir.call_extern("int32", "tvm_dsp_dma_wait", *call.args)
-                    return tir.Evaluate(new_call)
-                # DMA grouping is a no-op for C7x: individual copies
-                # are tracked by queue_id and inflight count.
-                if call.op.same_as(op_dma_start_group):
-                    return tir.Evaluate(tir.const(0, "int32"))
-                if call.op.same_as(op_dma_end_group):
-                    return tir.Evaluate(tir.const(0, "int32"))
-        return None
+        call = op.value
+        if isinstance(call, tirx.Call):
+            if call.op.same_as(op_dma_copy):
+                new_call = tirx.call_extern("int32", "tvm_dsp_dma_copy", *call.args)
+                return tirx.Evaluate(new_call)
+            if call.op.same_as(op_dma_wait):
+                new_call = tirx.call_extern("int32", "tvm_dsp_dma_wait", *call.args)
+                return tirx.Evaluate(new_call)
+            # DMA grouping is a no-op for C7x: individual copies
+            # are tracked by queue_id and inflight count.
+            if call.op.same_as(op_dma_start_group):
+                return tirx.Evaluate(tirx.const(0, "int32"))
+            if call.op.same_as(op_dma_end_group):
+                return tirx.Evaluate(tirx.const(0, "int32"))
+        return op
 
-    @tvm.tir.transform.prim_func_pass(opt_level=0, name="LowerDMAToExtern")
-    def _pass(func, mod, ctx):
-        new_body = tir.stmt_functor.ir_transform(func.body, None, _postorder, ["tir.Evaluate"])
+    @tvm.tirx.transform.prim_func_pass(opt_level=0, name="LowerDMAToExtern")
+    def _pass(func, mod, ctx):  # pylint: disable=unused-argument
+        new_body = tvm_ffi.structural_map(func.body, (tirx.Evaluate, _postorder), order="post")
         if new_body.same_as(func.body):
             return func
         return func.with_body(new_body)

@@ -19,9 +19,9 @@
 
 /*!
  * \file add_noalias.cc
- * \brief Add tir.noalias attribute to all PrimFuncs.
+ * \brief Add tirx.noalias attribute to all PrimFuncs.
  *
- * This pass adds the "tir.noalias" attribute to all PrimFuncs, which
+ * This pass adds the "tirx.noalias" attribute to all PrimFuncs, which
  * enables the code generator to emit `restrict` qualifiers on pointer
  * parameters. The restrict keyword informs the compiler that pointers
  * do not alias, enabling more aggressive optimizations.
@@ -30,21 +30,22 @@
  * software pipelining and SIMD vectorization, as the compiler can
  * better schedule loads and stores when it knows pointers don't alias.
  */
-#include <tvm/tir/function.h>
-#include <tvm/tir/transform.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/prim/expr.h>
+#include <tvm/tirx/function.h>
+#include <tvm/tirx/transform.h>
 
 namespace tvm {
-namespace tir {
+namespace tirx {
 
 PrimFunc AddNoAlias(PrimFunc func) {
   // Check if noalias is already set
-  if (func->HasNonzeroAttr(tir::attr::kNoAlias)) {
+  if (func->HasNonzeroAttr(tirx::attr::kNoAlias)) {
     return func;
   }
 
   // Add noalias attribute
-  return WithAttr(std::move(func), tir::attr::kNoAlias, Integer(1));
+  return WithAttr(std::move(func), tirx::attr::kNoAlias, IntImm::Int32(1));
 }
 
 namespace transform {
@@ -53,15 +54,15 @@ Pass AddNoAlias() {
   auto pass_func = [](PrimFunc f, IRModule m, PassContext ctx) {
     return AddNoAlias(std::move(f));
   };
-  return CreatePrimFuncPass(pass_func, 0, "tir.AddNoAlias", {});
+  return CreatePrimFuncPass(pass_func, 0, "tirx.AddNoAlias", {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  refl::GlobalDef().def("tir.transform.AddNoAlias", AddNoAlias);
+  refl::GlobalDef().def("tirx.transform.AddNoAlias", AddNoAlias);
 }
 
 }  // namespace transform
 
-}  // namespace tir
+}  // namespace tirx
 }  // namespace tvm

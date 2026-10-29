@@ -19,15 +19,20 @@
 
 After the DMA tiling schedule creates cache_read buffers with
 ``global.l2sram`` scope and InjectSoftwarePipeline hoists their
-Allocate nodes to function scope, this pass converts those Allocate
-nodes into call_extern calls to ``tvm_l2_alloc``.
+AllocBuffer statements to function scope, this pass converts those
+AllocBuffer statements into call_extern calls to ``tvm_l2_alloc``.
+
+AllocBuffer is a flat statement (it has no body); the buffer is in scope
+for the statements that follow it in the enclosing SeqStmt.  The pass
+therefore works on the leading run of ``global.l2sram`` AllocBuffer
+statements of the function body.
 
 For a function with a single tiled conv layer:
 
-    Allocate(buf, float32, [N], scope="global.l2sram", body)
+    AllocBuffer(buf, scope="global.l2sram"); body...
     -->
     tvm_l2_reset()
-    LetStmt(buf, call_extern("handle", "tvm_l2_alloc", N*4), body)
+    DeclBuffer(buf, call_extern("handle", "tvm_l2_alloc", N*4)); body...
 
 For functions with multiple sequential tiled layers (e.g. a fused
 YOLO backbone), InjectSoftwarePipeline hoists ALL layers' double-buffer
@@ -40,19 +45,18 @@ calls at the boundaries between sequential allocation groups so each
 group receives the full L2 budget:
 
     # Static: sum of all layers' L2 > 1.25 MB, but sequential
-    Alloc(v0_l1, scope=l2, Alloc(v1_l1, scope=l2,
-        Alloc(v0_l2, scope=l2, Alloc(v1_l2, scope=l2,
-            SeqStmt([layer1_code, layer2_code])))))
+    AllocBuffer(v0_l1, l2); AllocBuffer(v1_l1, l2);
+    AllocBuffer(v0_l2, l2); AllocBuffer(v1_l2, l2);
+    layer1_code; layer2_code
     -->
     tvm_l2_reset()
-    LetStmt(v0_l1, l2_alloc(s0),    # offset 0
-     LetStmt(v1_l1, l2_alloc(s1),   # offset s0
-      SeqStmt([
-        layer1_code,
-        tvm_l2_reset(),             # <-- reset: reuse L2 for layer 2
-        LetStmt(v0_l2, l2_alloc(s2),# offset 0 again
-         LetStmt(v1_l2, l2_alloc(s3),
-          layer2_code))])))
+    DeclBuffer(v0_l1, l2_alloc(s0))    # offset 0
+    DeclBuffer(v1_l1, l2_alloc(s1))    # offset s0
+    layer1_code
+    tvm_l2_reset()                     # <-- reset: reuse L2 for layer 2
+    DeclBuffer(v0_l2, l2_alloc(s2))    # offset 0 again
+    DeclBuffer(v1_l2, l2_alloc(s3))
+    layer2_code
 
 Group detection: a group boundary is inserted when:
   (a) the running sum of the current group's allocations would exceed
@@ -66,9 +70,10 @@ from the current group is still live.
 
 import logging
 
+import tvm_ffi
+
 import tvm
-from tvm import tir
-from tvm.ir import PointerType
+from tvm import tirx
 
 logger = logging.getLogger(__name__)
 
@@ -85,27 +90,26 @@ def LowerL2SramAlloc():
         The result pass.
     """
 
-    def _get_scope(var):
-        """Extract storage scope from a buffer Var's type annotation."""
-        ptr_type = var.type_annotation
-        if isinstance(ptr_type, PointerType):
-            return str(ptr_type.storage_scope)
-        return ""
+    def _get_scope(buf):
+        """Extract the storage scope of a buffer variable."""
+        return str(buf.scope())
+
+    def _elem_bytes(dtype):
+        """Bytes per element, counting vector lanes."""
+        return (dtype.bits * dtype.lanes + 7) // 8
 
     def _nbytes_expr(extents, dtype):
         """Compute allocation size in bytes as a PrimExpr."""
-        elem_bytes = (dtype.bits * dtype.lanes + 7) // 8
-        nbytes = tir.const(elem_bytes, "int32")
+        nbytes = tirx.const(_elem_bytes(dtype), "int32")
         for e in extents:
             nbytes = nbytes * e
         return nbytes
 
     def _nbytes_static(extents, dtype):
         """Compute allocation size in bytes as a Python int, or None if dynamic."""
-        elem_bytes = (dtype.bits * dtype.lanes + 7) // 8
-        total = elem_bytes
+        total = _elem_bytes(dtype)
         for e in extents:
-            if isinstance(e, tir.IntImm):
+            if isinstance(e, tirx.IntImm):
                 total *= int(e)
             else:
                 return None
@@ -116,45 +120,69 @@ def LowerL2SramAlloc():
         found = set()
 
         def _visit(node):
-            if isinstance(node, tir.Var):
-                found.add(node)
+            found.add(node)
 
-        tir.stmt_functor.post_order_visit(stmt, _visit)
+        tvm_ffi.structural_walk(stmt, (tirx.Var, _visit), order="post")
         return found
 
     def _collect_l2_chain(stmt):
-        """Walk the outermost nested Allocate(global.l2sram) chain.
+        """Collect the global.l2sram AllocBuffer statements of the function's allocation prefix.
 
-        Returns (alloc_list, innermost_body) where alloc_list is a list of
-        (buffer_var, extents, dtype) tuples in outer-to-inner order and
-        innermost_body is the stmt inside the innermost Allocate.
+        AllocBuffer has no body: the allocated buffers scope over the statements
+        that follow in the enclosing SeqStmt.  The 0.23 pass walked the outermost
+        nested Allocate chain, which included every allocation regardless of
+        scope, so the L2 buffers were found even when an ordinary allocation
+        (e.g. a padded temp) was declared first.  The flat equivalent is the
+        leading run of AllocBuffer statements of ANY scope: the global.l2sram
+        ones are collected, and the others are kept, in order, ahead of the
+        remaining body.
+
+        Returns (alloc_list, remaining_body) where alloc_list is a list of
+        (buffer, extents, dtype) tuples in program order and remaining_body is
+        the statement (or SeqStmt) with the non-L2 leading allocations kept and
+        the L2 ones removed.
         """
+        stmts = list(stmt.seq) if isinstance(stmt, tirx.SeqStmt) else [stmt]
         alloc_list = []
-        while isinstance(stmt, tir.Allocate):
-            if _get_scope(stmt.buffer_var) != "global.l2sram":
-                break
-            alloc_list.append((stmt.buffer_var, stmt.extents, stmt.dtype))
-            stmt = stmt.body
-        return alloc_list, stmt
+        kept = []
+        idx = 0
+        while idx < len(stmts) and isinstance(stmts[idx], tirx.AllocBuffer):
+            buf = stmts[idx].buffer
+            if _get_scope(buf) == "global.l2sram":
+                alloc_list.append((buf, buf.shape, buf.dtype))
+            else:
+                kept.append(stmts[idx])
+            idx += 1
+        rest = kept + stmts[idx:]
+        if not rest:
+            return alloc_list, tirx.Evaluate(0)
+        return alloc_list, rest[0] if len(rest) == 1 else tirx.SeqStmt(rest)
 
-    def _build_let_chain(alloc_list, body):
-        """Wrap body in nested LetStmts for each (var, extents, dtype).
+    def _build_decl_chain(alloc_list, body):
+        """Bind each (buffer, extents, dtype) to a tvm_l2_alloc result, then run body.
 
-        Each binding is followed by a null-check mirroring
-        lower_tvm_builtin.cc's AllocateNode handling: if tvm_l2_alloc's DDR
-        fallback (TVMBackendAllocWorkspace -> tvm_dsp_alloc) also fails,
-        throw cleanly instead of dereferencing NULL (a memory exception the
-        firmware can't recover from -- see docs/dsp/oom_reporting_design.md
-        "tvm_l2_alloc null-check (Gap A)").
+        Returns a flat SeqStmt: for every allocation a DeclBuffer binding the
+        buffer to ``tvm_l2_alloc(nbytes)``, followed by a null check, and
+        finally ``body``.  The null check mirrors lower_tvm_builtin.cc's
+        AllocBuffer handling: if tvm_l2_alloc's DDR fallback
+        (TVMBackendAllocWorkspace -> tvm_dsp_alloc) also fails, throw cleanly
+        instead of dereferencing NULL (a memory exception the firmware can't
+        recover from).
         """
-        for var, extents, dtype in reversed(alloc_list):
+        stmts = []
+        for buf, extents, dtype in alloc_list:
             nbytes = _nbytes_expr(extents, dtype)
-            alloc_call = tir.call_extern("handle", "tvm_l2_alloc", nbytes)
-            null_check = tir.IfThenElse(
-                tir.isnullptr(var), tir.Evaluate(tir.tvm_throw_last_error()), None
+            alloc_call = tirx.call_extern("handle", "tvm_l2_alloc", nbytes)
+            stmts.append(tirx.DeclBuffer(buf, alloc_call))
+            stmts.append(
+                tirx.IfThenElse(
+                    tirx.isnullptr(tirx.buffer_data(buf)),
+                    tirx.Evaluate(tirx.tvm_throw_last_error()),
+                    None,
+                )
             )
-            body = tir.LetStmt(var, alloc_call, tir.SeqStmt([null_check, body]))
-        return body
+        stmts.append(body)
+        return tirx.SeqStmt(stmts)
 
     def _lower_func(func):
         """Lower global.l2sram allocations in a single PrimFunc."""
@@ -163,7 +191,7 @@ def LowerL2SramAlloc():
         if not alloc_list:
             return func
 
-        reset_stmt = tir.Evaluate(tir.call_extern("int32", "tvm_l2_reset"))
+        reset_stmt = tirx.Evaluate(tirx.call_extern("int32", "tvm_l2_reset"))
 
         # Compute total static size to decide if grouping is needed.
         total_bytes = 0
@@ -177,7 +205,7 @@ def LowerL2SramAlloc():
 
         if not all_static or total_bytes <= _L2_SRAM_BYTES:
             # Single group: everything fits in one shot.
-            new_body = tir.SeqStmt([reset_stmt, _build_let_chain(alloc_list, inner_body)])
+            new_body = tirx.SeqStmt([reset_stmt, _build_decl_chain(alloc_list, inner_body)])
             logger.debug(
                 "LowerL2SramAlloc: single group, total=%d bytes",
                 total_bytes if all_static else -1,
@@ -197,7 +225,7 @@ def LowerL2SramAlloc():
         )
 
         # Flatten body to a statement list for scanning.
-        if isinstance(inner_body, tir.SeqStmt):
+        if isinstance(inner_body, tirx.SeqStmt):
             body_stmts = list(inner_body.seq)
         else:
             body_stmts = [inner_body]
@@ -246,7 +274,7 @@ def LowerL2SramAlloc():
                 total_bytes,
                 _L2_SRAM_BYTES,
             )
-            new_body = tir.SeqStmt([reset_stmt, _build_let_chain(alloc_list, inner_body)])
+            new_body = tirx.SeqStmt([reset_stmt, _build_decl_chain(alloc_list, inner_body)])
             return func.with_body(new_body)
 
         # Reconstruct body: build from innermost group outward.
@@ -263,16 +291,16 @@ def LowerL2SramAlloc():
         for group_allocs, slice_stmts in reversed(group_data):
             if combined is not None:
                 # Append reset + remainder to this group's slice.
-                slice_stmts = list(slice_stmts) + [reset_stmt, combined]
+                slice_stmts = [*slice_stmts, reset_stmt, combined]
             if len(slice_stmts) == 1:
                 body_part = slice_stmts[0]
             elif slice_stmts:
-                body_part = tir.SeqStmt(slice_stmts)
+                body_part = tirx.SeqStmt(slice_stmts)
             else:
-                body_part = tir.Evaluate(0)
-            combined = _build_let_chain(group_allocs, body_part)
+                body_part = tirx.Evaluate(0)
+            combined = _build_decl_chain(group_allocs, body_part)
 
-        new_body = tir.SeqStmt([reset_stmt, combined])
+        new_body = tirx.SeqStmt([reset_stmt, combined])
 
         group_sizes = [
             sum(_nbytes_static(e, d) or 0 for _, e, d in ga) for ga, _ in group_data
@@ -287,7 +315,7 @@ def LowerL2SramAlloc():
         )
         return func.with_body(new_body)
 
-    @tvm.tir.transform.prim_func_pass(opt_level=0, name="LowerL2SramAlloc")
+    @tvm.tirx.transform.prim_func_pass(opt_level=0, name="LowerL2SramAlloc")
     def _pass(func, mod, ctx):  # pylint: disable=unused-argument
         return _lower_func(func)
 

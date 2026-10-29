@@ -48,20 +48,21 @@
  * This transformation enables software pipelining on DSPs like TI C66x,
  * where conditional statements inside loops prevent optimal scheduling.
  */
-#include <tvm/tir/expr.h>
-#include <tvm/tir/expr_functor.h>
-#include <tvm/tir/op.h>
-#include <tvm/tir/stmt.h>
-#include <tvm/tir/stmt_functor.h>
-#include <tvm/tir/transform.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/prim/expr.h>
+#include <tvm/ir/prim/op.h>
+#include <tvm/tirx/expr.h>
+#include <tvm/tirx/op.h>
+#include <tvm/tirx/stmt.h>
+#include <tvm/tirx/stmt_functor.h>
+#include <tvm/tirx/transform.h>
 
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 namespace tvm {
-namespace tir {
+namespace tirx {
 
 /*!
  * \brief Information about a detected reduction init pattern.
@@ -80,20 +81,23 @@ struct ReductionInitInfo {
  *
  * Recursively decomposes And expressions and checks each term for var == 0 pattern.
  */
-class ReductionConditionDetector : public ExprVisitor {
+class ReductionConditionDetector : public tvm::ExprVisitor {
  public:
-  void VisitExpr_(const AndNode* op) final {
-    VisitExpr(op->a);
-    VisitExpr(op->b);
+  using tvm::ExprVisitor::Visit;
+  using tvm::ExprVisitor::Visit_;
+
+  ffi::Optional<VisitInterrupt> Visit_(const prim::AndNode* op) final {
+    if (auto interrupt = Visit(ffi::AnyView(op->a))) return interrupt;
+    return Visit(ffi::AnyView(op->b));
   }
 
-  void VisitExpr_(const EQNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const prim::EQNode* op) final {
     // Check for pattern: var == 0
     if (const auto* var = op->a.as<VarNode>()) {
       if (const auto* imm = op->b.as<IntImmNode>()) {
         if (imm->value == 0) {
           vars_.insert(var);
-          return;
+          return std::nullopt;
         }
       }
     }
@@ -102,17 +106,19 @@ class ReductionConditionDetector : public ExprVisitor {
       if (const auto* imm = op->a.as<IntImmNode>()) {
         if (imm->value == 0) {
           vars_.insert(var);
-          return;
+          return std::nullopt;
         }
       }
     }
     // Not a valid pattern
     is_valid_ = false;
+    return std::nullopt;
   }
 
-  void VisitExpr_(const VarNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
     // A bare variable in the condition is not our pattern
     is_valid_ = false;
+    return std::nullopt;
   }
 
   /*!
@@ -121,9 +127,9 @@ class ReductionConditionDetector : public ExprVisitor {
    * \return Pair of (set of variables in var == 0 pattern, is_valid flag)
    */
   static std::pair<std::unordered_set<const VarNode*>, bool> Analyze(const PrimExpr& cond) {
-    ReductionConditionDetector detector;
-    detector.VisitExpr(cond);
-    return std::make_pair(detector.vars_, detector.is_valid_);
+    auto detector = ffi::make_object<ReductionConditionDetector>();
+    detector->Visit(ffi::AnyView(cond));
+    return std::make_pair(detector->vars_, detector->is_valid_);
   }
 
  private:
@@ -142,11 +148,14 @@ class ReductionConditionDetector : public ExprVisitor {
  * init statement is hoisted to before this loop. Otherwise, the condition
  * is simplified and passed up.
  */
-class ReductionInitHoister : public StmtMutator {
+class ReductionInitHoister : public StmtExprMutator {
  public:
-  Stmt VisitStmt_(const ForNode* op) final {
-    // First, process the body recursively
-    Stmt new_body = VisitStmt(op->body);
+  using StmtExprMutator::Mutate;
+  using StmtExprMutator::Mutate_;
+
+  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+    // First, process the body recursively. Expressions are never rewritten by this pass.
+    Stmt new_body = Mutate(op->body, InplaceMode::kDisallow).ValueOrUnchanged(op->body);
 
     // Check if the body is a SeqStmt containing an IfThenElse init pattern
     ReductionInitInfo info = DetectInitPattern(new_body, op->loop_var.get());
@@ -176,7 +185,7 @@ class ReductionInitHoister : public StmtMutator {
       return For(op->loop_var, op->min, op->extent, op->kind, new_body, op->thread_binding,
                  op->annotations, std::nullopt, op->span);
     }
-    return ffi::GetRef<Stmt>(op);
+    return ffi::Unchanged();
   }
 
  private:
@@ -274,13 +283,13 @@ class ReductionInitHoister : public StmtMutator {
    * \brief Rebuild condition from remaining variables.
    */
   PrimExpr RebuildCondition(const std::unordered_set<const VarNode*>& vars) {
-    ICHECK(!vars.empty());
+    TVM_FFI_ICHECK(!vars.empty());
     std::vector<const VarNode*> sorted_vars(vars.begin(), vars.end());
-    Var first_var = ffi::GetRef<Var>(sorted_vars[0]);
-    PrimExpr cond = equal(first_var, make_const(first_var->dtype, 0));
+    PrimExpr first_var = ffi::GetRef<Var>(sorted_vars[0]).as_or_throw<PrimExpr>();
+    PrimExpr cond = equal(first_var, prim::MakeConst(first_var.ty(), 0));
     for (size_t i = 1; i < sorted_vars.size(); ++i) {
-      Var v = ffi::GetRef<Var>(sorted_vars[i]);
-      cond = And(cond, equal(v, make_const(v->dtype, 0)));
+      PrimExpr v = ffi::GetRef<Var>(sorted_vars[i]).as_or_throw<PrimExpr>();
+      cond = logical_and(cond, equal(v, prim::MakeConst(v.ty(), 0)));
     }
     return cond;
   }
@@ -288,7 +297,8 @@ class ReductionInitHoister : public StmtMutator {
 
 PrimFunc HoistReductionInit(PrimFunc func) {
   auto fptr = func.CopyOnWrite();
-  fptr->body = ReductionInitHoister()(std::move(fptr->body));
+  auto hoister = ffi::make_object<ReductionInitHoister>();
+  fptr->body = hoister->Mutate(fptr->body, InplaceMode::kDisallow).ValueOrUnchanged(fptr->body);
   return func;
 }
 
@@ -298,15 +308,15 @@ Pass HoistReductionInit() {
   auto pass_func = [](PrimFunc f, IRModule m, PassContext ctx) {
     return HoistReductionInit(std::move(f));
   };
-  return CreatePrimFuncPass(pass_func, 0, "tir.HoistReductionInit", {});
+  return CreatePrimFuncPass(pass_func, 0, "tirx.HoistReductionInit", {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  refl::GlobalDef().def("tir.transform.HoistReductionInit", HoistReductionInit);
+  refl::GlobalDef().def("tirx.transform.HoistReductionInit", HoistReductionInit);
 }
 
 }  // namespace transform
 
-}  // namespace tir
+}  // namespace tirx
 }  // namespace tvm

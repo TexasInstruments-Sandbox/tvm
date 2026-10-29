@@ -28,7 +28,9 @@ same reason (see topi/scan.py's cumsum/cumprod) -- it lowers to a genuine TIR
 `for` loop that survives Relax's c_static_lib build pipeline unchanged, instead of
 unrolling into one op per timestep.
 """
-from tvm import te, tir
+from tvm import te, tirx
+from tvm.script.ir_builder import IRBuilder
+from tvm.script.ir_builder import tirx as T
 from tvm.topi import tag
 
 
@@ -39,8 +41,8 @@ def gru(
     Bi=None,
     Bh=None,
     h_init=None,
-    f_act=tir.sigmoid,
-    h_act=tir.tanh,
+    f_act=tirx.sigmoid,
+    h_act=tirx.tanh,
     reverse=False,
 ):
     """Single-direction GRU over a full sequence, PyTorch nn.GRU semantics.
@@ -101,7 +103,7 @@ def gru(
 
     if h_init is None:
         h_init = te.compute(
-            (batch_size, hidden_size), lambda b, j: tir.const(0.0, Xs.dtype), name="h_init"
+            (batch_size, hidden_size), lambda b, j: tirx.const(0.0, Xs.dtype), name="h_init"
         )
 
     def pos_of(t):
@@ -116,50 +118,52 @@ def gru(
             bh_buf = None
         out_buf = outs[0]
 
-        ib = tir.ir_builder.create()
-        xi2h_p = ib.buffer_ptr(xi2h_buf)
-        wh_p = ib.buffer_ptr(wh_buf)
-        hinit_p = ib.buffer_ptr(hinit_buf)
-        bh_p = ib.buffer_ptr(bh_buf) if bh_buf is not None else None
-        out_p = ib.buffer_ptr(out_buf)
+        with IRBuilder() as ib:
+            xi2h_p = T.buffer_proxy(xi2h_buf)
+            wh_p = T.buffer_proxy(wh_buf)
+            hinit_p = T.buffer_proxy(hinit_buf)
+            bh_p = T.buffer_proxy(bh_buf) if bh_buf is not None else None
+            out_p = T.buffer_proxy(out_buf)
 
-        acc_r = ib.allocate("float32", (1,), name="acc_r", scope="local")
-        acc_z = ib.allocate("float32", (1,), name="acc_z", scope="local")
-        acc_n = ib.allocate("float32", (1,), name="acc_n", scope="local")
-        h_prev = ib.allocate("float32", (1,), name="h_prev", scope="local")
+            acc_r = T.buffer_proxy(T.alloc_buffer((1,), "float32", scope="local"))
+            acc_z = T.buffer_proxy(T.alloc_buffer((1,), "float32", scope="local"))
+            acc_n = T.buffer_proxy(T.alloc_buffer((1,), "float32", scope="local"))
+            h_prev = T.buffer_proxy(T.alloc_buffer((1,), "float32", scope="local"))
 
-        with ib.for_range(0, seq_len, name="t", kind="serial") as t:
-            pos = pos_of(t)
-            pos_prev = pos_of(t - 1)
-            with ib.for_range(0, batch_size, name="b", kind="serial") as b:
-                with ib.for_range(0, hidden_size, name="j", kind="serial") as j:
-                    acc_r[0] = 0.0
-                    acc_z[0] = 0.0
-                    acc_n[0] = 0.0
-                    with ib.for_range(0, hidden_size, name="k", kind="serial") as k:
-                        with ib.if_scope(t == 0):
-                            h_prev[0] = hinit_p[b, k]
-                        with ib.else_scope():
-                            h_prev[0] = out_p[pos_prev, b, k]
-                        acc_r[0] += h_prev[0] * wh_p[0 * hidden_size + j, k]
-                        acc_z[0] += h_prev[0] * wh_p[1 * hidden_size + j, k]
-                        acc_n[0] += h_prev[0] * wh_p[2 * hidden_size + j, k]
+            with T.serial(0, seq_len) as t:
+                pos = pos_of(t)
+                pos_prev = pos_of(t - 1)
+                with T.serial(0, batch_size) as b:
+                    with T.serial(0, hidden_size) as j:
+                        acc_r[0] = 0.0
+                        acc_z[0] = 0.0
+                        acc_n[0] = 0.0
+                        with T.serial(0, hidden_size) as k:
+                            with T.If(t == 0):
+                                with T.Then():
+                                    h_prev[0] = hinit_p[b, k]
+                                with T.Else():
+                                    h_prev[0] = out_p[pos_prev, b, k]
+                            acc_r[0] = acc_r[0] + h_prev[0] * wh_p[0 * hidden_size + j, k]
+                            acc_z[0] = acc_z[0] + h_prev[0] * wh_p[1 * hidden_size + j, k]
+                            acc_n[0] = acc_n[0] + h_prev[0] * wh_p[2 * hidden_size + j, k]
 
-                    r_bias = bh_p[0 * hidden_size + j] if bh_p is not None else 0.0
-                    z_bias = bh_p[1 * hidden_size + j] if bh_p is not None else 0.0
-                    n_bias = bh_p[2 * hidden_size + j] if bh_p is not None else 0.0
+                        r_bias = bh_p[0 * hidden_size + j] if bh_p is not None else 0.0
+                        z_bias = bh_p[1 * hidden_size + j] if bh_p is not None else 0.0
+                        n_bias = bh_p[2 * hidden_size + j] if bh_p is not None else 0.0
 
-                    r_gate = f_act(xi2h_p[pos, b, 0, j] + acc_r[0] + r_bias)
-                    z_gate = f_act(xi2h_p[pos, b, 1, j] + acc_z[0] + z_bias)
-                    n_gate = h_act(xi2h_p[pos, b, 2, j] + r_gate * (acc_n[0] + n_bias))
+                        r_gate = f_act(xi2h_p[pos, b, 0, j] + acc_r[0] + r_bias)
+                        z_gate = f_act(xi2h_p[pos, b, 1, j] + acc_z[0] + z_bias)
+                        n_gate = h_act(xi2h_p[pos, b, 2, j] + r_gate * (acc_n[0] + n_bias))
 
-                    with ib.if_scope(t == 0):
-                        h_prev[0] = hinit_p[b, j]
-                    with ib.else_scope():
-                        h_prev[0] = out_p[pos_prev, b, j]
-                    out_p[pos, b, j] = (1.0 - z_gate) * n_gate + z_gate * h_prev[0]
+                        with T.If(t == 0):
+                            with T.Then():
+                                h_prev[0] = hinit_p[b, j]
+                            with T.Else():
+                                h_prev[0] = out_p[pos_prev, b, j]
+                        out_p[pos, b, j] = (1.0 - z_gate) * n_gate + z_gate * h_prev[0]
 
-        return ib.get()
+            return ib.get()
 
     input_tensors = [Xi2h, Wh, h_init]
     if Bh is not None:
