@@ -15,27 +15,30 @@
 # specific language governing permissions and limitations
 # under the License.
 
-name: Lint
+# GH actions.
+# We use it to cover windows and mac builds
+# Jenkins is still the primary CI
+
+name: Update last-successful branch
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-permissions:
-  contents: read
+  schedule:
+    - cron: "0/15 * * * *"
+  workflow_dispatch:
 
 concurrency:
-  group: Lint-${{ github.event.pull_request.number || github.sha }}
+  group: update-last-successful-branch
   cancel-in-progress: true
 
 jobs:
-  lint:
+  update-last-successful-branch:
+    if: github.repository == 'apache/tvm'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.2
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd  # v3.0.1
+      - uses: actions/checkout@v2
+      - name: Update last-successful branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          python ci/scripts/github/update_branch.py || echo step failed
