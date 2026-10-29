@@ -111,14 +111,14 @@ ffi::Map<ffi::String, ffi::Any> TestTargetParser(ffi::Map<ffi::String, ffi::Any>
  * \param target The Target to update
  * \return The updated attributes
  *
- * This parser validates mcpu and device options for the c_static_lib backend.
+ * This canonicalizer validates mcpu and device options for the c_static_lib backend.
  * Supported mcpu values include: c66x, c7x, arm-cortex-a, generic
  * The device option allows specifying a specific device instance.
  */
-TargetJSON UpdateCStaticLibAttrs(TargetJSON target) {
+ffi::Map<ffi::String, ffi::Any> UpdateCStaticLibAttrs(ffi::Map<ffi::String, ffi::Any> target) {
   // Validate mcpu if specified
   if (target.count("mcpu")) {
-    ffi::String mcpu = Downcast<ffi::String>(target.at("mcpu"));
+    ffi::String mcpu = target.at("mcpu").as_or_throw<ffi::String>();
     std::string mcpu_str = mcpu;
 
     // List of known/supported CPU prefixes for c_static_lib
@@ -146,7 +146,7 @@ TargetJSON UpdateCStaticLibAttrs(TargetJSON target) {
 
   // Set device-specific cache sizes
   if (target.count("device")) {
-    ffi::String device = Downcast<ffi::String>(target.at("device"));
+    ffi::String device = target.at("device").as_or_throw<ffi::String>();
     std::string device_str = device;
     VLOG(1) << "c_static_lib target configured for device: " << device_str;
 
@@ -174,6 +174,20 @@ TargetJSON UpdateCStaticLibAttrs(TargetJSON target) {
         target.Set("vector-width", int64_t(128));       // 128-bit SIMD
       }
     }
+  }
+
+  // Fill in the generic defaults for anything still unset.
+  if (!target.count("constants-byte-alignment")) {
+    target.Set("constants-byte-alignment", int64_t(16));
+  }
+  if (!target.count("l1d-cache-size")) {
+    target.Set("l1d-cache-size", int64_t(32768));  // 32KB L1D
+  }
+  if (!target.count("l2-sram-size")) {
+    target.Set("l2-sram-size", int64_t(1310720));  // 1.25MB L2 SRAM (J722S C7x)
+  }
+  if (!target.count("vector-width")) {
+    target.Set("vector-width", int64_t(128));  // 128-bit SIMD
   }
 
   return target;
@@ -271,11 +285,15 @@ TVM_REGISTER_TARGET_KIND("test", kDLCPU)  // line break
 TVM_REGISTER_TARGET_KIND("c_static_lib", kDLCPU)
     .add_attr_option<ffi::Array<ffi::String>>("mattr")
     .add_attr_option<ffi::String>("mcpu")
-    .add_attr_option<int64_t>("constants-byte-alignment", 16)
+    // The next four options are deliberately declared WITHOUT a schema default. Since TVM
+    // 0.27 the canonicalizer runs after defaults are materialized, so a declared default
+    // would make "the user did not set it" indistinguishable from "the user set the
+    // default". UpdateCStaticLibAttrs applies the per-mcpu / per-device defaults instead.
+    .add_attr_option<int64_t>("constants-byte-alignment")  // default 16, 64 for c66x/c7x
     // C66x/C7x cache hierarchy attributes for cache-aware tiling
-    .add_attr_option<int64_t>("l1d-cache-size", 32768)    // 32KB L1D
-    .add_attr_option<int64_t>("l2-sram-size", 1310720)   // 1.25MB L2 SRAM (J722S C7x)
-    .add_attr_option<int64_t>("vector-width", 128)        // 128-bit SIMD
+    .add_attr_option<int64_t>("l1d-cache-size")  // default 32768 (32KB L1D)
+    .add_attr_option<int64_t>("l2-sram-size")    // default 1310720 (1.25MB L2 SRAM, J722S C7x)
+    .add_attr_option<int64_t>("vector-width")    // default 128 (128-bit SIMD)
     // Layer profiling for performance analysis (C66x/C7x)
     .add_attr_option<bool>("profile-layers", false)
     // Diagnostic allocation tracing
@@ -295,7 +313,7 @@ TVM_REGISTER_TARGET_KIND("c_static_lib", kDLCPU)
     // Use MMALIB for eligible matmul/conv2d ops (requires mcpu=c7x)
     .add_attr_option<bool>("mmalib", false)
     .set_default_keys({"c_static_lib", "cpu"})
-    .set_target_parser(UpdateCStaticLibAttrs);
+    .set_target_canonicalizer(UpdateCStaticLibAttrs);
 
 /**********  Registry  **********/
 
