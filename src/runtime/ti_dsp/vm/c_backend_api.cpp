@@ -139,23 +139,6 @@ int TVMBackendFreeWorkspace(int device_type, int device_id, void* ptr) {
  * ---------------------------------------------------------------------------*/
 
 /*!
- * \brief Get function from module environment
- *
- * For DSP, modules don't have separate environments, so this just
- * looks up in the global registry.
- *
- * \param mod_node Module handle (ignored on DSP)
- * \param func_name Function name to look up
- * \param out Output function handle
- * \return 0 on success, -1 if not found
- */
-int TVMBackendGetFuncFromEnv(void* mod_node, const char* func_name,
-                             TVMFFIObjectHandle* out) {
-  (void)mod_node;
-  return TVMBackendGetFuncFromGlobalRegistry(func_name, out);
-}
-
-/*!
  * \brief Get function from global registry
  *
  * \param func_name Function name to look up
@@ -292,29 +275,6 @@ int TVMBackendParallelBarrier(int task_id, void* penv) {
 /* ---------------------------------------------------------------------------
  * Static Initialization
  * ---------------------------------------------------------------------------*/
-
-/*!
- * \brief Run a function once (for static initialization)
- *
- * \param handle Pointer to static handle (initially NULL)
- * \param f Function to run once
- * \param cdata Closure data for function
- * \param nbytes Size of closure data (unused)
- * \return 0 on success, -1 on failure
- */
-int TVMBackendRunOnce(void** handle, int (*f)(void*), void* cdata, int nbytes) {
-  (void)nbytes;
-
-  if (*handle == nullptr) {
-    int ret = f(cdata);
-    if (ret != 0) {
-      return ret;
-    }
-    /* Mark as initialized with non-NULL value */
-    *handle = reinterpret_cast<void*>(1);
-  }
-  return 0;
-}
 
 /* ---------------------------------------------------------------------------
  * Error Handling

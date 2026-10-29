@@ -126,7 +126,6 @@ int profiling_on = 0;
 /* TVM DSP Runtime - C backend API */
 extern void *TVMBackendAllocWorkspace(int, int, uint64_t, int, int);
 extern int   TVMBackendFreeWorkspace(int, int, void *);
-extern int   TVMBackendGetFuncFromEnv(void *, const char *, void *);
 extern int   TVMBackendGetFuncFromGlobalRegistry(const char *, void *);
 extern int   TVMBackendRegisterSystemLibSymbol(const char *, void *);
 extern int   TVMBackendParallelLaunch(int (*)(int, void *, void *), void *, int);
@@ -357,7 +356,6 @@ static const DspSymEntry dsp_syms[] = {
     /* TVM C backend API */
     SYM(TVMBackendAllocWorkspace),
     SYM(TVMBackendFreeWorkspace),
-    SYM(TVMBackendGetFuncFromEnv),
     SYM(TVMBackendGetFuncFromGlobalRegistry),
     SYM(TVMBackendRegisterSystemLibSymbol),
     SYM(TVMBackendParallelLaunch),

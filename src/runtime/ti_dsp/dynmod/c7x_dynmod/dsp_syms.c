@@ -36,7 +36,6 @@ __declspec(dllexport) void abort() {}
  * ======================================================================== */
 __declspec(dllexport) void TVMBackendAllocWorkspace() {}
 __declspec(dllexport) void TVMBackendFreeWorkspace() {}
-__declspec(dllexport) void TVMBackendGetFuncFromEnv() {}
 __declspec(dllexport) void TVMBackendGetFuncFromGlobalRegistry() {}
 __declspec(dllexport) void TVMBackendRegisterSystemLibSymbol() {}
 __declspec(dllexport) void TVMBackendParallelLaunch() {}

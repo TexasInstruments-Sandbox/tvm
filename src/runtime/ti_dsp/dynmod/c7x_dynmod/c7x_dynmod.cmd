@@ -96,7 +96,6 @@ SECTIONS
 /* TVM C backend API */
 --import=TVMBackendAllocWorkspace
 --import=TVMBackendFreeWorkspace
---import=TVMBackendGetFuncFromEnv
 --import=TVMBackendGetFuncFromGlobalRegistry
 --import=TVMBackendRegisterSystemLibSymbol
 --import=TVMBackendParallelLaunch
