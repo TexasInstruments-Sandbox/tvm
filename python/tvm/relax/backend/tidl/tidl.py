@@ -137,8 +137,12 @@ def _normalize_shape_6d(shape) -> List[int]:
         return [s[0], 1, 1, s[1], 1, 1]
     if n == 1:
         return [s[0], 1, 1, 1, 1, 1]
-    if n == 3:  # NCH
-        return [s[0], 1, 1, s[1], s[2], 1]
+    if n == 3:
+        # Right-aligned, like TIDL's own shape inference (a reshape to rank 3
+        # inside a subgraph yields [1,1,1,A,B,C]) and the neo-tvm importer.  The
+        # parsers map axis k of a rank-n tensor to k + TIDL_DIM_MAX - n, which
+        # only agrees with this layout.
+        return [1, 1, 1, s[0], s[1], s[2]]
     if n == 5:  # NCDHW
         return [s[0], s[1], 1, s[2], s[3], s[4]]
     return s
