@@ -538,7 +538,7 @@ union c7x_msg {
  * c7x_msg_infer_resp all grew, and SET_PRINTF_BUF became mandatory at open.
  * A mismatched pair otherwise fails deep inside open or infer with an error
  * that reads as a bug rather than as a stale firmware image. */
-#define C7X_SERVICE_VERSION     0x040000  /* v4.0.0: rebased onto TVM 0.27 (0.27 rebase: TVMBackendGetFuncFromEnv/RunOnce removed from the export table) */
+#define C7X_SERVICE_VERSION     0x040100  /* v4.1.0: TIDL modules keep storage out of the L2 fast pool; J722S TIDL uses the vision_apps L2/L3 layout */
 
 /* Extract version components */
 #define C7X_VERSION_MAJOR(v) (((v) >> 16) & 0xFF)
