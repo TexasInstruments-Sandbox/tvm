@@ -177,14 +177,22 @@ void tidl_support_init(void) {
     g_l3_mem_addr = (void*)0x7E000000;
     g_l3_mem_size = 0x100000;  /* 1 MB */
 #else
-    /* L2 scratch — full 1.25 MB L2 SRAM (shared with TVM bump allocator).
-     * J722S: L2RAM_C7x_1_MAIN @ 0x7E000000, 1.25 MB */
-    g_l2_mem_addr = (void*)0x7E000000;
-    g_l2_mem_size = 0x140000;  /* 1.25 MB */
+    /* J722S follows vision_apps (platform/j722s/rtos/common/app_cfg_c7x_1.h:
+     * L2 = AUX, L3 = MAIN) and c7x-mma-tidl's j722s_config.cfg
+     * (L2MEMSIZE_KB=224).  With the banks swapped (L2 = MAIN, L3 = AUX) a
+     * large YOLO subgraph was wrong on the device even with nothing else in
+     * AUX; the cause inside TIDL is not known.
+     *
+     *  L2 scratch: L2RAM_C7x_1_AUX  @ 0x7F000000, 224 KB
+     *  L3 scratch: L2RAM_C7x_1_MAIN @ 0x7E000000, 1.25 MB
+     *
+     * Both banks are shared with TVM the same way as on AM62D above: MAIN with
+     * the per-kernel generated-code scratch, AUX with the runtime heap that
+     * compute_service.c disables for TIDL modules. */
+    g_l2_mem_addr = (void*)0x7F000000;
+    g_l2_mem_size = 224 * 1024;
 
-    /* L3/MSMC — 240 KB auxiliary L2 region.
-     * J722S: L2RAM_C7x_1_AUX @ 0x7F000000, 240 KB */
-    g_l3_mem_addr = (void*)0x7F000000;
-    g_l3_mem_size = 240 * 1024;
+    g_l3_mem_addr = (void*)0x7E000000;
+    g_l3_mem_size = 0x140000;  /* 1.25 MB */
 #endif
 }
