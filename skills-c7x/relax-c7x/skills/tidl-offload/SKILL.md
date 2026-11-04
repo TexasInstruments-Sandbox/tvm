@@ -1,6 +1,6 @@
 ---
 name: tidl-offload
-description: "TIDL subgraph offloading for TVM Relax c_static_lib backend. Use when working on: TIDL partitioning (FuseOpsByPattern + MergeCompositeFunctions), tidl_import() FFI pipeline, LowerTIDLToTIR, bridge generation (tidl_bridge.c), TIDL composite patterns (74 patterns: conv2d/conv2d_transpose variants, pooling, batch_norm, activations, elementwise, reductions, transformer ops, quantize/dequantize, and more), tidl_model_import_relax.so, TIDL device config, IALG lifecycle (init/process/free), UDMA handle management, or TIDL hardware resource allocation (L1/L2/L3/DDR pools, DRU channels). NOT for MMALIB direct integration (see mmalib-offload) or general pipeline configuration (see cstatic)."
+description: "TIDL subgraph offloading for TVM Relax c_static_lib backend. Use when working on: TIDL partitioning (FuseOpsByPattern + MergeCompositeFunctions), tidl_import() FFI pipeline, LowerTIDLToTIR, bridge generation (tidl_bridge.c), TIDL composite patterns (73 patterns: conv2d/conv2d_transpose variants, pooling, batch_norm, activations, elementwise, reductions, transformer ops, quantize/dequantize, and more), tidl_model_import_relax.so, TIDL device config, IALG lifecycle (init/process/free), UDMA handle management, or TIDL hardware resource allocation (L1/L2/L3/DDR pools, DRU channels). NOT for MMALIB direct integration (see mmalib-offload) or general pipeline configuration (see cstatic)."
 ---
 
 # TIDL Subgraph Offloading
@@ -101,9 +101,9 @@ Consequences:
   `w = R.const(...)` is inlined into the call; otherwise fusion makes it a
   composite *parameter* and TIDL declines the (then variable) weight.
 
-## 74 Composite Patterns
+## 73 Composite Patterns
 
-`python/tvm/relax/backend/tidl/patterns.py`'s `get_tidl_patterns()` returns 74
+`python/tvm/relax/backend/tidl/patterns.py`'s `get_tidl_patterns()` returns 73
 patterns (verify with `len(get_tidl_patterns())`; this has grown well past
 earlier fixed counts as ops were added — don't hardcode the number in new
 docs). Grouped by category:
@@ -117,7 +117,8 @@ docs). Grouped by category:
 - Reductions: `tidl.sum`, `tidl.reduce_max`, `tidl.reduce_min`, `tidl.argmax`, `tidl.argmin`
 - Math unary: `tidl.abs/sqrt/exp/log/erf/floor/negative/sin/cos/tan/.../power`
 - `tidl.quantize`, `tidl.dequantize`
-- Misc: `tidl.nn.depth_to_space`, `tidl.image.resize2d`, `tidl.image.grid_sample`, `tidl.scatter_elements`, `tidl.scatter_nd`
+- Misc: `tidl.nn.depth_to_space`, `tidl.image.resize2d`, `tidl.scatter_elements`, `tidl.scatter_nd`
+- Not offloaded on 0.27: `image.grid_sample` (the grid layout changed to `[N,2,H,W]`; see the TIDL README)
 
 ## TIDL Import Pipeline
 
@@ -168,12 +169,18 @@ process_tidl_subgraph():
 
 ## Hardware Resources (J722S)
 
-| Pool | Size | Source |
-|------|------|--------|
-| L1 DARAM | firmware-provided | C7x L1 SRAM |
-| L2 SRAM | firmware-provided | C7x L2 SRAM |
-| L3 (aux L2) | 240 KB (`MSMCSIZE_KB=240`) | Auxiliary L2 |
-| DDR | 128 MB | `tvm_dsp_alloc` heap |
+| Pool | Region | Size |
+|------|--------|------|
+| L1 DARAM | L2 AUX as L1, `0x7F03C000` | 16 KB |
+| L2 SRAM | L2 AUX, `0x7F000000` | 224 KB (`L2MEMSIZE_KB` in `j722s_config.cfg`) |
+| L3 | L2 MAIN, `0x7E000000` | 1.25 MB |
+| DDR | `tvm_dsp_alloc` heap | 352 MB |
+
+This is the vision_apps layout (`app_cfg_c7x_1.h`); with L2/L3 the other way
+round a large YOLO subgraph was wrong on the device. L2 AUX is also the runtime's
+fast pool (storage <= 32 KB), so the firmware turns that pool off while a TIDL
+module is loaded (`TVMDSPStorageSetFastPoolEnabled`): a small TVM tensor live
+across a TIDL call would otherwise be overwritten.
 
 DMA: up to 14 DRU channels (via DmaUtilsAutoInc3d). J722S has 16 total.
 
@@ -255,6 +262,7 @@ Tests at `tests/ti-dsp-runtime/tidl-tests/` and `unit-tests/`:
 | `test_tidl_resnet_e2e.py` | 3 | ResNet-18 TIDL e2e (fully INT8, all layers on MMA) | AM67A + .so |
 | `test_tidl_mv2_e2e.py` | 2 | MV2 TIDL e2e with FC on MMA; calibration health check | AM67A + .so |
 | `test_yolo_dsp.py` | 2 | YOLOv5/v8 c_static_lib + TIDL offload (exercises eager bridge init) | AM67A + .so for TIDL variant |
+| `test_tidl_subgraph_io.py` | 3 | Multi-output buffers, rank-3 concat of reshapes, small tensor live across a TIDL call | `.so`; the last one only bites on AM67A |
 | `unit-tests/test_tidl_large_weight_calib.py` | 2 | Calibration overflow isolation (large-weight conv) | `.so` only |
 
 Markers: `quick` (no hardware), `core` (+ c7x_host stub). Most `tidl-tests` need `tidl_model_import_relax.so` to partition (`conftest.py` skips them when it is not built); `C7X_MMA_TIDL_PATH` defaults to `~/ml/c7x-mma-tidl`.

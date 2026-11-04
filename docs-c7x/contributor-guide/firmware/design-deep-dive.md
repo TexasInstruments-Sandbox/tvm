@@ -814,9 +814,15 @@ modules, and where the TVM runtime allocates workspace tensors during inference.
 
 | Region | Address | Size | Purpose |
 |--------|---------|------|---------|
-| L2 main | 0x7E000000 | 2 MB | Runtime stack, FreeRTOS heap |
-| L2 aux | 0x7F000000 | 240 KB | Fast scratch memory |
-| L1 alias | 0x7F03C000 | 16 KB | L1 cache as SRAM |
+| L2 main | 0x7E000000 | 1.25 MB | Generated-code DMA scratch (`tvm_l2_alloc`, reset per kernel); TIDL's L3 |
+| L2 aux | 0x7F000000 | 240 KB | Runtime fast pool (first 128 KB, storage ≤ 32 KB); TIDL's L2 (224 KB) |
+| L1 alias | 0x7F03C000 | 16 KB | TIDL's L1 |
+
+Each bank has two users. The generated-code scratch never lives across a
+TIDL call, so sharing MAIN is safe. The fast pool does hold tensors across
+calls, so the firmware disables it while a TIDL module is loaded
+(`TVMDSPStorageSetFastPoolEnabled`, called from `handle_dyn_load` in
+`compute_service.c`); such a module keeps all its storage in DDR.
 
 ### Host-Side Allocation
 

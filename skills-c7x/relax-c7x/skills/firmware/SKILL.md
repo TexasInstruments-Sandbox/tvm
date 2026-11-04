@@ -197,9 +197,16 @@ Numbers below are current as of the 352 MB extension; re-verify before
 trusting them.
 
 ```
-C7x Internal
+C7x Internal (L2 SRAM banks)
 ┌───────────────────────┐
-│  L2 SRAM (128 KB)     │  Fast tensor storage (≤64 KB allocs)
+│  L2 MAIN 0x7E000000   │  1.25 MB — generated-code DMA scratch (tvm_l2_alloc,
+│                       │  reset per kernel); TIDL "L3"
+├───────────────────────┤
+│  L2 AUX  0x7F000000   │  240 KB — first 128 KB: runtime fast pool (storage
+│                       │  <= 32 KB); TIDL "L2" (224 KB). Fast pool is OFF
+│                       │  while a TIDL module is loaded
+├───────────────────────┤
+│  AUX as L1 0x7F03C000 │  16 KB — TIDL "L1"
 └───────────────────────┘
 
 DDR shared carveout (512 MB DMA-BUF, shared host↔DSP)  0xC0000000

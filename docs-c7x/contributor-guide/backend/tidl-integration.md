@@ -35,8 +35,8 @@ libraries and the C7504 MMALIB:
   and `-device=am62d` defaults `l2-sram-size` to 240 KB. The AM62D toolchain
   and PC libs follow from the device. The dynmod build takes the SDK root
   (ivision headers) from `$PSDK_INSTALL_PATH`.
-- TIDL's "L2" is the 240 KB L2 AUX bank, which is also the TVM L2 heap; the two
-  users run sequentially. TIDL's "L3" is the 1 MB L2 MAIN bank.
+- TIDL's "L2" is the 240 KB L2 AUX bank and its "L3" the 1 MB L2 MAIN bank,
+  the same assignment as on J722S (see [On-chip memory](#on-chip-memory)).
 - Verified on an AM62D EVM: MobileNetV2 (`test_tidl_mv2_e2e.py -k correctness
   --board am62d --dsp-mode=c7x_dload`). On hardware the top two classes swap,
   which the test records as an xfail near-tie (`mean_diff` still checked).
@@ -49,7 +49,7 @@ libraries and the C7504 MMALIB:
 | File | Purpose |
 |------|---------|
 | `python/tvm/relax/backend/tidl/tidl.py` | `TIDLOffloadCompiler`: partition, import, lower, bridge generation, build |
-| `python/tvm/relax/backend/tidl/patterns.py` | TIDL `FusionPattern` definitions (74 patterns); structure only, no constraint logic |
+| `python/tvm/relax/backend/tidl/patterns.py` | TIDL `FusionPattern` definitions (73 patterns); structure only, no constraint logic |
 | `python/tvm/relax/backend/tidl/_gate.py` | The eligibility gate: rebuilds the composite for each match and asks `TIDL_relaxAllowNode` in `tidl_model_import_relax.so` |
 | `python/tvm/relax/backend/tidl/README.md` | Full pattern/constraint reference and pipeline architecture (source of truth for this page) |
 | `src/runtime/ti_dsp/tidl/tidl_api.{c,h}` | DLOAD-module-side IALG lifecycle (`init/process/free_tidl_subgraph`) |
@@ -138,7 +138,7 @@ configurations (`test_tidl_declines_hw.py`).
 
 ## Supported Operations
 
-74 patterns across these categories (exact op list and per-pattern
+73 patterns across these categories (exact op list and per-pattern
 constraints in `python/tvm/relax/backend/tidl/README.md`):
 
 | Category | Ops |
@@ -192,6 +192,29 @@ shared resources a loaded module needs via the DLOAD symbol table
 SRAM pools, cache writeback). TIDL and TVM's own DMA tiling share one
 UDMA driver instance, initialized once at firmware boot.
 
+### On-chip memory
+
+`tidl_support_init()` (`firmware/c7x/dsp/src/tidl_support.c`) hands TIDL's
+IALG allocator three regions, following the vision_apps layout
+(`app_cfg_c7x_1.h`) on both SoCs:
+
+| TIDL region | Bank | J722S | AM62D |
+|-------------|------|-------|-------|
+| L1 | L2 AUX as L1, `0x7F03C000` | 16 KB | 16 KB |
+| L2 | L2 AUX, `0x7F000000` | 224 KB (`L2MEMSIZE_KB` in `j722s_config.cfg`) | 240 KB |
+| L3 | L2 MAIN, `0x7E000000` | 1.25 MB | 1 MB |
+
+Both banks are shared with TVM. That is safe for the generated-code L2
+scratch in MAIN (`tvm_l2_alloc`), which is reset at the start of every
+kernel and never lives across a TIDL call. It is not safe for the runtime's
+fast pool in AUX, where storage of 32 KB or less normally goes: storage
+outlives a single op, so a small tensor produced before a TIDL subgraph and
+read after it would be overwritten by TIDL's scratch. When the firmware loads
+a module that exports `tidl_bridge_cleanup`, it calls
+`TVMDSPStorageSetFastPoolEnabled(0)` so all of that module's storage goes to
+DDR, and turns the fast pool back on at unload. Modules without TIDL keep
+using it.
+
 Each TIDL subgraph goes through the standard IALG lifecycle at runtime
 (alloc → init → activate → process → deactivate, freed at module unload)
 — see `src/runtime/ti_dsp/tidl/README.md` for the exact call sequence.
@@ -209,21 +232,14 @@ ordering matters — see
   call" internal error) for some input configurations. Prefer reducing
   over a spatial axis instead, or treat the case as `xfail` if it's
   intrinsic to the model.
-- **Softmax-heavy heads may diverge on hardware despite passing host
-  emulation.** A model whose TIDL-offloaded output feeds directly into a
-  TVM-side `exp()`-based op (e.g. a detection head's distribution-focal-loss
-  softmax) can produce `NaN` on real hardware (`c7x_dload`) while passing
-  on the PC AVX reference path (`c7x_host`) with identical calibration.
-  The C7x MMA and the PC AVX reference round int8 dequantization slightly
-  differently; if that shift pushes values far enough negative, `exp()`
-  underflows to exactly `0.0` for every element of a reduction, producing
-  `0/0 = NaN`. This is a hardware/reference rounding gap, not a
-  calibration bug — per-subgraph calibration (above) is necessary but not
-  sufficient to fix it. If a model hits this, keep the affected head off
-  the TIDL path (either leave it on the TVM scalar path, or use
-  [MMALIB](mmalib-integration.md) + `C7xMMAQuantizer` for that portion of
-  the model instead, which bakes quantization scales into the compiled
-  binary and applies them identically on host and hardware).
+- **Host and hardware are expected to match.** A large gap between
+  `c7x_host` and `c7x_dload`, or a subgraph that is wrong on both, has so far
+  always been an import or memory bug rather than int8 rounding (missing
+  multi-output buffers, rank < 4 tensors laid out differently at the
+  subgraph boundary, TVM tensors sharing a bank with TIDL scratch). Check
+  `numOutputBuf` in the subgraph's `params_1.bin` against its output count
+  and run the subgraph alone before suspecting calibration;
+  `tidl-tests/test_tidl_subgraph_io.py` covers the known cases.
 - **Element-wise ops require rank exactly 4.** A sub-4D use (e.g. an FC
   bias add with shape `(1, N)`) is rejected by the pattern's constraint
   check rather than being offloaded and crashing at runtime.

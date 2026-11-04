@@ -108,14 +108,20 @@ includes headers from c7x-mma-tidl source (not PSDK).
 
 ## Memory Pools (J722S)
 
-| Pool | Size | Source | DDR fallback |
-|------|------|--------|--------------|
-| L1 DARAM | firmware | C7x L1 SRAM | Yes |
-| L2 SRAM | firmware | C7x L2 SRAM | Yes |
-| L3 (aux L2) | 240 KB | `MSMCSIZE_KB=240` | Yes |
-| DDR heap | 352 MiB | `tvm_dsp_alloc` | N/A |
+Set by `tidl_support_init()` in `firmware/c7x/dsp/src/tidl_support.c`,
+following the vision_apps layout (`app_cfg_c7x_1.h`):
 
-J722S has no MSMC SRAM.  L3 pool uses auxiliary L2.
+| Pool | Region | Size | DDR fallback |
+|------|--------|------|--------------|
+| L1 DARAM | L2 AUX as L1, `0x7F03C000` | 16 KB | Yes |
+| L2 SRAM | L2 AUX, `0x7F000000` | 224 KB (`L2MEMSIZE_KB` in `j722s_config.cfg`) | Yes |
+| L3 | L2 MAIN, `0x7E000000` (J722S has no MSMC) | 1.25 MB | Yes |
+| DDR heap | `tvm_dsp_alloc` | 352 MiB | N/A |
+
+Both L2 banks are shared with TVM.  The runtime's fast pool lives in L2 AUX, so
+the firmware disables it while a TIDL module is loaded (see
+`TVMDSPStorageSetFastPoolEnabled` in `vm/storage.h`); otherwise a small TVM
+tensor live across a TIDL call is overwritten by TIDL's scratch.
 
 ## Known Issues
 

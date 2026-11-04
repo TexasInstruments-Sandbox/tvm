@@ -34,7 +34,7 @@ Requires: `TI_CGT_C7000_PATH` for c7x/c7x_host targets.
 | L2 (Fast) | L2 SRAM | 128 KB | ≤32 KB tensors | Intermediate activations, hot data |
 | DDR (Main) | DDR | 352 MB (as of 2026-07-27; has drifted before — verify against `linker_c75_freertos.cmd`, see `relax-c7x:firmware` Memory Layout) | >32 KB tensors | Constants, large activations, DLOAD modules |
 
-Threshold is `TVM_DSP_L2_ALLOC_THRESHOLD` (`src/runtime/ti_dsp/core/config.h`), 32 KB.
+Threshold is `TVM_DSP_L2_ALLOC_THRESHOLD` (`src/runtime/ti_dsp/core/config.h`), 32 KB. The fast pool shares L2 AUX with TIDL's scratch, so the firmware calls `TVMDSPStorageSetFastPoolEnabled(0)` while a TIDL module (one exporting `tidl_bridge_cleanup`) is loaded and every storage buffer goes to DDR; see `relax-c7x:tidl-offload`.
 
 Allocator: bump-pointer with size-segregated free-list for O(1) allocation. Memory pools backed by linker sections (`.tvm_l2_heap`, `.tvm_ddr_heap`) on hardware, `malloc()` on host emulation.
 
