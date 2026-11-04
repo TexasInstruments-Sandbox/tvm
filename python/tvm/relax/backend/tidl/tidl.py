@@ -251,6 +251,132 @@ def _make_in_out_nodes(this_node, in_names, out_names):
     return node, this_b, in_bytes, out_bytes, in_arr, out_arr
 
 
+# Must match TIDL_NUM_OUT_BUFS in itidl_ti.h (neo-tvm uses the same limit).
+_TIDL_MAX_OUTPUTS_PER_DATA_LAYER = 16
+
+
+@dataclass
+class _LinkPlan:
+    """How the nodes of one subgraph are wired for ``TIDL_relaxImportLinkNode``.
+
+    ``nodes[i]`` is ``(this_node, in_names, out_names)`` for composite ``i``.
+    ``out_layers`` lists the output data layers to create after the nodes, in the
+    same form; empty when the subgraph has one output produced by one node that
+    nothing else reads (that node is then named after the subgraph output).
+    """
+
+    nodes: List[Tuple[str, List[str], List[str]]]
+    out_layers: List[Tuple[str, List[str], List[str]]]
+
+
+def _plan_links(func, composites, sg_id: int) -> _LinkPlan:
+    """Work out node and edge names for the composites of one subgraph.
+
+    Edges are resolved through ``TupleGetItem``, ``Tuple`` and alias bindings.
+    A tuple-valued composite (split, topk) is named ``"<i>_o0"`` and its field
+    ``k`` is ``"<i>_o<k>"``: the library derives the names of outputs 1..n from
+    the trailing ``o<k>`` of the node name.
+
+    Only one node can carry the subgraph output name, so a subgraph with several
+    outputs, or whose output is also read inside the subgraph, would import only
+    that one output and leave the others unwritten on the device.  Those cases go
+    through output data layer(s) instead, which is what neo-tvm does.
+    """
+    n_comp = len(composites)
+    tuple_valued = {
+        i for i, (_, call, _) in enumerate(composites) if isinstance(call.ty, relax.TupleType)
+    }
+
+    def result_names(i: int) -> List[str]:
+        if i not in tuple_valued:
+            return [str(i)]
+        return [f"{i}_o{k}" for k in range(len(_flatten_sinfos(composites[i][1].ty)))]
+
+    # Var -> names of the tensors it holds (one per flattened tuple field).
+    produced: Dict[relax.Var, List[str]] = {}
+    for j, p in enumerate(func.params):
+        produced[p] = [f"tidl_{sg_id}_i{j}"]
+    comp_vars = {bvar: i for i, (_, _, bvar) in enumerate(composites)}
+    for bvar, i in comp_vars.items():
+        produced[bvar] = result_names(i)
+
+    def resolve(expr) -> List[str]:
+        if isinstance(expr, relax.Var):
+            return list(produced.get(expr, []))
+        if isinstance(expr, relax.TupleGetItem):
+            inner = resolve(expr.tuple_value)
+            ty = expr.tuple_value.ty  # pyright: ignore[reportAttributeAccessIssue]
+            if isinstance(ty, relax.TupleType):
+                fields = list(ty.fields)  # pyright: ignore[reportAttributeAccessIssue]
+                off = sum(len(_flatten_sinfos(f)) for f in fields[: expr.index])
+                return inner[off : off + len(_flatten_sinfos(fields[expr.index]))]
+            return inner
+        if isinstance(expr, relax.Tuple):
+            res: List[str] = []
+            for f in expr.fields:
+                res.extend(resolve(f))
+            return res
+        return []  # Constant, ShapeExpr, PrimValue: no edge
+
+    for block in func.body.blocks:
+        for b in block.bindings:
+            if b.var not in comp_vars and isinstance(
+                b.value, (relax.Var, relax.TupleGetItem, relax.Tuple)
+            ):
+                produced[b.var] = resolve(b.value)
+
+    in_names: List[List[str]] = []
+    for _, call, _ in composites:
+        names: List[str] = []
+        for a in call.args:
+            names.extend(resolve(a))
+        in_names.append(names)
+
+    owner_of = {name: i for i in range(n_comp) for name in result_names(i)}
+    # Consumers of each composite, once per use.
+    consumers: List[List[str]] = [[] for _ in range(n_comp)]
+    for j in range(n_comp):
+        for name in in_names[j]:
+            owner = owner_of.get(name)
+            if owner is not None and owner != j:
+                consumers[owner].append(str(j))
+
+    ret_names = resolve(func.body.body)
+    output_names = [f"tidl_{sg_id}_o{k}" for k in range(len(ret_names))]
+    if not ret_names or any(n not in owner_of for n in ret_names):
+        raise ValueError(
+            f"TIDL subgraph {sg_id}: an output is not produced by a TIDL node "
+            "(it is a subgraph input or a constant)"
+        )
+    returned_owner = [owner_of[n] for n in ret_names]
+
+    owner = returned_owner[0]
+    if len(ret_names) == 1 and ret_names[0] == str(owner) and not consumers[owner]:
+        nodes = [
+            (output_names[0], in_names[i], [])
+            if i == owner
+            else (result_names(i)[0], in_names[i], consumers[i])
+            for i in range(n_comp)
+        ]
+        return _LinkPlan(nodes, [])
+
+    n_layers = -(-len(ret_names) // _TIDL_MAX_OUTPUTS_PER_DATA_LAYER)
+    layer_names = [str(n_comp + k) for k in range(n_layers)]
+    layer_of = [k // _TIDL_MAX_OUTPUTS_PER_DATA_LAYER for k in range(len(ret_names))]
+    nodes = []
+    for i in range(n_comp):
+        outs = list(consumers[i])
+        for k, o in enumerate(returned_owner):
+            if o == i and layer_names[layer_of[k]] not in outs:
+                outs.append(layer_names[layer_of[k]])
+        nodes.append((result_names(i)[0], in_names[i], outs))
+    out_layers = []
+    for li, lname in enumerate(layer_names):
+        sel = [k for k in range(len(ret_names)) if layer_of[k] == li]
+        out_layers.append((lname, [ret_names[k] for k in sel], [output_names[k] for k in sel]))
+    return _LinkPlan(nodes, out_layers)
+
+
 def _write_calibration_data(
     artifacts_dir,
     sg_id,
@@ -683,50 +809,14 @@ class TIDLOffloadCompiler:
             # -- Walk composite calls -----------------------------------
             composites = _extract_composite_calls(func)
 
-            # Build var map: Var object -> TIDL node name.
-            # Keyed by Var identity (not name_hint) because Relax
-            # reuses name hints like "lv" across different bindings
-            # within the same function body.
-            var_map: Dict[relax.Var, str] = {}
-            for i, p in enumerate(func.params):
-                var_map[p] = f"tidl_{sg_id}_i{i}"
-
-            # A composite with several outputs (split, topk) is consumed through
-            # TupleGetItem bindings, so a consumer's argument is not the composite's
-            # own output var.  Without a name for it the library creates an input
-            # tensor that nothing produces ("Dim 3 is -1").  The library derives the
-            # names of outputs 1..n from the trailing "o<k>" of the node name
-            # (TIDL_relaxImportLinkNode), so a multi-output node is named "<i>_o0"
-            # and element k is "<i>_o<k>".
-            comp_index = {bvar: i for i, (_, _, bvar) in enumerate(composites)}
-            multi_output = {
-                i
-                for i, (_, orig_call, _) in enumerate(composites)
-                if isinstance(orig_call.ty, relax.TupleType)
-            }
-            elem_of: Dict[relax.Var, Tuple[int, int]] = {}
-            for block in func.body.blocks:
-                for tb in block.bindings:
-                    tv = tb.value
-                    if (
-                        isinstance(tv, relax.TupleGetItem)
-                        and isinstance(tv.tuple_value, relax.Var)
-                        and tv.tuple_value in comp_index
-                    ):
-                        elem_of[tb.var] = (comp_index[tv.tuple_value], int(tv.index))
-
-            def node_name_of(i: int) -> str:
-                return f"{i}_o0" if i in multi_output else str(i)
-
-            for i, (_, _, bvar) in enumerate(composites):
-                var_map[bvar] = node_name_of(i)
-            for evar, (pi, k) in elem_of.items():
-                var_map[evar] = f"{pi}_o{k}"
+            # Node and edge names, keyed by Var identity (Relax reuses name
+            # hints like "lv" across bindings).
+            plan = _plan_links(func, composites, sg_id)
 
             import_node_fn = tvm.get_global_func("TIDL_relaxImportNode")
             link_node_fn = tvm.get_global_func("TIDL_relaxImportLinkNode")
 
-            for i, (comp_fn, orig_call, bvar) in enumerate(composites):
+            for i, (comp_fn, orig_call, _) in enumerate(composites):
                 comp_name = str(comp_fn.attrs["Composite"])
 
                 # Lift inlined Constants into VarBindings so the
@@ -752,34 +842,27 @@ class TIDLOffloadCompiler:
                 if ret != 0:
                     raise RuntimeError(f"TIDL_relaxImportNode failed for '{comp_name}' (rc={ret})")
 
-                # -- InOutNodes for linking -----------------------------
-                # Input names (use Var identity via var_map)
-                in_names = []
-                for arg in orig_call.args:
-                    if isinstance(arg, relax.Var):
-                        in_names.append(var_map.get(arg, arg.name))
-
-                # Output consumer names (use Var.same_as for identity)
-                out_names = []
-                for j in range(i + 1, len(composites)):
-                    _, future_call, _ = composites[j]
-                    for farg in future_call.args:
-                        if isinstance(farg, relax.Var) and (
-                            farg.same_as(bvar) or elem_of.get(farg, (None,))[0] == i
-                        ):
-                            out_names.append(str(j))
-
-                # Terminal node: use subgraph output tensor name
-                if not out_names:
-                    node_name = f"tidl_{sg_id}_o0"
-                else:
-                    node_name = node_name_of(i)
-
+                node_name, in_names, out_names = plan.nodes[i]
                 refs = _make_in_out_nodes(node_name, in_names, out_names)
                 in_out_struct = refs[0]
                 ret = link_node_fn(ctypes.c_void_p(ctypes.addressof(in_out_struct)))
                 if ret != 0:
                     raise RuntimeError(f"TIDL_relaxImportLinkNode failed for node {i} (rc={ret})")
+
+            # Output data layers, for subgraphs whose outputs are not one plain node.
+            out_data_fn = tvm.get_global_func("TIDL_relaxImportOutDataLayer")
+            for lname, lin, lout in plan.out_layers:
+                ret = out_data_fn(len(lin))
+                if ret != 0:
+                    raise RuntimeError(
+                        f"TIDL_relaxImportOutDataLayer failed for '{sg_name}' (rc={ret})"
+                    )
+                refs = _make_in_out_nodes(lname, lin, lout)
+                ret = link_node_fn(ctypes.c_void_p(ctypes.addressof(refs[0])))
+                if ret != 0:
+                    raise RuntimeError(
+                        f"TIDL_relaxImportLinkNode failed for output layer of '{sg_name}' (rc={ret})"
+                    )
 
             # -- TIDL_relaxOptimizeNet ----------------------------------
             optimize_fn = tvm.get_global_func("TIDL_relaxOptimizeNet")
