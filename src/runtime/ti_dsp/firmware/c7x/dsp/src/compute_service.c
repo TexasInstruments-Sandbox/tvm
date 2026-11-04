@@ -35,6 +35,7 @@ extern int TVMDSPRegFileCleanup(void);
 extern void TVMDSPConstantsCleanup(void);
 extern void tvm_dsp_reset_pools(void);
 extern void TVMDSPSetWeightsData(const void *data, size_t size);
+extern void TVMDSPStorageSetFastPoolEnabled(int enabled);
 
 /* cg_main_dsp function pointer type */
 typedef int (*cg_main_dsp_fn)(TVMFFIAny *inputs, int num_inputs,
@@ -255,6 +256,19 @@ static void handle_dyn_load(struct c7x_msg_dyn_load *req,
 
     g_loaded_module_handle = handle;
 
+    /* TIDL's L2/L3 scratch (tidl_support.c) overlaps the TVM fast pool, and a
+     * small tensor can be live across a TIDL subgraph call, so a TIDL module
+     * keeps all of its storage in DDR. */
+    {
+        uint64_t tidl_addr = 0;
+        int has_tidl = dyn_loader_query_symbol(handle, "tidl_bridge_cleanup",
+                                               &tidl_addr) == 0 && tidl_addr != 0;
+        TVMDSPStorageSetFastPoolEnabled(!has_tidl);
+        if (has_tidl) {
+            DebugP_log("[COMPUTE] TIDL module: storage fast pool disabled\r\n");
+        }
+    }
+
     /* Check for embedded weights in loaded module */
     {
         uint64_t ws_addr = 0, wz_addr = 0;
@@ -389,6 +403,8 @@ static void handle_dyn_unload(struct c7x_msg_dyn_unload *req,
 
         /* Free constants memory pools */
         TVMDSPConstantsCleanup();
+
+        TVMDSPStorageSetFastPoolEnabled(1);
     }
 
     status = dyn_loader_unload(req->module_handle);

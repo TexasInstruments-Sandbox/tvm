@@ -95,6 +95,15 @@ typedef struct TVMDSPStorage {
 TVMDSPStorage* TVMDSPStorageAlloc(size_t size, DLDevice device, DLDataType dtype_hint);
 
 /*!
+ * \brief Allow or forbid storage data in the fast (L2) pool
+ * \param enabled 0 sends every storage buffer to the main (DDR) pool
+ *
+ * Called by the firmware when a module is loaded: a module with TIDL
+ * subgraphs disables it, because TIDL's scratch shares that L2 bank.
+ */
+void TVMDSPStorageSetFastPoolEnabled(int enabled);
+
+/*!
  * \brief Create an NDArray from storage at a given offset
  * \param storage The storage to use
  * \param offset Byte offset into the storage buffer

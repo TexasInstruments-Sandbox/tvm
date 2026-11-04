@@ -72,6 +72,16 @@ void TVMDSPStorageDeleter(TVMFFIObject* obj) {
  * Storage Creation
  *---------------------------------------------------------------------------*/
 
+/* TIDL's IALG allocator is handed the same on-chip bank as the fast pool, and
+ * storage outlives a single op: a small tensor produced before a TIDL subgraph
+ * and read after it would be overwritten by TIDL's scratch.  The firmware
+ * turns the fast pool off while a TIDL module is loaded. */
+static int g_storage_fast_pool_enabled = 1;
+
+void TVMDSPStorageSetFastPoolEnabled(int enabled) {
+  g_storage_fast_pool_enabled = enabled;
+}
+
 TVMDSPStorage* TVMDSPStorageAlloc(size_t size, DLDevice device,
                                    DLDataType dtype_hint) {
   (void)dtype_hint;  /* Currently unused, could be used for alignment hints */
@@ -110,7 +120,7 @@ TVMDSPStorage* TVMDSPStorageAlloc(size_t size, DLDevice device,
   void* data_ptr = nullptr;
   TVMDSPMemoryPool pool;
 
-  if (size <= TVM_DSP_L2_ALLOC_THRESHOLD) {
+  if (g_storage_fast_pool_enabled && size <= TVM_DSP_L2_ALLOC_THRESHOLD) {
     pool = TVM_DSP_MEM_FAST;
     data_ptr = tvm_dsp_alloc(size, TVM_DSP_CACHE_LINE_SIZE, pool);
     if (data_ptr == nullptr) {

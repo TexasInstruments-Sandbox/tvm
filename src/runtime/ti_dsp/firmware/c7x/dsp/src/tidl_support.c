@@ -167,8 +167,10 @@ void tidl_support_init(void) {
      *  L3 scratch: L2RAM_C7x_1_MAIN @ 0x7E000000, 1 MB (extended L2 as L3)
      *
      * The TVM runtime L2 heap (all of AUX, see the linker command file) and
-     * the generated-code L2 scratch alias the AUX bank.  That is safe because
-     * TVM kernels and TIDL layers run sequentially, never concurrently. */
+     * the generated-code L2 scratch alias the AUX bank.  The generated-code
+     * scratch lives for one kernel only; the runtime heap holds tensors that
+     * can be live across a TIDL call, so compute_service.c disables it while a
+     * TIDL module is loaded. */
     g_l2_mem_addr = (void*)0x7F000000;
     g_l2_mem_size = 0x3C000;   /* 240 KB */
 
