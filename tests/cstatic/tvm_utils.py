@@ -17,6 +17,7 @@ from typing import Tuple, Union
 
 import numpy as np
 import tvm
+import tvm_ffi
 from tvm import relax
 from tvm.support import tar
 from tvm.ir.instrument import PrintAfterAll, PrintBeforeAll
@@ -405,17 +406,17 @@ def compile_and_run_on_target(
         logger.debug(f"Executing VM function: {entry_func_name}")
         # Flatten tuple arguments when calling the function
         if isinstance(tvm_data, tuple):
-            tvm_result: tvm.runtime.ndarray.NDArray | tvm.ir.container.Array = vm[entry_func_name](
+            tvm_result: tvm.runtime.ndarray.NDArray | tvm_ffi.Array = vm[entry_func_name](
                 *tvm_data
             )
         else:
-            tvm_result: tvm.runtime.ndarray.NDArray | tvm.ir.container.Array = vm[entry_func_name](
+            tvm_result: tvm.runtime.ndarray.NDArray | tvm_ffi.Array = vm[entry_func_name](
                 tvm_data
             )
         logger.debug("VM execution complete")
 
         # Handle both single output (NDArray) and multiple outputs (Array<NDArray>)
-        if isinstance(tvm_result, tvm.ir.container.Array):
+        if isinstance(tvm_result, tvm_ffi.Array):
             # Multiple outputs - return all as list
             result = [arr.numpy() for arr in tvm_result]  # pyright: ignore
             logger.debug(f"Returning {len(result)} outputs from VM")

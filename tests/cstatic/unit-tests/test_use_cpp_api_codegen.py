@@ -25,7 +25,7 @@ from tvm.script import tirx as T
 
 @I.ir_module
 class MatmulModule:
-    @T.prim_func(private=True)  # pyright: ignore
+    @T.prim_func(private=True, s_tir=True)  # pyright: ignore
     def tir_matmul(x: T.handle, y: T.handle, z: T.handle) -> None:  # type: ignore
         A = T.match_buffer(x, (16, 16))  # type: ignore
         B = T.match_buffer(y, (16, 16))  # type: ignore

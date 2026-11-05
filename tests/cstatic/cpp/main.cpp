@@ -28,7 +28,7 @@ tvm::runtime::Tensor load_input_file(const std::string& filename, tvm::Device de
     cnpy::NpyArray arr = cnpy::npy_load(filename);
     float* loaded_data = arr.data<float>();
 
-    auto f32 = tvm::runtime::DataType::Float(32);
+    auto f32 = DLDataType{kDLFloat, 32, 1};
     std::vector<int64_t> numpy_shape(arr.shape.begin(), arr.shape.end());
     tvm::ffi::Shape tvm_shape(numpy_shape);
 
@@ -74,20 +74,20 @@ void save_output_to_npz(
 ) {
     auto dtype = arr.DataType();
     
-    if (dtype == tvm::runtime::DataType::Float(32)) {
+    if (dtype == DLDataType{kDLFloat, 32, 1}) {
         save_tensor_to_npz_typed<float>(zipname, arrayname, arr, mode);
-    } else if (dtype == tvm::runtime::DataType::Float(16)) {
+    } else if (dtype == DLDataType{kDLFloat, 16, 1}) {
         // Store float16 as uint16, NumPy will interpret correctly
         save_tensor_to_npz_typed<uint16_t>(zipname, arrayname, arr, mode);
-    } else if (dtype == tvm::runtime::DataType::Int(32)) {
+    } else if (dtype == DLDataType{kDLInt, 32, 1}) {
         save_tensor_to_npz_typed<int32_t>(zipname, arrayname, arr, mode);
-    } else if (dtype == tvm::runtime::DataType::Int(64)) {
+    } else if (dtype == DLDataType{kDLInt, 64, 1}) {
         save_tensor_to_npz_typed<int64_t>(zipname, arrayname, arr, mode);
-    } else if (dtype == tvm::runtime::DataType::Int(8)) {
+    } else if (dtype == DLDataType{kDLInt, 8, 1}) {
         save_tensor_to_npz_typed<int8_t>(zipname, arrayname, arr, mode);
-    } else if (dtype == tvm::runtime::DataType::UInt(8)) {
+    } else if (dtype == DLDataType{kDLUInt, 8, 1}) {
         save_tensor_to_npz_typed<uint8_t>(zipname, arrayname, arr, mode);
-    } else if (dtype == tvm::runtime::DataType::Bool()) {
+    } else if (dtype == DLDataType{kDLBool, 8, 1}) {
         save_tensor_to_npz_typed<bool>(zipname, arrayname, arr, mode);
     } else {
         std::ostringstream err;

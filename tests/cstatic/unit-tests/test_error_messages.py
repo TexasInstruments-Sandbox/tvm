@@ -34,7 +34,7 @@ from tvm_utils import compile_and_run_on_target
 class SimpleModel:
     """Simple model for testing error messages - just multiplies input by 2"""
 
-    @T.prim_func(private=True)
+    @T.prim_func(private=True, s_tir=True)
     def multiply_by_two(x: T.handle, z: T.handle) -> None:
         X = T.match_buffer(x, (1, 3, 224, 224))
         Z = T.match_buffer(z, (1, 3, 224, 224))
@@ -114,7 +114,7 @@ def test_shape_mismatch_error_message():
 class SmallModel:
     """Smaller model for dimension count testing"""
 
-    @T.prim_func(private=True)
+    @T.prim_func(private=True, s_tir=True)
     def add_one(x: T.handle, z: T.handle) -> None:
         X = T.match_buffer(x, (1, 10))
         Z = T.match_buffer(z, (1, 10))

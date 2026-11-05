@@ -397,7 +397,7 @@ typedef unsigned long ulong;
 #include <cstdint>
 #include <cmath>
 
-using tvm::runtime::ObjectRef;
+using tvm::ffi::ObjectRef;
 using tvm::runtime::Tensor;
 using tvm::runtime::memory::AllocatorType;
 using tvm::ffi::String;

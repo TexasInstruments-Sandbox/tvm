@@ -203,13 +203,41 @@ static void GenerateConstantLoaderCode(std::ostream& os,
 // Auto-generated constant loader for external binary file.
 // This file is compiled into the c_static_lib deployment binary.
 // For DSP targets, the DSP runtime provides its own TVMGetConstants().
-#include <dmlc/memory_io.h>
 #include <tvm/ffi/any.h>
 #include <tvm/ffi/container/shape.h>
+#include <tvm/ffi/error.h>
 #include <tvm/runtime/tensor.h>
+#include <tvm/support/io.h>
+#include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <vector>
+
+namespace {
+// Minimal read-only stream over an in-memory buffer (the compiler-internal
+// BytesInStream is not an installed header).
+class ConstantsInStream : public tvm::support::Stream {
+ public:
+  using tvm::support::Stream::Read;
+  using tvm::support::Stream::Write;
+  explicit ConstantsInStream(const std::string& data) : data_(data) {}
+  size_t Read(void* ptr, size_t size) override {
+    size_t n = std::min(data_.size() - pos_, size);
+    if (n != 0) std::memcpy(ptr, data_.data() + pos_, n);
+    pos_ += n;
+    return n;
+  }
+  size_t Write(const void*, size_t) override {
+    TVM_FFI_THROW(InternalError) << "write to input stream";
+    return 0;
+  }
+
+ private:
+  const std::string& data_;
+  size_t pos_ = 0;
+};
+}  // namespace
 
 std::vector<tvm::ffi::Any> TVMGetConstants() {
   static std::vector<tvm::ffi::Any> cached_constants;
@@ -220,7 +248,7 @@ std::vector<tvm::ffi::Any> TVMGetConstants() {
 
     std::ifstream file(filename, std::ios::binary);
     if (!file.is_open()) {
-      LOG(FATAL) << "Failed to open constants file: " << filename;
+      TVM_FFI_THROW(RuntimeError) << "Failed to open constants file: " << filename;
       return cached_constants;
     }
 
@@ -234,7 +262,7 @@ std::vector<tvm::ffi::Any> TVMGetConstants() {
     file.close();
 
     // Deserialize using the same binary format as VM SaveConstantSection
-    dmlc::MemoryStringStream stream(&data);
+    ConstantsInStream stream(data);
     uint64_t sz;
     stream.Read(&sz, sizeof(sz));
     tvm::runtime::Tensor ndarray;

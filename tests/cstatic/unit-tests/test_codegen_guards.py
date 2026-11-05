@@ -78,7 +78,7 @@ def test_unhandled_anylist_builtin_clear_error():
     mod = tvm.IRModule({"main": func})
 
     target = tvm.target.Target("c_static_lib -use-cpp-api=1")
-    with pytest.raises(tvm.error.TVMError) as exc_info:
+    with pytest.raises(tvm.error.InternalError) as exc_info:
         tvm.target.codegen.build_module(mod, target)
 
     msg = str(exc_info.value)
