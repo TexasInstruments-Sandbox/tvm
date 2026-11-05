@@ -61,7 +61,7 @@ Signs of a hard hang in the trace:
 - `Exception at 0x...` with garbage `IEAR` address
 - SA counter dumps (`SA0CNTR0=...`) followed by no further progress
 
-When a hang is confirmed (substitute `--board beagley-ai`/`BOARD_HOSTNAME=beagley-ai`
+When a hang is confirmed (substitute `--board beagley-ai`
 and the board's own hostname if you're not on am67a):
 1. Kill the pytest process (Ctrl-C or `TaskStop`)
 2. Try `deploy-c7x.sh --restart`; if `EBUSY` errors persist after 10 retries, do `ssh root@am67a reboot` and wait 30 s for the board to come back

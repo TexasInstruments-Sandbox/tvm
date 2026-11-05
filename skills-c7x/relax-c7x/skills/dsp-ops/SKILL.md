@@ -50,7 +50,7 @@ These are linked into firmware and exported via DLOAD symbol table.
 
 ### 3. Quantization Math
 
-**Rescale fusion** (`docs/dsp/quantized_model_compilation.md`):
+**Rescale fusion**:
 Replace `int8 → float32 → round → int8` roundtrip between layers with direct `int32_accum → rescale → round → int8`:
 ```
 combined_scale = scale_input * scale_weight / scale_output
@@ -114,8 +114,7 @@ Single conv2d (int8, 64ch 56x56, 3x3, stride=1):
 | `python/tvm/relax/transform/schedule_c7x_dma.py` | DMA tiling pass |
 | `src/runtime/ti_dsp/dma/tvm_dsp_dma.c` | DMA runtime |
 | `src/runtime/ti_dsp/kernels/` | Hand-written kernels |
-| `docs/dsp/c7x_dma.md` | Full DMA design/debug record |
-| `docs/dsp/quantized_model_compilation.md` | Rescale fusion design |
+| `docs-c7x/contributor-guide/firmware/design-deep-dive.md` | DMA subsystem and memory layout |
 
 ## Related Skills
 

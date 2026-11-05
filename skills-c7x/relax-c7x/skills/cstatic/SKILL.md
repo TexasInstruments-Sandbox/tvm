@@ -14,6 +14,17 @@ Relax IR → optimization passes → TIR → CodeGenCStatic → lib0.c + weights
 
 Entry point: `relax.build(mod, target="c_static_lib -mcpu=c7x")`
 
+**Target strings on TVM 0.27.** 0.27 rejects CLI target strings for every kind ("CLI target string form
+is no longer supported"); the native form is a dict, `{"kind": "c_static_lib", "mcpu": "c7x", "mmalib": True}`.
+The fork keeps the `c_static_lib -opt=val ...` form working by converting it to that dict
+(`_parse_c_static_lib_cli` in `python/tvm/target/target.py`), so existing tests and scripts are unchanged.
+Other kinds, e.g. `llvm -mcpu=...`, need the dict form.
+
+In C++, `Target::str()` is now JSON, so a substring search like `target_str.find("mcpu=c7")` silently never
+matches; read typed attributes (`target->GetAttr<ffi::String>("mcpu")`, `GetAttr<bool>`, `GetAttr<int64_t>`).
+Options with a fork-specific default are defaulted at the end of the canonicalizer in `target_kind.cc`, because
+the 0.27 schema fills schema defaults before the canonicalizer runs.
+
 ## Target Options
 
 | Option | Default | Purpose |
@@ -29,9 +40,31 @@ Entry point: `relax.build(mod, target="c_static_lib -mcpu=c7x")`
 
 | Class | Location | Role |
 |-------|----------|------|
-| `CodeGenCStatic` | `src/target/c_static_lib/codegen_c_static_lib.cc` | Core TIR→C translation (inherits CodeGenCHost) |
+| `CodeGenCStaticLib` | `src/target/c_static_lib/codegen_c_static_lib.cc` | Core TIR→C translation (inherits `CodeGenC`) |
 | `DSPCodeGenExtension` | `src/target/c_static_lib/codegen_c_static_lib_dsp.cc` | TI-specific pragmas, `#include <c7x.h>`, profiling |
 | `WrapperGenerator` | `src/target/c_static_lib/codegen_c_static_lib_wrapper.cc` | `cg_main_dsp` entry point, I/O marshalling |
+
+### Writing codegen against TVM 0.27
+
+The C++ IR changed shape in 0.27; the port of `codegen_c_static_lib.{h,cc}` is the reference.
+The ones that matter most when editing the code generator:
+
+- Visitors are `Dispatch_(const XNode*, ...)`; recurse with `Dispatch(expr, os)`, not `VisitExpr`.
+  Arithmetic nodes are `prim::AddNode` etc.
+- `LetStmtNode` is now a flat `BindNode` (no body: its scope is the rest of the enclosing `SeqStmt`),
+  `AllocateNode` is `AllocBufferNode`, and a buffer's data pointer is declared by `DeclBuffer`
+  (`restrict` comes from the `DeclBuffer` override).
+- `BufferLoadNode` is `TensorLoadNode`; types are `PrimType` (`op->ty`), not `DataType` (`op->dtype`).
+- `IntImmNode::value` is an `ffi::BigInt`: `static_cast<int64_t>(x->value)`; it does not convert
+  implicitly and cannot be switched on.
+- `Var::name_hint` is `Var::name` (`GlobalVar` keeps `name_hint`).
+- MakePackedAPI unwraps an ObjectRef argument as
+  `if_then_else(type_index == kTVMFFITensor, handle_add_byte_offset(v, 24), v)`, often under
+  `reinterpret(...)`; matchers on the argument bindings must look through both.
+- `CodeGenC` owns handle-type registration: call `RegisterHandleTypeFromPointer`, do not pre-register.
+- The tree builds as C++20.
+
+Full table, and which 0.27 backend to read for each override: `relax-c7x:tvm-027-api`.
 
 ## C7x-Specific Customizations
 
@@ -88,8 +121,15 @@ passes = [
 
 `InjectMMALIBDMA()` is *not* in this Relax-level list — it runs later, in the
 separate TIR-level pipeline (`_c7x_dma_tir_pipeline()` in
-`python/tvm/tir/pipeline.py`), inserted after `StorageRewrite()` and before
+`python/tvm/tirx/compilation_pipeline.py`), inserted after `StorageRewrite()` and before
 `LowerL2SramAlloc()`, when `-mmalib=1`.
+
+**Library dispatch passes are skipped for C7x.** `library_dispatch_passes` in `cpu_generic/pipeline.py`
+returns `[]` for C7x targets. `DispatchSortScan` would turn `relax.topk` into a call to the
+`tvm.contrib.sort.topk` packed function, which a standalone c_static_lib executable cannot resolve and
+which hides the op from `c7x_topk_legalize`. The symptom is a cl7x error in the generated kernel file
+(undeclared `TVMBackendGetFuncFromGlobalRegistry`, a `tvm_stack_alloca` declaration inside an
+expression) that looks like a codegen bug but is not.
 
 ## Key Files
 
@@ -117,3 +157,4 @@ For full test options, fixtures, and profiling, see `relax-c7x:testing`.
 - `relax-c7x:dsp-ops` — Operator kernel implementation and DMA tiling
 - `relax-c7x:build` — Building TVM core and DLOAD modules
 - `relax-c7x:testing` — Test authoring and profiling
+- `relax-c7x:tvm-027-api` — 0.23 -> 0.27 API changes (C++ codegen and Python)

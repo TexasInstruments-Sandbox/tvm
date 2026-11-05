@@ -7,6 +7,10 @@ description: "Writing TVM Relax and TIR passes for C7x. Use when: implementing a
 
 Patterns and API for implementing compiler passes in this TVM codebase.
 
+The tree is TVM 0.27. If you know TVM from 0.23 or earlier, read "0.27 API names" below first:
+`tir` is `tirx`, `struct_info` is `.ty`, `relax.Constant` and `relax.PrimValue` are gone, and
+several of these renames fail only when a pass runs, not at import.
+
 ## Before Writing a Custom Pass
 
 Prefer leveraging existing TVM/Relax infrastructure and optimization passes to the maximum extent. Custom passes add maintenance burden and can break when TVM upstream changes. Only write a custom pass when:
@@ -22,7 +26,7 @@ If the goal is just scheduling or tiling an existing TIR kernel, use the TE sche
 | Type | Decorator | Signature | Use Case |
 |------|-----------|-----------|----------|
 | Module pass (Relax) | `@tvm.transform.module_pass(opt_level=0, name="X")` | `transform_module(self, mod, ctx) -> IRModule` | Pattern matching, fusion, lowering |
-| PrimFunc pass (TIR) | `@tvm.tir.transform.prim_func_pass(opt_level=0, name="X")` | `fn(func, mod, ctx) -> PrimFunc` | Buffer manipulation, DMA injection |
+| PrimFunc pass (TIR) | `@tvm.tirx.transform.prim_func_pass(opt_level=0, name="X")` | `fn(func, mod, ctx) -> PrimFunc` | Buffer manipulation, DMA injection |
 
 ## Pattern 1: FuseOpsByPattern + PyExprMutator Lowering
 
@@ -47,9 +51,9 @@ def _my_pattern():
 def _check_constraints(ctx) -> bool:
     """Constraint callback — return False to reject match."""
     w = ctx.annotated_expr["weight"]
-    if not hasattr(w, "struct_info"):
+    if not isinstance(w.ty, relax.TensorType) or w.ty.shape is None:
         return False
-    shape = w.struct_info.shape
+    shape = w.ty.shape  # 0.27: .ty (a Type), not .struct_info
     return int(shape[-1]) % 64 == 0  # dimension alignment
 ```
 
@@ -94,10 +98,13 @@ class _MyLowerer(PyExprMutator):
         data = self._resolve(func, arg_map, "data")
         weight = self._resolve(func, arg_map, "weight")
 
-        # Compute constants (numpy)
-        w_np = weight.data.numpy()
+        # Compute constants (numpy). A tensor constant is tvm.ir.GenericConst;
+        # its tensor is .value (0.23: relax.Constant with .data).
+        w_np = weight.value.numpy()
         bias_np = compute_bias(w_np)
-        bias_const = relax.Constant(tvm.nd.array(bias_np))
+        # ti_tensor_const keeps the numpy dtype; relax.const narrows int64/float64
+        # to 32 bit when no dtype is given.
+        bias_const = ti_tensor_const(np.ascontiguousarray(bias_np))
 
         # Emit replacement via te.extern
         result = self.builder_.call_te(
@@ -111,14 +118,14 @@ class _MyLowerer(PyExprMutator):
 ### te.extern for call_extern
 
 ```python
-from tvm import te, tir
+from tvm import te, tirx
 
 def _te_mmalib_call(data, weight, bias):
     N, K = data.shape[0], weight.shape[1]
     return te.extern(
         [N, K],  # output shape
         [data, weight, bias],  # inputs
-        lambda ins, outs: tir.call_extern(
+        lambda ins, outs: tirx.call_extern(
             "int32",  # return type
             "mmalib_my_op",  # extern function name
             ins[0].data, ins[1].data, ins[2].data,
@@ -211,8 +218,7 @@ This makes the upstream composite appear in `parent_dependencies` for any later 
 that takes it as a direct arg, causing `GetGroupsToMerge` to reject the merge.
 
 Regression tests in `tests/ti-dsp-runtime/tidl-tests/test_tidl_partition.py`
-(`TestNonCompositeBridgeCycle`).  Full analysis in
-`docs/dsp/merge_composites_avoid_cycles.md`.
+(`TestNonCompositeBridgeCycle`).
 
 ## Pattern 2: Direct Mutator (No DFPattern)
 
@@ -254,37 +260,39 @@ def _pre_scan_bindings(func):
 For post-lowering manipulation (buffer injection, DMA):
 
 ```python
+import tvm_ffi
+from tvm import tirx
+
 def InjectMyTransform(param=128):
-    @tvm.tir.transform.prim_func_pass(opt_level=0, name="InjectMyTransform")
-    def _pass(func: tir.PrimFunc, mod, ctx):
+    @tvm.tirx.transform.prim_func_pass(opt_level=0, name="InjectMyTransform")
+    def _pass(func: tirx.PrimFunc, mod, ctx):
         return _transform(func, param)
     return _pass
 
 def _transform(func, param):
     body = func.body
 
-    # Find target statement via post_order_visit
-    target = None
+    # Find target statements (0.27: tvm_ffi.structural_walk replaces post_order_visit)
+    found = []
     def _find(stmt):
-        nonlocal target
-        if isinstance(stmt, tir.Evaluate) and _is_target_call(stmt.value):
-            target = stmt
-    tir.stmt_functor.post_order_visit(body, _find)
-
-    if target is None:
+        if _is_target_call(stmt.value):
+            found.append(stmt)
+    tvm_ffi.structural_walk(body, (tirx.Evaluate, _find), order="post")
+    if not found:
         return func
 
-    # Build new statements
-    l2_var = tir.Var("l2_buf", PointerType(PrimType("int8"), "global.l2sram"))
-    dma_copy = tir.Evaluate(tir.call_extern("int32", "tvm_dsp_dma_copy", ...))
-    dma_wait = tir.Evaluate(tir.call_extern("int32", "tvm_dma_wait", ...))
+    # Build new statements. AllocBuffer, Bind and DeclBuffer are flat in 0.27: they have
+    # no body, and their scope is the rest of the enclosing SeqStmt.
+    l2_buf = tirx.decl_buffer([extent], "int8", name="l2_buf", scope="global.l2sram")
+    dma_copy = tirx.Evaluate(tirx.call_extern("int32", "tvm_dsp_dma_copy", ...))
+    dma_wait = tirx.Evaluate(tirx.call_extern("int32", "tvm_dsp_dma_wait", ...))
 
-    # Compose: alloc -> dma_copy -> dma_wait -> original_call
-    new_body = tir.SeqStmt([dma_copy, dma_wait, target])
-    new_body = tir.Allocate(l2_var, "int8", [extent], tir.const(1), new_body)
-
-    return func.with_body(new_body)
+    # Compose: alloc -> dma_copy -> dma_wait -> original body. Carry the function's
+    # DeclBuffer statements over if you rebuild the body from scratch (see pitfalls).
+    return func.with_body(tirx.SeqStmt([tirx.AllocBuffer(l2_buf), dma_copy, dma_wait, body]))
 ```
+
+Working example: `ti_mmalib_inject_dma.py` (`_l2_buffer`, `_collect_decl_buffers`, `_with_l2_allocs`).
 
 ## Pattern 4: Custom Legalization
 
@@ -342,20 +350,47 @@ Rules:
 | `self.builder_.call_te(fn, *args, primfunc_name_hint="X")` | Emit te function as TIR |
 | `self.builder_.emit(relax.op.abs(x))` | Emit Relax op into current block |
 | `te.extern(shape, inputs, fcompute, name, dtype)` | Create call_extern tensor expression |
-| `tir.call_extern("int32", "func_name", *args)` | Direct extern call in TIR |
-| `relax.Constant(tvm.nd.array(np_array))` | Wrap numpy as Relax constant |
+| `tirx.call_extern("int32", "func_name", *args)` | Direct extern call in TIR |
+| `ti_tensor_const(np_array)` (`relax.transform.ti_const_utils`) | Wrap numpy as a Relax constant, dtype kept |
+| `relax.const(value, dtype)` | Constant with an explicit dtype (narrows 64-bit if dtype is omitted) |
 | `func.with_body(new_body)` | Replace PrimFunc body |
-| `tir.stmt_functor.post_order_visit(body, fn)` | Walk TIR tree |
+| `tvm_ffi.structural_walk(body, (NodeType, fn), order="post")` | Walk TIR tree |
+| `tvm_ffi.structural_map(body, (NodeType, fn))` | Rewrite TIR tree |
 | `var.same_as(other)` | Compare TVM Var identity (NOT `==` or `id()`) |
 
 ## Common Pitfalls
 
 1. **Var comparison**: Use `var.same_as(other)`, never Python `==` or `id()`
-2. **Constants**: Always `np.ascontiguousarray()` before wrapping in `relax.Constant`
+2. **Constants**: Always `np.ascontiguousarray()` before wrapping, and use `ti_tensor_const` unless you pass an explicit dtype to `relax.const`
 3. **Pattern order**: Longest/most-specific patterns first in the list (greedy matching)
 4. **bind_constants=False**: Required when patterns reference constants that should remain as function params (not inlined)
 5. **Pre-scan bindings**: `PyExprMutator.visit_call_` sees the call but not necessarily earlier bindings — build a var→value map if you need to trace backward
 6. **Cleanup**: Always run `DeadCodeElimination()` after fusion to remove orphaned composites
+7. **Composite parameter order**: `FuseOpsByPattern` orders a composite's parameters by the first use of each free variable in the block, and no `FusionPattern` field controls it. A pattern whose first op consumes the second operand (e.g. a `permute_dims` on the grid before `grid_sample`) puts that operand first, which matters to any backend that reads arguments positionally (TIDL does)
+8. **Relax `Expr` is not truthy**: `if a and b:` on Relax expressions raises; write `is not None`
+9. **Rebuilding a PrimFunc body**: after `FlattenBuffer`, parameters are aliased through `DeclBuffer(x_1, data=x.data)` statements. A pass that builds a new body must carry them over, or MakePackedAPI reports variables that are "used, but are not passed in as API arguments"
+
+## 0.27 API names
+
+The fork moved from TVM 0.23 to 0.27. These renames account for most broken pass code; some only
+fail when the pass runs. Full list, including the C++ side: `relax-c7x:tvm-027-api`.
+
+| 0.23 | 0.27 |
+|------|------|
+| `tvm.tir`, `from tvm.script import tir as T` | `tvm.tirx`, `from tvm.script import tirx as T`; schedule/block world is `tvm.s_tir` (`T.sblock`, `@T.prim_func(s_tir=True)`) |
+| `tvm.tir.transform.prim_func_pass` | `tvm.tirx.transform.prim_func_pass`; pass-config keys are `tirx.*` |
+| `expr.struct_info`, `TensorStructInfo`, `TupleStructInfo`, `FuncStructInfo` | `expr.ty`, `relax.TensorType`, `relax.TupleType`, `relax.FuncType`; `ret_struct_info` -> `ret_ty`, `sinfo_args` -> `ty_args` |
+| `relax._ffi_api.UpdateStructInfo(e, s)` | `relax.expr._update_type(e, ty)` |
+| `ty.dtype` (a string) | `ty.dtype` is a `PrimType`: compare `str(ty.dtype)` |
+| `relax.Constant`, `c.data` | `tvm.ir.GenericConst`, `c.value` |
+| `relax.PrimValue(x)`, `e.value.value` | a plain `IntImm`/`FloatImm` (`relax.prim_value(x)`), `e.value`; test with `tvm.ir.is_prim_expr(e)` |
+| `var.name_hint` (Var, DataflowVar) | `var.name`. `GlobalVar.name_hint` and `emit(..., name_hint=)` are unchanged |
+| `tvm.nd.array(a)` | `tvm.runtime.tensor(a)` |
+| `PrimFunc.buffer_map` | gone: buffer parameters are `Var`s with a `BufferType` |
+| `tir.Allocate(..., body)`, `tir.LetStmt(..., body)` | flat `tirx.AllocBuffer(buf)`, `tirx.Bind`; scope is the rest of the `SeqStmt`. `SeqStmt` rejects 0 or 1 elements |
+| `tir.stmt_functor.post_order_visit` | `tvm_ffi.structural_walk(root, (NodeType, cb), order="post")` |
+| `tvm.tir.Call`, `tir.StringImm` | `tvm.ir.Call(op, args, ret_ty=...)`, `tvm.ir.StringImm` (`tvm.tirx.Call` raises at pass run time) |
+| `tvm.contrib.tar`, `tvm.contrib.cc` | `tvm.support.tar`, `tvm.support.cc` |
 
 ## Key Files (Examples)
 
@@ -365,7 +400,7 @@ Rules:
 | `ti_mmalib_qdq_dwconv.py` | FuseOpsByPattern + Mutator | Depthwise variant |
 | `ti_mmalib_qdq_fc.py` | FuseOpsByPattern + Mutator | FC/matmul variant with reshape |
 | `ti_mmalib_i16_fc.py` | Direct Mutator | Manual matmul matching + runtime quant (332 lines) |
-| `ti_mmalib_inject_dma.py` | TIR PrimFunc pass | Buffer injection (545 lines) |
+| `ti_mmalib_inject_dma.py` | TIR PrimFunc pass | Buffer injection, 0.27 flat AllocBuffer/DeclBuffer idioms |
 | `ti_residual_add.py` | FuseOpsByPattern + Mutator | Residual pattern, int8 + int16 (557 lines) |
 | `schedule_c7x_dma.py` | TIR scheduling pass | DMA tiling via TE schedule API |
 | `cpu_generic/pipeline.py` | Pipeline wiring | Pass ordering and target gating (230 lines) |
@@ -377,3 +412,4 @@ All in `python/tvm/relax/transform/` (passes) or `python/tvm/relax/backend/cpu_g
 - `relax-c7x:cstatic` — Full pipeline pass order (where your pass fits)
 - `relax-c7x:mmalib-offload` — MMALIB-specific pass details and constraints
 - `relax-c7x:dsp-ops` — Operator implementations called via call_extern
+- `relax-c7x:tvm-027-api` — 0.23 -> 0.27 API changes

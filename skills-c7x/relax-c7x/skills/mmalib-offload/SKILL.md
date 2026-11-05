@@ -7,7 +7,7 @@ description: "MMALIB direct integration for TVM c_static_lib backend. Use when w
 
 TVM's c_static_lib backend calls MMALIB functions directly for compute-intensive ops (matmul, conv2d) on the C7x MMA accelerator, bypassing TIDL. TVM controls the schedule; MMALIB handles MMA hardware programming.
 
-Target string: `c_static_lib -mcpu=c7x -mmalib=1`
+Target string: `c_static_lib -mcpu=c7x -mmalib=1` (the fork converts this to the 0.27 dict form `{"kind": "c_static_lib", "mcpu": "c7x", "mmalib": True}`; see `relax-c7x:cstatic`)
 
 ## When to Use MMALIB (vs TIDL)
 
@@ -275,7 +275,7 @@ pytest --rootdir=. pt2e-tests/ -m quick --dsp-mode=c7x_host -v
 
 # Full model
 pytest --rootdir=. quantized/test_quantized_resnet.py -v \
-    --dsp-mode=c7x_dload --mmalib --profile
+    --dsp-mode=c7x_dload --board j722s-evm --mmalib --profile
 ```
 
 For fixtures, markers, and debugging, see `relax-c7x:testing`.
@@ -296,8 +296,7 @@ For fixtures, markers, and debugging, see `relax-c7x:testing`.
 | `python/tvm/relax/transform/ti_mmalib_constants.py` | MMA_SIZE constants |
 | `src/runtime/ti_dsp/mmalib/mmalib_wrappers.{h,cpp}` | C wrappers (8 entry points) |
 | `src/runtime/ti_dsp/kernels/c7x_residual_add.{h,cpp}` | Fixed-point residual add (int8 + int16), scalar pipeline |
-| `docs/dsp/mmalib_subgraph_offloading.md` | Full integration design doc |
-| `docs/dsp/smollm_mmalib_fixes.md` | SmolLM int16 offload accuracy analysis |
+| `docs-c7x/contributor-guide/backend/mmalib-integration.md` | Full integration design doc |
 
 ## Limitations
 

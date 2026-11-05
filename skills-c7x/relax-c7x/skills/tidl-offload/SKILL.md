@@ -48,7 +48,7 @@ at load or compile time. `write_io_meta()` logs nothing on success or
 skip in `tidl.py` itself (unlike the equivalent path in `dsp_utils.py`,
 which does) -- if a hand-rolled build fails this way, check whether
 `tvm_dsp_io_meta.bin` exists next to the generated `lib0.c`/`weights.bin`
-before looking anywhere else. See `docs-c7x/contributor-guide/firmware/dmabuf-design.md` for the
+before looking anywhere else. See `docs-c7x/contributor-guide/firmware/architecture.md` ("Per-Buffer dmabufs") for the
 protocol's design (the DSP-side wire format, capacity policy, and why a
 missing blob means zero capacity rather than a build failure).
 
@@ -201,7 +201,7 @@ Device config: `DEVICE_NAME=4` = TIDL_AM62A (C7504 with MMA2, single-core).
    pass — intermediate activations grow unboundedly, producing wildly wrong
    INT8 scale factors for all downstream layers. Symptom: calibration stats
    max > 10^6 and max\_diff ~10^7 vs PyTorch. Fixed in `tidl_parse_relax_conv.cpp`
-   commit `0a60ecf`; see `docs/dsp/tidl_resnet18_inaccuracy.md`.
+   commit `0a60ecf`.
 7. **`constTensorsDims` must be explicitly set in matmul parsers.**
    `tidl_addConstDataLayers` reads `allowlistingMetaData.constTensorsDims[0]`
    to set `TIDL_ConstDataLayer.outData[0].dimValues`. The optimizer can clear
@@ -299,7 +299,7 @@ For general test debugging (DSP_KEEP_TEMP, failure modes), see `relax-c7x:testin
 | `src/runtime/ti_dsp/tidl/tidl_api.c` | IALG lifecycle on-device |
 | `src/runtime/ti_dsp/tidl/tidl_api_mem.c` | appMemAlloc/Free wrappers |
 | `tests/ti-dsp-runtime/tidl-tests/` | All TIDL tests |
-| `docs/dsp/tidl-subgraph-offloading.md` | Full design document |
+| `docs-c7x/contributor-guide/backend/tidl-integration.md` | Full design document |
 
 ## Building TIDL Import Library
 

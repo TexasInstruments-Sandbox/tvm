@@ -112,7 +112,8 @@ for the codegen side of `tidl-kernels`.
 | c7x-mma-tidl | `C7X_MMA_TIDL_PATH` (for TIDL offload; not board-keyed) |
 | CMake | 3.16+ |
 | Ninja | any |
-| LLVM | 15+ |
+| LLVM | 15+ (18 is what this tree is built with) |
+| C++ compiler | C++20 (TVM 0.27; GCC 11+ or Clang 14+) |
 | Python | 3.10+ with uv |
 | aarch64-linux-gnu-g++ | For ARM client cross-compilation |
 
@@ -254,9 +255,18 @@ export TVM_LIBRARY_PATH=$TVM_HOME/build
 # Install TVM Python package (editable)
 uv pip install -e python/
 
-# Install tvm-ffi submodule (needed for 0.23+)
+# Install the PINNED tvm-ffi from the submodule (the fork patches it)
 cd 3rdparty/tvm-ffi && uv pip install . && cd ../..
 ```
+
+The tree is TVM 0.27; `python -c "import tvm; print(tvm.__version__)"` must print `0.27.0`. A `0.23.0`
+means an old checkout or venv is first on the path (a venv can pin a tree through a `.pth` file), and
+0.23 code does not import against the 0.27 libraries. Keep one venv per tree.
+
+**tvm-ffi ABI.** `uv run` and an unpinned `uv pip install` can replace the pinned `apache-tvm-ffi` with
+a PyPI wheel that has a different ABI. Symptoms are `ForeignFunctionError` or failed FFI calls in code
+that worked before. Reinstall the pinned build: `cd 3rdparty/tvm-ffi && uv pip install .`. After
+installing extra packages, check `uv pip show apache-tvm-ffi` still points at the local build.
 
 Key config.cmake settings:
 ```cmake
@@ -348,8 +358,9 @@ does *not* try `--stop`/`--start` itself (the kernel returns EBUSY while
 virtio vdev negotiation from the board's own autostart is still settling,
 with no reliable way to know when that window has passed), so a real reboot
 is required to activate a newly-copied image, not just `--restart`.
-`--board beagley-ai` defaults the deploy host to `beagley-ai`;
-`BOARD_HOSTNAME`/`TARGET` env vars always override.
+The deploy host comes from `--board` alone (`j722s-evm` -> `am67a`, `beagley-ai` -> `beagley-ai`,
+`am62d` -> `am62d`); there is no environment override. For a board under another name or address,
+add an SSH-config alias.
 
 ## 6. ARM Client (c7x_compute CLI)
 
@@ -358,11 +369,10 @@ export TVM_HOME=/path/to/tvm        # required; cmake configure fails silently-i
 cd src/runtime/ti_dsp/firmware/c7x/arm
 ./build.sh --board j722s-evm                                     # Cross-compile for aarch64 (am67a)
 ./build.sh --board beagley-ai                                    # Same, cosmetic board-check define only
-BOARD_HOSTNAME=beagley-ai ./build.sh --board beagley-ai deploy   # SCP to that host
+./build.sh --board beagley-ai deploy                             # SCP to that board's host
 ```
 
-`arm/build.sh deploy` only reads the `BOARD_HOSTNAME` env var, not `--board`
-directly — set it explicitly when deploying to a non-default host.
+`arm/build.sh deploy` picks the host from `--board`, the same mapping as `deploy-c7x.sh`.
 
 **Critical gotcha — `deploy` never builds anything.** `build.sh`'s
 subcommand dispatch treats `deploy` as fully separate from the (no-
@@ -416,6 +426,19 @@ bash build_j722s.sh clean    # Clean + full rebuild
 
 Output: `tidl_model_import_relax.so` (used by `tidl_import()` FFI)
 
+`build_j722s.sh` defaults `TVM_HOME` (and `RELAX_TVM_HOME`) to `~/ml/tvm`. Point both at the tree
+you are using, or the importer is built against another tree's headers:
+`TVM_HOME=<tree> RELAX_TVM_HOME=<tree> bash build_j722s.sh`. The importer branch that matches the
+TVM 0.27 tree is `relax-0.27-port`. For a change to a Relax parser only, rebuilding just the Relax
+`.so` is enough: `cd ti_dl/utils/tidlModelImport && make -f makefile_shared relax TARGET_SOC=J722S
+TARGET_PLATFORM=PC ...` (same flags as step 6 of `build_j722s.sh`). The makefile does not track
+header dependencies: after editing `tidlParseRelax/tidl_parse_relax.h`, `touch tidlParseRelax/*.cpp`.
+
+The importer needs symbols from `libtvm_compiler.so`, which 0.27 loads `RTLD_LOCAL`. Always load it
+through `tvm.relax.backend.tidl._gate.load_relax_so`, which re-opens the compiler library
+`RTLD_GLOBAL` first; loading it directly works and then aborts at the first call with
+`symbol lookup error ... Type::IsMissing`.
+
 ## Build Order (Full Clean Rebuild)
 
 ```
@@ -452,9 +475,8 @@ export TI_SYSCONFIG_ROOT=/opt/ti/sysconfig-1.28  # beagley-ai/11.02 SDK needs >=
 
 export C7X_MMA_TIDL_PATH=$HOME/ml/c7x-mma-tidl   # not board-keyed; only needed when --tidl ON
 
-# Deploy/test target host (not board-keyed — a hostname/IP, distinct from
-# the --board SDK-selection flag); defaults to am67a if unset.
-export BOARD_HOSTNAME=beagley-ai
+# The deploy/test host is not an env var: every script and the test harness map
+# --board to a host (j722s-evm -> am67a, beagley-ai -> beagley-ai, am62d -> am62d).
 ```
 
 ## Troubleshooting
@@ -467,6 +489,10 @@ export BOARD_HOSTNAME=beagley-ai
 | `ImportError: libtvm.so` | TVM_LIBRARY_PATH not set | `export TVM_LIBRARY_PATH=$TVM_HOME/build` |
 | `ModuleNotFoundError: tvm` | PYTHONPATH missing | `export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH` |
 | `tvm._ffi not found` | tvm-ffi not installed | `cd 3rdparty/tvm-ffi && uv pip install .` |
+| `ForeignFunctionError`, or FFI calls failing after `uv run` / an extra `uv pip install` | The pinned `apache-tvm-ffi` was replaced by an incompatible PyPI wheel | `cd 3rdparty/tvm-ffi && uv pip install .` |
+| `tvm.__version__` prints `0.23.0`, or fork modules fail with `tvm.tir` / `struct_info` attribute errors | An old tree or venv is first on `PYTHONPATH` | Use a venv built against this tree; set `PYTHONPATH`/`TVM_LIBRARY_PATH` to this checkout |
+| `CLI target string form is no longer supported` | TVM 0.27 accepts CLI strings only for `c_static_lib` (the fork converts them) | Use the dict form for other kinds: `{"kind": "llvm", "mcpu": "..."}` |
+| `c7x_compute status` reports `Protocol mismatch` | The ARM client and firmware were built from different trees (firmware v4.x vs client v3.x) | Rebuild and deploy both from the same tree; then reboot the board |
 | Linker: `unresolved symbol` in DLOAD module | New runtime API not in firmware exports | Add to `dyn_loader.c`, rebuild firmware |
 | `ninja: error: build.ninja not found` | Never ran cmake | `cd build && cmake -G Ninja ..` |
 | `Error: MCU+ SDK for J722S version 11.02.01 requires at least version 1.26.2 of SysConfig` | Default/old `TI_SYSCONFIG_ROOT` (1.26.0) too old for the beagley-ai/11.02 SDK | `export TI_SYSCONFIG_ROOT=/opt/ti/sysconfig-1.28` (or newer); verified no MMU option-key drift vs 1.26.0 for the j722s-evm path |

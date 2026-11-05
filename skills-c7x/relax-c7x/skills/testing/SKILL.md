@@ -91,30 +91,28 @@ def test_my_op_dsp(dsp_mode, dsp_timeout, use_cpp_api, record_cycles):
 | `board_target` | str | `--board-target HOST` — **only** un-skips/redirects the `test_c7x_vm_dsp` SSH integration tests. Does not affect the general `c7x_dload` path below. |
 | `record_cycles` | func | `record_cycles(name, cycles)` → cycles.csv |
 
-Targeting a non-default board (e.g. `beagley-ai`) for the *general*
-`c7x_dload` path (every other test file) is a plain env var, not a pytest
-option — `dsp_utils.run_dsp_dload()`'s `target_host` defaults to
-`os.environ.get("BOARD_HOSTNAME", "am67a")`:
+Every `c7x_dload` run, and every TIDL test, needs `--board j722s-evm|beagley-ai|am62d` (root
+`tests/ti-dsp-runtime/conftest.py`; no default). It picks the SSH host
+(`j722s-evm` -> `am67a`, `beagley-ai` -> `beagley-ai`, `am62d` -> `am62d`; a lab host under another
+name is an SSH-config alias) and, through `get_current_board()`, the compiler device and TIDL board
+config. No environment variable overrides the host; the deploy scripts use the same mapping.
 ```bash
-BOARD_HOSTNAME=beagley-ai pytest --rootdir=. dsp-tests/test_matmul_dsp.py \
-    -m quick --dsp-mode=c7x_dload -v
+pytest --rootdir=. dsp-tests/test_matmul_dsp.py -m quick --dsp-mode=c7x_dload --board beagley-ai -v
 ```
 This assumes firmware + the `c7x_compute`/`libc7x_arm_runtime.so` ARM client
-are already deployed on that board (see `relax-c7x:build`/`:firmware`).
-Two independent mechanisms, easy to conflate: `--board-target` is
-pytest-level and scoped to one test file; `BOARD_HOSTNAME` is a `dsp_utils`
-default and applies everywhere `run_dsp_dload` is used without an explicit
-`target_host=`.
+are already deployed on that board, at the same service version
+(see `relax-c7x:build`/`:firmware`). `--board-target` is separate: it only
+un-skips the `test_c7x_vm_dsp` SSH integration tests.
 
 ## dsp_utils API
 
 | Function | Purpose |
 |----------|---------|
-| `get_target_string(mode, profile_layers, use_cpp_api)` | Build c_static_lib target string |
+| `get_target_string(mode, profile_layers, use_cpp_api)` | Build the c_static_lib target (a legacy `c_static_lib -opt=val` string, which the fork converts to the 0.27 dict form) |
 | `compile_and_run_dsp(mod, input_data, target_string, execution_mode, timeout_ms)` | Full pipeline → results dict |
 | `compile_for_dsp(mod, input_data, target_string)` | Compile only (returns workspace) |
 | `build_dsp_dynmod(workspace, mode)` | Build DLOAD ELF |
-| `run_dsp_dload(workspace, input_data, timeout_ms)` | Run on target board — `target_host` defaults to `$BOARD_HOSTNAME` or `am67a` |
+| `run_dsp_dload(module_path, weights_path, inputs, embedded_weights=...)` | Run on the board; `target_host` defaults to the host for `--board` |
 | `assert_dsp_comparison(dsp_results, comparison)` | Assert pass/fail |
 
 ## Running Tests
@@ -124,20 +122,30 @@ cd tests/ti-dsp-runtime
 export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
 
 # Quick regression
-pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_host -v    # ~20s
-pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_dload -v   # ~5min
+pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_host -v                     # ~20s
+pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_dload --board j722s-evm -v  # ~5min
 
 # Full suite
-pytest --rootdir=. dsp-tests/ --dsp-mode=c7x_host -v             # 73 tests, ~5min
-pytest --rootdir=. dsp-tests/ --dsp-mode=c7x_dload -v            # 73 tests, ~2-3h
+pytest --rootdir=. dsp-tests/ --dsp-mode=c7x_host -v                              # 73 tests, ~5min
+pytest --rootdir=. dsp-tests/ --dsp-mode=c7x_dload --board j722s-evm -v           # 73 tests, ~2-3h
 
 # With profiling (c7x_dload only)
 pytest --rootdir=. dsp-tests/test_conv2d_dsp.py -v \
-    --dsp-mode=c7x_dload --use-cpp-api --profile
+    --dsp-mode=c7x_dload --board j722s-evm --use-cpp-api --profile
 
-# Against BeagleY-AI instead of the default am67a
-BOARD_HOSTNAME=beagley-ai pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_dload -v
+# Against BeagleY-AI instead of am67a
+pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_dload --board beagley-ai -v
 ```
+
+Invocation rules that bite on this tree:
+- **One `tests/ti-dsp-runtime` subdirectory per pytest run.** Several directories in one run load two
+  `conftest.py` files that both add `--dsp-mode`, and pytest aborts.
+- Run from the repo root with `-p no:tvm.testing.plugin --rootdir=tests/ti-dsp-runtime`, or from
+  `tests/ti-dsp-runtime` with `--rootdir=.`.
+- A file that selects 0 tests under `-m quick` exits 5, not 0: check its markers before treating it as a failure.
+- The c7x_host runtime library must exist first: `cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host`.
+- Keep the pinned tvm-ffi (see `relax-c7x:build`); don't run tests through `uv run`.
+- Never run two `c7x_dload` sessions on the same board. One session per board, in parallel, is fine.
 
 ### Quantized MMALIB smoke test (beagley-ai)
 

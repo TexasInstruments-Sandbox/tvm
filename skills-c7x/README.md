@@ -1,7 +1,8 @@
 # skills-c7x
 
 Claude Code plugin marketplace providing TVM Relax C7x DSP skills for
-the full compilation-to-deployment stack on TI AM67A (J722S).
+the full compilation-to-deployment stack on TI AM67A (J722S). The skills
+describe the fork rebased on TVM 0.27.
 
 ## Skills
 
@@ -17,6 +18,7 @@ the full compilation-to-deployment stack on TI AM67A (J722S).
 | `relax-c7x:testing` | Test authoring, pytest fixtures, profiling, cycle counts |
 | `relax-c7x:model-workflow` | End-to-end recipe: export → quantize → offload → compile → verify |
 | `relax-c7x:relax-passes` | Writing Relax/TIR passes: DFPattern, PyExprMutator, call_extern, pipeline wiring |
+| `relax-c7x:tvm-027-api` | TVM 0.23 -> 0.27 API changes: Relax/TIR Python, target strings, CodeGenC/C++ |
 
 ## Relationship to c7x-optimizer
 
@@ -47,7 +49,8 @@ skills-c7x/                          <- marketplace root
         │       ├── debugging.md       <- DSP_KEEP_TEMP, failure modes, recovery
         │       └── smollm-e2e.md      <- SmolLM compile/deploy/board pipeline
         ├── model-workflow/SKILL.md     <- New model decision tree + recipes
-        └── relax-passes/SKILL.md      <- Writing Relax/TIR compiler passes
+        ├── relax-passes/SKILL.md      <- Writing Relax/TIR compiler passes
+        └── tvm-027-api/SKILL.md       <- TVM 0.23 -> 0.27 API changes
 ```
 
 ## Install

@@ -115,8 +115,7 @@ at runtime instead.) Reboot. Confirm via `dmesg | grep -i "assigned reserved
 memory node"` — should show `vision-apps-c71-dma-memory@ad000000`, and
 `ls /dev/dma_heap/` should now list `carveout_vision_apps_shared-memories`.
 This is a one-time, per-board-image fix, unrelated to anything `--board`/
-`--ddr` control in this repo. See `docs/dsp/beagley_ai_enablement.md`
-"Hardware bring-up results" for the full investigation.
+`--ddr` control in this repo.
 
 ## ARM-Side Binaries
 
@@ -133,13 +132,29 @@ Both are deployed to AM67A via `./build.sh deploy` (installs to `/usr/local/{bin
 
 ```bash
 c7x_compute ping                          # Verify connectivity
-c7x_compute status                        # Firmware version + stats
+c7x_compute status                        # Firmware version + stats (check the version, see below)
 c7x_compute load /path/to/lib0.out        # Load module → handle
 c7x_compute infer <handle> <model_id> \
     --input in.bin --output out.bin        # Run inference
 c7x_compute unload <handle>               # Free module memory
 c7x_compute trace                         # View DSP debug output
 ```
+
+### Service version
+
+`C7X_SERVICE_VERSION` in `firmware/c7x/common/c7x_compute_protocol.h` is compiled into both the
+firmware and the ARM client. The client refuses a firmware with a different **major** version
+("Protocol mismatch ... reflash"); a minor bump is wire-compatible and only makes a new image
+visible in `c7x_compute status`. Bump the major for any incompatible wire or export-table change.
+
+| Version | Tree | Change |
+|---------|------|--------|
+| 3.x | TVM 0.23 | per-buffer dmabuf protocol |
+| 4.0.0 | TVM 0.27 | `TVMBackendGetFuncFromEnv`/`TVMBackendRunOnce` dropped from the export table (0.27 removed them; packed lookups use `TVMBackendGetFuncFromGlobalRegistry`), so 0.23-built DLOAD modules do not load |
+| 4.1.0 | TVM 0.27 | TIDL modules keep storage out of the L2 fast pool; J722S TIDL uses the vision_apps L2/L3 layout (see Memory Layout) |
+
+A board flashed from the 0.23 tree reports 3.x; rebuild **and** redeploy firmware and client from
+the same tree, then reboot.
 
 ### Arm Runtime Library (libc7x_arm_runtime.so)
 
@@ -167,7 +182,7 @@ Zero-copy strategy: outputs point into mmap'd result DDR; `create_input()` alloc
 
 Source: `src/runtime/ti_dsp/firmware/c7x/arm/src/c7x_runtime.cc`
 Python wrapper: `python/tvm/contrib/c7x/c7x_runtime.py`
-Full API docs: `docs/dsp/tvm_arm_offload.md`
+Full API docs: `docs-c7x/user-guide/python-api.md`
 
 ## DLOAD Dynamic Linker
 
@@ -463,7 +478,7 @@ cd .. && ./deploy-c7x.sh dsp/build/c7x_compute.out && ./deploy-c7x.sh --restart
 | `python/tvm/contrib/c7x/` | Python C7xVirtualMachine wrapper |
 | `deploy-c7x.sh` | Deployment script (remoteproc) |
 | `design_doc.md` | Full architecture documentation |
-| `docs/dsp/tvm_arm_offload.md` | Arm runtime API docs (Python + C++) |
+| `docs-c7x/user-guide/python-api.md` | Arm runtime API docs (Python + C++) |
 | `test/test_dynmod.sh` | 19-test hardware integration suite |
 
 ## Deploy Script Commands
@@ -494,9 +509,10 @@ running. `--restart` (stop+start) is for cycling the *same*
 already-loaded image (see Firmware Recovery below), not for activating a
 newly-deployed one.
 
-`--board beagley-ai` defaults the deploy host to `beagley-ai`; `BOARD_HOSTNAME`
-or `TARGET` env vars always override (e.g. if the board resolves to a raw IP
-instead of a hostname).
+The deploy host comes from `--board` alone (`j722s-evm` -> `am67a`,
+`beagley-ai` -> `beagley-ai`, `am62d` -> `am62d`); `TARGET` is set by the
+script, not read from the environment. For a board at a raw IP, add an
+SSH-config alias with the expected name.
 
 Hardware discovery: matches device tree address `7e000000.dsp` in sysfs (works regardless of remoteproc index changes across reboots).
 

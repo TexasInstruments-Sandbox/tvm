@@ -59,11 +59,11 @@ Start with `c7x_host` (fast iteration, no hardware needed), then validate on `c7
 pytest --rootdir=. dsp-tests/test_my_model_dsp.py -v --dsp-mode=c7x_host
 
 # 3. Validate on hardware
-pytest --rootdir=. dsp-tests/test_my_model_dsp.py -v --dsp-mode=c7x_dload
+pytest --rootdir=. dsp-tests/test_my_model_dsp.py -v --dsp-mode=c7x_dload --board j722s-evm
 
 # 4. With MMALIB (optional)
 pytest --rootdir=. dsp-tests/test_my_model_dsp.py -v \
-    --dsp-mode=c7x_dload --mmalib --profile
+    --dsp-mode=c7x_dload --board j722s-evm --mmalib --profile
 ```
 
 ### LLM / Transformer
