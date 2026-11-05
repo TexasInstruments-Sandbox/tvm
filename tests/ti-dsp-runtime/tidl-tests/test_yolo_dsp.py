@@ -493,9 +493,7 @@ class TestYOLOTIDL:
             dload_build_dir = tmp_path / "dload_build"
             try:
                 # fp_reassoc_off=True guards against cl7x reordering FP
-                # operations. The c7x_dload NaN (0/0 in YOLO DFL softmax)
-                # below is a separate calibration accuracy issue, not fixed
-                # by this flag.
+                # operations.
                 dload_result = compiler.codegen_and_build(
                     lowered,
                     artifacts,
@@ -529,24 +527,13 @@ class TestYOLOTIDL:
                 if stdout:
                     print(stdout)
 
-                if not np.isfinite(cos_sim):
-                    # Root cause (confirmed): PC AVX TIDL and DSP MMA TIDL apply
-                    # slightly different INT8 rounding at inference time.  Even with
-                    # correct per-subgraph calibration (real images, cos_sim > 0.98
-                    # on c7x_host), the DSP-side dequantized DFL softmax inputs are
-                    # shifted enough that exp(x_i) underflows to exactly 0.0 for all
-                    # 16 elements — genuine IEEE 754 underflow, not FTZ (clearing
-                    # FPCR bit 4 had no effect).  sum(0,...) = 0 → 0/0 = NaN.
-                    # Fix requires eliminating the PC-DSP gap: either force float32
-                    # at the TIDL subgraph boundary, or switch YOLO to the MMALIB
-                    # path (C7xMMAQuantizer) which bakes scales into compiled code
-                    # and has no separate PC-calibration inference step.
-                    # See docs/dsp/tidl_subgraph_calibration.md for full analysis.
-                    pytest.xfail(
-                        f"c7x_dload cos_sim is not finite for {model_name}: "
-                        "PC AVX vs DSP MMA INT8 rounding gap causes exp() underflow "
-                        "in YOLO DFL softmax; c7x_host passes (cos_sim > 0.98)"
-                    )
+                # A non-finite result used to be expected here (0/0 in the
+                # DFL softmax) and was blamed on a PC-vs-device int8 rounding
+                # gap.  It was the TIDL subgraph I/O bugs covered by
+                # test_tidl_subgraph_io.py (missing multi-output buffers,
+                # rank-3 layout, L2 shared with TIDL scratch); with those
+                # fixed both models match c7x_host, so treat it as a failure.
+                assert np.isfinite(cos_sim), f"c7x_dload: cos_sim is not finite for {model_name}"
                 assert cos_sim > 0.94, (
                     f"c7x_dload TIDL vs PyTorch cos_sim {cos_sim:.6f} < 0.94 for {model_name}"
                 )
