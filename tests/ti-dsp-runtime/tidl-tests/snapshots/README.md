@@ -25,6 +25,19 @@ change: `partition()` now runs `CanonicalizeBindings`, which inlines
 
 No other entry (54 layer models, ResNet-18, MobileNetV2, YOLOv5n) changed.
 
+## `model/yolov8n` depends on the torch version
+
+The entry is captured with torch 2.10, the version the CI pipelines install
+(`torch>=2.5,<2.11`). The YOLOv8n export differs between torch versions:
+Ultralytics' C2f blocks call `chunk`, and with torch 2.15 the exported graph
+reaches the Relax frontend as 16 `strided_slice` ops plus one `split`, while
+with torch 2.10 it arrives as 9 `split` ops and no slices. TIDL offloads both
+forms, so the partition is 5 subgraphs either way, but the composite lists
+differ (230 composites with `strided_slice`, 222 with `split`). The test fails
+under a torch that exports the other form; regenerate under the pinned
+version. YOLOv8n on AM67A scores cosine similarity 0.997134 (c7x_host and
+c7x_dload) with the torch 2.10 partition.
+
 ## Behaviour changes these snapshots do not show
 
 Two changes alter what gets offloaded but leave every snapshot entry identical,
