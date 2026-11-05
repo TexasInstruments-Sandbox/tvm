@@ -221,7 +221,7 @@ class _StorageGrower(relax.PyExprMutator):
         if int(current) >= nbytes:
             return call
         self._grown[self._current] = (int(current), nbytes)
-        new_size = relax.ShapeExpr([tvm.tirx.IntImm(current.dtype, nbytes)])
+        new_size = relax.ShapeExpr([tvm.tirx.IntImm(current.ty, nbytes)])
         new_args = [new_size] + list(call.args)[1:]
         return relax.Call(call.op, new_args, call.attrs, call.ty_args)
 

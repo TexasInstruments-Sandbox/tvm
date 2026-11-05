@@ -43,6 +43,7 @@ from tvm.relax import transform
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from . import _gate
+from .constant_chains import fold_constant_only_chains
 from .patterns import get_tidl_patterns
 
 logger = logging.getLogger(__name__)
@@ -497,7 +498,9 @@ class TIDLOffloadCompiler:
                 relax.transform.Normalize(),
             ]
         )
-        return seq(mod)
+        # FoldConstant leaves high-level constant-only chains (a detection head's anchor
+        # table) as live ops, which the partitioner would then offload.
+        return fold_constant_only_chains(seq(mod))
 
     # ------------------------------------------------------------------
     # Phase 3: TIDL Import (requires .so)
@@ -687,8 +690,38 @@ class TIDLOffloadCompiler:
             var_map: Dict[relax.Var, str] = {}
             for i, p in enumerate(func.params):
                 var_map[p] = f"tidl_{sg_id}_i{i}"
+
+            # A composite with several outputs (split, topk) is consumed through
+            # TupleGetItem bindings, so a consumer's argument is not the composite's
+            # own output var.  Without a name for it the library creates an input
+            # tensor that nothing produces ("Dim 3 is -1").  The library derives the
+            # names of outputs 1..n from the trailing "o<k>" of the node name
+            # (TIDL_relaxImportLinkNode), so a multi-output node is named "<i>_o0"
+            # and element k is "<i>_o<k>".
+            comp_index = {bvar: i for i, (_, _, bvar) in enumerate(composites)}
+            multi_output = {
+                i
+                for i, (_, orig_call, _) in enumerate(composites)
+                if isinstance(orig_call.ty, relax.TupleType)
+            }
+            elem_of: Dict[relax.Var, Tuple[int, int]] = {}
+            for block in func.body.blocks:
+                for tb in block.bindings:
+                    tv = tb.value
+                    if (
+                        isinstance(tv, relax.TupleGetItem)
+                        and isinstance(tv.tuple_value, relax.Var)
+                        and tv.tuple_value in comp_index
+                    ):
+                        elem_of[tb.var] = (comp_index[tv.tuple_value], int(tv.index))
+
+            def node_name_of(i: int) -> str:
+                return f"{i}_o0" if i in multi_output else str(i)
+
             for i, (_, _, bvar) in enumerate(composites):
-                var_map[bvar] = str(i)
+                var_map[bvar] = node_name_of(i)
+            for evar, (pi, k) in elem_of.items():
+                var_map[evar] = f"{pi}_o{k}"
 
             import_node_fn = tvm.get_global_func("TIDL_relaxImportNode")
             link_node_fn = tvm.get_global_func("TIDL_relaxImportLinkNode")
@@ -731,14 +764,16 @@ class TIDLOffloadCompiler:
                 for j in range(i + 1, len(composites)):
                     _, future_call, _ = composites[j]
                     for farg in future_call.args:
-                        if isinstance(farg, relax.Var) and farg.same_as(bvar):
+                        if isinstance(farg, relax.Var) and (
+                            farg.same_as(bvar) or elem_of.get(farg, (None,))[0] == i
+                        ):
                             out_names.append(str(j))
 
                 # Terminal node: use subgraph output tensor name
                 if not out_names:
                     node_name = f"tidl_{sg_id}_o0"
                 else:
-                    node_name = str(i)
+                    node_name = node_name_of(i)
 
                 refs = _make_in_out_nodes(node_name, in_names, out_names)
                 in_out_struct = refs[0]
