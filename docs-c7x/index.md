@@ -28,7 +28,7 @@ pytest-based test infrastructure.
 TVM is licensed under the Apache-2.0 license (`LICENSE` in the source
 tree). For the full open-source license manifest and export
 classification for this release, see
-`TI_TVM_for_C7x_MMA_0.23.0_manifest.html` in the repository root.
+`TI_TVM_for_C7x_MMA_manifest.html` in the repository root.
 
 ## Supported Targets
 

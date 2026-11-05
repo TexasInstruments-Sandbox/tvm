@@ -17,7 +17,7 @@ also retains the older **C66x** (AWRL6844) DSP path.
 - **Status:** not production-ready — an active work-in-progress fork with
   incomplete operator coverage.
 - **License:** Apache-2.0 (`LICENSE`). Export/third-party manifest:
-  `TI_TVM_for_C7x_MMA_0.23.0_manifest.html`.
+  `TI_TVM_for_C7x_MMA_manifest.html`.
 
 Start with these two docs before touching C7x code:
 
