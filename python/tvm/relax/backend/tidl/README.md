@@ -189,8 +189,23 @@ bridge function (see "Bridge Function" below).
 | `tidl.expand` | `broadcast_to` | target shape from output struct_info |
 | `tidl.scatter_elements` | `scatter_elements` | axis + reduction (update/add/max/min) |
 | `tidl.scatter_nd` | `scatter_nd` | N-D indices; reduction (update/add/max/min) |
-| `tidl.image.grid_sample` | `image.grid_sample` | bilinear/nearest; zeros padding; 4-D input |
 | `tidl.nn.conv2d_transpose` | `nn.conv2d_transpose` | transposed convolution (deconv); optional bias fused |
+
+`image.grid_sample` is offloaded only with a **constant grid** (bilinear or nearest, zero
+padding, NCHW). Relax 0.27 takes the grid as `[N, 2, H, W]` while TIDL reads `[N, H, W, 2]`; the
+importer transposes a constant grid into TIDL's layout. A variable grid is declined: it would need
+a `permute_dims` in front of the composite, and `FuseOpsByPattern` orders composite parameters by
+first use, which would make the grid the first parameter. Variable grids stay on the TVM lowering
+(`topi.image.grid_sample`).
+
+Variable-grid offload is tabled (2026-11-04): no model in this repo uses grid_sample, and TIDL's
+own support centres on constant lookup grids (BEV warps), which are offloaded. Variable grids
+appear in spatial transformers (`affine_grid` from a predicted transform), flow-based warping and
+learned-offset attention. Revisit when such a model is a target and the TVM `grid_sample` cycles
+on the C7x are a measured cost. Two ways to do it: give the gate and a post-fusion pass one
+TIDL-local helper that swaps the composite's parameters to (data, grid) after a fused
+`permute_dims`, or have the importer add a transpose layer in front of GridSample for a variable
+grid. Either needs a check of TIDL's int16 grid quantisation.
 
 ### Math / Unary
 

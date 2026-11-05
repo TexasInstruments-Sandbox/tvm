@@ -659,7 +659,14 @@ def _scatter_nd_pattern() -> List[FusionPattern]:
 
 
 def _grid_sample_pattern() -> List[FusionPattern]:
-    """Grid sample (image warping)."""
+    """Grid sample (image warping) with a constant grid.
+
+    Relax 0.27 takes the grid as [N, 2, H_out, W_out]; TIDL's GridSample layer reads
+    [N, H_out, W_out, 2].  The importer transposes a constant grid into TIDL's layout and
+    declines a variable one, which would need a permute in front of the composite, and
+    FuseOpsByPattern would then make the grid the composite's first parameter (it orders
+    parameters by first use), the wrong order for TIDL.
+    """
     data = wildcard()
     grid = wildcard()
     pat = is_op("relax.image.grid_sample")(data, grid)

@@ -1,6 +1,6 @@
 ---
 name: tidl-offload
-description: "TIDL subgraph offloading for TVM Relax c_static_lib backend. Use when working on: TIDL partitioning (FuseOpsByPattern + MergeCompositeFunctions), tidl_import() FFI pipeline, LowerTIDLToTIR, bridge generation (tidl_bridge.c), TIDL composite patterns (73 patterns: conv2d/conv2d_transpose variants, pooling, batch_norm, activations, elementwise, reductions, transformer ops, quantize/dequantize, and more), tidl_model_import_relax.so, TIDL device config, IALG lifecycle (init/process/free), UDMA handle management, or TIDL hardware resource allocation (L1/L2/L3/DDR pools, DRU channels). NOT for MMALIB direct integration (see mmalib-offload) or general pipeline configuration (see cstatic)."
+description: "TIDL subgraph offloading for TVM Relax c_static_lib backend. Use when working on: TIDL partitioning (FuseOpsByPattern + MergeCompositeFunctions), tidl_import() FFI pipeline, LowerTIDLToTIR, bridge generation (tidl_bridge.c), TIDL composite patterns (74 patterns: conv2d/conv2d_transpose variants, pooling, batch_norm, activations, elementwise, reductions, transformer ops, quantize/dequantize, and more), tidl_model_import_relax.so, TIDL device config, IALG lifecycle (init/process/free), UDMA handle management, or TIDL hardware resource allocation (L1/L2/L3/DDR pools, DRU channels). NOT for MMALIB direct integration (see mmalib-offload) or general pipeline configuration (see cstatic)."
 ---
 
 # TIDL Subgraph Offloading
@@ -101,9 +101,9 @@ Consequences:
   `w = R.const(...)` is inlined into the call; otherwise fusion makes it a
   composite *parameter* and TIDL declines the (then variable) weight.
 
-## 73 Composite Patterns
+## 74 Composite Patterns
 
-`python/tvm/relax/backend/tidl/patterns.py`'s `get_tidl_patterns()` returns 73
+`python/tvm/relax/backend/tidl/patterns.py`'s `get_tidl_patterns()` returns 74
 patterns (verify with `len(get_tidl_patterns())`; this has grown well past
 earlier fixed counts as ops were added — don't hardcode the number in new
 docs). Grouped by category:
@@ -117,8 +117,7 @@ docs). Grouped by category:
 - Reductions: `tidl.sum`, `tidl.reduce_max`, `tidl.reduce_min`, `tidl.argmax`, `tidl.argmin`
 - Math unary: `tidl.abs/sqrt/exp/log/erf/floor/negative/sin/cos/tan/.../power`
 - `tidl.quantize`, `tidl.dequantize`
-- Misc: `tidl.nn.depth_to_space`, `tidl.image.resize2d`, `tidl.scatter_elements`, `tidl.scatter_nd`
-- Not offloaded on 0.27: `image.grid_sample` (the grid layout changed to `[N,2,H,W]`; see the TIDL README)
+- Misc: `tidl.nn.depth_to_space`, `tidl.image.resize2d`, `tidl.scatter_elements`, `tidl.scatter_nd`, `tidl.image.grid_sample` (constant grid only: the importer transposes Relax's `[N,2,H,W]` grid to TIDL's `[N,H,W,2]`; a variable grid is declined)
 
 ## TIDL Import Pipeline
 

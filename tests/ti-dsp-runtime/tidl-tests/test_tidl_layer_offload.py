@@ -613,11 +613,12 @@ def _build_scatter_nd_model():
 
 
 def _build_grid_sample_model():
-    """Grid sample with bilinear interpolation."""
+    """Grid sample with bilinear interpolation and a constant grid (the offloaded case)."""
     data = relax.Var("data", relax.TensorType((1, 8, 16, 16), "float32"))
-    grid = relax.Var("grid", relax.TensorType((1, 16, 16, 2), "float32"))
+    # Relax 0.27 grid layout: [N, 2, H_out, W_out] (0.23 used [N, H_out, W_out, 2]).
+    grid = relax.const(np.linspace(-1.0, 1.0, 2 * 16 * 16, dtype="float32").reshape(1, 2, 16, 16))
     bb = relax.BlockBuilder()
-    with bb.function("main", [data, grid]):
+    with bb.function("main", [data]):
         with bb.dataflow():
             out = bb.emit(relax.op.image.grid_sample(data, grid, method="bilinear"))
             gv = bb.emit_output(out)
@@ -1146,7 +1147,7 @@ class TestLayerPartition:
         assert _has_composite(partitioned, "tidl.scatter_nd")
 
     def test_grid_sample(self):
-        """Grid sample should be partitioned."""
+        """Grid sample with a constant grid should be partitioned."""
         mod = _build_grid_sample_model()
         partitioned = partition_for_tidl(mod)
         assert _has_composite(partitioned, "tidl.image.grid_sample")

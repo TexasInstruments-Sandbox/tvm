@@ -49,7 +49,7 @@ libraries and the C7504 MMALIB:
 | File | Purpose |
 |------|---------|
 | `python/tvm/relax/backend/tidl/tidl.py` | `TIDLOffloadCompiler`: partition, import, lower, bridge generation, build |
-| `python/tvm/relax/backend/tidl/patterns.py` | TIDL `FusionPattern` definitions (73 patterns); structure only, no constraint logic |
+| `python/tvm/relax/backend/tidl/patterns.py` | TIDL `FusionPattern` definitions (74 patterns); structure only, no constraint logic |
 | `python/tvm/relax/backend/tidl/_gate.py` | The eligibility gate: rebuilds the composite for each match and asks `TIDL_relaxAllowNode` in `tidl_model_import_relax.so` |
 | `python/tvm/relax/backend/tidl/README.md` | Full pattern/constraint reference and pipeline architecture (source of truth for this page) |
 | `src/runtime/ti_dsp/tidl/tidl_api.{c,h}` | DLOAD-module-side IALG lifecycle (`init/process/free_tidl_subgraph`) |
@@ -138,7 +138,7 @@ configurations (`test_tidl_declines_hw.py`).
 
 ## Supported Operations
 
-73 patterns across these categories (exact op list and per-pattern
+74 patterns across these categories (exact op list and per-pattern
 constraints in `python/tvm/relax/backend/tidl/README.md`):
 
 | Category | Ops |
@@ -153,9 +153,12 @@ constraints in `python/tvm/relax/backend/tidl/README.md`):
 | Shape/layout | `reshape`, `flatten`, `squeeze`, `expand_dims`, `strided_slice`, `permute_dims`, `concat` |
 | Normalization | `layer_norm`, `instance_norm` |
 | Data type/padding | `astype` (cast), `nn.pad` (constant zero-padding) |
-| Advanced | `image.resize2d`, `take`, `topk`, `split`, `nn.pixel_shuffle` (depth-to-space), `broadcast_to` (expand), `scatter_elements`, `scatter_nd`, `image.grid_sample` |
+| Advanced | `image.resize2d`, `take`, `topk`, `split`, `nn.pixel_shuffle` (depth-to-space), `broadcast_to` (expand), `scatter_elements`, `scatter_nd` |
 | Math/unary | `abs`, `sqrt`, `power`, `exp`, `log`, `erf`, `floor`, `negative`, `sin`/`cos`/`tan`, `sinh`/`cosh`, `asin`/`acos`/`atan`/`asinh` |
 | Quantization (stubs) | `quantize`, `dequantize` |
+
+`image.grid_sample` is offloaded only with a constant grid: the importer transposes the
+0.27 grid layout `[N,2,H,W]` into TIDL's `[N,H,W,2]`. A variable grid runs on the TVM lowering.
 
 Ops not in this list stay on the TVM scalar path automatically — nothing
 needs to be excluded explicitly.

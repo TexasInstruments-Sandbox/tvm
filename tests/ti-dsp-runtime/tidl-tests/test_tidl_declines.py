@@ -721,15 +721,6 @@ reject(
     "Scales < 1 are not supported",
 )
 reject(
-    "grid-sample-bicubic",
-    "tidl.image.grid_sample",
-    _build(
-        {"d": ((1, 8, 16, 16), F32), "g": ((1, 16, 16, 2), F32)},
-        lambda bb, d, g: op.image.grid_sample(d, g, method="bicubic"),
-    ),
-    "Only nearest and linear/bilinear mode is supported",
-)
-reject(
     "layer-norm-channel-axis",
     "tidl.nn.layer_norm",
     _build(
@@ -842,18 +833,33 @@ reject(
 
 
 # --- grid_sample --------------------------------------------------------------------------
-def _grid_sample(grid_shape=(1, 16, 16, 2), data_shape=(1, 8, 16, 16), **kw):
+# Relax takes the grid as [N, 2, H_out, W_out]; the importer transposes a constant grid to
+# TIDL's [N, H_out, W_out, 2] and declines a variable one.
+def _grid_sample(grid_shape=(1, 2, 12, 20), data_shape=(1, 8, 16, 16), **kw):
+    grid = relax.const(
+        np.linspace(-1.0, 1.0, int(np.prod(grid_shape)), dtype=F32).reshape(grid_shape)
+    )
     return _build(
-        {"d": (data_shape, F32), "g": (grid_shape, F32)},
-        lambda bb, d, g: op.image.grid_sample(d, g, **kw),
+        {"d": (data_shape, F32)},
+        lambda bb, d: op.image.grid_sample(d, grid, **kw),
     )
 
 
 accept("grid-sample-bilinear-zeros", "tidl.image.grid_sample", _grid_sample())
+accept("grid-sample-nearest", "tidl.image.grid_sample", _grid_sample(method="nearest"))
+reject(
+    "grid-sample-variable-grid",
+    "tidl.image.grid_sample",
+    _build(
+        {"d": ((1, 8, 16, 16), F32), "g": ((1, 2, 12, 20), F32)},
+        lambda bb, d, g: op.image.grid_sample(d, g),
+    ),
+    "the grid must be a constant",
+)
 reject(
     "grid-sample-3d-grid",
     "tidl.image.grid_sample",
-    _grid_sample((1, 16, 16, 3)),
+    _grid_sample((1, 3, 12, 20)),
     "Only 2D grid indices are supported",
 )
 reject(
@@ -863,11 +869,18 @@ reject(
     "Only zero padding mode is supported",
 )
 reject(
+    "grid-sample-bicubic",
+    "tidl.image.grid_sample",
+    _grid_sample(method="bicubic"),
+    "Only nearest and linear/bilinear mode is supported",
+)
+reject(
     "grid-sample-nhwc",
     "tidl.image.grid_sample",
     _grid_sample(data_shape=(1, 16, 16, 8), layout="NHWC"),
     "only NCHW layout",
 )
+
 
 # --- matmul -------------------------------------------------------------------------------
 for cid, bias, ok in [

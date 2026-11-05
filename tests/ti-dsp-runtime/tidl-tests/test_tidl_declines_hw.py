@@ -69,6 +69,15 @@ def _take(indices, axis):
     return _module(lambda bb, x: op.take(x, relax.const(np.array(indices, "int32")), axis=axis))
 
 
+def _grid_sample(method):
+    """A non-square constant grid, partly outside [-1, 1]: a grid handed to TIDL in the
+    Relax [N, 2, H, W] layout instead of its own [N, H, W, 2] gives wrong values, not an
+    error, so only a numeric check catches it."""
+    rng = np.random.RandomState(1)
+    grid = relax.const((rng.rand(1, 2, 12, 20) * 2.2 - 1.1).astype(F32))
+    return _module(lambda bb, x: op.image.grid_sample(nn.relu(x), grid, method=method))
+
+
 # id -> module. One hardware run per operator (plan decision D3).
 CASES = {
     "softmax-width": _module(lambda bb, x: nn.softmax(x, axis=3)),
@@ -112,6 +121,8 @@ CASES = {
     "take-const-indices-width-gather": _take([0, 2, 5, 9], 3),
     "take-const-indices-channel-gather": _take([0, 3, 4, 7], 1),
     "take-const-indices-height-slice": _take([2, 3, 4, 5], 2),
+    "grid-sample-bilinear-const-grid": _grid_sample("bilinear"),
+    "grid-sample-nearest-const-grid": _grid_sample("nearest"),
     # Imported as a global average pool, whose NC11 output stands in for Relax's NC.
     "mean-spatial-no-keepdims": _module(lambda bb, x: op.mean(x, axis=[2, 3], keepdims=False)),
     "instance-norm-spatial": _module(
