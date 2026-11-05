@@ -1251,6 +1251,9 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         method = interp_map.get(interp_mode, "bilinear")
         padding_mode = pad_map.get(pad_mode, "zeros")
 
+        # PyTorch's grid is [N, H_out, W_out, 2]; relax.image.grid_sample takes
+        # [N, 2, H_out, W_out] (as the ONNX frontend already converts).
+        grid = self.block_builder.emit(relax.op.permute_dims(grid, [0, 3, 1, 2]))
         return self.block_builder.emit(
             relax.op.image.grid_sample(
                 data,

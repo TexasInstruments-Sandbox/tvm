@@ -8923,26 +8923,32 @@ def test_grid_sample():
         @R.function
         def main(
             input_1: R.Tensor((1, 3, 4, 4), dtype="float32"),
-            grid: R.Tensor((1, 2, 2, 2), dtype="float32"),
-        ) -> R.Tuple(R.Tensor((1, 3, 2, 2), dtype="float32")):
+            grid: R.Tensor((1, 2, 3, 2), dtype="float32"),
+        ) -> R.Tuple(R.Tensor((1, 3, 2, 3), dtype="float32")):
             with R.dataflow():
-                lv: R.Tensor((1, 3, 2, 2), dtype="float32") = R.image.grid_sample(
+                lv: R.Tensor((1, 2, 2, 3), dtype="float32") = R.permute_dims(
+                    grid, axes=[0, 3, 1, 2]
+                )
+                lv1: R.Tensor((1, 3, 2, 3), dtype="float32") = R.image.grid_sample(
                     input_1,
-                    grid,
+                    lv,
                     method="bilinear",
                     layout="NCHW",
                     padding_mode="zeros",
                     align_corners=True,
                 )
-                gv: R.Tuple(R.Tensor((1, 3, 2, 2), dtype="float32")) = (lv,)
+                gv: R.Tuple(R.Tensor((1, 3, 2, 3), dtype="float32")) = (lv1,)
                 R.output(gv)
             return gv
 
+    # A non-square grid: with H_out == W_out == 2 the PyTorch [N, H, W, 2] grid has the
+    # same shape as Relax's [N, 2, H, W], so a missing layout conversion went unnoticed.
     example_args = (
         torch.randn(1, 3, 4, 4, dtype=torch.float32),
-        torch.randn(1, 2, 2, 2, dtype=torch.float32),
+        torch.rand(1, 2, 3, 2, dtype=torch.float32) * 2 - 1,
     )
     verify_model(GridSample(), example_args, {}, expected)
+    verify_model_numerically(GridSample(), example_args, rtol=1e-5, atol=1e-5)
 
 
 def test_torchvision_roi_align():
