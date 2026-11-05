@@ -208,8 +208,8 @@ def test_mmalib_conv2d_i8_qdq(dsp_mode, record_cycles):
                         out_dtype="int8",
                     )
                 )
-                bb.emit_output(out)
-            bb.emit_func_output(out)
+                res = bb.emit_output(out)
+            bb.emit_func_output(res)
         plain_mod = bb.finalize()
 
         target_loop = get_target_string(dsp_mode, use_cpp_api=True)
