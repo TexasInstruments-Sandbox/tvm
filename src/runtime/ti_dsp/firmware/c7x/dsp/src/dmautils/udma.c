@@ -44,6 +44,7 @@
 #include <stdio.h>
 #include "drivers/dmautils/udma_standalone/udma.h"
 #include <kernel/nortos/dpl/c75/cslr_clec.h>
+#include <kernel/nortos/dpl/c75/csl_clec.h>
 /* ========================================================================== */
 /*                           Macros & Typedefs                                */
 /* ========================================================================== */

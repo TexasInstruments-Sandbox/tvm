@@ -59,6 +59,11 @@ set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/toolchain-c7000.cmak
 
 project(c7x_compute C CXX ASM)
 
+# Make implicit function declarations (diagnostic 225) a hard error. An
+# undeclared variadic call such as printf silently passes its arguments in
+# registers instead of on the stack, which the C7x EABI requires.
+add_compile_options($<$<COMPILE_LANGUAGE:C>:--diag_error=225>)
+
 # Set proper library path and library flags for TI linker
 set(CMAKE_LIBRARY_PATH_FLAG "-i")
 set(CMAKE_LINK_LIBRARY_FLAG "-l")

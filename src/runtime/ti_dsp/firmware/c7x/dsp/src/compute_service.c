@@ -6,6 +6,7 @@
  */
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <kernel/dpl/DebugP.h>
 #include <kernel/dpl/ClockP.h>
@@ -31,6 +32,7 @@
 #include "platform/dsp_platform.h"  /* tvm_dsp_alloc/free, TVM_DSP_MEM_MAIN */
 
 /* TVM runtime cleanup functions (defined in TVM DSP runtime library) */
+extern void TVMDSPRegFileInit(TVMFFIAny *reg_file, int32_t size);
 extern int TVMDSPRegFileCleanup(void);
 extern void TVMDSPConstantsCleanup(void);
 extern void tvm_dsp_reset_pools(void);
