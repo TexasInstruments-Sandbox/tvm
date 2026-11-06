@@ -3765,23 +3765,28 @@ modules, and where the TVM runtime allocates workspace tensors during inference.
 <tr>
 <td>L2 main</td>
 <td>0x7E000000</td>
-<td>2 MB</td>
-<td>Runtime stack, FreeRTOS heap</td>
+<td>1.25 MB</td>
+<td>Generated-code DMA scratch (<code>tvm_l2_alloc</code>, reset per kernel); TIDL's L3</td>
 </tr>
 <tr>
 <td>L2 aux</td>
 <td>0x7F000000</td>
 <td>240 KB</td>
-<td>Fast scratch memory</td>
+<td>Runtime fast pool (first 128 KB, storage ≤ 32 KB); TIDL's L2 (224 KB)</td>
 </tr>
 <tr>
 <td>L1 alias</td>
 <td>0x7F03C000</td>
 <td>16 KB</td>
-<td>L1 cache as SRAM</td>
+<td>TIDL's L1</td>
 </tr>
 </tbody>
 </table>
+<p>Each bank has two users. The generated-code scratch never lives across a
+TIDL call, so sharing MAIN is safe. The fast pool does hold tensors across
+calls, so the firmware disables it while a TIDL module is loaded
+(<code>TVMDSPStorageSetFastPoolEnabled</code>, called from <code>handle_dyn_load</code> in
+<code>compute_service.c</code>); such a module keeps all its storage in DDR.</p>
 <h3 id="host-side-allocation">Host-Side Allocation</h3>
 <p>The host allocates each dmabuf independently at runtime from the DMA
 heap, via the shared <code>alloc_dmabuf()</code> helper (<code>client-&gt;staging</code> and

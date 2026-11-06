@@ -3413,11 +3413,11 @@ emulation and C7x hardware.</p>
 <td>ScheduleC7xDMATiling pass</td>
 </tr>
 <tr>
-<td><code>python/tvm/tir/pipeline.py</code></td>
+<td><code>python/tvm/tirx/compilation_pipeline.py</code></td>
 <td><code>_c7x_dma_tir_pipeline</code> with reordered DMA lowering</td>
 </tr>
 <tr>
-<td><code>python/tvm/tir/transform/lower_dma_to_extern.py</code></td>
+<td><code>python/tvm/tirx/transform/lower_dma_to_extern.py</code></td>
 <td><code>LowerDMAToExtern</code> pass (TIR intrinsics to call_extern)</td>
 </tr>
 <tr>
@@ -3479,7 +3479,7 @@ InjectSoftwarePipeline
 LowerOpaqueBlock
 FlattenBuffer
 LowerAsyncDMA
-LowerDMAToExtern        ← tir.dma_copy/wait → call_extern
+LowerDMAToExtern        ← tirx.dma_copy/wait → call_extern
 NarrowDataType(32)
 StorageRewrite
 LowerL2SramAlloc        ← Allocate(l2sram) → tvm_l2_alloc
@@ -3512,7 +3512,7 @@ target.attrs.get("mmalib")</code> checks throughout the general pipeline code.</
 <div class="highlight"><pre><span></span><code>Relax op(s)
   → FuseOpsByPattern (composite)
   → PyExprMutator → builder_.call_te(te_fn, ...)
-  → te.extern → tir.call_extern
+  → te.extern → tirx.call_extern
   → CodeGenCStaticLib → C function call
 </code></pre></div>
 <h3 id="the-chain-in-detail">The Chain in Detail</h3>
@@ -3530,7 +3530,7 @@ target.attrs.get("mmalib")</code> checks throughout the general pipeline code.</
 <li>
 <p><strong>te.extern Emission</strong> — <code>te.extern</code> creates an <code>ExternOp</code> that
    lowers to a TIR <code>PrimFunc</code> containing a single
-   <code>tir.call_extern("int32", "kernel_name", ...)</code>.</p>
+   <code>tirx.call_extern("int32", "kernel_name", ...)</code>.</p>
 </li>
 <li>
 <p><strong>CodeGenCStaticLib</strong> — The base <code>CodeGenC::PrintCallExtern</code> prints
@@ -3667,11 +3667,11 @@ and other allocations). Configurable via <code>ScheduleC7xDMATiling(l2_budget)</
 <td><code>InjectMMALIBDMA</code> TIR pass</td>
 </tr>
 <tr>
-<td><code>python/tvm/tir/pipeline.py</code></td>
+<td><code>python/tvm/tirx/compilation_pipeline.py</code></td>
 <td>TIR pipeline wiring</td>
 </tr>
 <tr>
-<td><code>python/tvm/tir/transform/lower_l2sram_alloc.py</code></td>
+<td><code>python/tvm/tirx/transform/lower_l2sram_alloc.py</code></td>
 <td><code>LowerL2SramAlloc</code> pass</td>
 </tr>
 <tr>
@@ -3690,7 +3690,7 @@ operand's value fully determined at compile time, with no runtime input?"
 The C7x QDQ-fusion passes run <em>before</em> <code>FoldConstant</code> on purpose — folding a
 weight's <code>dequantize(int8_const, scale_const)</code> too early would expand int8
 weights back to float32 in <code>weights.bin</code>. Running first means these passes
-still see plain <code>Var</code>s, not yet the <code>relax.Constant</code> nodes <code>FoldConstant</code>
+still see plain <code>Var</code>s, not yet the <code>tvm.ir.GenericConst</code> nodes <code>FoldConstant</code>
 would otherwise have produced.</p>
 <p>That ordering has one demonstrated failure mode: if an <em>entire</em> matched
 subgraph happens to depend only on constants (e.g. a fixed
@@ -3738,7 +3738,7 @@ plain helper function, not a standalone pass:</p>
 (commit <code>b64d0fa3bf</code>). <strong>Important scope caveat</strong>, added in a follow-up
 correction (<code>d1c0f41f27</code>): no model on this tree has been shown to <em>require</em>
 it. <code>bind_constants=False</code> maps to <code>lift_constant_=true</code> in <code>fuse_ops.cc</code>, so
-matched <code>relax.Constant</code> leaves are lifted to composite <em>parameters</em>, not
+matched constant leaves are lifted to composite <em>parameters</em>, not
 embedded in the body — a declined composite left in place was measured to
 compile cleanly through <code>LegalizeOps</code>/<code>FoldConstant</code>/<code>FuseOps</code>/<code>FuseTIR</code>. This
 helper is defense-in-depth for the <code>TIRFuseMutator</code> invariant above, not a fix
@@ -3860,7 +3860,7 @@ the MMALIB-specific suites -- see <a href="../testing/dsp-suite.html">DSP Suite<
 <li><a href="codegen-cstatic.html">CodeGenCStaticLib Internals</a> — Code generator architecture, DLOAD symbol resolution</li>
 <li><a href="authoring-passes.html">Authoring Passes</a> — Writing new Relax/TIR passes for C7x</li>
 <li><a href="extending-quantizer.html">Extending Quantizer</a> — Adding ops to C7xMMAQuantizer</li>
-<li><a href="debugging-passes.html">Debugging Passes</a> — --dump-ir, TVM_LOG_DEBUG, composite inspection</li>
+<li><a href="debugging-passes.html">Debugging Passes</a> — pass instruments, Python logging, composite inspection</li>
 </ul>
 
 

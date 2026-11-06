@@ -802,6 +802,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#am62d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AM62D
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#files" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -817,6 +828,17 @@
     <span class="md-ellipsis">
       
         Pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-offload-eligibility-is-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How offload eligibility is decided
       
     </span>
   </a>
@@ -853,6 +875,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Firmware Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#on-chip-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On-chip memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1493,6 +1532,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#am62d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AM62D
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#files" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1508,6 +1558,17 @@
     <span class="md-ellipsis">
       
         Pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-offload-eligibility-is-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How offload eligibility is decided
       
     </span>
   </a>
@@ -1544,6 +1605,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Firmware Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#on-chip-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On-chip memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1603,10 +1681,10 @@ accelerator, via the <code>TIDLOffloadCompiler</code> pipeline in
 <code>python/tvm/relax/backend/tidl/</code>. Non-offloaded ops remain in TVM and
 execute as generated C code on the C7x scalar pipeline.</p>
 <blockquote>
-<p><strong>J722S only.</strong> TIDL subgraph offload requires firmware built with
-<code>--tidl ON</code> (the <code>j722s-evm</code>/AM67A default, which also forces
-<code>--mmalib ON</code>). BeagleY-AI firmware is always built <code>--tidl OFF
---mmalib ON</code> — no TIDL offload path exists on that board. See
+<p><strong>J722S and AM62D only.</strong> TIDL subgraph offload requires firmware built
+with <code>--tidl ON</code> (the <code>j722s-evm</code>/AM67A default, which also forces
+<code>--mmalib ON</code>, as does <code>am62d</code>, see below). BeagleY-AI firmware is always
+built <code>--tidl OFF --mmalib ON</code> — no TIDL offload path exists on that board. See
 <a href="mmalib-integration.html#firmware-decoupling-mmalib-from-tidl">MMALIB Integration</a>
 for the firmware-side <code>USE_TIDL_RUNTIME</code>/<code>USE_TI_MMALIB</code> split, and pass
 <code>-tidl-kernels=0</code> when compiling for BeagleY-AI regardless of whether a
@@ -1616,6 +1694,30 @@ given model uses TIDL subgraph offload at all (it also controls whether
 <p>Target string: <code>c_static_lib -mcpu=c7x</code> (TIDL artifacts are embedded and
 <code>-tidl-runtime=1</code> is applied automatically by <code>TIDLOffloadCompiler.build()</code>
 whenever a model actually produces TIDL subgraphs).</p>
+<h2 id="am62d">AM62D</h2>
+<p>On <code>--board am62d</code> (C7504) the same flow applies with AM62A-flavoured TIDL
+libraries and the C7504 MMALIB:</p>
+<ul>
+<li>Build the importer and TIDL libs with <code>c7x-mma-tidl/build_am62d.sh</code>
+  (<code>TARGET_SOC=AM62A</code>), then build the firmware with
+  <code>firmware/c7x/dsp/build.sh --board am62d</code> (<code>--tidl ON</code> is the default; it
+  needs <code>C7X_MMA_TIDL_PATH</code>).</li>
+<li><code>TIDLOffloadCompiler</code> takes the board from <code>config["board"]</code> (<code>j722s-evm</code>,
+  <code>beagley-ai</code> or <code>am62d</code>; default <code>j722s-evm</code>) and maps it to a device
+  (<code>j722s</code> or <code>am62d</code>). The <code>c_static_lib</code> target only knows the device: the
+  default target gets <code>-device=&lt;device&gt;</code>, an explicit target's <code>-device=</code> wins,
+  and <code>-device=am62d</code> defaults <code>l2-sram-size</code> to 240 KB. The AM62D toolchain
+  and PC libs follow from the device. The dynmod build takes the SDK root
+  (ivision headers) from <code>$PSDK_INSTALL_PATH</code>.</li>
+<li>TIDL's "L2" is the 240 KB L2 AUX bank and its "L3" the 1 MB L2 MAIN bank,
+  the same assignment as on J722S (see <a href="#on-chip-memory">On-chip memory</a>).</li>
+<li>Verified on an AM62D EVM: MobileNetV2 (<code>test_tidl_mv2_e2e.py -k correctness
+  --board am62d --dsp-mode=c7x_dload</code>). On hardware the top two classes swap,
+  which the test records as an xfail near-tie (<code>mean_diff</code> still checked).
+  Other tidl-tests have not been run on AM62D yet.</li>
+<li>Use per-board work directories; a CMake cache reused across boards keeps the
+  other board's SDK path and flags.</li>
+</ul>
 <h2 id="files">Files</h2>
 <table>
 <thead>
@@ -1631,7 +1733,11 @@ whenever a model actually produces TIDL subgraphs).</p>
 </tr>
 <tr>
 <td><code>python/tvm/relax/backend/tidl/patterns.py</code></td>
-<td>TIDL <code>FusionPattern</code> definitions (74 patterns) and Python-side constraint checks</td>
+<td>TIDL <code>FusionPattern</code> definitions (74 patterns); structure only, no constraint logic</td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/backend/tidl/_gate.py</code></td>
+<td>The eligibility gate: rebuilds the composite for each match and asks <code>TIDL_relaxAllowNode</code> in <code>tidl_model_import_relax.so</code></td>
 </tr>
 <tr>
 <td><code>python/tvm/relax/backend/tidl/README.md</code></td>
@@ -1677,8 +1783,20 @@ tidl_import()       Loads tidl_model_import_relax.so; per subgraph:
 lower_tidl()        Replace Codegen="tidl" functions with TIR PrimFunc stubs;
     |               each stub emits call_extern("tidl_subgraph_N_process", ...)
     v
+_fix_output_dtype_  Compares each subgraph's actual output element type/
+  mismatches()      scale/zero-point (read from params_1.bin) against what
+    |               its TIR stub declares. On mismatch, re-declares the
+    |               stub's output buffer and the call_tir result with
+    |               TIDL's real dtype (so the storage matches the bytes
+    |               TIDL writes, e.g. 1 byte per argmax index) and inserts
+    |               a dequant/cast in @main. No-op if nothing mismatches.
+    v
 generate_bridge()   Generate tidl_bridge.c/h resolving the extern calls
-  + relax.build()    c_static_lib codegen emits lib0.c + weights.bin
+  + relax.build()    c_static_lib codegen emits lib0.c + weights.bin.
+    |               relax.build()'s finalize passes also run
+    |               PadTIDLOutputStorage here, growing an output's
+    |               allocated storage to cover TIDL's write-past-the-
+    |               tensor padding channels (no-op for non-TIDL builds).
     v
 _build_dynmod()     TI C7x cross-compile; embeds TIDL artifacts as .rodata;
     |               links tidl_api.c (IALG wrapper) + bridge
@@ -1695,6 +1813,32 @@ for both usage styles.</p>
 runs <code>FoldBatchnormToConv2D</code> + <code>FoldConstant</code> first, algebraically folding
 inference-mode BN parameters into the preceding conv2d's weight/bias so
 the existing <code>conv2d_bias_relu</code>-style patterns match directly.</p>
+<h2 id="how-offload-eligibility-is-decided">How offload eligibility is decided</h2>
+<p>Eligibility is decided in exactly one place, <code>TIDL_relaxAllowNode</code> in
+<code>tidl_model_import_relax.so</code>. The Python patterns match structure only; every
+pattern's check (<code>_gate.tidl_gate(name)</code>) rebuilds the composite function that
+<code>FuseOpsByPattern</code> would create, wraps it in the synthetic call the importer
+uses, and asks the library. The rules themselves are in the C++ Relax parsers
+(<code>tidlParseRelax/</code>, mostly <code>tidl_parse_relax_declines.cpp</code>) plus TIDL's shared
+<code>tidlAllowlistingConstraints/</code>. Consequences for contributors:</p>
+<ul>
+<li>To change what is offloaded, change the C++ and rebuild the <code>.so</code>
+  (<code>c7x-mma-tidl/build_j722s.sh</code>). Do not add Python constraint logic.</li>
+<li><code>partition()</code> needs the <code>.so</code> and fails with a clear error without it.
+  Tests that only check pattern structure set
+  <code>config["allow_fn"] = lambda call: 1</code>.</li>
+<li>Why an op stayed on TVM: <code>_gate.recording()</code> returns a <code>GateResult</code> per
+  match with <code>.verdict</code> and <code>.reason</code> (the library's message, plus
+  <code>[constraint: ...]</code> when a TIDL constraint fired).</li>
+<li><code>TIDL_relaxDescribeNode(call)</code> returns what the parser populated (dims,
+  dtypes, axis, strides, pad, slice points) for testing accepted ops.</li>
+<li>Deny lists by layer name use <code>&lt;pattern&gt;:&lt;root variable name in the input IR&gt;</code>.</li>
+</ul>
+<p>Rules are tested by a decline table (<code>test_tidl_declines.py</code>), a constraint
+coverage gate against TIDL's own constraint headers
+(<code>test_tidl_constraint_coverage.py</code>), partition snapshots
+(<code>test_tidl_partition_snapshot.py</code>), and numeric hardware checks of accepted
+configurations (<code>test_tidl_declines_hw.py</code>).</p>
 <h2 id="supported-operations">Supported Operations</h2>
 <p>74 patterns across these categories (exact op list and per-pattern
 constraints in <code>python/tvm/relax/backend/tidl/README.md</code>):</p>
@@ -1748,7 +1892,7 @@ constraints in <code>python/tvm/relax/backend/tidl/README.md</code>):</p>
 </tr>
 <tr>
 <td>Advanced</td>
-<td><code>image.resize2d</code>, <code>take</code>, <code>topk</code>, <code>split</code>, <code>nn.pixel_shuffle</code> (depth-to-space), <code>broadcast_to</code> (expand), <code>scatter_elements</code>, <code>scatter_nd</code>, <code>image.grid_sample</code></td>
+<td><code>image.resize2d</code>, <code>take</code>, <code>topk</code>, <code>split</code>, <code>nn.pixel_shuffle</code> (depth-to-space), <code>broadcast_to</code> (expand), <code>scatter_elements</code>, <code>scatter_nd</code></td>
 </tr>
 <tr>
 <td>Math/unary</td>
@@ -1760,6 +1904,8 @@ constraints in <code>python/tvm/relax/backend/tidl/README.md</code>):</p>
 </tr>
 </tbody>
 </table>
+<p><code>image.grid_sample</code> is offloaded only with a constant grid: the importer transposes the
+0.27 grid layout <code>[N,2,H,W]</code> into TIDL's <code>[N,H,W,2]</code>. A variable grid runs on the TVM lowering.</p>
 <p>Ops not in this list stay on the TVM scalar path automatically — nothing
 needs to be excluded explicitly.</p>
 <h2 id="configuration">Configuration</h2>
@@ -1775,8 +1921,8 @@ needs to be excluded explicitly.</p>
 <tbody>
 <tr>
 <td><code>artifacts_dir</code></td>
-<td><code>/tmp/tidl_artifacts</code></td>
-<td>Output directory for TIDL binaries</td>
+<td>per-process temp dir, removed at exit</td>
+<td>Output directory for TIDL binaries; set it to keep them</td>
 </tr>
 <tr>
 <td><code>tidl_tools_path</code></td>
@@ -1821,6 +1967,50 @@ shared resources a loaded module needs via the DLOAD symbol table
 (IALG function table, DDR heap allocation, the UDMA driver handle, L1/L2
 SRAM pools, cache writeback). TIDL and TVM's own DMA tiling share one
 UDMA driver instance, initialized once at firmware boot.</p>
+<h3 id="on-chip-memory">On-chip memory</h3>
+<p><code>tidl_support_init()</code> (<code>firmware/c7x/dsp/src/tidl_support.c</code>) hands TIDL's
+IALG allocator three regions, following the vision_apps layout
+(<code>app_cfg_c7x_1.h</code>) on both SoCs:</p>
+<table>
+<thead>
+<tr>
+<th>TIDL region</th>
+<th>Bank</th>
+<th>J722S</th>
+<th>AM62D</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L1</td>
+<td>L2 AUX as L1, <code>0x7F03C000</code></td>
+<td>16 KB</td>
+<td>16 KB</td>
+</tr>
+<tr>
+<td>L2</td>
+<td>L2 AUX, <code>0x7F000000</code></td>
+<td>224 KB (<code>L2MEMSIZE_KB</code> in <code>j722s_config.cfg</code>)</td>
+<td>240 KB</td>
+</tr>
+<tr>
+<td>L3</td>
+<td>L2 MAIN, <code>0x7E000000</code></td>
+<td>1.25 MB</td>
+<td>1 MB</td>
+</tr>
+</tbody>
+</table>
+<p>Both banks are shared with TVM. That is safe for the generated-code L2
+scratch in MAIN (<code>tvm_l2_alloc</code>), which is reset at the start of every
+kernel and never lives across a TIDL call. It is not safe for the runtime's
+fast pool in AUX, where storage of 32 KB or less normally goes: storage
+outlives a single op, so a small tensor produced before a TIDL subgraph and
+read after it would be overwritten by TIDL's scratch. When the firmware loads
+a module that exports <code>tidl_bridge_cleanup</code>, it calls
+<code>TVMDSPStorageSetFastPoolEnabled(0)</code> so all of that module's storage goes to
+DDR, and turns the fast pool back on at unload. Modules without TIDL keep
+using it.</p>
 <p>Each TIDL subgraph goes through the standard IALG lifecycle at runtime
 (alloc → init → activate → process → deactivate, freed at module unload)
 — see <code>src/runtime/ti_dsp/tidl/README.md</code> for the exact call sequence.
@@ -1837,35 +2027,56 @@ ordering matters — see
   call" internal error) for some input configurations. Prefer reducing
   over a spatial axis instead, or treat the case as <code>xfail</code> if it's
   intrinsic to the model.</li>
-<li><strong>Softmax-heavy heads may diverge on hardware despite passing host
-  emulation.</strong> A model whose TIDL-offloaded output feeds directly into a
-  TVM-side <code>exp()</code>-based op (e.g. a detection head's distribution-focal-loss
-  softmax) can produce <code>NaN</code> on real hardware (<code>c7x_dload</code>) while passing
-  on the PC AVX reference path (<code>c7x_host</code>) with identical calibration.
-  The C7x MMA and the PC AVX reference round int8 dequantization slightly
-  differently; if that shift pushes values far enough negative, <code>exp()</code>
-  underflows to exactly <code>0.0</code> for every element of a reduction, producing
-  <code>0/0 = NaN</code>. This is a hardware/reference rounding gap, not a
-  calibration bug — per-subgraph calibration (above) is necessary but not
-  sufficient to fix it. If a model hits this, keep the affected head off
-  the TIDL path (either leave it on the TVM scalar path, or use
-  <a href="mmalib-integration.html">MMALIB</a> + <code>C7xMMAQuantizer</code> for that portion of
-  the model instead, which bakes quantization scales into the compiled
-  binary and applies them identically on host and hardware).</li>
+<li><strong>Host and hardware are expected to match.</strong> A large gap between
+  <code>c7x_host</code> and <code>c7x_dload</code>, or a subgraph that is wrong on both, has so far
+  always been an import or memory bug rather than int8 rounding (missing
+  multi-output buffers, rank &lt; 4 tensors laid out differently at the
+  subgraph boundary, TVM tensors sharing a bank with TIDL scratch). Check
+  <code>numOutputBuf</code> in the subgraph's <code>params_1.bin</code> against its output count
+  and run the subgraph alone before suspecting calibration;
+  <code>tidl-tests/test_tidl_subgraph_io.py</code> covers the known cases.</li>
 <li><strong>Element-wise ops require rank exactly 4.</strong> A sub-4D use (e.g. an FC
   bias add with shape <code>(1, N)</code>) is rejected by the pattern's constraint
   check rather than being offloaded and crashing at runtime.</li>
 <li><strong><code>topk</code> always returns both values and indices.</strong> Request
   <code>ret_type="both"</code> and extract index <code>[0]</code> for values-only usage.</li>
+<li><strong>The dtype gate is one blanket allowlist, not per-op.</strong> Every pattern's
+  constraint check accepts only {float32, int8, int16, uint8} dtypes, with
+  no op-specific exceptions. A dtype that some reference TIDL importer
+  permits for a specific op (e.g. int32 as <code>take</code>'s data input, or
+  int32/int64 for an elementwise <code>mod</code>) is still declined here, since the
+  allowlist doesn't vary per op. An op whose rank/shape cannot be
+  statically determined is declined too, rather than optimistically
+  accepted — this trades offload coverage on dynamic-shape models for not
+  risking a mis-parse.</li>
+<li><strong><code>strided_slice</code> only supports a single axis with unit stride.</strong>
+  Multi-axis <code>axes</code>/<code>begin</code>/<code>end</code>/<code>strides</code>, or any stride other than 1,
+  is declined rather than silently executed with the wrong bounds.</li>
+<li><strong><code>nn.pad</code> only supports constant-mode, 4-D, H/W-only padding.</strong> Any
+  non-<code>"constant"</code> <code>pad_mode</code>, a non-4-D input, or non-zero N/C (batch/
+  channel) padding is declined.</li>
+<li><strong><code>split</code> is capped at 16 output tensors.</strong> TIDL's internal slice-points
+  buffer is fixed-size; a larger split is declined rather than overflowing
+  it.</li>
+<li><strong><code>take</code> declines when <code>data</code> (not just <code>indices</code>) is a constant.</strong> The
+  common inverse case — a constant embedding table gathered by variable
+  token ids — offloads fine; a fully-constant gather does not.</li>
 </ul>
 <h2 id="testing">Testing</h2>
 <div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>tests/ti-dsp-runtime
 
-<span class="c1"># Partition + codegen — no .so, no hardware</span>
+<span class="c1"># Partition + codegen — needs the .so (eligibility), no hardware</span>
 pytest<span class="w"> </span>tidl-tests/test_tidl_partition.py<span class="w"> </span>tidl-tests/test_tidl_codegen.py<span class="w"> </span>-v
 
-<span class="c1"># Per-layer partition tests — no .so, no hardware (~0.3s)</span>
+<span class="c1"># Per-layer partition tests — needs the .so, no hardware</span>
 pytest<span class="w"> </span>tidl-tests/test_tidl_layer_offload.py<span class="w"> </span>-k<span class="w"> </span>TestLayerPartition<span class="w"> </span>-v
+
+<span class="c1"># Eligibility rules: decline table, constraint coverage, partition snapshots</span>
+pytest<span class="w"> </span>tidl-tests/test_tidl_declines.py<span class="w"> </span>tidl-tests/test_tidl_constraint_coverage.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>tidl-tests/test_tidl_partition_snapshot.py<span class="w"> </span>tidl-tests/test_tidl_allownode.py<span class="w"> </span>-v
+
+<span class="c1"># Numeric check of accepted configs on AM67A (serial; one board)</span>
+pytest<span class="w"> </span>tidl-tests/test_tidl_declines_hw.py<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_dload<span class="w"> </span>--board<span class="w"> </span>j722s-evm<span class="w"> </span>-v
 
 <span class="c1"># Import pipeline tests (needs tidl_model_import_relax.so)</span>
 pytest<span class="w"> </span>tidl-tests/test_tidl_relax_import.py<span class="w"> </span>-v

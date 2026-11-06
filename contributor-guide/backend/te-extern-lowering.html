@@ -1002,10 +1002,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tir-pass-order-c_static-mcpuc7x-mmalib1" class="md-nav__link">
+  <a href="#tir-pass-order-c_static_lib-mcpuc7x-mmalib1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TIR Pass Order (c_static -mcpu=c7x -mmalib=1)
+        TIR Pass Order (c_static_lib -mcpu=c7x -mmalib=1)
       
     </span>
   </a>
@@ -1765,10 +1765,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tir-pass-order-c_static-mcpuc7x-mmalib1" class="md-nav__link">
+  <a href="#tir-pass-order-c_static_lib-mcpuc7x-mmalib1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TIR Pass Order (c_static -mcpu=c7x -mmalib=1)
+        TIR Pass Order (c_static_lib -mcpu=c7x -mmalib=1)
       
     </span>
   </a>
@@ -1855,25 +1855,25 @@
 
 <h1 id="teextern-pattern-for-c7x-kernel-dispatch">te.extern Pattern for C7x Kernel Dispatch</h1>
 <p>How TVM maps Relax ops to optimized C7x kernels using <code>te.extern</code> and
-<code>tir.call_extern</code>. Covers every dispatch site, the full compilation
+<code>tirx.call_extern</code>. Covers every dispatch site, the full compilation
 chain, and the DMA injection layer.</p>
 <h2 id="the-core-pattern">The Core Pattern</h2>
 <p>Every C7x kernel dispatch follows the same four-step chain:</p>
 <div class="highlight"><pre><span></span><code>Relax op(s)
   → FuseOpsByPattern (composite)
   → PyExprMutator → builder_.call_te(te_fn, ...)
-  → te.extern → tir.call_extern
+  → te.extern → tirx.call_extern
   → CodeGenCStaticLib → C function call
 </code></pre></div>
 <p><code>te.extern</code> replaces what would otherwise be a loop nest with a single
-<code>fcompute</code> callback that emits one <code>tir.call_extern</code>. TVM is responsible
+<code>fcompute</code> callback that emits one <code>tirx.call_extern</code>. TVM is responsible
 for tiling, DMA transfers, and double buffering via the
 <code>InjectMMALIBDMA</code> and <code>ScheduleC7xDMATiling</code> passes; the external kernel
 handles the inner compute (MMA coprocessor programming) for each tile.</p>
 <div class="highlight"><pre><span></span><code><span class="n">te</span><span class="o">.</span><span class="n">extern</span><span class="p">(</span>
     <span class="n">output_shape</span><span class="p">,</span>
     <span class="p">[</span><span class="n">input_tensors</span><span class="p">],</span>
-    <span class="k">lambda</span> <span class="n">ins</span><span class="p">,</span> <span class="n">outs</span><span class="p">:</span> <span class="n">tir</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span><span class="s2">"int32"</span><span class="p">,</span> <span class="s2">"kernel_name"</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">),</span>
+    <span class="k">lambda</span> <span class="n">ins</span><span class="p">,</span> <span class="n">outs</span><span class="p">:</span> <span class="n">tirx</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span><span class="s2">"int32"</span><span class="p">,</span> <span class="s2">"kernel_name"</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">),</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">"..."</span><span class="p">,</span>
     <span class="n">dtype</span><span class="o">=</span><span class="s2">"..."</span><span class="p">,</span>
 <span class="p">)</span>
@@ -1965,13 +1965,13 @@ handles the inner compute (MMA coprocessor programming) for each tile.</p>
     - Folds quantization math at compile time → bias_i32, scale_u8, shift_u8
     - Calls builder_.call_te(te_mmalib_fc_i8, data, weight, bias, ...)
   ↓ te.extern → ExternOp → TIR PrimFunc
-    T.evaluate(tir.call_extern("int32", "mmalib_matmul_bias_i8", ...))
+    T.evaluate(tirx.call_extern("int32", "mmalib_matmul_bias_i8", ...))
   ↓ InjectMMALIBDMA (TIR pass)
     Wraps call_extern with L2 Allocate + DMA copy/wait if input fits
   ↓ LowerL2SramAlloc
     Allocate(scope="global.l2sram") → tvm_l2_alloc(nbytes)
   ↓ LowerDMAToExtern
-    tir.dma_copy / tir.dma_wait → tir.call_extern("tvm_dsp_dma_copy", ...)
+    tirx.dma_copy / tirx.dma_wait → tirx.call_extern("tvm_dsp_dma_copy", ...)
   ↓ CodeGenCStaticLib
     call_extern → C: mmalib_matmul_bias_i8(data-&gt;data, weight-&gt;data, ...)
   ↓ cl7x + lnk7x --dynamic=lib
@@ -2043,7 +2043,7 @@ emitting <code>te.extern</code>. Nothing is computed at runtime.</p>
 <h3 id="teextern-emission">te.extern Emission</h3>
 <div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">te_mmalib_fc_i8</span><span class="p">(</span><span class="n">data_t</span><span class="p">,</span> <span class="n">weight_t</span><span class="p">,</span> <span class="n">bias_t</span><span class="p">,</span> <span class="n">scale_t</span><span class="p">,</span> <span class="n">shift_t</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">fcompute</span><span class="p">(</span><span class="n">ins</span><span class="p">,</span> <span class="n">outs</span><span class="p">):</span>
-        <span class="k">return</span> <span class="n">tir</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span>
+        <span class="k">return</span> <span class="n">tirx</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span>
             <span class="s2">"int32"</span><span class="p">,</span>
             <span class="s2">"mmalib_matmul_bias_i8"</span><span class="p">,</span>
             <span class="n">ins</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>   <span class="c1"># int8 activations  [M, K]</span>
@@ -2154,7 +2154,7 @@ bumps the L2 bump pointer so the input buffer does not start at address 0
 of L2, preventing streaming-engine backward-prefetch underflow.</p>
 <p><code>LowerL2SramAlloc</code> later converts each <code>Allocate(scope="global.l2sram")</code>
 to a <code>tvm_l2_alloc(nbytes)</code> call.</p>
-<h2 id="tir-pass-order-c_static-mcpuc7x-mmalib1">TIR Pass Order (c_static -mcpu=c7x -mmalib=1)</h2>
+<h2 id="tir-pass-order-c_static_lib-mcpuc7x-mmalib1">TIR Pass Order (c_static_lib -mcpu=c7x -mmalib=1)</h2>
 <div class="highlight"><pre><span></span><code>FuseMMALIBQDQFC / FuseMMALIBQDQConv2d / FuseMMALIBQDQDwConv2d
 FuseInt8ResidualAdd
 FuseQDQToInt8Conv2D
@@ -2168,7 +2168,7 @@ InjectSoftwarePipeline
 LowerOpaqueBlock
 FlattenBuffer
 LowerAsyncDMA
-LowerDMAToExtern        ← tir.dma_copy/wait → call_extern
+LowerDMAToExtern        ← tirx.dma_copy/wait → call_extern
 NarrowDataType(32)
 StorageRewrite
 LowerL2SramAlloc        ← Allocate(l2sram) → tvm_l2_alloc
@@ -2196,9 +2196,9 @@ collapses it.</p>
 that shadows the function declaration and breaks the build.</p>
 <h3 id="constant-folding-with-bind_constants">Constant Folding with bind_constants</h3>
 <p>Per <code>fuse_ops.cc</code> (<code>lift_constants = !bind_constants</code>), <code>bind_constants=False</code>
-<strong>lifts</strong> matched <code>relax.Constant</code> leaves out to become parameters of the
+<strong>lifts</strong> matched constant leaves out to become parameters of the
 composite function, passed in as call-site arguments — the composite body
-itself normally holds no <code>relax.Constant</code>. <code>bind_constants=True</code> (default)
+itself normally holds no constant (<code>tvm.ir.GenericConst</code>). <code>bind_constants=True</code> (default)
 leaves them bound inside the composite body instead.</p>
 <p>Both the C7x activation passes (<code>FuseQDQToC7xActivation</code>, <code>FuseQDQToC7xAvgPool</code>,
 <code>FuseQDQToC7xLayerNorm</code>) and the MMALIB QDQ passes use <code>bind_constants=False</code>,
@@ -2252,7 +2252,7 @@ default.</p>
 <td>Residual add lowering</td>
 </tr>
 <tr>
-<td><code>python/tvm/tir/pipeline.py</code></td>
+<td><code>python/tvm/tirx/compilation_pipeline.py</code></td>
 <td>TIR pipeline wiring</td>
 </tr>
 <tr>

@@ -2256,7 +2256,7 @@ codegen — whenever any of the following hold:</p>
   of the MMA alignment for that dtype.</li>
 </ul>
 <h2 id="pipeline-pass-order-with-mmalib1">Pipeline Pass Order (with <code>-mmalib=1</code>)</h2>
-<p>The MMALIB-specific stages are inserted into the general <code>c_static</code>
+<p>The MMALIB-specific stages are inserted into the general <code>c_static_lib</code>
 Relax legalization pipeline (<code>cpu_generic/pipeline.py</code>); everything else in
 this sequence (relu/activation/concat/movement/pooling/layernorm QDQ
 lowering) is shared with non-MMALIB compiles and unaffected by the
@@ -2265,7 +2265,7 @@ lowering) is shared with non-MMALIB compiles and unaffected by the
     <span class="n">passes</span> <span class="o">+=</span> <span class="n">get_mmalib_qdq_passes</span><span class="p">()</span>      <span class="c1"># 8 passes: int8+int16 QDQ fusion</span>
 
 <span class="n">passes</span> <span class="o">+=</span> <span class="p">[</span>
-    <span class="c1"># ... general c_static QDQ-lowering passes, shared with non-MMALIB ...</span>
+    <span class="c1"># ... general c_static_lib QDQ-lowering passes, shared with non-MMALIB ...</span>
     <span class="n">FuseQDQToInt8Conv2D</span><span class="p">(),</span>
     <span class="n">EliminateQDQRoundTrip</span><span class="p">(),</span>
     <span class="n">RewriteDequantize</span><span class="p">(),</span>
@@ -2288,14 +2288,14 @@ lowering) is shared with non-MMALIB compiles and unaffected by the
     <span class="n">passes</span> <span class="o">+=</span> <span class="p">[</span><span class="n">ScheduleC7xDMATiling</span><span class="p">(</span><span class="n">l2_budget</span><span class="p">)]</span>   <span class="c1"># DMA tiling for remaining, non-MMALIB conv2d</span>
 </code></pre></div>
 <p>Two further passes run later, once the graph has been lowered from Relax
-into TIR (<code>tvm/tir/pipeline.py</code>, not the Relax pipeline above):
+into TIR (<code>python/tvm/tirx/compilation_pipeline.py</code>, not the Relax pipeline above):
 <code>InjectMMALIBDMA</code> (always active — see next section) and, after it,
 <code>LowerL2SramAlloc</code>, which turns its <code>Allocate(scope="global.l2sram")</code> nodes
 into concrete <code>tvm_l2_alloc</code> calls.</p>
 <h2 id="l2-dma-prefetch-injectmmalibdma">L2 DMA Prefetch (<code>InjectMMALIBDMA</code>)</h2>
 <p><code>InjectMMALIBDMA</code> is a TIR-level pass — it runs on the loop/buffer IR,
 after Relax has already been lowered — invoked unconditionally for every
-<code>c_static</code> compile (it's a no-op if the function contains no MMALIB
+<code>c_static_lib</code> compile (it's a no-op if the function contains no MMALIB
 <code>call_extern</code>). It wraps each supported MMALIB call with DMA that stages
 its input (and weights, when they fit) into on-chip L2 SRAM first, trading
 ~200-cycle DDR latency for ~32-cycle L2 latency.</p>
@@ -2359,14 +2359,14 @@ C source calling the wrapper by name, and what the wrapper actually does
 when the DSP executes it.</p>
 <h3 id="from-pass-to-call_extern">From pass to <code>call_extern</code></h3>
 <p>Each QDQ lowering pass builds the extern call with TVM's <code>te.extern</code> /
-<code>tir.call_extern</code>, inside a helper reused for every variant of that op. For
+<code>tirx.call_extern</code>, inside a helper reused for every variant of that op. For
 int8 conv2d (<code>ti_mmalib_qdq_fusion.py</code>), the call site picks the extern
 function name based on <code>groups</code>, then hands it to a shared emitter:</p>
 <div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_emit_conv2d</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extern_name</span><span class="p">,</span> <span class="n">name_hint</span><span class="p">,</span> <span class="n">data_arg</span><span class="p">,</span> <span class="n">kernel_relax</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">fcompute</span><span class="p">(</span><span class="n">ins</span><span class="p">,</span> <span class="n">outs</span><span class="p">):</span>
         <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"int32"</span><span class="p">,</span> <span class="n">extern_name</span><span class="p">,</span> <span class="n">ins</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="n">ins</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="o">...</span><span class="p">,</span>
                 <span class="n">outs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="n">C_in</span><span class="p">,</span> <span class="n">H_in</span><span class="p">,</span> <span class="n">W_in</span><span class="p">,</span> <span class="n">C_out</span><span class="p">,</span> <span class="n">KH</span><span class="p">,</span> <span class="n">KW</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
-        <span class="k">return</span> <span class="n">tir</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">tirx</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">te_mmalib_conv2d</span><span class="p">(</span><span class="n">data_t</span><span class="p">,</span> <span class="n">weight_t</span><span class="p">,</span> <span class="n">bias_t</span><span class="p">,</span> <span class="n">scale_t</span><span class="p">,</span> <span class="n">shift_t</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">te</span><span class="o">.</span><span class="n">extern</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="n">C_out</span><span class="p">,</span> <span class="n">H_out</span><span class="p">,</span> <span class="n">W_out</span><span class="p">),</span>
@@ -2401,7 +2401,7 @@ printing the function name followed by its arguments (<code>PrintCallExtern</cod
 <span class="w">  </span><span class="n">os</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">")"</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
-<p>So <code>tir.call_extern("int32", "mmalib_conv2d_i8", a0, a1, ...)</code> becomes
+<p>So <code>tirx.call_extern("int32", "mmalib_conv2d_i8", a0, a1, ...)</code> becomes
 literally <code>mmalib_conv2d_i8(a0, a1, ...)</code> in the generated C.
 <code>CodeGenCStaticLib</code> (<code>src/target/c_static_lib/codegen_c_static_lib.cc</code>) overrides this
 method only to track VM register usage for a few unrelated AnyList
@@ -2690,7 +2690,7 @@ coprocessor reads from fast L2 scratchpad instead of slow DDR.</p>
 <li><a href="te-extern-lowering.html">te.extern Lowering</a> — Full compilation chain, dispatch sites</li>
 <li><a href="authoring-passes.html">Authoring Passes</a> — Writing new MMALIB fusion passes</li>
 <li><a href="extending-quantizer.html">Extending Quantizer</a> — Adding ops to C7xMMAQuantizer</li>
-<li><a href="debugging-passes.html">Debugging Passes</a> — --dump-ir, TVM_LOG_DEBUG, composite inspection</li>
+<li><a href="debugging-passes.html">Debugging Passes</a> — pass instruments, Python logging, composite inspection</li>
 </ul>
 
 

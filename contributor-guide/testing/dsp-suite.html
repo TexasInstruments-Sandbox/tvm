@@ -2564,7 +2564,7 @@ intact PT2E QDQ pattern:
 The fused kernel receives compile-time-computed integer bias/scale/shift
 derived from the quantization parameters.</p>
 <p><strong>Direct call_extern path</strong> (<code>test_mmalib_conv2d_i8_grouped_loop_dsp.py</code>,
-<code>test_mmalib_loop_only_chain_dsp.py</code>): builds <code>te.extern</code>/<code>tir.call_extern</code>
+<code>test_mmalib_loop_only_chain_dsp.py</code>): builds <code>te.extern</code>/<code>tirx.call_extern</code>
 calls to <code>mmalib_conv2d_i8_grouped_loop</code> by hand, bypassing both
 <code>LegalizeOps</code> and the QDQ fusion passes, to isolate ResNeXt101's
 grouped-conv kernel from the rest of the compiler pipeline.</p>

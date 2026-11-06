@@ -1881,7 +1881,7 @@ transformations to TIR lowering and the C codegen interface.</p>
 <h2 id="overview">Overview</h2>
 <p>The C7x backend extends TVM's compilation pipeline with passes that:
 1. <strong>Match quantized patterns</strong> in Relax IR (dequantize → op → quantize)
-2. <strong>Replace with integer kernel calls</strong> via <code>te.extern</code> → <code>tir.call_extern</code>
+2. <strong>Replace with integer kernel calls</strong> via <code>te.extern</code> → <code>tirx.call_extern</code>
 3. <strong>Inject DMA staging</strong> at the TIR level for L2 SRAM prefetch
 4. <strong>Generate C code</strong> that links against firmware-exported symbols</p>
 <p>All MMALIB and TIDL integration passes live in <code>python/tvm/relax/transform/ti_*.py</code>.</p>
@@ -1906,7 +1906,7 @@ transformations to TIR lowering and the C codegen interface.</p>
 <td>Lowering composites to <code>te.extern</code> / <code>call_extern</code></td>
 </tr>
 <tr>
-<td>TIR pass (<code>tir.transform.Pass</code>)</td>
+<td>TIR pass (<code>tirx.transform.Pass</code>)</td>
 <td>TIR</td>
 <td>DMA injection, buffer allocation, loop transformation</td>
 </tr>
@@ -1983,11 +1983,11 @@ and is registered in the module.</p>
 <code>fuse_ops.cc</code> (<code>lift_constants = !bind_constants</code>):</p>
 <ul>
 <li><code>bind_constants=True</code> (default): constants stay bound <strong>inside</strong> the
-  composite body — the mutator sees them directly as <code>relax.Constant</code> nodes
+  composite body — the mutator sees them directly as constant nodes (<code>tvm.ir.GenericConst</code>)
   when it extracts matched sub-expressions.</li>
 <li><code>bind_constants=False</code>: constants are <strong>lifted out</strong> to become parameters
   of the composite function, passed in as arguments at the call site — the
-  composite body itself normally holds no <code>relax.Constant</code>.</li>
+  composite body itself normally holds no constant (<code>tvm.ir.GenericConst</code>).</li>
 </ul>
 <p>All of the C7x QDQ-fusion passes (<code>FuseMMALIBQDQConv2d</code>, <code>FuseQDQToC7xMovement</code>,
 <code>FuseQDQToC7xRelu</code>, etc.) use <code>bind_constants=False</code>, then recover the
@@ -2017,10 +2017,10 @@ match makes <code>FoldConstant</code> host-JIT a C7x-only extern symbol and segf
 (<code>be39717c39</code>); see <a href="c-static-lib.html#constreachability-and-the-decline-branch-helper">C Static Lib Backend</a>.</p>
 <h2 id="pyexprmutator-lowering-composites-to-call_extern">PyExprMutator: Lowering Composites to call_extern</h2>
 <p>After <code>FuseOpsByPattern</code> creates a composite, a <code>PyExprMutator</code> subclass
-rewrites the composite call into a <code>te.extern</code> → <code>tir.call_extern</code> sequence.</p>
+rewrites the composite call into a <code>te.extern</code> → <code>tirx.call_extern</code> sequence.</p>
 <h3 id="skeleton-lowerer">Skeleton Lowerer</h3>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">tvm.relax.expr</span><span class="w"> </span><span class="kn">import</span> <span class="n">PyExprMutator</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">tvm</span><span class="w"> </span><span class="kn">import</span> <span class="n">te</span><span class="p">,</span> <span class="n">tir</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tvm</span><span class="w"> </span><span class="kn">import</span> <span class="n">te</span><span class="p">,</span> <span class="n">tirx</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyLowerer</span><span class="p">(</span><span class="n">PyExprMutator</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mod</span><span class="p">,</span> <span class="n">builder</span><span class="p">):</span>
@@ -2097,8 +2097,8 @@ into integer kernel parameters. This avoids all float arithmetic at inference.</
             <span class="n">expr</span> <span class="o">=</span> <span class="n">expr</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">break</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">relax</span><span class="o">.</span><span class="n">Constant</span><span class="p">):</span>
-        <span class="k">return</span> <span class="n">expr</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">tvm</span><span class="o">.</span><span class="n">ir</span><span class="o">.</span><span class="n">GenericConst</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">expr</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
     <span class="k">return</span> <span class="kc">None</span>
 </code></pre></div>
 <p>If resolution fails, <strong>reject the match</strong> rather than silently dropping bias.</p>
@@ -2106,7 +2106,7 @@ into integer kernel parameters. This avoids all float arithmetic at inference.</
 <div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_make_te_extern_func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">bias_i32</span><span class="p">,</span> <span class="n">scale_u8</span><span class="p">,</span> <span class="n">shift_u8</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">te_kernel</span><span class="p">(</span><span class="n">data_t</span><span class="p">,</span> <span class="n">weight_t</span><span class="p">,</span> <span class="n">bias_t</span><span class="p">,</span> <span class="n">scale_t</span><span class="p">,</span> <span class="n">shift_t</span><span class="p">):</span>
         <span class="k">def</span><span class="w"> </span><span class="nf">fcompute</span><span class="p">(</span><span class="n">ins</span><span class="p">,</span> <span class="n">outs</span><span class="p">):</span>
-            <span class="k">return</span> <span class="n">tir</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span>
+            <span class="k">return</span> <span class="n">tirx</span><span class="o">.</span><span class="n">call_extern</span><span class="p">(</span>
                 <span class="s2">"int32"</span><span class="p">,</span>                    <span class="c1"># return type</span>
                 <span class="s2">"kernel_name"</span><span class="p">,</span>              <span class="c1"># C symbol (must match firmware export)</span>
                 <span class="n">ins</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>                <span class="c1"># input pointer</span>

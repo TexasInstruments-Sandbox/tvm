@@ -1597,6 +1597,11 @@ scheme the c_static_lib/MMALIB backend expects:</p>
     <span class="n">keep_params_as_input</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title"><code>C7xMMAQuantizer</code> is a proof of concept, not production-ready</p>
+<p><code>C7xMMAQuantizer</code> is a proof of concept created to test TVM's compilation
+of quantized models (the PT2E-to-MMALIB path). It is not production-ready.</p>
+</div>
 <p>No manual per-op scale/zero-point computation is needed -- this is the
 standard PT2E <code>prepare</code> / calibrate / <code>convert</code> sequence; <code>C7xMMAQuantizer</code>
 only decides <em>which</em> ops get annotated and with what quantization scheme, so

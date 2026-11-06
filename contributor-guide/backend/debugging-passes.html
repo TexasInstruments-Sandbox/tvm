@@ -942,44 +942,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#ir-dumping-flags" class="md-nav__link">
+  <a href="#inspecting-ir-between-passes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        IR Dumping Flags
+        Inspecting IR Between Passes
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="IR Dumping Flags">
+    <nav class="md-nav" aria-label="Inspecting IR Between Passes">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#-dump-ir-relax" class="md-nav__link">
+  <a href="#printing-a-module-by-hand" class="md-nav__link">
     <span class="md-ellipsis">
       
-        --dump-ir (Relax)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-specific-dumping" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass-Specific Dumping
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#tir-dumping" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TIR Dumping
+        Printing a module by hand
       
     </span>
   </a>
@@ -992,10 +970,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tvm_log_debug-categories" class="md-nav__link">
+  <a href="#python-logging-from-the-c7x-passes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TVM_LOG_DEBUG Categories
+        Python Logging from the C7x Passes
       
     </span>
   </a>
@@ -1163,17 +1141,6 @@
   
     <nav class="md-nav" aria-label="Debugging TIR Passes">
       <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#print-tir-beforeafter-pass" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Print TIR Before/After Pass
-      
-    </span>
-  </a>
-  
-</li>
         
           <li class="md-nav__item">
   <a href="#key-tir-passes-to-inspect" class="md-nav__link">
@@ -1688,44 +1655,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#ir-dumping-flags" class="md-nav__link">
+  <a href="#inspecting-ir-between-passes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        IR Dumping Flags
+        Inspecting IR Between Passes
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="IR Dumping Flags">
+    <nav class="md-nav" aria-label="Inspecting IR Between Passes">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#-dump-ir-relax" class="md-nav__link">
+  <a href="#printing-a-module-by-hand" class="md-nav__link">
     <span class="md-ellipsis">
       
-        --dump-ir (Relax)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-specific-dumping" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass-Specific Dumping
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#tir-dumping" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TIR Dumping
+        Printing a module by hand
       
     </span>
   </a>
@@ -1738,10 +1683,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tvm_log_debug-categories" class="md-nav__link">
+  <a href="#python-logging-from-the-c7x-passes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TVM_LOG_DEBUG Categories
+        Python Logging from the C7x Passes
       
     </span>
   </a>
@@ -1911,17 +1856,6 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#print-tir-beforeafter-pass" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Print TIR Before/After Pass
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#key-tir-passes-to-inspect" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1990,83 +1924,98 @@
 <h1 id="debugging-c7x-compiler-passes">Debugging C7x Compiler Passes</h1>
 <p>This guide covers tools and techniques for debugging Relax and TIR passes
 in the C7x backend — from IR inspection to runtime verification.</p>
-<h2 id="ir-dumping-flags">IR Dumping Flags</h2>
-<h3 id="-dump-ir-relax"><code>--dump-ir</code> (Relax)</h3>
-<p>Prints the Relax IRModule at each pass. Usage:</p>
+<h2 id="inspecting-ir-between-passes">Inspecting IR Between Passes</h2>
+<p>TVM's pass infrastructure accepts <em>instruments</em> (<code>tvm.ir.instrument</code>) on the
+<code>PassContext</code> that wraps a build. They run before and after every pass
+executed inside that context, including the passes inside a <code>Sequential</code> or a
+pipeline such as <code>get_default_pipeline</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">tvm</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">tvm</span><span class="w"> </span><span class="kn">import</span> <span class="n">relax</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tvm.ir.instrument</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassPrintingInstrument</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tvm.relax.backend.cpu_generic.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_default_pipeline</span>
 
 <span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static_lib -mcpu=c7x -mmalib=1"</span><span class="p">)</span>
-<span class="n">mod</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">LegalizeOps</span><span class="p">()(</span><span class="n">mod</span><span class="p">)</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">get_default_pipeline</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
 
-<span class="c1"># Enable IR dumping</span>
-<span class="k">with</span> <span class="n">tvm</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">PassContext</span><span class="p">(</span><span class="n">opt_level</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="p">{</span><span class="s2">"relay.dump_ir"</span><span class="p">:</span> <span class="kc">True</span><span class="p">}):</span>
-    <span class="n">ex</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="n">target</span><span class="p">)</span>
-</code></pre></div>
-<p>Or via environment variable:
-<div class="highlight"><pre><span></span><code><span class="nv">TVM_LOG_DEBUG</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>python<span class="w"> </span>compile_model.py<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-A<span class="w"> </span><span class="m">50</span><span class="w"> </span><span class="s2">"After FuseMMALIBQDQConv2d"</span>
-</code></pre></div></p>
-<h3 id="pass-specific-dumping">Pass-Specific Dumping</h3>
-<p>Individual passes can dump their input/output IR by adding logging:</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># In a pass's transform_module() or apply() method</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
-<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">"TVM.pass.my_pass"</span><span class="p">)</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">)</span>
+<span class="n">printer</span> <span class="o">=</span> <span class="n">PassPrintingInstrument</span><span class="p">(</span>
+    <span class="n">print_before_pass_names</span><span class="o">=</span><span class="p">[],</span>
+    <span class="n">print_after_pass_names</span><span class="o">=</span><span class="p">[</span><span class="s2">"FuseMMALIBQDQConv2d"</span><span class="p">,</span> <span class="s2">"FuseTIR"</span><span class="p">],</span>
+<span class="p">)</span>
 
-<span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">"Input module:</span><span class="se">\n</span><span class="si">%s</span><span class="s2">"</span><span class="p">,</span> <span class="n">mod</span><span class="o">.</span><span class="n">script</span><span class="p">())</span>
-<span class="c1"># ... pass logic ...</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">"Output module:</span><span class="se">\n</span><span class="si">%s</span><span class="s2">"</span><span class="p">,</span> <span class="n">mod</span><span class="o">.</span><span class="n">script</span><span class="p">())</span>
+<span class="k">with</span> <span class="n">target</span><span class="p">,</span> <span class="n">tvm</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">PassContext</span><span class="p">(</span><span class="n">opt_level</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">instruments</span><span class="o">=</span><span class="p">[</span><span class="n">printer</span><span class="p">]):</span>
+    <span class="n">ex</span> <span class="o">=</span> <span class="n">relax</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">relax_pipeline</span><span class="o">=</span><span class="n">pipeline</span><span class="p">)</span>
 </code></pre></div>
-<p>Then run with:
-<div class="highlight"><pre><span></span><code><span class="nv">TVM_LOG_DEBUG</span><span class="o">=</span>pass.my_pass<span class="w"> </span>python<span class="w"> </span>compile_model.py
-</code></pre></div></p>
-<h3 id="tir-dumping">TIR Dumping</h3>
-<p>After <code>FuseTIR</code> lowers to TIR, dump TIR PrimFuncs:</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># In TIR pass</span>
-<span class="n">func</span> <span class="o">=</span> <span class="o">...</span>  <span class="c1"># tir.PrimFunc</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">script</span><span class="p">())</span>  <span class="c1"># Human-readable TIR</span>
-<span class="c1"># Or with annotations</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">tvm</span><span class="o">.</span><span class="n">script</span><span class="o">.</span><span class="n">printer</span><span class="o">.</span><span class="n">ir_printer</span><span class="o">.</span><span class="n">IRPrinter</span><span class="p">()(</span><span class="n">func</span><span class="p">))</span>
-</code></pre></div>
-<h2 id="tvm_log_debug-categories">TVM_LOG_DEBUG Categories</h2>
-<p>Key debug categories for C7x development:</p>
 <table>
 <thead>
 <tr>
-<th>Category</th>
-<th>What It Logs</th>
+<th>Instrument</th>
+<th>Module</th>
+<th>What it does</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>TVM.pass.fuse_ops_by_pattern</code></td>
-<td>Pattern matches, composites created, decline reasons</td>
+<td><code>PassPrintingInstrument(before, after)</code></td>
+<td><code>tvm.ir.instrument</code></td>
+<td>Prints the module before/after passes whose name is in the given lists</td>
 </tr>
 <tr>
-<td><code>TVM.pass.mmalib_qdq_fusion</code></td>
-<td>QDQ pattern matches, eligibility check results, folded params</td>
+<td><code>PrintBeforeAll()</code> / <code>PrintAfterAll()</code></td>
+<td><code>tvm.ir.instrument</code></td>
+<td>Prints the module around every pass (very verbose)</td>
 </tr>
 <tr>
-<td><code>TVM.pass.mmalib_inject_dma</code></td>
-<td>DMA injection decisions, buffer sizes, L2 budget checks</td>
+<td><code>DumpIR(dump_dir, refresh=False)</code></td>
+<td><code>tvm.ir.instrument</code></td>
+<td>Writes the module after each pass to <code>dump_dir/NNN_&lt;pass&gt;.py</code>, numbered in execution order</td>
 </tr>
 <tr>
-<td><code>TVM.pass.schedule_c7x_dma</code></td>
-<td>Tiling strategy chosen, tile sizes, software pipeline annotations</td>
+<td><code>PassTimingInstrument()</code></td>
+<td><code>tvm.ir.instrument</code></td>
+<td>Per-pass compile time; call <code>.render()</code> before the <code>PassContext</code> exits</td>
 </tr>
 <tr>
-<td><code>TVM.tir.lower_dma_to_extern</code></td>
-<td>DMA intrinsic → call_extern conversions</td>
-</tr>
-<tr>
-<td><code>TVM.codegen.c_static</code></td>
-<td>Function emission, wrapper generation, symbol resolution</td>
+<td><code>WellFormedInstrument()</code></td>
+<td><code>tvm.relax.ir.instrument</code></td>
+<td>Checks the module is well formed before and after each pass and shows the module that broke it</td>
 </tr>
 </tbody>
 </table>
-<p>Enable multiple:
-<div class="highlight"><pre><span></span><code><span class="nv">TVM_LOG_DEBUG</span><span class="o">=</span><span class="s2">"TVM.pass.mmalib_qdq_fusion,TVM.pass.mmalib_inject_dma"</span><span class="w"> </span>python<span class="w"> </span>compile_model.py
-</code></pre></div></p>
+<p>Pass names are the names TVM reports for each pass, for example the
+<code>name="FuseMMALIBQDQConv2d"</code> given to <code>tvm.transform.module_pass</code>. Run once
+with <code>PrintAfterAll()</code> or <code>DumpIR(...)</code> to see the exact names in your
+pipeline.</p>
+<p><code>DumpIR</code> is the easiest way to find the pass that changed something: dump a
+good and a bad build to two directories and <code>diff -r</code> them.</p>
+<h3 id="printing-a-module-by-hand">Printing a module by hand</h3>
+<div class="highlight"><pre><span></span><code><span class="nb">print</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">script</span><span class="p">())</span>   <span class="c1"># TVMScript text</span>
+<span class="n">mod</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>            <span class="c1"># same, with syntax highlighting where available</span>
+</code></pre></div>
+<p>To bisect a single pass, call it directly on the module between two pipeline
+stages and print the result, or check it with
+<code>relax.analysis.well_formed(mod)</code> (raises on the first violation;
+<code>relax.analysis.check_well_formed(mod)</code> returns a bool).</p>
+<h2 id="python-logging-from-the-c7x-passes">Python Logging from the C7x Passes</h2>
+<p>Each C7x pass module creates <code>logger = logging.getLogger(__name__)</code> and emits
+<code>logger.debug</code> / <code>logger.info</code> records (fusion counts, DMA injection choices,
+reasons for declining). They are silent until the application configures
+Python logging:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+
+<span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+
+<span class="c1"># or one module at debug level</span>
+<span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">"tvm.relax.transform.ti_mmalib_inject_dma"</span><span class="p">)</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">)</span>
+</code></pre></div>
+<p>The logger name is the module path, for example:</p>
+<ul>
+<li><code>tvm.relax.transform.ti_mmalib_qdq_fusion</code></li>
+<li><code>tvm.relax.transform.ti_mmalib_inject_dma</code></li>
+<li><code>tvm.relax.transform.schedule_c7x_dma</code></li>
+<li><code>tvm.tirx.transform.lower_l2sram_alloc</code></li>
+</ul>
+<p>New passes should follow the same <code>getLogger(__name__)</code> pattern;
+<code>ti_mmalib_qdq_fusion.py</code> is an example.</p>
 <h2 id="inspecting-composite-functions">Inspecting Composite Functions</h2>
 <h3 id="after-fuseopsbypattern">After FuseOpsByPattern</h3>
 <p>Composites appear as <code>GlobalVar</code> with <code>"Composite"</code> attribute:</p>
@@ -2082,7 +2031,8 @@ in the C7x backend — from IR inspection to runtime verification.</p>
 </code></pre></div>
 <h3 id="after-fusetir">After FuseTIR</h3>
 <p>Composites are lowered to <code>PrimFunc</code> with <code>global_symbol</code> matching the
-composite name. Check <code>mod.functions</code> for TIR functions.</p>
+composite name. Check <code>mod.functions</code> for TIR functions, and print one with
+<code>func.script()</code>.</p>
 <h3 id="decline-branches-inline_declined_composite">Decline Branches: inline_declined_composite</h3>
 <p>If a pass's check function returns <code>False</code>, the matched call is not
 automatically consumed — it remains as a <code>Call</code> to the composite <code>GlobalVar</code>.
@@ -2107,39 +2057,47 @@ splicing (<code>6fe9a33f09</code>), not a decline branch. See
 for the distinct, actually-demonstrated decline-related hazard
 (<code>ConstReachability</code>, <code>be39717c39</code>).</p>
 <h2 id="dsp_keep_temp-preserving-generated-artifacts">DSP_KEEP_TEMP: Preserving Generated Artifacts</h2>
-<p>Set <code>DSP_KEEP_TEMP=1</code> to preserve the generated <code>lib0.c</code>, <code>lib1.c</code>,
-<code>weights.bin</code>, and intermediate build artifacts:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">DSP_KEEP_TEMP</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>python<span class="w"> </span>compile_model.py
-<span class="c1"># Artifacts in /tmp/tvm_&lt;pid&gt;/</span>
+<p>The test harness (<code>tests/ti-dsp-runtime/dsp-cpp/dsp_utils.py</code>) deletes its
+temporary build directory after a test. Set <code>DSP_KEEP_TEMP=1</code> when running a
+test to keep the generated <code>lib0.c</code>, <code>lib1.c</code>, <code>weights.bin</code> and build
+artifacts:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">DSP_KEEP_TEMP</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>dsp-tests/test_conv2d_dsp.py<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host
+<span class="c1"># Artifacts in /tmp/dsp_test_&lt;name&gt;_&lt;timestamp&gt;/</span>
 </code></pre></div>
+<p>The variable is read by the test helpers, not by <code>relax.build</code>, so it has no
+effect on a standalone compile script.</p>
 <h3 id="finding-unfused-qdq-nodes">Finding Unfused QDQ Nodes</h3>
 <p>Search for unfused quantize/dequantize in generated C:</p>
-<div class="highlight"><pre><span></span><code>grep<span class="w"> </span>-n<span class="w"> </span><span class="s2">"quantize_per_tensor\|dequantize"</span><span class="w"> </span>/tmp/tvm_*/lib0.c
+<div class="highlight"><pre><span></span><code>grep<span class="w"> </span>-n<span class="w"> </span><span class="s2">"quantize_per_tensor\|dequantize"</span><span class="w"> </span>/tmp/dsp_test_*/lib0.c
 </code></pre></div>
 <p>Each call site is an unfused QDQ boundary — overhead that a fusion pass
 should have eliminated.</p>
 <h3 id="finding-dma-injection">Finding DMA Injection</h3>
-<div class="highlight"><pre><span></span><code>grep<span class="w"> </span>-n<span class="w"> </span><span class="s2">"tvm_dsp_dma_copy\|tvm_dsp_dma_wait"</span><span class="w"> </span>/tmp/tvm_*/lib0.c
+<div class="highlight"><pre><span></span><code>grep<span class="w"> </span>-n<span class="w"> </span><span class="s2">"tvm_dsp_dma_copy\|tvm_dsp_dma_wait"</span><span class="w"> </span>/tmp/dsp_test_*/lib0.c
 </code></pre></div>
 <p>Shows which kernels got L2 SRAM staging.</p>
 <h2 id="layer-profiling">Layer Profiling</h2>
-<p>Compile with <code>-profile-layers=1</code> and run on hardware/emulation:</p>
+<p>Compile with <code>-profile-layers=1</code> and run on hardware or emulation:</p>
 <div class="highlight"><pre><span></span><code><span class="n">target</span> <span class="o">=</span> <span class="n">tvm</span><span class="o">.</span><span class="n">target</span><span class="o">.</span><span class="n">Target</span><span class="p">(</span><span class="s2">"c_static_lib -mcpu=c7x -profile-layers=1"</span><span class="p">)</span>
 </code></pre></div>
-<p>Output (via DSP printf to shared memory buffer):</p>
-<div class="highlight"><pre><span></span><code>[LAYER] conv2d_0: 1245832 cycles
-[LAYER] relu_0: 12345 cycles
-[LAYER] mmalib_conv2d_i8: 477234 cycles
-[LAYER] quantize_per_tensor: 89234 cycles  &lt;-- UNFUSED QDQ OVERHEAD
+<p>The generated code records a cycle count per layer and prints a table through
+the DSP printf (shared-memory trace buffer):</p>
+<div class="highlight"><pre><span></span><code>===== TVM Layer Profile =====
+[  0] &lt;layer name&gt;                               1245832 cycles
+[  1] &lt;layer name&gt;                                 12345 cycles
+...
+Total: &lt;N&gt; cycles (&lt;M&gt; layers)
 </code></pre></div>
-<p>Look for <code>quantize_per_tensor</code> / <code>dequantize</code> entries — their cycle counts
-are pure overhead that a fusion pass would eliminate.</p>
+<p>A layer that was running when a call failed is printed as
+<code>[FAILED, in flight] &lt;layer name&gt;</code>. Look for <code>quantize_per_tensor</code> /
+<code>dequantize</code> layers — their cycle counts are pure overhead that a fusion pass
+would eliminate.</p>
 <h2 id="common-debugging-scenarios">Common Debugging Scenarios</h2>
 <h3 id="pass-not-firing">Pass Not Firing</h3>
 <ol>
 <li>
 <p><strong>Check pattern specificity</strong> — Is the DFPattern too strict/loose?
-   Add logging in check function to see what's matched vs rejected.</p>
+   Add logging in the check function to see what's matched vs rejected.</p>
 </li>
 <li>
 <p><strong>Check pass ordering</strong> — MMALIB passes must run BEFORE <code>FuseQDQToInt8Conv2D</code>
@@ -2182,7 +2140,7 @@ are pure overhead that a fusion pass would eliminate.</p>
 <li>
 <p><strong>MMALIB error codes</strong> — Wrapper returns MMALIB status. Check:</p>
 </li>
-<li><code>-1</code> = NULL pointer argument</li>
+<li><code>-1</code> = NULL pointer argument or failed handle allocation</li>
 <li>
 <p><code>MMALIB_ERR_NOT_IMPLEMENTED</code> = unsupported geometry (e.g., int16 5×5 dwconv)</p>
 </li>
@@ -2193,21 +2151,15 @@ are pure overhead that a fusion pass would eliminate.</p>
 </li>
 </ol>
 <h2 id="debugging-tir-passes">Debugging TIR Passes</h2>
-<h3 id="print-tir-beforeafter-pass">Print TIR Before/After Pass</h3>
-<div class="highlight"><pre><span></span><code><span class="c1"># In TIR pass transform function</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">transform</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">ctx</span><span class="p">):</span>
-    <span class="k">for</span> <span class="n">gv</span><span class="p">,</span> <span class="n">func</span> <span class="ow">in</span> <span class="n">mod</span><span class="o">.</span><span class="n">functions</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">tir</span><span class="o">.</span><span class="n">PrimFunc</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"=== BEFORE </span><span class="si">{</span><span class="n">pass_name</span><span class="si">}</span><span class="s2"> ==="</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">script</span><span class="p">())</span>
-
-    <span class="c1"># ... pass logic ...</span>
-
-    <span class="k">for</span> <span class="n">gv</span><span class="p">,</span> <span class="n">func</span> <span class="ow">in</span> <span class="n">mod</span><span class="o">.</span><span class="n">functions</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">tir</span><span class="o">.</span><span class="n">PrimFunc</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"=== AFTER </span><span class="si">{</span><span class="n">pass_name</span><span class="si">}</span><span class="s2"> ==="</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">script</span><span class="p">())</span>
-    <span class="k">return</span> <span class="n">mod</span>
+<p>The C7x TIR pipeline is <code>_c7x_dma_tir_pipeline</code> in
+<code>python/tvm/tirx/compilation_pipeline.py</code>. The instruments above work on it
+the same way: pass <code>PassPrintingInstrument</code> or <code>DumpIR</code> in the <code>PassContext</code>
+around <code>relax.build</code>, using the TIR pass names from the table below.</p>
+<p>To print a single PrimFunc from inside a pass or a test:</p>
+<div class="highlight"><pre><span></span><code><span class="k">for</span> <span class="n">gv</span><span class="p">,</span> <span class="n">func</span> <span class="ow">in</span> <span class="n">mod</span><span class="o">.</span><span class="n">functions_items</span><span class="p">():</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">tvm</span><span class="o">.</span><span class="n">tirx</span><span class="o">.</span><span class="n">PrimFunc</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"=== </span><span class="si">{</span><span class="n">gv</span><span class="o">.</span><span class="n">name_hint</span><span class="si">}</span><span class="s2"> ==="</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">script</span><span class="p">())</span>
 </code></pre></div>
 <h3 id="key-tir-passes-to-inspect">Key TIR Passes to Inspect</h3>
 <table>
@@ -2224,15 +2176,15 @@ are pure overhead that a fusion pass would eliminate.</p>
 </tr>
 <tr>
 <td><code>LowerL2SramAlloc</code></td>
-<td><code>Allocate(scope="global.l2sram")</code> → <code>tvm_l2_alloc</code> calls</td>
+<td><code>AllocBuffer(scope="global.l2sram")</code> → <code>tvm_l2_alloc</code> calls</td>
 </tr>
 <tr>
 <td><code>LowerDMAToExtern</code></td>
-<td><code>tir.dma_copy</code>/<code>tir.dma_wait</code> → <code>call_extern("tvm_dsp_dma_copy", ...)</code></td>
+<td><code>tirx.dma_copy</code>/<code>tirx.dma_wait</code> → <code>call_extern("tvm_dsp_dma_copy", ...)</code></td>
 </tr>
 <tr>
 <td><code>LowerAsyncDMA</code></td>
-<td>Copy loops → <code>tir.dma_copy</code> intrinsics (requires int64 indices)</td>
+<td>Copy loops → <code>tirx.dma_copy</code> intrinsics (requires int64 indices)</td>
 </tr>
 <tr>
 <td><code>ScheduleC7xDMATiling</code></td>
@@ -2240,14 +2192,19 @@ are pure overhead that a fusion pass would eliminate.</p>
 </tr>
 </tbody>
 </table>
+<p><code>ScheduleC7xDMATiling</code> and <code>InjectMMALIBDMA</code> are Relax-side transforms
+(<code>relax.transform</code>); <code>LowerL2SramAlloc</code> and <code>LowerDMAToExtern</code> are in
+<code>tirx.transform</code>; <code>LowerAsyncDMA</code> is in <code>s_tir.transform</code>.</p>
 <h3 id="software-pipeline-annotations">Software Pipeline Annotations</h3>
-<p>Check for these attributes on the outer loop:</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Expected annotations on tiled loop</span>
+<p><code>ScheduleC7xDMATiling</code> annotates the outer loop with these attributes
+(<code>schedule_c7x_dma.py</code>); check they are present on the tiled loop:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Conv2d H-tiling: stage 0 = DMA (async), stage 1 = compute</span>
 <span class="n">attrs</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">"software_pipeline_stage"</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span>  <span class="c1"># DMA, DMA, compute</span>
-    <span class="s2">"software_pipeline_order"</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span>
+    <span class="s2">"software_pipeline_stage"</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span>
+    <span class="s2">"software_pipeline_order"</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span>
     <span class="s2">"software_pipeline_async_stages"</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">],</span>
 <span class="p">}</span>
+<span class="c1"># The output-channel tiling variant uses stage [0, 0, 1] and order [0, 1, 2]</span>
 </code></pre></div>
 <h2 id="debugging-tips">Debugging Tips</h2>
 <ol>
@@ -2258,7 +2215,7 @@ are pure overhead that a fusion pass would eliminate.</p>
 <p><strong>Use host emulation first</strong> — <code>--dsp-mode=c7x_host</code> runs on x86 with memcpy DMA</p>
 </li>
 <li>
-<p><strong>Compare IR at each stage</strong> — Dump after each pass in the pipeline</p>
+<p><strong>Compare IR at each stage</strong> — Use <code>DumpIR</code> and <code>diff -r</code> two runs</p>
 </li>
 <li>
 <p><strong>Check pass dependencies</strong> — <code>CanonicalizeBindings</code> + <code>DCE</code> must run before
@@ -2293,8 +2250,8 @@ are pure overhead that a fusion pass would eliminate.</p>
 <td>Full pipeline wiring</td>
 </tr>
 <tr>
-<td><code>python/tvm/tir/pipeline.py</code></td>
-<td>TIR pipeline (InjectMMALIBDMA, ScheduleC7xDMATiling)</td>
+<td><code>python/tvm/tirx/compilation_pipeline.py</code></td>
+<td>TIR pipeline (InjectMMALIBDMA wiring)</td>
 </tr>
 <tr>
 <td><code>python/tvm/relax/transform/ti_mmalib_inject_dma.py</code></td>

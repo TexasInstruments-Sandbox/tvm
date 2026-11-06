@@ -2055,7 +2055,7 @@ symbol table). Signature:</p>
 </ol>
 <h2 id="symbol-resolution-with-dload">Symbol Resolution with DLOAD</h2>
 <p>The generated C code calls external symbols (MMALIB wrappers, DMA runtime,
-VM builtins) via <code>tir.call_extern</code>. <code>CodeGenC</code> base class prints these as
+VM builtins) via <code>tirx.call_extern</code>. <code>CodeGenC</code> base class prints these as
 literal C function calls:</p>
 <div class="highlight"><pre><span></span><code><span class="kt">void</span><span class="w"> </span><span class="nf">CodeGenC::PrintCallExtern</span><span class="p">(</span><span class="n">Type</span><span class="w"> </span><span class="n">ret_type</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">global_symbol</span><span class="p">,</span>
 <span class="w">                                </span><span class="k">const</span><span class="w"> </span><span class="n">Array</span><span class="o">&lt;</span><span class="n">PrimExpr</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">args</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">skip_first_arg</span><span class="p">,</span>
@@ -2068,7 +2068,7 @@ literal C function calls:</p>
 <span class="w">  </span><span class="n">os</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">")"</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
-<p>So <code>tir.call_extern("int32", "mmalib_conv2d_i8", a0, a1, ...)</code> becomes
+<p>So <code>tirx.call_extern("int32", "mmalib_conv2d_i8", a0, a1, ...)</code> becomes
 literally <code>mmalib_conv2d_i8(a0, a1, ...)</code> in the generated C.</p>
 <h3 id="header-visibility-preinclude">Header Visibility: --preinclude</h3>
 <p>The generated file <strong>does not</strong> include wrapper headers directly.

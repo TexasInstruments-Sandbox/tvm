@@ -2284,7 +2284,7 @@ cmake<span class="w"> </span>--build<span class="w"> </span>.
 <span class="c1"># C7x runtime (optional, for J722S hardware deployment)</span>
 <span class="nb">cd</span><span class="w"> </span><span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp
 mkdir<span class="w"> </span>-p<span class="w"> </span>build-c7x<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>build-c7x
-cmake<span class="w"> </span>-DCMAKE_TOOLCHAIN_FILE<span class="o">=</span>../cmake/toolchain-j722s-c7x.cmake<span class="w"> </span>..
+cmake<span class="w"> </span>-DCMAKE_TOOLCHAIN_FILE<span class="o">=</span>../cmake/toolchain-c7x.cmake<span class="w"> </span>-DTVM_DSP_DEVICE<span class="o">=</span>j722s<span class="w"> </span>..
 cmake<span class="w"> </span>--build<span class="w"> </span>.
 </code></pre></div>
 <h4 id="step-2-generate-tvm-model-code">Step 2: Generate TVM Model Code</h4>
@@ -2346,7 +2346,8 @@ cmake<span class="w"> </span>--build<span class="w"> </span>.
 <span class="c1"># Debug build (default)</span>
 mkdir<span class="w"> </span>-p<span class="w"> </span>build-j722s-debug<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>build-j722s-debug
 cmake<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-DCMAKE_TOOLCHAIN_FILE<span class="o">=</span><span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp/cmake/toolchain-j722s-c7x.cmake<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-DCMAKE_TOOLCHAIN_FILE<span class="o">=</span><span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp/cmake/toolchain-c7x.cmake<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-DTVM_DSP_DEVICE<span class="o">=</span>j722s<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-DGENERATED_CODE_DIR<span class="o">=</span>/path/to/model_dir<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>..
 cmake<span class="w"> </span>--build<span class="w"> </span>.
@@ -2354,7 +2355,8 @@ cmake<span class="w"> </span>--build<span class="w"> </span>.
 <span class="c1"># Release build</span>
 mkdir<span class="w"> </span>-p<span class="w"> </span>build-j722s<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>build-j722s
 cmake<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-DCMAKE_TOOLCHAIN_FILE<span class="o">=</span><span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp/cmake/toolchain-j722s-c7x.cmake<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-DCMAKE_TOOLCHAIN_FILE<span class="o">=</span><span class="nv">$TVM_HOME</span>/src/runtime/ti_dsp/cmake/toolchain-c7x.cmake<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-DTVM_DSP_DEVICE<span class="o">=</span>j722s<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-DGENERATED_CODE_DIR<span class="o">=</span>/path/to/model_dir<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>..

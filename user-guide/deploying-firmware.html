@@ -1829,11 +1829,11 @@ throughout this page) -- see
 how this fits into the overall compile/deploy pipeline.</p>
 <p>The Arm shared library is cross-compiled for aarch64 on the dev host.</p>
 <p>Refer to <code>src/runtime/ti_dsp/build_all.sh</code> for commands to build the Arm shared library.</p>
-<p><code>--board &lt;j722s-evm|beagley-ai&gt;</code> is required (<code>--ddr &lt;4gb|8gb&gt;</code> stays
-optional, default per-board): besides build-dir naming consistency with
-<code>build_runtime.sh</code> and <code>dsp/build.sh</code>, <code>--board</code> also picks the <code>deploy</code>
-subcommand's default SSH host (<code>beagley-ai</code> -&gt; <code>beagley-ai</code>, else
-<code>am67a</code>). <code>CROSS_COMPILE</code> (default <code>aarch64-linux-gnu-</code>) is still
+<p><code>--board &lt;j722s-evm|beagley-ai|am62d&gt;</code> is required (<code>--ddr &lt;4gb|8gb&gt;</code> stays
+optional, default per-board; it does not apply to <code>am62d</code>): besides build-dir
+naming consistency with <code>build_runtime.sh</code> and <code>dsp/build.sh</code>, <code>--board</code> also
+picks the <code>deploy</code> subcommand's default SSH host (<code>beagley-ai</code> -&gt;
+<code>beagley-ai</code>, <code>am62d</code> -&gt; <code>am62d</code>, else <code>am67a</code>). <code>CROSS_COMPILE</code> (default <code>aarch64-linux-gnu-</code>) is still
 configurable via an environment variable; there's no <code>BOARD_HOSTNAME</code>
 override for the deploy host — add an SSH-config alias if your board is
 reachable under a different name.</p>
@@ -1848,7 +1848,7 @@ live DSP firmware.</p>
 <p class="admonition-title">Board hostname</p>
 <p>All deployment commands below are run from the <strong>Linux development host</strong>.</p>
 <p><code>--board</code> is required: the deploy script SSHs into the hostname it maps to
-(<code>beagley-ai</code> -&gt; <code>beagley-ai</code>, else <code>am67a</code>) and uses remoteproc to manage
+(<code>beagley-ai</code> -&gt; <code>beagley-ai</code>, <code>am62d</code> -&gt; <code>am62d</code>, else <code>am67a</code>) and uses remoteproc to manage
 the DSP firmware. Add an SSH-config alias if your board answers to a
 different name.</p>
 </div>
