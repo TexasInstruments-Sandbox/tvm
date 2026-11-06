@@ -429,7 +429,7 @@ Output: `tidl_model_import_relax.so` (used by `tidl_import()` FFI)
 `build_j722s.sh` defaults `TVM_HOME` (and `RELAX_TVM_HOME`) to `~/ml/tvm`. Point both at the tree
 you are using, or the importer is built against another tree's headers:
 `TVM_HOME=<tree> RELAX_TVM_HOME=<tree> bash build_j722s.sh`. The importer branch that matches the
-TVM 0.27 tree is `relax-0.27-port`. For a change to a Relax parser only, rebuilding just the Relax
+TVM 0.27 tree is `tvm-relax-am62d-12.00.00.00`. For a change to a Relax parser only, rebuilding just the Relax
 `.so` is enough: `cd ti_dl/utils/tidlModelImport && make -f makefile_shared relax TARGET_SOC=J722S
 TARGET_PLATFORM=PC ...` (same flags as step 6 of `build_j722s.sh`). The makefile does not track
 header dependencies: after editing `tidlParseRelax/tidl_parse_relax.h`, `touch tidlParseRelax/*.cpp`.

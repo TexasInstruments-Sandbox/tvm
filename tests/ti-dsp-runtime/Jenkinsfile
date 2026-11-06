@@ -73,13 +73,13 @@ pipeline {
     parameters {
         string(
             name: 'BRANCH',
-            defaultValue: 'relax-c7x-mma-0.27',
+            defaultValue: 'relax-c7x-mma',
             description: 'Branch to build and test'
         )
         string(
             name: 'TIDL_BRANCH',
-            defaultValue: 'relax-0.27-port',
-            description: 'c7x-mma-tidl branch providing the TIDL import library and algo libs; must match the TVM version of BRANCH (relax-0.27-port for TVM 0.27)'
+            defaultValue: 'tvm-relax-am62d-12.00.00.00',
+            description: 'c7x-mma-tidl branch providing the TIDL import library and algo libs; must match the TVM version of BRANCH (tvm-relax-am62d-12.00.00.00 for TVM 0.27)'
         )
         choice(
             name: 'BOARD',
