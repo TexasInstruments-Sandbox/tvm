@@ -42,6 +42,10 @@ mod = from_exported_program(
 )
 ```
 
+!!! warning "`C7xMMAQuantizer` is a proof of concept, not production-ready"
+    `C7xMMAQuantizer` is a proof of concept created to test TVM's compilation
+    of quantized models (the PT2E-to-MMALIB path). It is not production-ready.
+
 No manual per-op scale/zero-point computation is needed -- this is the
 standard PT2E `prepare` / calibrate / `convert` sequence; `C7xMMAQuantizer`
 only decides *which* ops get annotated and with what quantization scheme, so
