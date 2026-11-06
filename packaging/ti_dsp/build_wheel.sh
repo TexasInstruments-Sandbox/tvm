@@ -126,6 +126,8 @@ build_x86() {
     # --- Validate ---
     check_file "$TVM_HOME/build/lib/libtvm_runtime.so" \
         "Build TVM first: cd build && cmake -G Ninja .. && ninja"
+    check_file "$TVM_HOME/build/lib/libtvm_runtime_extra.so" \
+        "Build TVM first with USE_SORT=ON: cd build && cmake -G Ninja .. && ninja"
     check_file "$TVM_HOME/build/lib/libtvm_compiler.so" \
         "Build TVM first: cd build && cmake -G Ninja .. && ninja"
     check_file "$DSP_RT/build-c7x-host/libtvm_dsp_runtime_c7x_host.a" \
@@ -161,9 +163,12 @@ build_x86() {
     # --- Native libraries ---
     echo ">>> Copying native libraries ..."
     # TVM 0.27 splits libtvm.so into libtvm_runtime.so and libtvm_compiler.so.
+    # libtvm_runtime_extra.so holds the sort kernels (tvm.contrib.sort.topk
+    # etc.) that host-side calibration runs need; the backend autoloader
+    # ignores it silently when missing, so it must be bundled.
     # python/tvm/libinfo.py searches <package>/lib/ first for the wheel layout.
     mkdir -p "$STAGING/tvm/lib"
-    for lib in libtvm_runtime.so libtvm_compiler.so; do
+    for lib in libtvm_runtime.so libtvm_runtime_extra.so libtvm_compiler.so; do
         if [ "$STRIP_LIBS" = "1" ]; then
             strip --strip-debug -o "$STAGING/tvm/lib/$lib" "$TVM_HOME/build/lib/$lib"
         else
