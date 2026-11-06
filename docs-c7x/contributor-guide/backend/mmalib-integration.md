@@ -209,7 +209,7 @@ codegen — whenever any of the following hold:
 
 ## Pipeline Pass Order (with `-mmalib=1`)
 
-The MMALIB-specific stages are inserted into the general `c_static`
+The MMALIB-specific stages are inserted into the general `c_static_lib`
 Relax legalization pipeline (`cpu_generic/pipeline.py`); everything else in
 this sequence (relu/activation/concat/movement/pooling/layernorm QDQ
 lowering) is shared with non-MMALIB compiles and unaffected by the
@@ -220,7 +220,7 @@ if is_c7x and target.attrs.get("mmalib", False):
     passes += get_mmalib_qdq_passes()      # 8 passes: int8+int16 QDQ fusion
 
 passes += [
-    # ... general c_static QDQ-lowering passes, shared with non-MMALIB ...
+    # ... general c_static_lib QDQ-lowering passes, shared with non-MMALIB ...
     FuseQDQToInt8Conv2D(),
     EliminateQDQRoundTrip(),
     RewriteDequantize(),
@@ -244,7 +244,7 @@ if is_c7x:
 ```
 
 Two further passes run later, once the graph has been lowered from Relax
-into TIR (`tvm/tir/pipeline.py`, not the Relax pipeline above):
+into TIR (`python/tvm/tirx/compilation_pipeline.py`, not the Relax pipeline above):
 `InjectMMALIBDMA` (always active — see next section) and, after it,
 `LowerL2SramAlloc`, which turns its `Allocate(scope="global.l2sram")` nodes
 into concrete `tvm_l2_alloc` calls.
@@ -253,7 +253,7 @@ into concrete `tvm_l2_alloc` calls.
 
 `InjectMMALIBDMA` is a TIR-level pass — it runs on the loop/buffer IR,
 after Relax has already been lowered — invoked unconditionally for every
-`c_static` compile (it's a no-op if the function contains no MMALIB
+`c_static_lib` compile (it's a no-op if the function contains no MMALIB
 `call_extern`). It wraps each supported MMALIB call with DMA that stages
 its input (and weights, when they fit) into on-chip L2 SRAM first, trading
 ~200-cycle DDR latency for ~32-cycle L2 latency.
@@ -335,7 +335,7 @@ when the DSP executes it.
 ### From pass to `call_extern`
 
 Each QDQ lowering pass builds the extern call with TVM's `te.extern` /
-`tir.call_extern`, inside a helper reused for every variant of that op. For
+`tirx.call_extern`, inside a helper reused for every variant of that op. For
 int8 conv2d (`ti_mmalib_qdq_fusion.py`), the call site picks the extern
 function name based on `groups`, then hands it to a shared emitter:
 
@@ -344,7 +344,7 @@ def _emit_conv2d(self, extern_name, name_hint, data_arg, kernel_relax, ...):
     def fcompute(ins, outs):
         args = ["int32", extern_name, ins[0].data, ins[1].data, ...,
                 outs[0].data, C_in, H_in, W_in, C_out, KH, KW, ...]
-        return tir.call_extern(*args)
+        return tirx.call_extern(*args)
 
     def te_mmalib_conv2d(data_t, weight_t, bias_t, scale_t, shift_t):
         return te.extern((1, C_out, H_out, W_out),
@@ -385,7 +385,7 @@ void CodeGenC::PrintCallExtern(Type ret_type, String global_symbol,
 }
 ```
 
-So `tir.call_extern("int32", "mmalib_conv2d_i8", a0, a1, ...)` becomes
+So `tirx.call_extern("int32", "mmalib_conv2d_i8", a0, a1, ...)` becomes
 literally `mmalib_conv2d_i8(a0, a1, ...)` in the generated C.
 `CodeGenCStaticLib` (`src/target/c_static_lib/codegen_c_static_lib.cc`) overrides this
 method only to track VM register usage for a few unrelated AnyList
@@ -574,4 +574,4 @@ coprocessor reads from fast L2 scratchpad instead of slow DDR.
 - [te.extern Lowering](te-extern-lowering.md) — Full compilation chain, dispatch sites
 - [Authoring Passes](authoring-passes.md) — Writing new MMALIB fusion passes
 - [Extending Quantizer](extending-quantizer.md) — Adding ops to C7xMMAQuantizer
-- [Debugging Passes](debugging-passes.md) — --dump-ir, TVM_LOG_DEBUG, composite inspection
+- [Debugging Passes](debugging-passes.md) — pass instruments, Python logging, composite inspection

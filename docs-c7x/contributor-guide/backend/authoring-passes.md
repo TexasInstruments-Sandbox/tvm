@@ -7,7 +7,7 @@ transformations to TIR lowering and the C codegen interface.
 
 The C7x backend extends TVM's compilation pipeline with passes that:
 1. **Match quantized patterns** in Relax IR (dequantize → op → quantize)
-2. **Replace with integer kernel calls** via `te.extern` → `tir.call_extern`
+2. **Replace with integer kernel calls** via `te.extern` → `tirx.call_extern`
 3. **Inject DMA staging** at the TIR level for L2 SRAM prefetch
 4. **Generate C code** that links against firmware-exported symbols
 
@@ -19,7 +19,7 @@ All MMALIB and TIDL integration passes live in `python/tvm/relax/transform/ti_*.
 |-----------|----------|---------|
 | `FuseOpsByPattern` | Relax | Pattern matching + composite function creation |
 | `PyExprMutator` subclass | Relax | Lowering composites to `te.extern` / `call_extern` |
-| TIR pass (`tir.transform.Pass`) | TIR | DMA injection, buffer allocation, loop transformation |
+| TIR pass (`tirx.transform.Pass`) | TIR | DMA injection, buffer allocation, loop transformation |
 | `LegalizeOps` customization | Relax → TIR | Custom lowering for specific ops |
 
 ## FuseOpsByPattern: Pattern Matching
@@ -80,11 +80,11 @@ and is registered in the module.
 `fuse_ops.cc` (`lift_constants = !bind_constants`):
 
 - `bind_constants=True` (default): constants stay bound **inside** the
-  composite body — the mutator sees them directly as `relax.Constant` nodes
+  composite body — the mutator sees them directly as constant nodes (`tvm.ir.GenericConst`)
   when it extracts matched sub-expressions.
 - `bind_constants=False`: constants are **lifted out** to become parameters
   of the composite function, passed in as arguments at the call site — the
-  composite body itself normally holds no `relax.Constant`.
+  composite body itself normally holds no constant (`tvm.ir.GenericConst`).
 
 All of the C7x QDQ-fusion passes (`FuseMMALIBQDQConv2d`, `FuseQDQToC7xMovement`,
 `FuseQDQToC7xRelu`, etc.) use `bind_constants=False`, then recover the
@@ -118,13 +118,13 @@ match makes `FoldConstant` host-JIT a C7x-only extern symbol and segfault
 ## PyExprMutator: Lowering Composites to call_extern
 
 After `FuseOpsByPattern` creates a composite, a `PyExprMutator` subclass
-rewrites the composite call into a `te.extern` → `tir.call_extern` sequence.
+rewrites the composite call into a `te.extern` → `tirx.call_extern` sequence.
 
 ### Skeleton Lowerer
 
 ```python
 from tvm.relax.expr import PyExprMutator
-from tvm import te, tir
+from tvm import te, tirx
 
 class MyLowerer(PyExprMutator):
     def __init__(self, mod, builder):
@@ -209,8 +209,8 @@ def _resolve_constant_tensor(expr):
             expr = expr.args[0]
         else:
             break
-    if isinstance(expr, relax.Constant):
-        return expr.data.numpy()
+    if isinstance(expr, tvm.ir.GenericConst):
+        return expr.value.numpy()
     return None
 ```
 
@@ -222,7 +222,7 @@ If resolution fails, **reject the match** rather than silently dropping bias.
 def _make_te_extern_func(self, bias_i32, scale_u8, shift_u8):
     def te_kernel(data_t, weight_t, bias_t, scale_t, shift_t):
         def fcompute(ins, outs):
-            return tir.call_extern(
+            return tirx.call_extern(
                 "int32",                    # return type
                 "kernel_name",              # C symbol (must match firmware export)
                 ins[0].data,                # input pointer

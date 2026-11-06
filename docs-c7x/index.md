@@ -1,6 +1,6 @@
 # TVM for TI C7™ NPU
 
-This is a fork of [Apache TVM](https://github.com/apache/tvm) 0.23.0
+This is a fork of [Apache TVM](https://github.com/apache/tvm) 0.27.0
 that adds a compiler backend and runtime for Texas Instruments' C7™ NPU
 -- a floating-point vector DSP core that combines traditional DSP
 capability, vector processing, and a deep learning accelerator, paired

@@ -1,7 +1,7 @@
 # te.extern Pattern for C7x Kernel Dispatch
 
 How TVM maps Relax ops to optimized C7x kernels using `te.extern` and
-`tir.call_extern`. Covers every dispatch site, the full compilation
+`tirx.call_extern`. Covers every dispatch site, the full compilation
 chain, and the DMA injection layer.
 
 ## The Core Pattern
@@ -12,12 +12,12 @@ Every C7x kernel dispatch follows the same four-step chain:
 Relax op(s)
   → FuseOpsByPattern (composite)
   → PyExprMutator → builder_.call_te(te_fn, ...)
-  → te.extern → tir.call_extern
+  → te.extern → tirx.call_extern
   → CodeGenCStaticLib → C function call
 ```
 
 `te.extern` replaces what would otherwise be a loop nest with a single
-`fcompute` callback that emits one `tir.call_extern`. TVM is responsible
+`fcompute` callback that emits one `tirx.call_extern`. TVM is responsible
 for tiling, DMA transfers, and double buffering via the
 `InjectMMALIBDMA` and `ScheduleC7xDMATiling` passes; the external kernel
 handles the inner compute (MMA coprocessor programming) for each tile.
@@ -26,7 +26,7 @@ handles the inner compute (MMA coprocessor programming) for each tile.
 te.extern(
     output_shape,
     [input_tensors],
-    lambda ins, outs: tir.call_extern("int32", "kernel_name", *args),
+    lambda ins, outs: tirx.call_extern("int32", "kernel_name", *args),
     name="...",
     dtype="...",
 )
@@ -59,13 +59,13 @@ Relax IR
     - Folds quantization math at compile time → bias_i32, scale_u8, shift_u8
     - Calls builder_.call_te(te_mmalib_fc_i8, data, weight, bias, ...)
   ↓ te.extern → ExternOp → TIR PrimFunc
-    T.evaluate(tir.call_extern("int32", "mmalib_matmul_bias_i8", ...))
+    T.evaluate(tirx.call_extern("int32", "mmalib_matmul_bias_i8", ...))
   ↓ InjectMMALIBDMA (TIR pass)
     Wraps call_extern with L2 Allocate + DMA copy/wait if input fits
   ↓ LowerL2SramAlloc
     Allocate(scope="global.l2sram") → tvm_l2_alloc(nbytes)
   ↓ LowerDMAToExtern
-    tir.dma_copy / tir.dma_wait → tir.call_extern("tvm_dsp_dma_copy", ...)
+    tirx.dma_copy / tirx.dma_wait → tirx.call_extern("tvm_dsp_dma_copy", ...)
   ↓ CodeGenCStaticLib
     call_extern → C: mmalib_matmul_bias_i8(data->data, weight->data, ...)
   ↓ cl7x + lnk7x --dynamic=lib
@@ -130,7 +130,7 @@ scale_u8, shift_u8 = _float_to_scale_shift(combined_rescale)
 ```python
 def te_mmalib_fc_i8(data_t, weight_t, bias_t, scale_t, shift_t):
     def fcompute(ins, outs):
-        return tir.call_extern(
+        return tirx.call_extern(
             "int32",
             "mmalib_matmul_bias_i8",
             ins[0].data,   # int8 activations  [M, K]
@@ -216,7 +216,7 @@ of L2, preventing streaming-engine backward-prefetch underflow.
 `LowerL2SramAlloc` later converts each `Allocate(scope="global.l2sram")`
 to a `tvm_l2_alloc(nbytes)` call.
 
-## TIR Pass Order (c_static -mcpu=c7x -mmalib=1)
+## TIR Pass Order (c_static_lib -mcpu=c7x -mmalib=1)
 
 ```
 FuseMMALIBQDQFC / FuseMMALIBQDQConv2d / FuseMMALIBQDQDwConv2d
@@ -232,7 +232,7 @@ InjectSoftwarePipeline
 LowerOpaqueBlock
 FlattenBuffer
 LowerAsyncDMA
-LowerDMAToExtern        ← tir.dma_copy/wait → call_extern
+LowerDMAToExtern        ← tirx.dma_copy/wait → call_extern
 NarrowDataType(32)
 StorageRewrite
 LowerL2SramAlloc        ← Allocate(l2sram) → tvm_l2_alloc
@@ -267,9 +267,9 @@ that shadows the function declaration and breaks the build.
 ### Constant Folding with bind_constants
 
 Per `fuse_ops.cc` (`lift_constants = !bind_constants`), `bind_constants=False`
-**lifts** matched `relax.Constant` leaves out to become parameters of the
+**lifts** matched constant leaves out to become parameters of the
 composite function, passed in as call-site arguments — the composite body
-itself normally holds no `relax.Constant`. `bind_constants=True` (default)
+itself normally holds no constant (`tvm.ir.GenericConst`). `bind_constants=True` (default)
 leaves them bound inside the composite body instead.
 
 Both the C7x activation passes (`FuseQDQToC7xActivation`, `FuseQDQToC7xAvgPool`,
@@ -292,6 +292,6 @@ default.
 | `python/tvm/relax/transform/ti_mmalib_legalize.py` | Shared helpers: `_float_to_scale_shift`, `_resolve_constant_tensor` |
 | `python/tvm/relax/transform/ti_mmalib_inject_dma.py` | L2 DMA prefetch (TIR pass) |
 | `python/tvm/relax/transform/ti_residual_add.py` | Residual add lowering |
-| `python/tvm/tir/pipeline.py` | TIR pipeline wiring |
+| `python/tvm/tirx/compilation_pipeline.py` | TIR pipeline wiring |
 | `src/target/source/codegen_c.cc` | Base `PrintCallExtern` — turns `call_extern` into C call |
 | `src/target/c_static_lib/codegen_c_static_lib.cc` | `CodeGenCStaticLib::PrintCallExtern` override, delegates to the base |

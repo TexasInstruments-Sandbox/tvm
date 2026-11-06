@@ -3,78 +3,84 @@
 This guide covers tools and techniques for debugging Relax and TIR passes
 in the C7x backend — from IR inspection to runtime verification.
 
-## IR Dumping Flags
+## Inspecting IR Between Passes
 
-### `--dump-ir` (Relax)
-
-Prints the Relax IRModule at each pass. Usage:
+TVM's pass infrastructure accepts *instruments* (`tvm.ir.instrument`) on the
+`PassContext` that wraps a build. They run before and after every pass
+executed inside that context, including the passes inside a `Sequential` or a
+pipeline such as `get_default_pipeline`.
 
 ```python
 import tvm
 from tvm import relax
+from tvm.ir.instrument import PassPrintingInstrument
+from tvm.relax.backend.cpu_generic.pipeline import get_default_pipeline
 
 target = tvm.target.Target("c_static_lib -mcpu=c7x -mmalib=1")
-mod = relax.transform.LegalizeOps()(mod)
+pipeline = get_default_pipeline(target)
 
-# Enable IR dumping
-with tvm.transform.PassContext(opt_level=3, config={"relay.dump_ir": True}):
-    ex = relax.build(mod, target=target)
+printer = PassPrintingInstrument(
+    print_before_pass_names=[],
+    print_after_pass_names=["FuseMMALIBQDQConv2d", "FuseTIR"],
+)
+
+with target, tvm.transform.PassContext(opt_level=3, instruments=[printer]):
+    ex = relax.build(mod, target, relax_pipeline=pipeline)
 ```
 
-Or via environment variable:
-```bash
-TVM_LOG_DEBUG=1 python compile_model.py 2>&1 | grep -A 50 "After FuseMMALIBQDQConv2d"
-```
+| Instrument | Module | What it does |
+|------------|--------|--------------|
+| `PassPrintingInstrument(before, after)` | `tvm.ir.instrument` | Prints the module before/after passes whose name is in the given lists |
+| `PrintBeforeAll()` / `PrintAfterAll()` | `tvm.ir.instrument` | Prints the module around every pass (very verbose) |
+| `DumpIR(dump_dir, refresh=False)` | `tvm.ir.instrument` | Writes the module after each pass to `dump_dir/NNN_<pass>.py`, numbered in execution order |
+| `PassTimingInstrument()` | `tvm.ir.instrument` | Per-pass compile time; call `.render()` before the `PassContext` exits |
+| `WellFormedInstrument()` | `tvm.relax.ir.instrument` | Checks the module is well formed before and after each pass and shows the module that broke it |
 
-### Pass-Specific Dumping
+Pass names are the names TVM reports for each pass, for example the
+`name="FuseMMALIBQDQConv2d"` given to `tvm.transform.module_pass`. Run once
+with `PrintAfterAll()` or `DumpIR(...)` to see the exact names in your
+pipeline.
 
-Individual passes can dump their input/output IR by adding logging:
+`DumpIR` is the easiest way to find the pass that changed something: dump a
+good and a bad build to two directories and `diff -r` them.
+
+### Printing a module by hand
 
 ```python
-# In a pass's transform_module() or apply() method
+print(mod.script())   # TVMScript text
+mod.show()            # same, with syntax highlighting where available
+```
+
+To bisect a single pass, call it directly on the module between two pipeline
+stages and print the result, or check it with
+`relax.analysis.well_formed(mod)` (raises on the first violation;
+`relax.analysis.check_well_formed(mod)` returns a bool).
+
+## Python Logging from the C7x Passes
+
+Each C7x pass module creates `logger = logging.getLogger(__name__)` and emits
+`logger.debug` / `logger.info` records (fusion counts, DMA injection choices,
+reasons for declining). They are silent until the application configures
+Python logging:
+
+```python
 import logging
-logger = logging.getLogger("TVM.pass.my_pass")
-logger.setLevel(logging.DEBUG)
 
-logger.debug("Input module:\n%s", mod.script())
-# ... pass logic ...
-logger.debug("Output module:\n%s", mod.script())
+logging.basicConfig(level=logging.INFO)
+
+# or one module at debug level
+logging.getLogger("tvm.relax.transform.ti_mmalib_inject_dma").setLevel(logging.DEBUG)
 ```
 
-Then run with:
-```bash
-TVM_LOG_DEBUG=pass.my_pass python compile_model.py
-```
+The logger name is the module path, for example:
 
-### TIR Dumping
+- `tvm.relax.transform.ti_mmalib_qdq_fusion`
+- `tvm.relax.transform.ti_mmalib_inject_dma`
+- `tvm.relax.transform.schedule_c7x_dma`
+- `tvm.tirx.transform.lower_l2sram_alloc`
 
-After `FuseTIR` lowers to TIR, dump TIR PrimFuncs:
-
-```python
-# In TIR pass
-func = ...  # tir.PrimFunc
-print(func.script())  # Human-readable TIR
-# Or with annotations
-print(tvm.script.printer.ir_printer.IRPrinter()(func))
-```
-
-## TVM_LOG_DEBUG Categories
-
-Key debug categories for C7x development:
-
-| Category | What It Logs |
-|----------|--------------|
-| `TVM.pass.fuse_ops_by_pattern` | Pattern matches, composites created, decline reasons |
-| `TVM.pass.mmalib_qdq_fusion` | QDQ pattern matches, eligibility check results, folded params |
-| `TVM.pass.mmalib_inject_dma` | DMA injection decisions, buffer sizes, L2 budget checks |
-| `TVM.pass.schedule_c7x_dma` | Tiling strategy chosen, tile sizes, software pipeline annotations |
-| `TVM.tir.lower_dma_to_extern` | DMA intrinsic → call_extern conversions |
-| `TVM.codegen.c_static` | Function emission, wrapper generation, symbol resolution |
-
-Enable multiple:
-```bash
-TVM_LOG_DEBUG="TVM.pass.mmalib_qdq_fusion,TVM.pass.mmalib_inject_dma" python compile_model.py
-```
+New passes should follow the same `getLogger(__name__)` pattern;
+`ti_mmalib_qdq_fusion.py` is an example.
 
 ## Inspecting Composite Functions
 
@@ -97,7 +103,8 @@ def visit_call_(self, call):
 ### After FuseTIR
 
 Composites are lowered to `PrimFunc` with `global_symbol` matching the
-composite name. Check `mod.functions` for TIR functions.
+composite name. Check `mod.functions` for TIR functions, and print one with
+`func.script()`.
 
 ### Decline Branches: inline_declined_composite
 
@@ -128,20 +135,25 @@ for the distinct, actually-demonstrated decline-related hazard
 
 ## DSP_KEEP_TEMP: Preserving Generated Artifacts
 
-Set `DSP_KEEP_TEMP=1` to preserve the generated `lib0.c`, `lib1.c`,
-`weights.bin`, and intermediate build artifacts:
+The test harness (`tests/ti-dsp-runtime/dsp-cpp/dsp_utils.py`) deletes its
+temporary build directory after a test. Set `DSP_KEEP_TEMP=1` when running a
+test to keep the generated `lib0.c`, `lib1.c`, `weights.bin` and build
+artifacts:
 
 ```bash
-DSP_KEEP_TEMP=1 python compile_model.py
-# Artifacts in /tmp/tvm_<pid>/
+DSP_KEEP_TEMP=1 pytest --rootdir=. dsp-tests/test_conv2d_dsp.py --dsp-mode=c7x_host
+# Artifacts in /tmp/dsp_test_<name>_<timestamp>/
 ```
+
+The variable is read by the test helpers, not by `relax.build`, so it has no
+effect on a standalone compile script.
 
 ### Finding Unfused QDQ Nodes
 
 Search for unfused quantize/dequantize in generated C:
 
 ```bash
-grep -n "quantize_per_tensor\|dequantize" /tmp/tvm_*/lib0.c
+grep -n "quantize_per_tensor\|dequantize" /tmp/dsp_test_*/lib0.c
 ```
 
 Each call site is an unfused QDQ boundary — overhead that a fusion pass
@@ -150,37 +162,41 @@ should have eliminated.
 ### Finding DMA Injection
 
 ```bash
-grep -n "tvm_dsp_dma_copy\|tvm_dsp_dma_wait" /tmp/tvm_*/lib0.c
+grep -n "tvm_dsp_dma_copy\|tvm_dsp_dma_wait" /tmp/dsp_test_*/lib0.c
 ```
 
 Shows which kernels got L2 SRAM staging.
 
 ## Layer Profiling
 
-Compile with `-profile-layers=1` and run on hardware/emulation:
+Compile with `-profile-layers=1` and run on hardware or emulation:
 
 ```python
 target = tvm.target.Target("c_static_lib -mcpu=c7x -profile-layers=1")
 ```
 
-Output (via DSP printf to shared memory buffer):
+The generated code records a cycle count per layer and prints a table through
+the DSP printf (shared-memory trace buffer):
 
 ```
-[LAYER] conv2d_0: 1245832 cycles
-[LAYER] relu_0: 12345 cycles
-[LAYER] mmalib_conv2d_i8: 477234 cycles
-[LAYER] quantize_per_tensor: 89234 cycles  <-- UNFUSED QDQ OVERHEAD
+===== TVM Layer Profile =====
+[  0] <layer name>                               1245832 cycles
+[  1] <layer name>                                 12345 cycles
+...
+Total: <N> cycles (<M> layers)
 ```
 
-Look for `quantize_per_tensor` / `dequantize` entries — their cycle counts
-are pure overhead that a fusion pass would eliminate.
+A layer that was running when a call failed is printed as
+`[FAILED, in flight] <layer name>`. Look for `quantize_per_tensor` /
+`dequantize` layers — their cycle counts are pure overhead that a fusion pass
+would eliminate.
 
 ## Common Debugging Scenarios
 
 ### Pass Not Firing
 
 1. **Check pattern specificity** — Is the DFPattern too strict/loose?
-   Add logging in check function to see what's matched vs rejected.
+   Add logging in the check function to see what's matched vs rejected.
 
 2. **Check pass ordering** — MMALIB passes must run BEFORE `FuseQDQToInt8Conv2D`
    and `EliminateQDQRoundTrip`. Verify in `pipeline.py`.
@@ -212,7 +228,7 @@ are pure overhead that a fusion pass would eliminate.
    Check `dyn_loader.c` for the symbol.
 
 2. **MMALIB error codes** — Wrapper returns MMALIB status. Check:
-   - `-1` = NULL pointer argument
+   - `-1` = NULL pointer argument or failed handle allocation
    - `MMALIB_ERR_NOT_IMPLEMENTED` = unsupported geometry (e.g., int16 5×5 dwconv)
 
 3. **Numerical mismatch** — Compare against PyTorch reference:
@@ -222,23 +238,18 @@ are pure overhead that a fusion pass would eliminate.
 
 ## Debugging TIR Passes
 
-### Print TIR Before/After Pass
+The C7x TIR pipeline is `_c7x_dma_tir_pipeline` in
+`python/tvm/tirx/compilation_pipeline.py`. The instruments above work on it
+the same way: pass `PassPrintingInstrument` or `DumpIR` in the `PassContext`
+around `relax.build`, using the TIR pass names from the table below.
+
+To print a single PrimFunc from inside a pass or a test:
 
 ```python
-# In TIR pass transform function
-def transform(mod, ctx):
-    for gv, func in mod.functions.items():
-        if isinstance(func, tir.PrimFunc):
-            print(f"=== BEFORE {pass_name} ===")
-            print(func.script())
-    
-    # ... pass logic ...
-    
-    for gv, func in mod.functions.items():
-        if isinstance(func, tir.PrimFunc):
-            print(f"=== AFTER {pass_name} ===")
-            print(func.script())
-    return mod
+for gv, func in mod.functions_items():
+    if isinstance(func, tvm.tirx.PrimFunc):
+        print(f"=== {gv.name_hint} ===")
+        print(func.script())
 ```
 
 ### Key TIR Passes to Inspect
@@ -246,22 +257,28 @@ def transform(mod, ctx):
 | Pass | What to Check |
 |------|---------------|
 | `InjectMMALIBDMA` | L2 Allocate nodes added, DMA copy/wait inserted, guard allocation present |
-| `LowerL2SramAlloc` | `Allocate(scope="global.l2sram")` → `tvm_l2_alloc` calls |
-| `LowerDMAToExtern` | `tir.dma_copy`/`tir.dma_wait` → `call_extern("tvm_dsp_dma_copy", ...)` |
-| `LowerAsyncDMA` | Copy loops → `tir.dma_copy` intrinsics (requires int64 indices) |
+| `LowerL2SramAlloc` | `AllocBuffer(scope="global.l2sram")` → `tvm_l2_alloc` calls |
+| `LowerDMAToExtern` | `tirx.dma_copy`/`tirx.dma_wait` → `call_extern("tvm_dsp_dma_copy", ...)` |
+| `LowerAsyncDMA` | Copy loops → `tirx.dma_copy` intrinsics (requires int64 indices) |
 | `ScheduleC7xDMATiling` | `cache_read` into `global.l2sram`, software pipeline annotations |
+
+`ScheduleC7xDMATiling` and `InjectMMALIBDMA` are Relax-side transforms
+(`relax.transform`); `LowerL2SramAlloc` and `LowerDMAToExtern` are in
+`tirx.transform`; `LowerAsyncDMA` is in `s_tir.transform`.
 
 ### Software Pipeline Annotations
 
-Check for these attributes on the outer loop:
+`ScheduleC7xDMATiling` annotates the outer loop with these attributes
+(`schedule_c7x_dma.py`); check they are present on the tiled loop:
 
 ```python
-# Expected annotations on tiled loop
+# Conv2d H-tiling: stage 0 = DMA (async), stage 1 = compute
 attrs = {
-    "software_pipeline_stage": [0, 0, 1],  # DMA, DMA, compute
-    "software_pipeline_order": [0, 1, 2],
+    "software_pipeline_stage": [0, 1],
+    "software_pipeline_order": [0, 1],
     "software_pipeline_async_stages": [0],
 }
+# The output-channel tiling variant uses stage [0, 0, 1] and order [0, 1, 2]
 ```
 
 ## Debugging Tips
@@ -270,7 +287,7 @@ attrs = {
 
 2. **Use host emulation first** — `--dsp-mode=c7x_host` runs on x86 with memcpy DMA
 
-3. **Compare IR at each stage** — Dump after each pass in the pipeline
+3. **Compare IR at each stage** — Use `DumpIR` and `diff -r` two runs
 
 4. **Check pass dependencies** — `CanonicalizeBindings` + `DCE` must run before
    QDQ passes to clean up PT2E tuple artifacts
@@ -289,7 +306,7 @@ attrs = {
 |------|---------|
 | `python/tvm/relax/transform/ti_mmalib_passes.py` | Central registry, pass ordering |
 | `python/tvm/relax/backend/cpu_generic/pipeline.py` | Full pipeline wiring |
-| `python/tvm/tir/pipeline.py` | TIR pipeline (InjectMMALIBDMA, ScheduleC7xDMATiling) |
+| `python/tvm/tirx/compilation_pipeline.py` | TIR pipeline (InjectMMALIBDMA wiring) |
 | `python/tvm/relax/transform/ti_mmalib_inject_dma.py` | DMA injection logic |
 | `python/tvm/relax/transform/ti_mmalib_qdq_fusion.py` | Example pass with logging |
 | `tests/ti-dsp-runtime/pt2e-tests/` | Quantizer and E2E test patterns |

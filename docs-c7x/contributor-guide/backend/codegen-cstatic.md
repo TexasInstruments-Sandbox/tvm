@@ -160,7 +160,7 @@ TVM_DSP_EXPORT int32_t cg_main_dsp(
 ## Symbol Resolution with DLOAD
 
 The generated C code calls external symbols (MMALIB wrappers, DMA runtime,
-VM builtins) via `tir.call_extern`. `CodeGenC` base class prints these as
+VM builtins) via `tirx.call_extern`. `CodeGenC` base class prints these as
 literal C function calls:
 
 ```cpp
@@ -176,7 +176,7 @@ void CodeGenC::PrintCallExtern(Type ret_type, String global_symbol,
 }
 ```
 
-So `tir.call_extern("int32", "mmalib_conv2d_i8", a0, a1, ...)` becomes
+So `tirx.call_extern("int32", "mmalib_conv2d_i8", a0, a1, ...)` becomes
 literally `mmalib_conv2d_i8(a0, a1, ...)` in the generated C.
 
 ### Header Visibility: --preinclude

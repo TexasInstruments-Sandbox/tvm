@@ -97,7 +97,7 @@ The fused kernel receives compile-time-computed integer bias/scale/shift
 derived from the quantization parameters.
 
 **Direct call_extern path** (`test_mmalib_conv2d_i8_grouped_loop_dsp.py`,
-`test_mmalib_loop_only_chain_dsp.py`): builds `te.extern`/`tir.call_extern`
+`test_mmalib_loop_only_chain_dsp.py`): builds `te.extern`/`tirx.call_extern`
 calls to `mmalib_conv2d_i8_grouped_loop` by hand, bypassing both
 `LegalizeOps` and the QDQ fusion passes, to isolate ResNeXt101's
 grouped-conv kernel from the rest of the compiler pipeline.

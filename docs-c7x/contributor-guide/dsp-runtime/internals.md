@@ -276,7 +276,7 @@ Python utilities for creating/reading these files are in
 |---------|----------|-------------|
 | Memory management | Dynamic (malloc/free) | Static pools |
 | Error handling | Exceptions | ModelError enum |
-| C++ standard | C++17 | C++14 |
+| C++ standard | C++20 | C++14 |
 | RTTI | Yes | No |
 | VirtualMachine | Full VM class | Direct TIR calls |
 | Binary size | ~10MB+ | ~100KB |

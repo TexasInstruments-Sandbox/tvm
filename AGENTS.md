@@ -5,7 +5,7 @@ making changes.
 
 ## What this repo is
 
-This is a **fork of Apache TVM 0.23.0** that adds a compiler backend and
+This is a **fork of Apache TVM 0.27.0** that adds a compiler backend and
 runtime for Texas Instruments' **C7™ NPU** (a floating-point vector DSP +
 deep-learning accelerator) on the **AM67A / J722S** SoC, with Arm cores. It
 also retains the older **C66x** (AWRL6844) DSP path.

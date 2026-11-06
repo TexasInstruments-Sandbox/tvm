@@ -569,8 +569,8 @@ emulation and C7x hardware.
 | File | Role |
 |------|------|
 | `python/tvm/relax/transform/schedule_c7x_dma.py` | ScheduleC7xDMATiling pass |
-| `python/tvm/tir/pipeline.py` | `_c7x_dma_tir_pipeline` with reordered DMA lowering |
-| `python/tvm/tir/transform/lower_dma_to_extern.py` | `LowerDMAToExtern` pass (TIR intrinsics to call_extern) |
+| `python/tvm/tirx/compilation_pipeline.py` | `_c7x_dma_tir_pipeline` with reordered DMA lowering |
+| `python/tvm/tirx/transform/lower_dma_to_extern.py` | `LowerDMAToExtern` pass (TIR intrinsics to call_extern) |
 | `src/target/c_static_lib/codegen_c_static_lib_templates.h` | `kDSPHeaders` includes `dma/tvm_dsp_dma.h` |
 | `src/runtime/ti_dsp/dma/tvm_dsp_dma.h` | DMA API header |
 | `src/runtime/ti_dsp/dma/tvm_dsp_dma.c` | C7x hardware stub (memcpy, Phase 1) |
@@ -618,7 +618,7 @@ InjectSoftwarePipeline
 LowerOpaqueBlock
 FlattenBuffer
 LowerAsyncDMA
-LowerDMAToExtern        ← tir.dma_copy/wait → call_extern
+LowerDMAToExtern        ← tirx.dma_copy/wait → call_extern
 NarrowDataType(32)
 StorageRewrite
 LowerL2SramAlloc        ← Allocate(l2sram) → tvm_l2_alloc
@@ -659,7 +659,7 @@ Every C7x kernel dispatch follows the same four-step chain:
 Relax op(s)
   → FuseOpsByPattern (composite)
   → PyExprMutator → builder_.call_te(te_fn, ...)
-  → te.extern → tir.call_extern
+  → te.extern → tirx.call_extern
   → CodeGenCStaticLib → C function call
 ```
 
@@ -675,7 +675,7 @@ Relax op(s)
 
 3. **te.extern Emission** — `te.extern` creates an `ExternOp` that
    lowers to a TIR `PrimFunc` containing a single
-   `tir.call_extern("int32", "kernel_name", ...)`.
+   `tirx.call_extern("int32", "kernel_name", ...)`.
 
 4. **CodeGenCStaticLib** — The base `CodeGenC::PrintCallExtern` prints
    `call_extern` as a literal C function call:
@@ -763,8 +763,8 @@ and other allocations). Configurable via `ScheduleC7xDMATiling(l2_budget)`.
 | File | Role |
 |------|------|
 | `python/tvm/relax/transform/ti_mmalib_inject_dma.py` | `InjectMMALIBDMA` TIR pass |
-| `python/tvm/tir/pipeline.py` | TIR pipeline wiring |
-| `python/tvm/tir/transform/lower_l2sram_alloc.py` | `LowerL2SramAlloc` pass |
+| `python/tvm/tirx/compilation_pipeline.py` | TIR pipeline wiring |
+| `python/tvm/tirx/transform/lower_l2sram_alloc.py` | `LowerL2SramAlloc` pass |
 | `src/runtime/ti_dsp/dma/tvm_dsp_dma.h` | DMA API header |
 
 ## ConstReachability and the Decline-Branch Helper
@@ -780,7 +780,7 @@ operand's value fully determined at compile time, with no runtime input?"
 The C7x QDQ-fusion passes run *before* `FoldConstant` on purpose — folding a
 weight's `dequantize(int8_const, scale_const)` too early would expand int8
 weights back to float32 in `weights.bin`. Running first means these passes
-still see plain `Var`s, not yet the `relax.Constant` nodes `FoldConstant`
+still see plain `Var`s, not yet the `tvm.ir.GenericConst` nodes `FoldConstant`
 would otherwise have produced.
 
 That ordering has one demonstrated failure mode: if an *entire* matched
@@ -836,7 +836,7 @@ This landed in `ti_fuse_qdq_c7x_movement.py` and `ti_fuse_qdq_c7x_relu.py`
 (commit `b64d0fa3bf`). **Important scope caveat**, added in a follow-up
 correction (`d1c0f41f27`): no model on this tree has been shown to *require*
 it. `bind_constants=False` maps to `lift_constant_=true` in `fuse_ops.cc`, so
-matched `relax.Constant` leaves are lifted to composite *parameters*, not
+matched constant leaves are lifted to composite *parameters*, not
 embedded in the body — a declined composite left in place was measured to
 compile cleanly through `LegalizeOps`/`FoldConstant`/`FuseOps`/`FuseTIR`. This
 helper is defense-in-depth for the `TIRFuseMutator` invariant above, not a fix
@@ -949,4 +949,4 @@ the MMALIB-specific suites -- see [DSP Suite](../testing/dsp-suite.md).
 - [CodeGenCStaticLib Internals](codegen-cstatic.md) — Code generator architecture, DLOAD symbol resolution
 - [Authoring Passes](authoring-passes.md) — Writing new Relax/TIR passes for C7x
 - [Extending Quantizer](extending-quantizer.md) — Adding ops to C7xMMAQuantizer
-- [Debugging Passes](debugging-passes.md) — --dump-ir, TVM_LOG_DEBUG, composite inspection
+- [Debugging Passes](debugging-passes.md) — pass instruments, Python logging, composite inspection

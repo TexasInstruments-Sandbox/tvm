@@ -43,7 +43,7 @@ float PyTorch model
   → convert_pt2e  →  Q/DQ graph (GraphModule)
   → torch.export.export  →  ExportedProgram
   → from_exported_program  →  Relax IRModule
-  → c_static -mcpu=c7x -mmalib=1
+  → c_static_lib -mcpu=c7x -mmalib=1
       Int8:  FuseMMALIBQDQConv2d / FuseMMALIBQDQDwConv2d / FuseMMALIBQDQFC / FuseInt8ResidualAdd
       Int16: FuseMMALIBQDQConv2dI16 / FuseMMALIBQDQDwConv2dI16 / FuseMMALIBQDQFCI16 / FuseInt16ResidualAdd
   → MMALIB kernels on C7x
