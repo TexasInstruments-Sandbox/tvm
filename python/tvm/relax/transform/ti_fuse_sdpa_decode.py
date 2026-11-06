@@ -180,7 +180,7 @@ class _SDPADecodeLowerer(PyExprMutator):
                 if isinstance(val, relax.Call) and "attention_bias" in str(val.op):
                     attn_call = val
                     break
-            if attn_call:
+            if attn_call is not None:
                 break
 
         if attn_call is None:

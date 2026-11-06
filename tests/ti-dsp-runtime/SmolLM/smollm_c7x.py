@@ -909,7 +909,7 @@ def _add_kv_scatter_outputs(mod):
 
     # KV cache params have names like c_model_model_layers_N_self_attn_lifted_tensor_M
     kv_param_set = {
-        var for var in func.params if "lifted_tensor" in var.name_hint
+        var for var in func.params if "lifted_tensor" in var.name
     }
 
     # Walk bindings to find scatter_elements results for KV params
@@ -1113,7 +1113,7 @@ def _compile_one_kvcache_mode(
     weight_params = {}
     kv_param_count = 0
     for var, val in zip(mod["main"].params[n_user_inputs:], params["main"]):
-        name = var.name_hint
+        name = var.name
         if "lifted_tensor" in name:
             kv_param_count += 1
             # KV cache slot: leave as runtime input so the host can pass
