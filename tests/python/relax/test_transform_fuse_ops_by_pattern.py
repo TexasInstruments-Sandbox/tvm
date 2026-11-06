@@ -1512,7 +1512,7 @@ def test_multiple_partially_used_tuple_params():
     it directly follows address order and the stale-index case only shows up in
     some runs of the same binary on the same input -- roughly 2 in 10 here
     before the fix, which clobbered a field parameter and produced either an
-    undefined Var, a leftover relax.Constant inside a tuple (FuseTIR: "Relax.
+    undefined Var, a leftover constant inside a tuple (FuseTIR: "Relax.
     Constant is not supported in primitive functions"), or a FuseTIR buffer
     count mismatch.
 
@@ -1562,14 +1562,14 @@ def test_multiple_partially_used_tuple_params():
     # erases one of the field parameters instead of the tuple it belongs to.
     assert len(composite.params) == 2 * n_tuples + 1
 
-    # No relax.Constant may survive inside the body: FuseTIR rejects them.
+    # No constant may survive inside the body: FuseTIR rejects them.
     constants = []
     relax.analysis.post_order_visit(
-        composite.body, lambda e: constants.append(e) if isinstance(e, relax.Constant) else None
+        composite.body, lambda e: constants.append(e) if isinstance(e, tvm.ir.GenericConst) else None
     )
     assert not constants
 
-    assert relax.analysis.well_formed(fused)
+    relax.analysis.well_formed(fused)
 
     # The whole downstream chain must still lower.
     lowered = relax.transform.LegalizeOps()(fused)

@@ -167,12 +167,12 @@ def test_qdq_mixed_per_channel_scale_scalar_zp():
     s = relax.Var("s", R.Tensor([3], "float32"))  # per-channel
     zp = relax.Var("zp", R.Tensor((), "int8"))  # scalar
     _check_inference(
-        bb, relax.op.quantize(x, s, zp, 1, "int8"), relax.TensorStructInfo((2, 3), "int8")
+        bb, relax.op.quantize(x, s, zp, 1, "int8"), relax.TensorType((2, 3), "int8")
     )
     _check_inference(
         bb,
         relax.op.dequantize(dx, s, zp, 1, "float32"),
-        relax.TensorStructInfo((2, 3), "float32"),
+        relax.TensorType((2, 3), "float32"),
     )
 
 
@@ -184,12 +184,12 @@ def test_qdq_fp16_zero_point():
     s = relax.Var("s", R.Tensor([3], "float32"))
     zp = relax.Var("zp", R.Tensor([3], "float16"))
     _check_inference(
-        bb, relax.op.quantize(x, s, zp, 1, "int8"), relax.TensorStructInfo((2, 3), "int8")
+        bb, relax.op.quantize(x, s, zp, 1, "int8"), relax.TensorType((2, 3), "int8")
     )
     _check_inference(
         bb,
         relax.op.dequantize(dx, s, zp, 1, "float32"),
-        relax.TensorStructInfo((2, 3), "float32"),
+        relax.TensorType((2, 3), "float32"),
     )
 
 
@@ -203,12 +203,12 @@ def test_qdq_dequantize_fp16_fp32_input():
     _check_inference(
         bb,
         relax.op.dequantize(dx16, s, zp, -1, "float32"),
-        relax.TensorStructInfo((2, 3), "float32"),
+        relax.TensorType((2, 3), "float32"),
     )
     _check_inference(
         bb,
         relax.op.dequantize(dx32, s, zp, -1, "float32"),
-        relax.TensorStructInfo((2, 3), "float32"),
+        relax.TensorType((2, 3), "float32"),
     )
 
 
