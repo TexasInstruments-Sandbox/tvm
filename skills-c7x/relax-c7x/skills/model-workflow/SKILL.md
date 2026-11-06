@@ -87,7 +87,7 @@ pytest --rootdir=. dsp-tests/test_my_model_dsp.py -v \
 ## Common Pitfalls by Model Category
 
 ### CNN
-- **Dimension alignment**: none required — MMALIB conv2d handles arbitrary C_out via a partial-chunk loop in the kernel (the old C_out-divisible-by-32 gate was removed; see `quantized_model_optimization.md` Step 6)
+- **Dimension alignment**: none required — MMALIB conv2d handles arbitrary C_out via a partial-chunk loop in the kernel (the old C_out-divisible-by-32 gate was removed)
 - **NHWC vs NCHW**: `-mmalib=1` forces NCHW; without it, NHWC is used for DMA tiling
 - **Multi-output (detection)**: Use `InferMulti()` (capped at `Model::kMaxOutputs` = 128)
 

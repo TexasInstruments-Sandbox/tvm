@@ -117,7 +117,7 @@ void* tvm_dsp_dma_get_udma_handle(void);
  * -DC7X_SHARED_PHYS_BASE, see cmake/boards.cmake). The firmware is built by a
  * separate CMake invocation and statically linked against this library, so it
  * calls this at boot to verify the two agree: a mismatch silently corrupts DMA
- * rather than failing the build. See docs/dsp/beagley_ai_enablement.md.
+ * rather than failing the build.
  *
  * Defined only for the c7x cross build (tvm_dsp_dma.c).
  *

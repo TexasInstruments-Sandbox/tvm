@@ -148,8 +148,7 @@ def test_clamp_extremes(dsp_mode):
 @pytest.mark.core
 def test_clamp_large_tensor(dsp_mode, record_cycles):
     """Large tensor — confirms the vectorized path scales; clamp shares the
-    same relu/clamp fusion pass targeted by Step 15
-    (docs/dsp/quantized_model_optimization.md)."""
+    same relu/clamp fusion pass as the relu test."""
     if dsp_mode not in ("c7x_host", "c7x_dload"):
         pytest.skip("requires c7x_host or c7x_dload")
     rng = np.random.default_rng(4)

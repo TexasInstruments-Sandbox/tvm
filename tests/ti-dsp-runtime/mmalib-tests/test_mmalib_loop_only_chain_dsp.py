@@ -12,11 +12,9 @@ validation coverage anywhere in TI's own software; TIDL always pairs
 grouped mode with the non-bias kernel instead. mmalib_conv2d_i8_grouped_loop
 avoids that risk entirely: it is a single call_extern whose C++
 implementation loops over groups internally via the already-proven
-conv2d_impl, never touching numGroupsPerKernel. See
-docs/dsp/quantized_model_optimization.md Step 13 for the full
-investigation. This test guards against that class of failure (or a new
-one introduced by this wrapper) recurring when chained within one
-inference.
+conv2d_impl, never touching numGroupsPerKernel. This test guards against
+that class of failure (or a new one introduced by this wrapper) recurring
+when chained within one inference.
 
 Usage:
     pytest test_mmalib_loop_only_chain_dsp.py -v --dsp-mode=c7x_dload
@@ -167,8 +165,7 @@ def test_loop_only_chain_stress(dsp_mode):
     inference) -- much closer to ResNeXt101's real ~33 layers x 32 groups
     per inference than the 2-3 call smoke tests above. Not marked @quick:
     the numpy reference is O(n_calls) slower to compute in pure Python.
-    See docs/dsp/quantized_model_optimization.md Step 13: this class of
-    test (many chained calls within one inference) is what caught the
+    This class of test (many chained calls within one inference) is what caught the
     abandoned native path's intermittent corruption; the smoke tests
     alone reach only 64-96 group-level calls, far short of where that bug
     actually manifested."""

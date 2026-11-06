@@ -223,7 +223,7 @@ _FASTPATH_CASES = {
     "interior_and_border": (0, 16, 16, 0, 0.05, 0, 0.045),
     # asymmetric zx != 0, zy != 0 -- the exact case the rejected TIDL
     # spatialAvgPool C7x kernel would get wrong (its vectorized exec path
-    # has no zero-point term; see quantized_model_optimization.md Step 12)
+    # has no zero-point term)
     "asymmetric_zero_points": (1, 20, 20, 12, 0.037, -8, 0.031),
     # W=6 < 8: the vertical-sum stage has zero full 8-wide SE vectors, so
     # both stages run entirely through their scalar-tail paths
@@ -251,7 +251,7 @@ def test_avg_pool_fastpath(dsp_mode, seed, H, W, zx, sx, zy, sy):
 @pytest.mark.core
 def test_avg_pool_fastpath_inceptionv3_size(dsp_mode, record_cycles):
     """InceptionV3 branch_pool: 35x35, the largest spatial avg_pool in the
-    current model suite (docs/dsp/quantized_model_optimization.md Bottleneck B)."""
+    current model suite."""
     rng = np.random.default_rng(5)
     H = W = 35
     x2d = rng.integers(-128, 127, (H, W), dtype=np.int8)

@@ -23,7 +23,8 @@ replaces the observers with explicit Q/DQ (quantize/dequantize) nodes.  TVM then
 imports the Q/DQ graph and its c_static_lib backend fuses the Q/DQ sequences with
 MMALIB kernel calls.
 
-See docs/dsp/c7x_mma_quantizer.md for the full pipeline and usage examples.
+See docs-c7x/contributor-guide/backend/extending-quantizer.md for the full
+pipeline and usage examples.
 """
 
 import logging

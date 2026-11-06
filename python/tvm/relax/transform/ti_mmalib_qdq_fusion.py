@@ -455,8 +455,7 @@ class _MMALIBQDQLowerer(PyExprMutator):
                 W_out,
             )
         else:
-            # See docs/dsp/quantized_model_optimization.md Step 13: MMALIB's
-            # numGroupsPerKernel field on the bias-fused convolveBias_row
+            # MMALIB's numGroupsPerKernel field on the bias-fused convolveBias_row
             # kernel is real (substantial hardware-intrinsics code exists)
             # but has zero validation coverage anywhere in TI's own software
             # -- TIDL always pairs grouped mode with the non-bias
@@ -548,8 +547,7 @@ class _MMALIBQDQLowerer(PyExprMutator):
         pass the group count -- appended as the extern call's final arg;
         see mmalib_wrappers.cpp for why a single call per layer, not one
         per group unrolled here with strided_slice/concat, is required to
-        keep cl7x's compile time tractable -- docs/dsp/
-        quantized_model_optimization.md Step 13).
+        keep cl7x's compile time tractable.
         """
 
         def fcompute(ins, outs):

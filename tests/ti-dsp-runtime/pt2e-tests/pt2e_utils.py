@@ -7,7 +7,7 @@ Three public functions covering the full quantization and compilation pipeline:
   run_and_check            –  Relax IRModule → compile → run on DSP
                                → assert correctness vs. PyTorch reference
 
-See docs/dsp/c7x_mma_quantizer.md for the full pipeline description.
+See docs-c7x/contributor-guide/backend/extending-quantizer.md for the full pipeline description.
 """
 
 import warnings

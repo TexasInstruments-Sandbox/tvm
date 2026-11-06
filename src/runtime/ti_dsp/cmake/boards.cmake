@@ -10,7 +10,7 @@
 # SDK roots have no hardcoded defaults: a build that consumes the SDK must
 # supply PSDK_INSTALL_PATH (or MCU_PLUS_SDK_PATH) and sets TVM_REQUIRE_SDK
 # before include() so a missing/wrong root is a hard error, not a silent
-# guess.  See docs/dsp/beagley_ai_enablement.md for the design.
+# guess.
 
 set(TVM_BOARD "j722s-evm" CACHE STRING "Target board: j722s-evm, beagley-ai, am62d")
 set_property(CACHE TVM_BOARD PROPERTY STRINGS j722s-evm beagley-ai am62d)

@@ -90,7 +90,7 @@ static uint8_t g_dma_tr_buf[MAX_DMA_CHANNELS][DMA_TR_BUF_SIZE]
 /* Expose the compiled-in base so the firmware (built separately and
  * statically linked against this lib) can verify at boot that its own
  * C7X_SHARED_PHYS_BASE matches -- a disagreement silently corrupts DMA.
- * See cmake/boards.cmake and docs/dsp/beagley_ai_enablement.md. */
+ * See cmake/boards.cmake. */
 uint64_t tvm_dsp_runtime_shared_phys_base(void) {
     return (uint64_t)C7X_SHARED_PHYS_BASE;
 }

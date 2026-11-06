@@ -2,7 +2,7 @@
 
 Direct call_extern test comparing against a numpy grouped-conv reference,
 for the four distinct stage shapes that actually occur in ResNeXt101-32x8d
-(see docs/dsp/quantized_model_optimization.md Step 13). This is the sole
+This is the sole
 grouped-conv path: a single call whose C++ implementation loops over
 groups internally via the already-proven conv2d_impl (see
 mmalib_wrappers.cpp), never touching MMALIB's untested numGroupsPerKernel
@@ -218,8 +218,7 @@ def test_grouped_conv_loop_layer4_stride2(dsp_mode):
     """layer4.0.conv2 (real ResNeXt101-32x8d shape): C_in=C_out=2048,
     groups=32, No=64 (exceeds MMA_SIZE) AND stride=2 -- the specific
     shape/stride combination never covered by a dedicated test before
-    (see docs/dsp/quantized_model_optimization.md Step 13's own
-    investigation, which found exactly this class of untested combination
-    was where the abandoned native numGroupsPerKernel path silently
-    corrupted data on real hardware)."""
+    (an earlier investigation found exactly this class of untested
+    combination was where the abandoned native numGroupsPerKernel path
+    silently corrupted data on real hardware)."""
     _check_grouped_conv(dsp_mode, 2048, 14, 14, 2048, 3, 3, 2, 1, 32, seed=6)

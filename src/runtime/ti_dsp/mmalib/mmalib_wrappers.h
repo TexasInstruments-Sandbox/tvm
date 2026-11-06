@@ -156,8 +156,7 @@ int32_t mmalib_conv2d_i8_sliced(void* input, void* kernel_tile,
  * Loops over groups internally, calling the same proven conv2d_impl used
  * by mmalib_conv2d_i8 once per group with pointer-offset input/kernel/
  * bias/scale/shift/output slices. Does NOT use MMALIB's numGroupsPerKernel
- * field -- see docs/dsp/quantized_model_optimization.md Step 13: an
- * earlier native single-call implementation using that field was abandoned
+ * field. An earlier native single-call implementation using that field was abandoned
  * after hardware testing found intermittent silent corruption (the exact
  * combination -- numGroupsPerKernel on the bias-fused convolveBias_row
  * kernel -- has no validation coverage anywhere in TI's own software).

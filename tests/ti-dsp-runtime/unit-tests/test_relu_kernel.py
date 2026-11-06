@@ -144,8 +144,8 @@ def test_relu_extremes(dsp_mode):
 @pytest.mark.core
 def test_relu_large_tensor(dsp_mode, record_cycles):
     """Large tensor (ResNeXt101-sized relu call) — confirms the vectorized
-    path scales; ResNeXt101's relu is the #1 profiled bottleneck this step
-    targets (docs/dsp/quantized_model_optimization.md Step 15)."""
+    path scales; ResNeXt101's relu is the #1 profiled bottleneck this
+    targets."""
     if dsp_mode not in ("c7x_host", "c7x_dload"):
         pytest.skip("requires c7x_host or c7x_dload")
     rng = np.random.default_rng(4)

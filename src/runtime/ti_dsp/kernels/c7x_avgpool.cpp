@@ -24,8 +24,7 @@
  * Renamed from tidl_avgpool_wrappers.c: neither kernel calls into the TIDL
  * algo library (TIDL's own TIDL_spatialAvgPool_ixX_oxX_* C7x exec path
  * assumes symmetric, zero-point-free quantization and would silently
- * mis-round our general PT2E per-tensor affine case — see
- * docs/dsp/quantized_model_optimization.md Step 12), so the `tidl_` prefix
+ * mis-round our general PT2E per-tensor affine case), so the `tidl_` prefix
  * was misleading; both kernels are pure C7x, hence `c7x_`.
  *
  * Global pool uses integer accumulation (int32 sum, no intermediate float)
@@ -120,8 +119,7 @@ static void avg_pool_scalar_rect(
 
 /* Compile-time cap on the fast-path spatial size: avg_pool_interior_fast's
  * row_scratch buffer below is fixed-size, sized to this capacity.
- * InceptionV3's largest spatial avg_pool instance is 35x35
- * (docs/dsp/quantized_model_optimization.md Step 12); 40 leaves comfortable
+ * InceptionV3's largest spatial avg_pool instance is 35x35; 40 leaves comfortable
  * margin. Anything larger falls back to the scalar avg_pool_scalar_rect
  * path via the fastpath eligibility check in c7x_int8_avg_pool below. */
 static const int32_t kFastpathMaxDim = 40;
@@ -129,10 +127,8 @@ static const int32_t kFastpathMaxDim = 40;
 /* =========================================================================
  * avg_pool_interior_fast — 3x3/stride=1/"same" interior pooling, SE-vectorized.
  *
- * Third attempt at vectorizing this kernel (see
- * docs/dsp/quantized_model_optimization.md Step 12 for the first two
- * discarded attempts and their root causes, and this step's own record for
- * a third: a version that computed the box filter via a separable
+ * Earlier attempts at vectorizing this kernel were discarded. The first
+ * alternative tried: a version that computed the box filter via a separable
  * vertical-then-horizontal sum, round-tripping partial sums through
  * scratch memory between SE passes, hung on real c7x_dload hardware —
  * passed on host emulation, but that version needed 5 sequential SE

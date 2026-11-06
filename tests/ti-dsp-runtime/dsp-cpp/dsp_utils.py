@@ -48,12 +48,11 @@ class DSPOutOfMemoryError(RuntimeError):
     callers/CI distinguish "model too big" from a real regression.
 
     requested_bytes/free_bytes/total_bytes are populated only when the
-    c7x_strerror-derived error text carried the enriched byte counts
-    (see docs/dsp/oom_reporting_design.md); None otherwise (status-only
-    fallback, e.g. the staging-overflow "File too large" signature, which
-    never carries byte counts). The values are recovered from the CLI's
-    MB-rounded text, so they are approximate and can be 0.0 for a
-    sub-megabyte allocation.
+    c7x_strerror-derived error text carried the enriched byte counts;
+    None otherwise (status-only fallback, e.g. the staging-overflow
+    "File too large" signature, which never carries byte counts). The
+    values are recovered from the CLI's MB-rounded text, so they are
+    approximate and can be 0.0 for a sub-megabyte allocation.
     """
 
     def __init__(self, message, phase, requested_bytes=None, free_bytes=None, total_bytes=None):

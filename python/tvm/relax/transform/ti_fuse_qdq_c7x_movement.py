@@ -18,8 +18,7 @@
 """Fuse QDQ-wrapped data-movement glue into vectorized int8 C kernel calls.
 
 Targets the resize2d/split/concat/reshape "head-glue" that dominates YOLO
-detection heads (see docs/dsp/quantized_model_optimization.md): after
-EliminateQDQTransparent, movement ops whose surrounding dequantize/quantize
+detection heads: after EliminateQDQTransparent, movement ops whose surrounding dequantize/quantize
 scales DIFFER (so they aren't eligible for QDQ elimination) fall through to
 a scalar float32 TIR loop at ~100-200 cycles/element. This pass intercepts
 two confirmed real patterns (found by dumping the compiled yolov8n/yolo26n

@@ -35,10 +35,10 @@ adaptive_avg_pool2d and avg_pool2d:
 
 Kernels: src/runtime/ti_dsp/kernels/c7x_avgpool.cpp
 
-Neither kernel calls into the TIDL algo library (see Step 12 in
-docs/dsp/quantized_model_optimization.md for why the equivalent
-TIDL_spatialAvgPool_ixX_oxX_* API isn't usable here), hence composite names
-and the pass itself use the `c7x_`/`C7x` prefix rather than `tidl_`.
+Neither kernel calls into the TIDL algo library (the equivalent
+TIDL_spatialAvgPool_ixX_oxX_* API assumes symmetric quantization, which
+doesn't hold for PT2E per-tensor affine), hence composite names and the pass
+itself use the `c7x_`/`C7x` prefix rather than `tidl_`.
 """
 
 import logging

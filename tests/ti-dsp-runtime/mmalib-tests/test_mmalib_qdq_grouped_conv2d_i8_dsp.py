@@ -11,8 +11,6 @@ groups reconstruction, and the per-channel weight-sum/zero-point-correction
 computation in _MMALIBQDQLowerer._lower) end-to-end, the way ResNeXt101's
 real graph actually exercises it.
 
-See docs/dsp/quantized_model_optimization.md Step 13.
-
 Usage:
     pytest test_mmalib_qdq_grouped_conv2d_i8_dsp.py -v --dsp-mode=c7x_host
 """

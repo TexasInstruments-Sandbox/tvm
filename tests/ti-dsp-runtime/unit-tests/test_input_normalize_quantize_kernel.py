@@ -213,7 +213,7 @@ def test_extremes_saturate(dsp_mode):
 @pytest.mark.core
 def test_inceptionv3_input_size(dsp_mode, record_cycles):
     """3x299x299 -- InceptionV3/GoogLeNet's actual transform_input input
-    size (docs/dsp/quantized_model_optimization.md Step 16)."""
+    size."""
     if dsp_mode not in ("c7x_host", "c7x_dload"):
         pytest.skip("requires c7x_host or c7x_dload")
     rng = np.random.default_rng(3)

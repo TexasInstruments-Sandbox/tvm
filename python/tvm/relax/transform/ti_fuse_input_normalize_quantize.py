@@ -35,7 +35,7 @@ does not match this: its quantize's operand is the model input Var itself,
 while here the quantize's operand is the concat's output (a Call).  So the
 whole chain falls through to LegalizeOps's generic scalar lowering -- one
 slow ~157-cycles/element scalar TIR PrimFunc (42.2M cycles / 15.6% of
-InceptionV3, see docs/dsp/quantized_model_optimization.md Step 16).
+InceptionV3).
 
 This is a compile-time fold, not a literal-replay kernel.  The affine
 y_c = a_c*x_c + b_c feeds directly into q = round(y*inv_scale + zp) -- the
