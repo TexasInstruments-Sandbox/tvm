@@ -691,8 +691,11 @@ static void requantize_clamp_vec(
      * to nearest without needing <math.h> roundf(). */
     const int32_t SHIFT   = 13;
     const int32_t scale_q = (int32_t)(combined_scale * (float)(1 << SHIFT) + 0.5f);
+    /* Added before each shift so it rounds half up instead of flooring. */
+    const int32_t half    = 1 << (SHIFT - 1);
 
     const __int8 scale_v = (__int8)scale_q;
+    const __int8 half_v  = (__int8)half;
     const __int8 lo_v    = (__int8)clip_lo;
     const __int8 hi_v    = (__int8)clip_hi;
 
@@ -721,10 +724,10 @@ static void requantize_clamp_vec(
         __int8 vx2 = __SE0ADV(int8);
         __int8 vx3 = __SE0ADV(int8);
 
-        __int8 a0 = (vx0 * scale_v) >> SHIFT;
-        __int8 a1 = (vx1 * scale_v) >> SHIFT;
-        __int8 a2 = (vx2 * scale_v) >> SHIFT;
-        __int8 a3 = (vx3 * scale_v) >> SHIFT;
+        __int8 a0 = (vx0 * scale_v + half_v) >> SHIFT;
+        __int8 a1 = (vx1 * scale_v + half_v) >> SHIFT;
+        __int8 a2 = (vx2 * scale_v + half_v) >> SHIFT;
+        __int8 a3 = (vx3 * scale_v + half_v) >> SHIFT;
 
         a0 = __max(__min(a0, hi_v), lo_v);
         a1 = __max(__min(a1, hi_v), lo_v);
@@ -740,7 +743,7 @@ static void requantize_clamp_vec(
     /* Cleanup: remaining full 8-element vectors (0–3). */
     for (; i < nvec; ++i) {
         __int8 vx = __SE0ADV(int8);
-        __int8 a  = __max(__min((vx * scale_v) >> SHIFT, hi_v), lo_v);
+        __int8 a  = __max(__min((vx * scale_v + half_v) >> SHIFT, hi_v), lo_v);
         __vstore_pack_byte((__char8*)(out + i*8), a);
     }
 
@@ -748,7 +751,7 @@ static void requantize_clamp_vec(
 
     /* Scalar tail: n % 8 remaining elements. */
     for (int32_t j = nvec * 8; j < n; ++j) {
-        int32_t v = ((int32_t)in[j] * scale_q) >> SHIFT;
+        int32_t v = ((int32_t)in[j] * scale_q + half) >> SHIFT;
         out[j] = (int8_t)(v < clip_lo ? clip_lo : (v > clip_hi ? clip_hi : v));
     }
 }

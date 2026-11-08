@@ -23,7 +23,12 @@
  *
  * Computes the quantized residual add emitted by FuseInt8ResidualAdd:
  *
- *   out[i] = sat_i8(((x[i]-zp_x)*M_x + (skip[i]-zp_skip)*M_skip) >> shift + zp_out)
+ *   acc    = (x[i]-zp_x)*M_x + (skip[i]-zp_skip)*M_skip
+ *   out[i] = sat_i8(((acc + half) >> shift) + zp_out),  half = 1 << (shift-1)
+ *
+ * Adding half before the shift rounds half up, the same convention as
+ * MMALIB's requantization; a bare shift would floor, biasing every output
+ * by -0.5 LSB on average.
  *
  * === Int8 vectorized path ===
  *
@@ -79,6 +84,7 @@
 struct ResidualAddParams {
     int32_t M_x, M_skip, shift;
     int32_t zp_x, zp_skip, zp_out;
+    int32_t half;  /* rounding term added before the shift */
 };
 
 static inline ResidualAddParams parse_params(const void* params) {
@@ -91,6 +97,7 @@ static inline ResidualAddParams parse_params(const void* params) {
     p.zp_x    = static_cast<int32_t>(p8[12]);
     p.zp_skip = static_cast<int32_t>(p8[13]);
     p.zp_out  = static_cast<int32_t>(p8[14]);
+    p.half    = p.shift > 0 ? (1 << (p.shift - 1)) : 0;
     return p;
 }
 
@@ -126,6 +133,7 @@ static void residual_add_i8_vec(
     const __int8 zp_x_v    = (__int8)p.zp_x;
     const __int8 zp_skip_v = (__int8)p.zp_skip;
     const __int8 zp_out_v  = (__int8)p.zp_out;
+    const __int8 half_v    = (__int8)p.half;
     /* Named as _v to distinguish from the scalar members used in the tail. */
     const __int8 lo_v      = (__int8)(-128);
     const __int8 hi_v      = (__int8)(127);
@@ -167,11 +175,11 @@ static void residual_add_i8_vec(
         __int8 a2 = (vx2 - zp_x_v) * M_x_v + (vsk2 - zp_skip_v) * M_skip_v;
         __int8 a3 = (vx3 - zp_x_v) * M_x_v + (vsk3 - zp_skip_v) * M_skip_v;
 
-        /* Right-shift to output scale, then add output zero-point. */
-        a0 = (a0 >> shift) + zp_out_v;
-        a1 = (a1 >> shift) + zp_out_v;
-        a2 = (a2 >> shift) + zp_out_v;
-        a3 = (a3 >> shift) + zp_out_v;
+        /* Round-shift to output scale, then add output zero-point. */
+        a0 = ((a0 + half_v) >> shift) + zp_out_v;
+        a1 = ((a1 + half_v) >> shift) + zp_out_v;
+        a2 = ((a2 + half_v) >> shift) + zp_out_v;
+        a3 = ((a3 + half_v) >> shift) + zp_out_v;
 
         /* Optional relu: clip negative lanes to 0.
          * __max (VMAXW) is a named C7x intrinsic for element-wise int32 max;
@@ -203,7 +211,7 @@ static void residual_add_i8_vec(
         __int8 vx  = __SE0ADV(int8);
         __int8 vsk = __SE1ADV(int8);
         __int8 a   = (vx - zp_x_v) * M_x_v + (vsk - zp_skip_v) * M_skip_v;
-        a = (a >> shift) + zp_out_v;
+        a = ((a + half_v) >> shift) + zp_out_v;
         if (has_relu) a = __max(a, zero_v);
         a = __max(__min(a, hi_v), lo_v);
         __vstore_pack_byte(reinterpret_cast<__char8*>(out + i*8), a);
@@ -216,7 +224,7 @@ static void residual_add_i8_vec(
     for (int32_t j = nvec * 8; j < n; ++j) {
         int32_t acc = (static_cast<int32_t>(x[j])    - p.zp_x)    * p.M_x
                     + (static_cast<int32_t>(skip[j]) - p.zp_skip) * p.M_skip;
-        int32_t r = (acc >> p.shift) + p.zp_out;
+        int32_t r = ((acc + p.half) >> p.shift) + p.zp_out;
         if (has_relu && r < 0) r = 0;
         if (r < -128) r = -128;
         if (r >  127) r =  127;
@@ -241,7 +249,7 @@ static void residual_add_i16_scalar(
     for (int32_t i = 0; i < n; ++i) {
         int64_t acc = (static_cast<int64_t>(x[i])    - p.zp_x)    * static_cast<int64_t>(p.M_x)
                     + (static_cast<int64_t>(skip[i]) - p.zp_skip) * static_cast<int64_t>(p.M_skip);
-        int32_t r = static_cast<int32_t>(acc >> p.shift) + p.zp_out;
+        int32_t r = static_cast<int32_t>((acc + p.half) >> p.shift) + p.zp_out;
         if (has_relu && r < 0) r = 0;
         if (r < -32768) r = -32768;
         if (r >  32767) r =  32767;

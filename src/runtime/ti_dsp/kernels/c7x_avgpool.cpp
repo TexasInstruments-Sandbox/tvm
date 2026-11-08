@@ -52,8 +52,11 @@
  * header runs, so this only breaks host emulation, not hardware builds). */
 #include <c7x.h>
 
+/* Rounds half away from zero; a bare (int32_t)(t + 0.5f) would truncate
+ * toward zero and return every negative t below -0.5 one too high. */
 static inline int8_t rq(float y, int32_t zy, float sy) {
-    int32_t v = (int32_t)(y / sy + 0.5f) + zy;
+    float t = y / sy;
+    int32_t v = (int32_t)(t >= 0.0f ? t + 0.5f : t - 0.5f) + zy;
     if (v < -128) v = -128;
     if (v >  127) v =  127;
     return (int8_t)v;
@@ -192,6 +195,7 @@ static void avg_pool_interior_fast(
      * range (sx, sy are both activation quant scales of similar magnitude)
      * with wide margin. */
     const int32_t SHIFT      = 13;
+    const int32_t half       = 1 << (SHIFT - 1);  /* round half up, not floor */
     const int32_t zx9        = 9 * zx;
     const int32_t rows       = H - 2;          /* interior output rows */
     const int32_t interior_w = W - 2;          /* interior output columns */
@@ -215,6 +219,7 @@ static void avg_pool_interior_fast(
 
         const __int8 scale_v = (__int8)scale_q;
         const __int8 zx9_v   = (__int8)zx9;
+        const __int8 half_v  = (__int8)half;
         const __int8 zy_v    = (__int8)zy;
         const __int8 lo_v    = (__int8)(-128);
         const __int8 hi_v    = (__int8)(127);
@@ -233,7 +238,7 @@ static void avg_pool_interior_fast(
                 sum9 += __SE0ADV(int8);
                 sum9 += __SE0ADV(int8);
 
-                __int8 a = ((sum9 - zx9_v) * scale_v >> SHIFT) + zy_v;
+                __int8 a = (((sum9 - zx9_v) * scale_v + half_v) >> SHIFT) + zy_v;
                 a = __max(__min(a, hi_v), lo_v);
                 __vstore_pack_byte(
                     reinterpret_cast<__char8*>(row_scratch + b * eleCount), a);
@@ -256,7 +261,7 @@ static void avg_pool_interior_fast(
                     sum9 += (int32_t)row[pw - 1] + (int32_t)row[pw] +
                             (int32_t)row[pw + 1];
                 }
-                int32_t v = ((sum9 - zx9) * scale_q) >> SHIFT;
+                int32_t v = ((sum9 - zx9) * scale_q + half) >> SHIFT;
                 v += zy;
                 out_row[pw] = (int8_t)(v < -128 ? -128 : (v > 127 ? 127 : v));
             }

@@ -2000,3 +2000,28 @@ def round_bulk_tail(values: np.ndarray, vec_width: int, tail_round_fn) -> np.nda
     out[..., :nvec] = np.round(values[..., :nvec])
     out[..., nvec:] = tail_round_fn(values[..., nvec:])
     return out
+
+
+def round_half_away(values: np.ndarray) -> np.ndarray:
+    """Round to nearest, ties away from zero, in the input's own float
+    precision: the scalar kernels' `(int32_t)(t >= 0 ? t + 0.5f : t - 0.5f)`
+    (rq_f in c7x_qdq_common.h, rq in c7x_avgpool.cpp/c7x_norm.c, and the
+    quantize tails). Returns floats; callers cast/clip.
+    """
+    values = np.asarray(values)
+    half = values.dtype.type(0.5) if np.issubdtype(values.dtype, np.floating) else 0.5
+    return np.trunc(np.where(values >= 0, values + half, values - half))
+
+
+def q13_bias(z_in: int, z_out: int, scale_q: int) -> int:
+    """Mirror of c7x_qdq_common.h's q13_bias(): the pre-shift constant that
+    makes `(x * scale_q + bias) >> 13` equal
+    round_half_up((x - z_in) * scale_q / 2^13) + z_out."""
+    return int(z_out) * (1 << 13) + (1 << 12) - int(z_in) * int(scale_q)
+
+
+def q13_rescale(x: np.ndarray, scale_q: int, bias_q: int) -> np.ndarray:
+    """Mirror of c7x_qdq_common.h's rq_i / rescale_i8_q13_vec:
+    clamp((x * scale_q + bias_q) >> 13, -128, 127) as int8."""
+    v = (np.asarray(x, dtype=np.int64) * int(scale_q) + int(bias_q)) >> 13
+    return np.clip(v, -128, 127).astype(np.int8)

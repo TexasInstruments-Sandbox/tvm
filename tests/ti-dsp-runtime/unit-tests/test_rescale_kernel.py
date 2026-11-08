@@ -4,9 +4,9 @@ Invokes the kernel via call_extern with known inputs and verifies output
 against a numpy reference.  Tests are independent of the
 FuseQDQToC7xMovement pass.
 
-c7x_int8_rescale: flat int8->int8 Q13 affine rescale
-  out[i] = sat_i8(((in[i] - zx) * scale_q >> 13) + offset)
-  scale_q = round(sx / sy * 2^13), offset = zy - ((zx * scale_q) >> 13)
+c7x_int8_rescale: flat int8->int8 Q13 affine rescale, rounding half up
+  out[i] = sat_i8((in[i] * scale_q + bias_q) >> 13)
+  scale_q = round(sx / sy * 2^13), bias_q = zy * 2^13 + 2^12 - zx * scale_q
 
 Transparent fast path fires when sx == sy and zx == zy (memcpy). Shape-
 agnostic: the kernel only sees a flat element count, so it backs any
@@ -29,7 +29,7 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import compile_and_run_dsp, get_target_string, q13_bias, q13_rescale  # noqa: E402
 
 _KERNEL = "c7x_int8_rescale"
 _SHIFT = 13
@@ -41,12 +41,8 @@ def _numpy_rescale(inp, zx, sx, zy, sy):
     _numpy_concat_rescale (single slot, no HW/channel split)."""
     if sx == sy and zx == zy:
         return inp.copy()
-    scale_q = np.int32(int(sx / sy * (1 << _SHIFT) + 0.5))
-    offset = int(zy) - int(np.int64(zx) * int(scale_q) >> _SHIFT)
-    result = np.clip((inp.astype(np.int32) * int(scale_q) >> _SHIFT) + offset, -128, 127).astype(
-        np.int8
-    )
-    return result
+    scale_q = int(sx / sy * (1 << _SHIFT) + 0.5)
+    return q13_rescale(inp, scale_q, q13_bias(zx, zy, scale_q))
 
 
 def _build_rescale_module(n, zx, sx, zy, sy):

@@ -452,8 +452,8 @@ int32_t c7x_int8_silu_f32out(
  *
  * Integer form (Q13, SHIFT=13):
  *   scale_q = round(exc_f * s_feat / s_out * 8192)
- *   offset  = z_out - ((int64_t)z_feat * scale_q >> 13)
- *   out[j]  = clamp((feature_map[c*H_W+j] * scale_q >> 13) + offset, -128,127)
+ *   bias_q  = q13_bias(z_feat, z_out, scale_q)
+ *   out[j]  = clamp((feature_map[c*H_W+j] * scale_q + bias_q) >> 13, -128,127)
  *
  * Safe range: |feat| ≤ 127, scale_q = exc_f*s_feat/s_out*8192.
  * For typical SE blocks, exc_f ∈ [0,1] and s_feat≈s_out, so scale_q ≤ 8192;
@@ -478,12 +478,13 @@ static void channel_scale_multiply_vec(
     for (int32_t c = 0; c < C; c++) {
         float scale_f = (float)(excitation[c] - z_exc) * s_exc * s_feat / s_out;
         int32_t scale_q = (int32_t)(scale_f * (float)(1 << SHIFT) + 0.5f);
-        /* Absorb z_feat into a per-channel offset so the inner loop only
-         * needs a single multiply-shift-add per element. */
-        int32_t offset = z_out - (int32_t)(((int64_t)z_feat * scale_q) >> SHIFT);
+        /* Absorb z_feat, z_out and the rounding half into one per-channel
+         * constant so the inner loop only needs a multiply-add-shift per
+         * element. */
+        int32_t bias_q = q13_bias(z_feat, z_out, scale_q);
 
         const __int8 scale_v = (__int8)scale_q;
-        const __int8 off_v   = (__int8)offset;
+        const __int8 bias_v  = (__int8)bias_q;
 
         const int8_t* fm_ch  = feature_map + (int32_t)c * H_W;
         int8_t*       out_ch = out         + (int32_t)c * H_W;
@@ -507,10 +508,10 @@ static void channel_scale_multiply_vec(
             __int8 vx2 = __SE0ADV(int8);
             __int8 vx3 = __SE0ADV(int8);
 
-            __int8 a0 = __max(__min((vx0 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-            __int8 a1 = __max(__min((vx1 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-            __int8 a2 = __max(__min((vx2 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-            __int8 a3 = __max(__min((vx3 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
+            __int8 a0 = __max(__min((vx0 * scale_v + bias_v) >> SHIFT, hi_v), lo_v);
+            __int8 a1 = __max(__min((vx1 * scale_v + bias_v) >> SHIFT, hi_v), lo_v);
+            __int8 a2 = __max(__min((vx2 * scale_v + bias_v) >> SHIFT, hi_v), lo_v);
+            __int8 a3 = __max(__min((vx3 * scale_v + bias_v) >> SHIFT, hi_v), lo_v);
 
             __vstore_pack_byte((__char8*)(out_ch + (i+0)*8), a0);
             __vstore_pack_byte((__char8*)(out_ch + (i+1)*8), a1);
@@ -520,7 +521,7 @@ static void channel_scale_multiply_vec(
 
         for (; i < nvec; ++i) {
             __int8 vx = __SE0ADV(int8);
-            __int8 a  = __max(__min((vx * scale_v >> SHIFT) + off_v, hi_v), lo_v);
+            __int8 a  = __max(__min((vx * scale_v + bias_v) >> SHIFT, hi_v), lo_v);
             __vstore_pack_byte((__char8*)(out_ch + i*8), a);
         }
 
@@ -528,7 +529,7 @@ static void channel_scale_multiply_vec(
 
         /* Scalar tail: H_W % 8 remaining elements. */
         for (int32_t j = nvec * 8; j < H_W; ++j) {
-            int32_t v = ((int32_t)fm_ch[j] * scale_q >> SHIFT) + offset;
+            int32_t v = ((int32_t)fm_ch[j] * scale_q + bias_q) >> SHIFT;
             out_ch[j] = (int8_t)(v < -128 ? -128 : (v > 127 ? 127 : v));
         }
     }

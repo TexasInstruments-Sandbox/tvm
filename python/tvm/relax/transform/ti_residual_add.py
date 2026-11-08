@@ -26,8 +26,9 @@ Replaces with a single call_extern to a fixed-point integer kernel:
   - int8 inputs  → c7x_int8_residual_add_relu  → int8 output
   - int16 inputs → c7x_int16_residual_add_relu → int16 output
 
-The kernel computes:
-    out[i] = sat(((x[i]-zp_x)*M_x + (skip[i]-zp_skip)*M_skip) >> shift + zp_out)
+The kernel computes, rounding half up:
+    acc    = (x[i]-zp_x)*M_x + (skip[i]-zp_skip)*M_skip
+    out[i] = sat(((acc + (1 << (shift-1))) >> shift) + zp_out)
 
 Where M_x, M_skip, shift are compile-time constants derived from the
 quantization scales.  This eliminates float32 intermediate computation

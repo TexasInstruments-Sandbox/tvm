@@ -31,8 +31,11 @@
 #include <math.h>
 #include <stdint.h>
 
+/* Rounds half away from zero; a bare (int32_t)(t + 0.5f) would truncate
+ * toward zero and return every negative t below -0.5 one too high. */
 static inline int8_t rq(float y, int32_t zy, float sy) {
-    int32_t v = (int32_t)(y / sy + 0.5f) + zy;
+    float t = y / sy;
+    int32_t v = (int32_t)(t >= 0.0f ? t + 0.5f : t - 0.5f) + zy;
     if (v < -128) v = -128;
     if (v >  127) v =  127;
     return (int8_t)v;

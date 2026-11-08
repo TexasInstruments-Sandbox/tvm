@@ -31,13 +31,13 @@ With the kernel fix in place, c7x_host now runs the same vectorized paths
 as hardware, so the references must model those exactly rather than an
 idealized scalar formula:
   - _numpy_channel_scale_multiply replicates channel_scale_multiply_vec's
-    Q13 fixed-point integer arithmetic bit-for-bit (bare, unrounded right
-    shifts), the same convention test_concat_kernel.py's
-    _numpy_concat_rescale already uses for c7x_int8_concat_rescale.
+    Q13 fixed-point integer arithmetic bit-for-bit (round-half-up via a
+    pre-shift q13_bias), the same convention test_concat_kernel.py's
+    _numpy_concat_rescale uses for c7x_int8_concat_rescale.
   - _numpy_hardswish splits by vectorized-bulk vs. scalar-tail, since
     hardswish_vec itself uses two different rounding rules for the two
     regions (round-to-nearest-even via hardware __float_to_int in the
-    bulk; round-half-up via rq_f in the tail -- see
+    bulk; round-half-away-from-zero via rq_f in the tail -- see
     test_input_normalize_quantize_kernel.py's _numpy_quantize_rgb for the
     same pattern), and keeps the bulk path in float32 throughout
     (matching __float8 arithmetic, including multiplying by a
@@ -63,7 +63,14 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import bulk_tail_split, compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import (  # noqa: E402
+    bulk_tail_split,
+    compile_and_run_dsp,
+    get_target_string,
+    q13_bias,
+    q13_rescale,
+    round_half_away,
+)
 
 # ---------------------------------------------------------------------------
 # Reference implementations
@@ -74,8 +81,8 @@ def _numpy_hardswish(inp, zx, sx, zy, sy):
     # hardswish_vec's vectorized bulk requantizes via a bare
     # vf*vinvsy+vzy then hardware __float_to_int (VSPINT, documented as
     # round-to-nearest-even); its own scalar tail -- inside the same
-    # function -- instead calls rq_f: (int32_t)(y/scale + 0.5f), i.e.
-    # trunc(x+0.5), round-half-up. Two different rounding rules within
+    # function -- instead calls rq_f, which rounds half away from zero.
+    # Two different rounding rules within
     # one kernel invocation depending on which elements land in the
     # vectorized bulk (HW // 8 * 8 elements) vs. the tail (n % 8) --
     # reproduce both exactly rather than assuming one rounding rule for
@@ -103,7 +110,7 @@ def _numpy_hardswish(inp, zx, sx, zy, sy):
     q_bulk = np.clip(y[:nvec8] * invsy + zy32, lo, hi)
     bulk_out = np.round(q_bulk).astype(np.int32)  # ties-to-even, matches __float_to_int
 
-    tail_out = np.trunc(y[nvec8:].astype(np.float64) / float(sy) + 0.5).astype(np.int32) + zy
+    tail_out = round_half_away(y[nvec8:].astype(np.float64) / float(sy)).astype(np.int32) + zy
 
     out = np.empty(n, dtype=np.int32)
     out[:nvec8] = bulk_out
@@ -117,22 +124,18 @@ def _numpy_channel_scale_multiply(exc, fm, C, H_W, s_exc, z_exc, s_feat, z_feat,
     # path (c7x_activation.cpp), never the float rq_f-based
     # scalar fallback (that only exists for non-__C7524__ targets, never
     # built here). Replicate that Q13 algorithm exactly -- same per-channel
-    # scale_q rounding, same bare (floor, not round-to-nearest) right
-    # shifts for the offset and every per-element product -- following
-    # test_concat_kernel.py's _numpy_concat_rescale, which models
-    # c7x_int8_concat_rescale's identical Q13-bare-shift pattern the same
-    # way.
+    # scale_q rounding, same pre-shift q13_bias (zero points plus the
+    # rounding half) -- following test_concat_kernel.py's
+    # _numpy_concat_rescale, which models c7x_int8_concat_rescale's
+    # identical Q13 pattern the same way.
     SHIFT = 13
-    out = np.zeros(C * H_W, dtype=np.int32)
+    out = np.zeros(C * H_W, dtype=np.int8)
     for c in range(C):
         scale_f = float(int(exc[c]) - z_exc) * s_exc * s_feat / s_out
         scale_q = int(scale_f * (1 << SHIFT) + 0.5)
-        offset = int(z_out) - (int(z_feat) * scale_q >> SHIFT)
-        for j in range(H_W):
-            feat = int(fm[c * H_W + j])
-            v = (feat * scale_q >> SHIFT) + offset
-            out[c * H_W + j] = np.clip(v, -128, 127)
-    return out.astype(np.int8)
+        bias_q = q13_bias(z_feat, z_out, scale_q)
+        out[c * H_W : (c + 1) * H_W] = q13_rescale(fm[c * H_W : (c + 1) * H_W], scale_q, bias_q)
+    return out
 
 
 # ---------------------------------------------------------------------------

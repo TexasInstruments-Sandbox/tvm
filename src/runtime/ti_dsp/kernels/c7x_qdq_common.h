@@ -75,17 +75,31 @@ static inline float sigmoid_f(float x) {
     return 1.0f / (1.0f + expf(-x));
 }
 
+/* Rounds half away from zero, like the scalar tails in c7x_quantize.cpp.
+ * A bare (int32_t)(t + 0.5f) truncates toward zero, which returns every
+ * negative t below -0.5 one too high. */
 static inline int8_t rq_f(float y, int32_t zp, float scale) {
-    int32_t v = (int32_t)(y / scale + 0.5f);
+    float t = y / scale;
+    int32_t v = (int32_t)(t >= 0.0f ? t + 0.5f : t - 0.5f);
     v += zp;
     if (v < -128) v = -128;
     if (v >  127) v =  127;
     return (int8_t)v;
 }
 
-static inline int8_t rq_i(int32_t x, int32_t scale_q, int32_t offset) {
-    /* Q13 fixed-point requantize: ((x * scale_q) >> 13) + offset, clamped. */
-    int32_t v = ((int32_t)x * scale_q >> 13) + offset;
+/* Pre-shift constant for the Q13 rescale: with it,
+ *   (x * scale_q + bias_q) >> 13 == round((x - z_in) * scale_q / 2^13) + z_out
+ * rounding half up, the same convention as MMALIB's requantization. z_out
+ * enters as a multiple of 2^13, which the arithmetic shift passes through
+ * exactly, so rounding costs no extra operation over a bare shift. */
+static inline int32_t q13_bias(int32_t z_in, int32_t z_out, int32_t scale_q) {
+    return (int32_t)((int64_t)z_out * (1 << 13) + (1 << 12) -
+                     (int64_t)z_in * scale_q);
+}
+
+static inline int8_t rq_i(int32_t x, int32_t scale_q, int32_t bias_q) {
+    /* Q13 fixed-point requantize, clamped; bias_q from q13_bias(). */
+    int32_t v = (x * scale_q + bias_q) >> 13;
     if (v < -128) v = -128;
     if (v >  127) v =  127;
     return (int8_t)v;
@@ -109,7 +123,8 @@ static inline __SE_TEMPLATE_v1 se_int8_signext_template(uint32_t icnt0) {
 
 /* =========================================================================
  * Q13 fixed-point affine rescale core (from c7x_concat.cpp's
- * rescale_slot_vec): out[j] = clamp((src[j] * scale_q >> 13) + offset).
+ * rescale_slot_vec): out[j] = clamp((src[j] * scale_q + bias_q) >> 13),
+ * bias_q from q13_bias().
  * SE-streamed + 4x-unrolled main loop, single-vector remainder, scalar tail.
  * ========================================================================= */
 
@@ -118,9 +133,9 @@ static inline void rescale_i8_q13_vec(
         int8_t*       __restrict__ dst,
         int32_t n_elem,
         int32_t scale_q,
-        int32_t offset) {
+        int32_t bias_q) {
     const __int8 scale_v = (__int8)scale_q;
-    const __int8 off_v   = (__int8)offset;
+    const __int8 bias_v  = (__int8)bias_q;
     const __int8 lo_v    = (__int8)(-128);
     const __int8 hi_v    = (__int8)(127);
     const int32_t SHIFT  = 13;
@@ -141,10 +156,10 @@ static inline void rescale_i8_q13_vec(
         __int8 vx2 = __SE0ADV(int8);
         __int8 vx3 = __SE0ADV(int8);
 
-        __int8 a0 = __max(__min((vx0 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-        __int8 a1 = __max(__min((vx1 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-        __int8 a2 = __max(__min((vx2 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
-        __int8 a3 = __max(__min((vx3 * scale_v >> SHIFT) + off_v, hi_v), lo_v);
+        __int8 a0 = __max(__min((vx0 * scale_v + bias_v) >> SHIFT, hi_v), lo_v);
+        __int8 a1 = __max(__min((vx1 * scale_v + bias_v) >> SHIFT, hi_v), lo_v);
+        __int8 a2 = __max(__min((vx2 * scale_v + bias_v) >> SHIFT, hi_v), lo_v);
+        __int8 a3 = __max(__min((vx3 * scale_v + bias_v) >> SHIFT, hi_v), lo_v);
 
         __vstore_pack_byte((__char8*)(dst + (i+0)*8), a0);
         __vstore_pack_byte((__char8*)(dst + (i+1)*8), a1);
@@ -154,7 +169,7 @@ static inline void rescale_i8_q13_vec(
 
     for (; i < nvec; ++i) {
         __int8 vx = __SE0ADV(int8);
-        __int8 a  = __max(__min((vx * scale_v >> SHIFT) + off_v, hi_v), lo_v);
+        __int8 a  = __max(__min((vx * scale_v + bias_v) >> SHIFT, hi_v), lo_v);
         __vstore_pack_byte((__char8*)(dst + i*8), a);
     }
 
@@ -162,7 +177,7 @@ static inline void rescale_i8_q13_vec(
 
     /* Scalar tail: n_elem % 8 remaining elements. */
     for (int32_t j = nvec * 8; j < n_elem; ++j)
-        dst[j] = rq_i((int32_t)src[j], scale_q, offset);
+        dst[j] = rq_i((int32_t)src[j], scale_q, bias_q);
 }
 
 /* =========================================================================

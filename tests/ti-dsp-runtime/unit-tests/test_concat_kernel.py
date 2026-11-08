@@ -6,8 +6,8 @@ output against a numpy reference.  Tests are independent of FuseQDQToC7xConcat.
 The kernel concatenates up to 4 int8 NCHW tensors along the channel axis with
 per-input requantization.  Unused slots are indicated by C_i=0.
 
-Operation per input i, element x:
-  output = sat_i8(trunc((x - z_i) * s_i / s_out + 0.5) + z_out)
+Operation per input i, element x (rounding half up):
+  output = sat_i8(floor((x - z_i) * s_i / s_out + 0.5) + z_out)
 
 Transparent fast path fires when s_i == s_out and z_i == z_out; uses memcpy.
 
@@ -28,7 +28,7 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import compile_and_run_dsp, get_target_string, q13_bias, q13_rescale  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Reference implementation
@@ -45,20 +45,16 @@ def _numpy_concat_rescale(inputs_zp_s, s_out, z_out):
 
     Kernel computes:
       scale_q = round(s_i / s_out * 2^13)
-      offset  = z_out - ((z_in * scale_q) >> 13)   [arithmetic right shift]
-      out[j]  = clip((in[j] * scale_q >> 13) + offset, -128, 127)
+      bias_q  = z_out * 2^13 + 2^12 - z_in * scale_q   [q13_bias]
+      out[j]  = clip((in[j] * scale_q + bias_q) >> 13, -128, 127)
 
     Transparent slot (s_i == s_out, z_i == z_out): kernel uses memcpy, which is
-    equivalent to Q13 with scale_q=8192, offset=0.
+    equivalent to Q13 with scale_q=8192 (bias_q reduces to the rounding half).
     """
     parts = []
     for inp, s_i, z_i in inputs_zp_s:
-        scale_q = np.int32(int(s_i / s_out * (1 << _SHIFT) + 0.5))
-        offset = int(z_out) - int(np.int64(z_i) * int(scale_q) >> _SHIFT)
-        result = np.clip(
-            (inp.astype(np.int32) * int(scale_q) >> _SHIFT) + offset, -128, 127
-        ).astype(np.int8)
-        parts.append(result)
+        scale_q = int(s_i / s_out * (1 << _SHIFT) + 0.5)
+        parts.append(q13_rescale(inp, scale_q, q13_bias(z_i, z_out, scale_q)))
     return np.concatenate(parts, axis=0)
 
 

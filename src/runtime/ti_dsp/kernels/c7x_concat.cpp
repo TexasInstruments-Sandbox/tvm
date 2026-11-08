@@ -76,13 +76,13 @@ static void process_slot(
 
     /* Q13 fixed-point rescale. */
     int32_t scale_q = (int32_t)(s_in / s_out * (float)(1 << SHIFT) + 0.5f);
-    int32_t offset  = z_out - (int32_t)(((int64_t)z_in * scale_q) >> SHIFT);
+    int32_t bias_q  = q13_bias(z_in, z_out, scale_q);
 
 #ifdef __C7524__
-    rescale_i8_q13_vec(src, dst, n_elem, scale_q, offset);
+    rescale_i8_q13_vec(src, dst, n_elem, scale_q, bias_q);
 #else
     for (int32_t j = 0; j < n_elem; ++j)
-        dst[j] = rq_i((int32_t)src[j], scale_q, offset);
+        dst[j] = rq_i((int32_t)src[j], scale_q, bias_q);
 #endif
 }
 

@@ -53,13 +53,13 @@ int32_t c7x_int8_rescale(
 
     const int32_t SHIFT = 13;
     int32_t scale_q = (int32_t)(sx / sy * (float)(1 << SHIFT) + 0.5f);
-    int32_t offset  = zy - (int32_t)(((int64_t)zx * scale_q) >> SHIFT);
+    int32_t bias_q  = q13_bias(zx, zy, scale_q);
 
 #ifdef __C7524__
-    rescale_i8_q13_vec(src, dst, n, scale_q, offset);
+    rescale_i8_q13_vec(src, dst, n, scale_q, bias_q);
 #else
     for (int32_t j = 0; j < n; ++j)
-        dst[j] = rq_i((int32_t)src[j], scale_q, offset);
+        dst[j] = rq_i((int32_t)src[j], scale_q, bias_q);
 #endif
     return 0;
 }

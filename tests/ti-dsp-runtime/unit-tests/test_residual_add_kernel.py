@@ -4,8 +4,9 @@ Directly invokes the kernel via call_extern with known inputs and verifies
 output against a numpy reference.  Tests the kernel in isolation, independent
 of the FuseInt8ResidualAdd pass.
 
-The kernel computes:
-  out[i] = sat_i8(((x[i]-zp_x)*M_x + (skip[i]-zp_skip)*M_skip) >> shift + zp_out)
+The kernel computes, rounding half up:
+  acc    = (x[i]-zp_x)*M_x + (skip[i]-zp_skip)*M_skip
+  out[i] = sat_i8(((acc + (1 << (shift-1))) >> shift) + zp_out)
 
 Test coverage:
   - Symmetric quantization (all zero-points = 0), with and without relu
@@ -55,7 +56,8 @@ def _numpy_ref_i8(x, skip, M_x, M_skip, shift, zp_x, zp_skip, zp_out, has_relu):
     x    = x.astype(np.int32)
     skip = skip.astype(np.int32)
     acc  = (x - zp_x) * M_x + (skip - zp_skip) * M_skip
-    r    = (acc >> shift) + zp_out  # arithmetic right shift
+    half = (1 << (shift - 1)) if shift > 0 else 0
+    r    = ((acc + half) >> shift) + zp_out  # arithmetic right shift
     if has_relu:
         r = np.maximum(r, 0)
     return np.clip(r, -128, 127).astype(np.int8)
@@ -66,7 +68,8 @@ def _numpy_ref_i16(x, skip, M_x, M_skip, shift, zp_x, zp_skip, zp_out, has_relu)
     x    = x.astype(np.int64)
     skip = skip.astype(np.int64)
     acc  = (x - zp_x) * M_x + (skip - zp_skip) * M_skip
-    r    = (acc >> shift).astype(np.int32) + zp_out
+    half = (1 << (shift - 1)) if shift > 0 else 0
+    r    = ((acc + half) >> shift).astype(np.int32) + zp_out
     if has_relu:
         r = np.maximum(r, 0)
     return np.clip(r, -32768, 32767).astype(np.int16)

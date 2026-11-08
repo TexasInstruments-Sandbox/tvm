@@ -312,11 +312,18 @@ and replaces it with one call to `c7x_int8_residual_add_relu` or
 `c7x_int16_residual_add_relu`, computing:
 
 ```
-out[i] = sat(((x[i]-x_zp)*M_x + (skip[i]-skip_zp)*M_skip) >> shift + out_zp)
+acc    = (x[i]-x_zp)*M_x + (skip[i]-skip_zp)*M_skip
+out[i] = sat(((acc + (1 << (shift-1))) >> shift) + out_zp)
 ```
 
 with `M_x`, `M_skip`, and `shift` derived from the quantization scales at
-compile time. Because TVM's pattern matcher isn't commutative
+compile time. The half added before the shift rounds half up, matching
+MMALIB's own requantization. The other scalar requant kernels follow the
+same rule: Q13 fixed-point paths (concat/rescale, channel scale multiply,
+3x3 avg pool, requantize_clamp) add `2^12` before `>> 13`, and the float
+paths (`rq_f` and friends) round half away from zero.
+
+Because TVM's pattern matcher isn't commutative
 (`add(a, b)` doesn't match `add(b, a)`), there are 4 pattern variants per
 dtype — {relu, no-relu} × {operand order `add(x, skip)`, order
 `add(skip, x)`} — 8 total across int8 and int16. Int16 additionally

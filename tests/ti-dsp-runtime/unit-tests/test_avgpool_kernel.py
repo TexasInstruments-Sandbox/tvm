@@ -5,15 +5,15 @@ output against a numpy reference. Tests are independent of FuseQDQToC7xAvgPool.
 
 The kernel's scalar path (used for the 1-pixel border of the fast path, and
 for any config other than kH=kW=3/sH=sW=1/pH=pW=1) matches a float
-dequantize -> mean -> requantize formula with round-half-up rounding
-(np.trunc(y/scale + 0.5), matching the kernel's (int32_t)(y/scale + 0.5f)).
+dequantize -> mean -> requantize formula rounding half away from zero
+(the kernel's rq()).
 
 The fast path's interior (away from the 1-pixel pad border, where all 9
-window taps are valid) uses Q13 fixed-point instead: this is a *truncating*
-right shift, not round-to-nearest -- same convention as
+window taps are valid) uses Q13 fixed-point instead, rounding half up (a
+2^12 term added before the >> 13) -- same convention as
 c7x_int8_requantize_clamp / c7x_int8_concat_rescale, whose unit tests also
-match the kernel's exact integer arithmetic rather than an idealized
-rounding. The reference below reproduces both paths bit-for-bit.
+match the kernel's exact integer arithmetic. The reference below reproduces
+both paths bit-for-bit.
 
 Usage:
     pytest test_avgpool_kernel.py -v --dsp-mode=c7x_host
@@ -32,7 +32,7 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import compile_and_run_dsp, get_target_string, round_half_away  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Numpy reference
@@ -43,8 +43,8 @@ _SHIFT = 13
 
 
 def _rq(y, zy, sy):
-    """Matches the kernel's scalar rq(): (int32_t)(y/sy + 0.5f) + zy, clamped."""
-    v = np.trunc(y / sy + 0.5).astype(np.int64) + zy
+    """Matches the kernel's scalar rq(): round half away from zero, + zy, clamped."""
+    v = round_half_away(y / sy).astype(np.int64) + zy
     return int(np.clip(v, -128, 127))
 
 
@@ -83,7 +83,7 @@ def _numpy_avg_pool_fastpath(x2d, zx, sx, zy, sy):
 
     Border (rows/cols 0 and H-1/W-1): scalar rq() path, unchanged.
     Interior [1, H-2] x [1, W-2]: Q13 fixed-point, matching
-    avg_pool_interior_vec exactly (truncating >> _SHIFT, not rounded).
+    avg_pool_interior_fast exactly (half added before >> _SHIFT).
     """
     H, W = x2d.shape
     out = _numpy_avg_pool_scalar(x2d, 3, 3, 1, 1, 1, 1, zx, sx, zy, sy)
@@ -101,7 +101,7 @@ def _numpy_avg_pool_fastpath(x2d, zx, sx, zy, sy):
     for ph in range(1, H - 1):
         for pw in range(1, W - 1):
             sum9 = int(xi[ph - 1 : ph + 2, pw - 1 : pw + 2].sum())
-            v = ((sum9 - 9 * zx) * scale_q) >> _SHIFT
+            v = ((sum9 - 9 * zx) * scale_q + (1 << (_SHIFT - 1))) >> _SHIFT
             v += zy
             out[ph, pw] = np.clip(v, -128, 127)
     return out

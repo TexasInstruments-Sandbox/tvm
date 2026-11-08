@@ -38,7 +38,12 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import bulk_tail_split, compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import (  # noqa: E402
+    bulk_tail_split,
+    compile_and_run_dsp,
+    get_target_string,
+    round_half_away,
+)
 
 # ---------------------------------------------------------------------------
 # Reference implementation
@@ -118,7 +123,7 @@ def _numpy_silu(inp, zx, sx, zy, sy):
     x_tail = inp[nvec8:].astype(np.float64)
     y_tail = (x_tail - zx) * sx
     y_tail = y_tail / (1.0 + np.exp(-y_tail))
-    tail_out = np.trunc(y_tail / float(sy) + 0.5).astype(np.int32) + zy
+    tail_out = round_half_away(y_tail / float(sy)).astype(np.int32) + zy  # rq_f
 
     out = np.empty(n, dtype=np.int32)
     out[:nvec8] = bulk_out

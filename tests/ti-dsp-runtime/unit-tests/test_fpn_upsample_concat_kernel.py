@@ -33,7 +33,7 @@ _THIS_DIR = Path(__file__).parent
 _DSP_CPP_DIR = _THIS_DIR.parent / "dsp-cpp"
 sys.path.insert(0, str(_DSP_CPP_DIR))
 
-from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from dsp_utils import compile_and_run_dsp, get_target_string, round_half_away  # noqa: E402
 
 _KERNEL = "c7x_int8_fpn_upsample_concat"
 
@@ -44,7 +44,7 @@ def _numpy_silu_requant(x_i8, zx, sx, zy, sy):
     kernel has no SE-vectorized path -- see c7x_rescale.h)."""
     xf = (x_i8.astype(np.float64) - zx) * sx
     yf = xf / (1.0 + np.exp(-xf))
-    v = np.trunc(yf / sy + 0.5).astype(np.int64) + zy
+    v = round_half_away(yf / sy).astype(np.int64) + zy
     return np.clip(v, -128, 127).astype(np.int8)
 
 
@@ -55,7 +55,7 @@ def _numpy_rescale_requant(x_i8, zx, sx, zy, sy):
     (same rationale as test_silu_kernel.py's bulk-path note)."""
     f32 = np.float32
     xf = (x_i8.astype(f32) - f32(zx)) * f32(sx)
-    v = np.trunc(xf / f32(sy) + f32(0.5)).astype(np.int64) + zy
+    v = round_half_away(xf / f32(sy)).astype(np.int64) + zy
     return np.clip(v, -128, 127).astype(np.int8)
 
 
