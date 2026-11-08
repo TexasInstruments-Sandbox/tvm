@@ -203,11 +203,17 @@ When DMA fires, the single `call_extern` is wrapped:
 Allocate l2_guard[int8, guard_bytes]        # SE backward-prefetch guard
   Allocate l2_input[int8, input_bytes]
     Allocate l2_weight[int8, weight_bytes]  # omitted if weights don't fit
-      Evaluate(tvm_dsp_dma_copy(0, l2_input,  ddr_input,  input_bytes,  0))
-      Evaluate(tvm_dsp_dma_copy(0, l2_weight, ddr_weight, weight_bytes, 0))
-      Evaluate(tvm_dsp_dma_wait(0, 0))      # block until complete
-      Evaluate(mmalib_matmul_bias_i8(l2_input, l2_weight, bias, scale, shift, ...))
+      checked(tvm_dsp_dma_copy(0, l2_input,  ddr_input,  input_bytes,  0))
+      checked(tvm_dsp_dma_copy(0, l2_weight, ddr_weight, weight_bytes, 0))
+      checked(tvm_dsp_dma_wait(0, 0))      # block until complete
+      checked(mmalib_matmul_bias_i8(l2_input, l2_weight, bias, scale, shift, ...))
 ```
+
+`checked(...)` is the `_call_extern_checked` form (a `Bind` of the status
+followed by an `IfThenElse`): a non-zero status calls
+`tvm_dsp_report_error` and returns `-1` from the PrimFunc. The DMA calls
+are checked like the kernel call, because a rejected copy would otherwise
+leave the L2 buffer holding stale data for the kernel to compute on.
 
 The guard allocation (`pad_top * w_in * elem_bytes`, min 128 bytes)
 bumps the L2 bump pointer so the input buffer does not start at address 0

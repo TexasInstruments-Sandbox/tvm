@@ -27,6 +27,8 @@ C7x TIR pipeline.  It emits:
   - AllocBuffer(scope="global.l2sram") for L2 buffers
   - call_extern("tvm_dsp_dma_copy") for async DMA transfers
   - call_extern("tvm_dsp_dma_wait") to block until complete
+    (both status-checked, like the MMALIB call: a failed copy aborts the
+    PrimFunc instead of leaving stale L2 data for the kernel to read)
   - Modified MMALIB call_extern with L2 buffer pointers
 
 LowerL2SramAlloc converts the AllocBuffer statements to tvm_l2_alloc at runtime.
@@ -310,6 +312,18 @@ def _with_l2_allocs(allocs, body, decls=()):
     return tirx.SeqStmt([*(tirx.AllocBuffer(buf) for buf in allocs), *decls, body])
 
 
+def _dma_copy(queue_id, dst, src, nbytes, bypass):
+    """Status-checked tvm_dsp_dma_copy: a copy the runtime rejects leaves the
+    L2 destination holding stale data, which the MMALIB call would then
+    compute on as if the copy had happened."""
+    return _call_extern_checked("int32", "tvm_dsp_dma_copy", queue_id, dst, src, nbytes, bypass)
+
+
+def _dma_wait(queue_id, max_inflight):
+    """Status-checked tvm_dsp_dma_wait."""
+    return _call_extern_checked("int32", "tvm_dsp_dma_wait", queue_id, max_inflight)
+
+
 def _inject_dma(func, l2_budget):
     """Transform a MMALIB PrimFunc to prefetch data into L2 via DMA."""
     call_node, extern_name, checked = _find_mmalib_call(func.body)
@@ -415,21 +429,15 @@ def _inject_dma(func, l2_budget):
 
         # DMA full input once (stays in L2 for all OC tiles)
         stmts.append(
-            tirx.Evaluate(
-                tirx.call_extern(
-                    "int32",
-                    "tvm_dsp_dma_copy",
-                    queue_id,
-                    tirx.buffer_data(l2_input_var),
-                    call_node.args[dims["input_arg_idx"]],
-                    tirx.const(input_bytes, "int32"),
-                    bypass,
-                )
+            _dma_copy(
+                queue_id,
+                tirx.buffer_data(l2_input_var),
+                call_node.args[dims["input_arg_idx"]],
+                tirx.const(input_bytes, "int32"),
+                bypass,
             )
         )
-        stmts.append(
-            tirx.Evaluate(tirx.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight))
-        )
+        stmts.append(_dma_wait(queue_id, zero_inflight))
 
         # Build For loop: one weight-tile DMA + sliced call per iteration
         oc_idx = tirx.Var("oc_chunk", "int32")
@@ -473,20 +481,10 @@ def _inject_dma(func, l2_budget):
         ]
         tile_body = tirx.SeqStmt(
             [
-                tirx.Evaluate(
-                    tirx.call_extern(
-                        "int32",
-                        "tvm_dsp_dma_copy",
-                        queue_id,
-                        tirx.buffer_data(l2_weight_var),
-                        wt_tile_src,
-                        actual_dma,
-                        bypass,
-                    )
+                _dma_copy(
+                    queue_id, tirx.buffer_data(l2_weight_var), wt_tile_src, actual_dma, bypass
                 ),
-                tirx.Evaluate(
-                    tirx.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)
-                ),
+                _dma_wait(queue_id, zero_inflight),
                 tirx.Evaluate(tvm.ir.Call(call_node.op, sliced_args, ret_ty=call_node.ty)),
             ]
         )
@@ -511,34 +509,31 @@ def _inject_dma(func, l2_budget):
 
     l2_input_var = _l2_buffer("l2_input", input_bytes)
     l2_vars[dims["input_arg_idx"]] = (l2_input_var, input_bytes)
-    dma_copy = tirx.call_extern(
-        "int32",
-        "tvm_dsp_dma_copy",
-        queue_id,
-        l2_input_var,
-        call_node.args[dims["input_arg_idx"]],
-        tirx.const(input_bytes, "int32"),
-        bypass,
+    stmts.append(
+        _dma_copy(
+            queue_id,
+            l2_input_var,
+            call_node.args[dims["input_arg_idx"]],
+            tirx.const(input_bytes, "int32"),
+            bypass,
+        )
     )
-    stmts.append(tirx.Evaluate(dma_copy))
 
     if cache_weight:
         l2_weight_var = _l2_buffer("l2_weight", weight_bytes)
         l2_vars[dims["weight_arg_idx"]] = (l2_weight_var, weight_bytes)
-        dma_copy = tirx.call_extern(
-            "int32",
-            "tvm_dsp_dma_copy",
-            queue_id,
-            tirx.buffer_data(l2_weight_var),
-            call_node.args[dims["weight_arg_idx"]],
-            tirx.const(weight_bytes, "int32"),
-            bypass,
+        stmts.append(
+            _dma_copy(
+                queue_id,
+                tirx.buffer_data(l2_weight_var),
+                call_node.args[dims["weight_arg_idx"]],
+                tirx.const(weight_bytes, "int32"),
+                bypass,
+            )
         )
-        stmts.append(tirx.Evaluate(dma_copy))
 
     # Wait for all DMAs to complete
-    dma_wait = tirx.call_extern("int32", "tvm_dsp_dma_wait", queue_id, zero_inflight)
-    stmts.append(tirx.Evaluate(dma_wait))
+    stmts.append(_dma_wait(queue_id, zero_inflight))
 
     # Modified MMALIB call with L2 pointers. Preserve the status-check
     # wrapper (_call_extern_checked) if the original call had one, or its
