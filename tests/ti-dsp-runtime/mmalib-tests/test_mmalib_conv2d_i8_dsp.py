@@ -231,3 +231,42 @@ def test_mmalib_conv2d_i8_qdq(dsp_mode, record_cycles):
         print(f"  Loop-based (C7x scalar):  {loop_cycles:>12,} cycles")
         print(f"  Speedup:                  {loop_cycles / max(mmalib_cycles, 1):>12.1f}x")
     print(f"{'='*60}")
+
+
+def test_mmalib_conv2d_i8_odd_input_size(dsp_mode):
+    """MMALIB conv whose input byte size is odd and above 0xFFFF.
+
+    InjectMMALIBDMA copies the input (3x151x151 int8 = 68403 bytes) into L2
+    before the MMALIB call. The board DMA splits a copy into a power-of-two
+    block times a 16-bit block count, so it used to reject this size and the
+    conv read stale L2 data instead. Host emulation copies with memcpy, so
+    only c7x_dload exercises the board DMA path; InceptionV3's 3x299x299
+    input (268203 bytes) hit it.
+    """
+    if dsp_mode not in ("c7x_host", "c7x_dload"):
+        pytest.skip("MMALIB test requires c7x_host or c7x_dload")
+
+    c_in, h, w = 3, 151, 151
+    c_out, kh, kw = 8, 3, 3
+    padding = 1
+    assert (c_in * h * w) % 2 == 1 and c_in * h * w > 0xFFFF
+
+    mod, input_data, kernel_data, d_scale, w_scale, o_scale, bias_data = (
+        _create_qdq_conv2d_model(c_in, h, w, c_out, kh, kw, padding)
+    )
+    ref_output = _numpy_qdq_conv2d_i8(
+        input_data, kernel_data, d_scale, w_scale, o_scale, bias_data, padding
+    )
+
+    results = compile_and_run_dsp(
+        mod=mod,
+        input_data=input_data,
+        target_string=get_target_string(dsp_mode, use_cpp_api=True) + " -mmalib=1",
+        execution_mode=dsp_mode,
+    )
+    dsp_output = results.get(f"{dsp_mode}_result")
+    assert dsp_output is not None, f"No {dsp_mode}_result returned"
+    dsp_output_i8 = dsp_output.astype(np.int8).reshape(1, c_out, h, w)
+
+    max_diff = int(np.abs(dsp_output_i8.astype(np.int32) - ref_output.astype(np.int32)).max())
+    assert max_diff <= 2, f"MMALIB int8 conv2d mismatch on odd-sized input: max_diff={max_diff}"

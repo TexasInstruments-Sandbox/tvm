@@ -251,64 +251,13 @@ void tvm_dsp_dma_deinit(void) {
 /* Async copy: prepareTr -> configure -> trigger                      */
 /* ------------------------------------------------------------------ */
 
-int tvm_dsp_dma_copy(int queue_id, void *dst, const void *src,
-                     int size, int bypass_cache) {
+/* Submit one TR copying num_blocks contiguous blocks of block_size bytes
+ * from src to dst, and trigger it.  The channel must have nothing pending
+ * and src must already be written back from the cache. */
+static void dma_submit(int queue_id, void *dst, const void *src,
+                       uint16_t block_size, uint16_t num_blocks) {
     DmaUtilsAutoInc3d_TransferProp xferProp;
     DmaUtilsAutoInc3d_TrPrepareParam trPrep;
-    uint16_t block_size;
-    uint16_t num_blocks;
-
-    (void)bypass_cache;
-
-    if (!g_initialized) {
-        DMA_TRACE("[DMA] ERROR: not initialized\r\n");
-        return -1;  /* firmware must call tvm_dsp_dma_init() first */
-    }
-
-    if (dst == NULL || src == NULL) {
-        DMA_TRACE("[DMA] ERROR: null dst/src\r\n");
-        return -1;
-    }
-    if (size <= 0) {
-        DMA_TRACE("[DMA] ERROR: bad size %d\r\n", size);
-        return -1;
-    }
-
-    DMA_TRACE("[DMA] copy: dst=%p src=%p size=%d q=%d\r\n", dst, src, size, queue_id);
-    DMA_TRACE("[DMA]   dst_phys=0x%llx src_phys=0x%llx\r\n",
-              virt_to_phys(dst), virt_to_phys(src));
-
-    if (queue_id < 0 || queue_id >= g_num_channels) {
-        DMA_TRACE("[DMA] ERROR: bad queue_id %d\r\n", queue_id);
-        return -1;
-    }
-
-    /* Drain any pending transfer on this channel before reuse. */
-    if (g_pending[queue_id]) {
-        DMA_TRACE("[DMA]   draining pending on q=%d\r\n", queue_id);
-        DmaUtilsAutoInc3d_wait(g_dma_context, queue_id);
-        CacheP_inv(g_dst[queue_id], g_dst_size[queue_id], CacheP_TYPE_ALLD);
-        DmaUtilsAutoInc3d_deconfigure(g_dma_context, queue_id,
-                                      g_tr_mem[queue_id], 1);
-        g_pending[queue_id] = 0;
-        DMA_TRACE("[DMA]   drained\r\n");
-    }
-
-    /* 2D decomposition: split size into block_size * num_blocks.
-     * icnt0 is uint16_t (max 65535), so large transfers need splitting.
-     * Find largest pow2 block_size <= 0x8000 that evenly divides size. */
-    block_size = 0x8000;  /* 32768 */
-    while (block_size > 1 && (size % block_size) != 0) {
-        block_size >>= 1;
-    }
-    /* num_blocks is uint16_t (max 0xFFFF).  Reject transfers whose block
-     * count would overflow it -- e.g. an odd size > 0xFFFF would otherwise
-     * wrap to a tiny count and silently transfer only part of the buffer. */
-    if (size / block_size > 0xFFFF) {
-        DMA_TRACE("[DMA] ERROR: size %d too large for 16-bit block count\r\n", size);
-        return -1;
-    }
-    num_blocks = (uint16_t)(size / block_size);
 
     /* Fill transfer properties -- contiguous 1D transfer as 2D grid. */
     memset(&xferProp, 0, sizeof(xferProp));
@@ -351,18 +300,93 @@ int tvm_dsp_dma_copy(int queue_id, void *dst, const void *src,
         DMAUTILSAUTOINC3D_ADDRCONVERTMASK_DSTADDR);
     DMA_TRACE("[DMA]   convertAddr done\r\n");
 
-    /* Write-back source data from cache to physical memory so DRU
-     * reads current values via the system bus. */
-    DMA_TRACE("[DMA]   CacheP_wb src=%p size=%d\r\n", src, size);
-    CacheP_wb((void *)src, (uint32_t)size, CacheP_TYPE_ALLD);
-    DMA_TRACE("[DMA]   CacheP_wb done\r\n");
-
     /* Configure channel and trigger the DMA transfer. */
     DMA_TRACE("[DMA]   configure+trigger\r\n");
     DmaUtilsAutoInc3d_configure(g_dma_context, queue_id,
                                 g_tr_mem[queue_id], 1);
     DmaUtilsAutoInc3d_trigger(g_dma_context, queue_id);
     DMA_TRACE("[DMA]   triggered\r\n");
+}
+
+int tvm_dsp_dma_copy(int queue_id, void *dst, const void *src,
+                     int size, int bypass_cache) {
+    uint16_t block_size;
+    int head;
+
+    (void)bypass_cache;
+
+    if (!g_initialized) {
+        DMA_TRACE("[DMA] ERROR: not initialized\r\n");
+        return -1;  /* firmware must call tvm_dsp_dma_init() first */
+    }
+
+    if (dst == NULL || src == NULL) {
+        DMA_TRACE("[DMA] ERROR: null dst/src\r\n");
+        return -1;
+    }
+    if (size <= 0) {
+        DMA_TRACE("[DMA] ERROR: bad size %d\r\n", size);
+        return -1;
+    }
+
+    DMA_TRACE("[DMA] copy: dst=%p src=%p size=%d q=%d\r\n", dst, src, size, queue_id);
+    DMA_TRACE("[DMA]   dst_phys=0x%llx src_phys=0x%llx\r\n",
+              virt_to_phys(dst), virt_to_phys(src));
+
+    if (queue_id < 0 || queue_id >= g_num_channels) {
+        DMA_TRACE("[DMA] ERROR: bad queue_id %d\r\n", queue_id);
+        return -1;
+    }
+
+    /* Drain any pending transfer on this channel before reuse. */
+    if (g_pending[queue_id]) {
+        DMA_TRACE("[DMA]   draining pending on q=%d\r\n", queue_id);
+        DmaUtilsAutoInc3d_wait(g_dma_context, queue_id);
+        CacheP_inv(g_dst[queue_id], g_dst_size[queue_id], CacheP_TYPE_ALLD);
+        DmaUtilsAutoInc3d_deconfigure(g_dma_context, queue_id,
+                                      g_tr_mem[queue_id], 1);
+        g_pending[queue_id] = 0;
+        DMA_TRACE("[DMA]   drained\r\n");
+    }
+
+    /* A TR copies num_blocks blocks of block_size bytes, and both counts
+     * are 16-bit (icnt0, icnt1 <= 0xFFFF).  Use the largest power-of-two
+     * block_size <= 0x8000 that divides size, so one TR covers it. */
+    block_size = 0x8000;  /* 32768 */
+    while (block_size > 1 && (size % block_size) != 0) {
+        block_size >>= 1;
+    }
+    head = size;
+    if (size / block_size > 0xFFFF) {
+        /* No such block exists when size has too small a power-of-two
+         * factor, e.g. any odd size over 0xFFFF (a 3x299x299 int8 tensor
+         * is 268203 bytes).  Copy the largest multiple of 0x8000 first and
+         * the remainder (< 0x8000) as a second TR, rather than rejecting a
+         * copy that callers then compute on as if it had happened. */
+        if (size / 0x8000 > 0xFFFF) {
+            DMA_TRACE("[DMA] ERROR: size %d too large for 16-bit block count\r\n", size);
+            return -1;
+        }
+        block_size = 0x8000;
+        head = size - size % 0x8000;
+    }
+
+    /* Write-back source data from cache to physical memory so DRU
+     * reads current values via the system bus. */
+    DMA_TRACE("[DMA]   CacheP_wb src=%p size=%d\r\n", src, size);
+    CacheP_wb((void *)src, (uint32_t)size, CacheP_TYPE_ALLD);
+    DMA_TRACE("[DMA]   CacheP_wb done\r\n");
+
+    dma_submit(queue_id, dst, src, block_size, (uint16_t)(head / block_size));
+    if (head < size) {
+        /* The channel has room for one TR: finish the head before
+         * reusing its TR memory for the tail. */
+        DmaUtilsAutoInc3d_wait(g_dma_context, queue_id);
+        DmaUtilsAutoInc3d_deconfigure(g_dma_context, queue_id,
+                                      g_tr_mem[queue_id], 1);
+        dma_submit(queue_id, (uint8_t *)dst + head, (const uint8_t *)src + head,
+                   (uint16_t)(size - head), 1);
+    }
 
     /* Record destination for post-wait cache invalidation. */
     g_pending[queue_id]  = 1;
