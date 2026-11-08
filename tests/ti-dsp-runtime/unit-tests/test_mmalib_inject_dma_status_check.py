@@ -127,13 +127,12 @@ def test_status_check_preserved_after_dma_injection():
     )
 
 
-def _dma_calls(func):
-    """Return (total, status_checked) counts of tvm_dsp_dma_copy/_wait calls.
+def _extern_calls(func, names):
+    """Return (total, status_checked) counts of call_externs to `names`.
 
     A call counts as status-checked when it is the value of a Bind, the
     form _call_extern_checked emits (Bind(status, Cast(int64, call)) then
     an IfThenElse on status)."""
-    names = ("tvm_dsp_dma_copy", "tvm_dsp_dma_wait")
     op = tvm.ir.Op.get("tirx.call_extern")
     total = 0
     checked = 0
@@ -184,6 +183,21 @@ def test_dma_copies_and_waits_are_status_checked(c_out, l2_budget):
     func = _make_checked_conv2d_primfunc("mmalib_conv2d_i8", c_out=c_out)
     mod_after = InjectMMALIBDMA(l2_budget)(tvm.IRModule({"mmalib_conv2d": func}))
 
-    total, checked = _dma_calls(mod_after["mmalib_conv2d"])
+    total, checked = _extern_calls(
+        mod_after["mmalib_conv2d"], ("tvm_dsp_dma_copy", "tvm_dsp_dma_wait")
+    )
     assert total >= 3, f"expected DMA copies and a wait to be injected, found {total} calls"
     assert checked == total, f"{total - checked} of {total} DMA calls are not status-checked"
+
+
+def test_oc_tiled_kernel_call_keeps_status_check():
+    """The OC-tiled path rebuilds the MMALIB call as mmalib_conv2d_i8_sliced;
+    it must keep the status check the original call carried, as the untiled
+    path does, or a kernel failure in a large-weight conv goes unreported."""
+    func = _make_checked_conv2d_primfunc("mmalib_conv2d_i8", c_out=256)
+    budget = 64 * 28 * 28 + 64 * 64 * 3 * 3  # input + one 64-channel weight tile
+    mod_after = InjectMMALIBDMA(budget)(tvm.IRModule({"mmalib_conv2d": func}))
+
+    total, checked = _extern_calls(mod_after["mmalib_conv2d"], ("mmalib_conv2d_i8_sliced",))
+    assert total == 1, f"expected the OC-tiled path to emit one sliced call, found {total}"
+    assert checked == 1, "mmalib_conv2d_i8_sliced is emitted without its status check"

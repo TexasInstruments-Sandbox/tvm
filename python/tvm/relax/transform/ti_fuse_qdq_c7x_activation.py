@@ -42,6 +42,7 @@ from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import find_composite_span, propagate_span
+from .ti_mmalib_legalize import _call_extern_checked
 
 logger = logging.getLogger(__name__)
 
@@ -716,7 +717,8 @@ class _ActivationLowerer(PyExprMutator):
 
         def te_dfl_softmax(x_t):
             def fcompute(ins, outs):
-                return tirx.call_extern(
+                # The kernel returns -1 when its workspace allocation fails.
+                return _call_extern_checked(
                     "int32",
                     "c7x_int8_dfl_softmax",
                     ins[0].data,

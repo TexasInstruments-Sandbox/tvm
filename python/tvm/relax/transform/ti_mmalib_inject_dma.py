@@ -479,13 +479,21 @@ def _inject_dma(func, l2_budget):
             call_node.args[18],  # pad_right
             oc_start,  # oc_start
         ]
+        # Keep the status check the original call carried, as the untiled
+        # path below does.
+        if checked:
+            sliced_call = _call_extern_checked(
+                call_node.ty, "mmalib_conv2d_i8_sliced", *sliced_args[1:]
+            )
+        else:
+            sliced_call = tirx.Evaluate(tvm.ir.Call(call_node.op, sliced_args, ret_ty=call_node.ty))
         tile_body = tirx.SeqStmt(
             [
                 _dma_copy(
                     queue_id, tirx.buffer_data(l2_weight_var), wt_tile_src, actual_dma, bypass
                 ),
                 _dma_wait(queue_id, zero_inflight),
-                tirx.Evaluate(tvm.ir.Call(call_node.op, sliced_args, ret_ty=call_node.ty)),
+                sliced_call,
             ]
         )
         stmts.append(tirx.For(oc_idx, 0, n_tiles, tirx.ForKind.SERIAL, tile_body))

@@ -48,6 +48,11 @@ def LowerDMAToExtern():
     fpass : tvm.transform.Pass
         The result pass.
     """
+    # Imported here, not at module level: tvm.relax imports tvm.tirx.
+    from tvm.relax.transform.ti_mmalib_legalize import (  # pylint: disable=import-outside-toplevel
+        _call_extern_checked,
+    )
+
     op_dma_copy = Op.get("tirx.dma_copy")
     op_dma_wait = Op.get("tirx.dma_wait")
     op_dma_start_group = Op.get("tirx.dma_start_group")
@@ -56,12 +61,12 @@ def LowerDMAToExtern():
     def _postorder(op):
         call = op.value
         if isinstance(call, tvm.ir.Call):
+            # Status-checked: a copy the runtime rejects would otherwise leave
+            # the destination holding stale data for the loop to compute on.
             if call.op.same_as(op_dma_copy):
-                new_call = tirx.call_extern("int32", "tvm_dsp_dma_copy", *call.args)
-                return tirx.Evaluate(new_call)
+                return _call_extern_checked("int32", "tvm_dsp_dma_copy", *call.args)
             if call.op.same_as(op_dma_wait):
-                new_call = tirx.call_extern("int32", "tvm_dsp_dma_wait", *call.args)
-                return tirx.Evaluate(new_call)
+                return _call_extern_checked("int32", "tvm_dsp_dma_wait", *call.args)
             # DMA grouping is a no-op for C7x: individual copies
             # are tracked by queue_id and inflight count.
             if call.op.same_as(op_dma_start_group):

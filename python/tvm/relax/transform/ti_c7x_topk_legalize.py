@@ -41,6 +41,7 @@ from tvm.ir import Call
 from tvm.relax.expr import Expr
 
 from .ti_c7x_span_utils import propagate_span
+from .ti_mmalib_legalize import _call_extern_checked
 
 
 def _te_c7x_topk(data: te.Tensor, k: int, dtype: str) -> list:
@@ -62,7 +63,8 @@ def _te_c7x_topk(data: te.Tensor, k: int, dtype: str) -> list:
     idx_buf = tirx.decl_buffer(out_shape, dtype, "topk_idx_buf", data_alignment=8)
 
     def fcompute(ins, outs):
-        return tirx.call_extern(
+        # c7x_topk returns -1 for a bad k or when its scratch allocation fails.
+        return _call_extern_checked(
             "int32", "c7x_topk", ins[0].data, outs[0].data, outs[1].data, batch, n, k
         )
 

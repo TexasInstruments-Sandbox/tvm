@@ -15,9 +15,10 @@ kernel rather than matched as a separate op.
 import re
 
 import pytest
+import tvm_ffi
 
 import tvm
-from tvm import relax
+from tvm import relax, tirx
 from tvm.relax import TensorType as TensorStructInfo
 
 
@@ -45,7 +46,49 @@ def _build_dfl_model(B, A, K, N, d_scale, d_zp, o_scale, o_zp, axes=(0, 2, 1, 3)
     return bb.finalize()
 
 
+def _kernel_calls(mod, name):
+    """(total, status_checked) counts of call_externs to `name` in mod's PrimFuncs.
+
+    Status-checked means the call is the value of a Bind, the form
+    _call_extern_checked emits."""
+    op = tvm.ir.Op.get("tirx.call_extern")
+    total = checked = 0
+
+    def _is_kernel(node):
+        return (
+            isinstance(node, tvm.ir.Call)
+            and node.op.same_as(op)
+            and isinstance(node.args[0], tvm.ir.StringImm)
+            and node.args[0].value == name
+        )
+
+    def _visit_call(node):
+        nonlocal total
+        total += _is_kernel(node)
+
+    def _visit_bind(node):
+        nonlocal checked
+        value = node.value.value if isinstance(node.value, tirx.Cast) else node.value
+        checked += _is_kernel(value)
+
+    for func in mod.functions.values():
+        if isinstance(func, tirx.PrimFunc):
+            tvm_ffi.structural_walk(
+                func.body, [(tvm.ir.Call, _visit_call), (tirx.Bind, _visit_bind)], order="post"
+            )
+    return total, checked
+
+
 class TestDFLSoftmax:
+    def test_kernel_call_is_status_checked(self):
+        """c7x_int8_dfl_softmax returns -1 when its workspace allocation fails;
+        the call must be status-checked so that surfaces as an error instead of
+        an unwritten output buffer."""
+        mod = _build_dfl_model(1, 4, 16, 32, d_scale=0.1, d_zp=0, o_scale=0.0078125, o_zp=0)
+        total, checked = _kernel_calls(_run_pass(mod), "c7x_int8_dfl_softmax")
+        assert total == 1
+        assert checked == 1, "c7x_int8_dfl_softmax is emitted without a status check"
+
     def test_fires_and_emits_call_extern(self):
         mod = _build_dfl_model(1, 4, 16, 32, d_scale=0.1, d_zp=0, o_scale=0.0078125, o_zp=0)
         new_mod = _run_pass(mod)
@@ -96,9 +139,7 @@ class TestDFLSoftmax:
     def test_wrong_softmax_axis_declines_to_fuse(self):
         """A softmax over a different axis than the permuted K dim must
         fall through unchanged."""
-        mod = _build_dfl_model(
-            1, 4, 16, 32, d_scale=0.1, d_zp=0, o_scale=0.0078125, o_zp=0, axis=2
-        )
+        mod = _build_dfl_model(1, 4, 16, 32, d_scale=0.1, d_zp=0, o_scale=0.0078125, o_zp=0, axis=2)
         new_mod = _run_pass(mod)
         text = new_mod.script()
         assert "c7x_int8_dfl_softmax" not in text
