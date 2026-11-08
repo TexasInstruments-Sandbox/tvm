@@ -26,15 +26,18 @@ os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 _THIS_DIR = Path(__file__).parent
 _TEST_IMAGES_DIR = _THIS_DIR.parent.parent / "cstatic" / "test_images"
+_CALIB_IMAGES_DIR = _THIS_DIR / "calib_images"
+# Input for the classifier tests. It is not in calib_images/, so the DSP is
+# checked on an image the activation ranges were not fitted to.
+_EVAL_IMAGE = _TEST_IMAGES_DIR / "dog.jpg"
 
 
 def _pt2e_quantize(torch_model, example_args, calibration_data=None, strict=True):
     """Shared PT2E quantization pipeline.
 
     calibration_data: optional iterable of calibration tensors. Defaults to
-    random noise (matching the other torchvision models here); pass real
-    samples for models sensitive to calibration quality (e.g. YOLO's DFL
-    softmax).
+    random noise, whose activation ranges don't match real inputs; every
+    model in this file passes real images instead.
     strict: passed through to torch.export.export. Models with dynamic
     control flow (e.g. raw ultralytics/yolov5 modules) require False.
 
@@ -68,94 +71,87 @@ def _pt2e_quantize(torch_model, example_args, calibration_data=None, strict=True
     return mod, quantized_gm
 
 
-def create_quantized_resnet_model(seed: int = 42) -> tuple:
+def _quantize_classifier(build_model, weights) -> tuple:
+    """Quantize a pretrained TorchVision classifier, calibrated on real images.
+
+    Calibrates on every image in calib_images/ and returns _EVAL_IMAGE as
+    the input, both preprocessed with the weights' own transform (resize,
+    center crop, ImageNet normalization) so the recorded activation ranges
+    match what the model sees in use. Returns (tvm_mod, quantized_gm,
+    input_data).
+    """
+    from PIL import Image  # noqa: PLC0415
+
+    transform = weights.transforms()
+
+    def load(path):
+        return transform(Image.open(path).convert("RGB")).unsqueeze(0)
+
+    calibration_data = [load(p) for p in sorted(_CALIB_IMAGES_DIR.glob("*.jpg"))]
+    if not calibration_data:
+        raise FileNotFoundError(f"no calibration images in {_CALIB_IMAGES_DIR}")
+    input_tensor = load(_EVAL_IMAGE)
+
+    torch_model = build_model(weights=weights).eval()
+    mod, quantized_gm = _pt2e_quantize(
+        torch_model, (input_tensor,), calibration_data=calibration_data
+    )
+    return mod, quantized_gm, input_tensor.numpy()
+
+
+def create_quantized_resnet_model() -> tuple:
     """Create INT8 quantized ResNet-18 model. Input: [1, 3, 224, 224]."""
     from torchvision.models.resnet import ResNet18_Weights, resnet18
 
-    np.random.seed(seed)
-    torch_model = resnet18(weights=ResNet18_Weights.DEFAULT).eval()
-    example_args = (torch.randn(1, 3, 224, 224, dtype=torch.float32),)
-    mod, quantized_gm = _pt2e_quantize(torch_model, example_args)
-    input_data = np.random.rand(1, 3, 224, 224).astype(np.float32)
-    return mod, quantized_gm, input_data
+    return _quantize_classifier(resnet18, ResNet18_Weights.DEFAULT)
 
 
-def create_quantized_googlenet_model(seed: int = 42) -> tuple:
+def create_quantized_googlenet_model() -> tuple:
     """Create INT8 quantized GoogLeNet model. Input: [1, 3, 224, 224]."""
     from torchvision.models.googlenet import GoogLeNet_Weights, googlenet
 
-    np.random.seed(seed)
-    torch_model = googlenet(weights=GoogLeNet_Weights.DEFAULT).eval()
-    example_args = (torch.randn(1, 3, 224, 224, dtype=torch.float32),)
-    mod, quantized_gm = _pt2e_quantize(torch_model, example_args)
-    input_data = np.random.rand(1, 3, 224, 224).astype(np.float32)
-    return mod, quantized_gm, input_data
+    return _quantize_classifier(googlenet, GoogLeNet_Weights.DEFAULT)
 
 
-def create_quantized_inception_v3_model(seed: int = 42) -> tuple:
+def create_quantized_inception_v3_model() -> tuple:
     """Create INT8 quantized InceptionV3 model. Input: [1, 3, 299, 299]."""
     from torchvision.models.inception import Inception_V3_Weights, inception_v3
 
-    np.random.seed(seed)
-    torch_model = inception_v3(weights=Inception_V3_Weights.DEFAULT).eval()
-    example_args = (torch.randn(1, 3, 299, 299, dtype=torch.float32),)
-    mod, quantized_gm = _pt2e_quantize(torch_model, example_args)
-    input_data = np.random.rand(1, 3, 299, 299).astype(np.float32)
-    return mod, quantized_gm, input_data
+    return _quantize_classifier(inception_v3, Inception_V3_Weights.DEFAULT)
 
 
-def create_quantized_mobilenet_v2_model(seed: int = 42) -> tuple:
+def create_quantized_mobilenet_v2_model() -> tuple:
     """Create INT8 quantized MobileNetV2 model. Input: [1, 3, 224, 224]."""
     from torchvision.models.mobilenetv2 import MobileNet_V2_Weights, mobilenet_v2
 
-    np.random.seed(seed)
-    torch_model = mobilenet_v2(weights=MobileNet_V2_Weights.DEFAULT).eval()
-    example_args = (torch.randn(1, 3, 224, 224, dtype=torch.float32),)
-    mod, quantized_gm = _pt2e_quantize(torch_model, example_args)
-    input_data = np.random.rand(1, 3, 224, 224).astype(np.float32)
-    return mod, quantized_gm, input_data
+    return _quantize_classifier(mobilenet_v2, MobileNet_V2_Weights.DEFAULT)
 
 
-def create_quantized_mobilenet_v3_model(seed: int = 42) -> tuple:
+def create_quantized_mobilenet_v3_model() -> tuple:
     """Create INT8 quantized MobileNetV3 Large model. Input: [1, 3, 224, 224]."""
     from torchvision.models.mobilenetv3 import (
         MobileNet_V3_Large_Weights,
         mobilenet_v3_large,
     )
 
-    np.random.seed(seed)
-    torch_model = mobilenet_v3_large(weights=MobileNet_V3_Large_Weights.DEFAULT).eval()
-    example_args = (torch.randn(1, 3, 224, 224, dtype=torch.float32),)
-    mod, quantized_gm = _pt2e_quantize(torch_model, example_args)
-    input_data = np.random.rand(1, 3, 224, 224).astype(np.float32)
-    return mod, quantized_gm, input_data
+    return _quantize_classifier(mobilenet_v3_large, MobileNet_V3_Large_Weights.DEFAULT)
 
 
-def create_quantized_resnext101_model(seed: int = 42) -> tuple:
+def create_quantized_resnext101_model() -> tuple:
     """Create INT8 quantized ResNeXt-101 (32x8D) model. Input: [1, 3, 224, 224]."""
     from torchvision.models.resnet import ResNeXt101_32X8D_Weights, resnext101_32x8d
 
-    np.random.seed(seed)
-    torch_model = resnext101_32x8d(weights=ResNeXt101_32X8D_Weights.DEFAULT).eval()
-    example_args = (torch.randn(1, 3, 224, 224, dtype=torch.float32),)
-    mod, quantized_gm = _pt2e_quantize(torch_model, example_args)
-    input_data = np.random.rand(1, 3, 224, 224).astype(np.float32)
-    return mod, quantized_gm, input_data
+    return _quantize_classifier(resnext101_32x8d, ResNeXt101_32X8D_Weights.DEFAULT)
 
 
-def create_quantized_shufflenet_v2_model(seed: int = 42) -> tuple:
+def create_quantized_shufflenet_v2_model() -> tuple:
     """Create INT8 quantized ShuffleNetV2 (x0.5) model. Input: [1, 3, 224, 224]."""
     from torchvision.models.shufflenetv2 import (
         ShuffleNet_V2_X0_5_Weights,
         shufflenet_v2_x0_5,
     )
 
-    np.random.seed(seed)
-    torch_model = shufflenet_v2_x0_5(weights=ShuffleNet_V2_X0_5_Weights.DEFAULT).eval()
-    example_args = (torch.randn(1, 3, 224, 224, dtype=torch.float32),)
-    mod, quantized_gm = _pt2e_quantize(torch_model, example_args)
-    input_data = np.random.rand(1, 3, 224, 224).astype(np.float32)
-    return mod, quantized_gm, input_data
+    return _quantize_classifier(shufflenet_v2_x0_5, ShuffleNet_V2_X0_5_Weights.DEFAULT)
 
 
 # -----------------------------------------------------------------------------

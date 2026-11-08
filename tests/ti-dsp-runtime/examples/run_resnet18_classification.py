@@ -22,10 +22,7 @@ Pipeline (all steps happen on the dev host except step 5):
   1. Load real image, preprocess it with ResNet18_Weights' own transform
      (resize/crop/normalize -- matches how the pretrained weights were
      trained).
-  2. Quantize ResNet-18 (PT2E int8), calibrated on that same real image --
-     not random noise, unlike quantized/model_utils.py's
-     create_quantized_resnet_model(), which only needs DSP-vs-CPU
-     consistency for its own tests, not real classification accuracy.
+  2. Quantize ResNet-18 (PT2E int8), calibrated on that same real image.
   3. Compile it for the C7x DSP with MMALIB offload (c_static_lib backend) and
      build a DLOAD module (lib0.out).
   4. Cross-compile resnet18_board_runner.cpp against the already
@@ -102,9 +99,7 @@ def preprocess_image(image_path: Path):
     Uses ResNet18_Weights.DEFAULT's own transform (resize, center-crop to
     224, ToTensor, ImageNet mean/std normalization) -- getting this right
     matters for both quantization calibration (step below) and the
-    inference input itself; create_quantized_resnet_model()'s own random
-    calibration data skips this entirely because it only needs internal
-    DSP-vs-CPU consistency, not a real classification result.
+    inference input itself.
 
     Returns a torch.Tensor of shape (1, 3, 224, 224).
     """
@@ -121,11 +116,7 @@ def compile_resnet18_for_board(board: str, input_tensor: torch.Tensor, build_dir
 
     Calibrates on the same real, correctly-preprocessed image used for
     inference (a single real sample already fixes the activation-range
-    mismatch that random-noise calibration would otherwise cause) rather
-    than reusing quantized/model_utils.py's create_quantized_resnet_model(),
-    which calibrates on random noise -- fine for that module's own
-    DSP-vs-CPU consistency tests, not for a demo meant to produce a
-    plausible real-world label.
+    mismatch that random-noise calibration would otherwise cause).
     """
     from torchvision.models import ResNet18_Weights, resnet18  # noqa: PLC0415
 

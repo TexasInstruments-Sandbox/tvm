@@ -60,10 +60,11 @@ that the resulting graph is one the backend can offload to MMALIB.
 `prepared(sample)` runs each calibration sample through the model to record
 the activation ranges each Q/DQ node's scale/zero-point is computed from.
 
-If you only need to verify the DSP and CPU agree on some input, random
-noise calibration is fine (this is what most of `quantized/model_utils.py`
-does for its own test coverage). For anything where the actual prediction
-matters, calibrate on real, representative data.
+Calibrate on real, representative data, preprocessed the same way as the
+inputs the model will see: the scales come from the ranges observed here,
+and random noise produces different ranges from real images. The
+per-model tests in `quantized/` calibrate on `quantized/calib_images/` and
+run the DSP on an image outside that set.
 
 ## Choosing int8 vs int16
 

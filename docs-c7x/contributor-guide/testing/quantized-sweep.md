@@ -54,12 +54,15 @@ beagley-ai` is passed.
 | `test_quantized_torchvision.py` | All 80 TorchVision ImageNet classifiers, via `cl_torchvision.py`'s dynamic loader | see sweep below |
 
 The first 7 use `model_utils.py`'s per-model `create_quantized_*_model`
-functions (hardcoded torchvision import, synthetic random input, PT2E via
-`_pt2e_quantize`). `test_quantized_torchvision.py` instead cross-imports
-`tests/cstatic/cl_torchvision.py` (model loading + correct per-model
-preprocessing) and `pt2e-tests/pt2e_utils.py` (`e2e_quantize_and_import` /
-`run_and_check`) directly, so it covers whatever TorchVision model
-`cl_torchvision.py` can load without needing a dedicated function per model.
+functions (hardcoded torchvision import, PT2E via `_quantize_classifier`).
+They calibrate on the 12 images in `quantized/calib_images/` and run the
+DSP on `tests/cstatic/test_images/dog.jpg`, which is not in that set; both
+go through the weights' own preprocessing. `test_quantized_torchvision.py`
+instead cross-imports `tests/cstatic/cl_torchvision.py` (model loading +
+correct per-model preprocessing) and `pt2e-tests/pt2e_utils.py`
+(`e2e_quantize_and_import` / `run_and_check`) directly, so it covers
+whatever TorchVision model `cl_torchvision.py` can load without needing a
+dedicated function per model.
 
 ## `test_quantized_yolo.py` status
 
@@ -149,7 +152,8 @@ classification match instead (see below).
 
 | Function | Location | Purpose |
 |---|---|---|
-| `_pt2e_quantize` | `model_utils.py` | Export → `prepare_pt2e` → calibrate (random noise or real images) → `convert_pt2e`; used by the 7 per-model files |
+| `_pt2e_quantize` | `model_utils.py` | Export → `prepare_pt2e` → calibrate → `convert_pt2e`; used by the 7 per-model files and the YOLO test |
+| `_quantize_classifier` | `model_utils.py` | Calibrates a TorchVision classifier on `calib_images/` and returns the held-out `dog.jpg` as its input; used by the 7 per-model files |
 | `load_model_with_preprocessing`, `load_image`, `get_all_classification_models` | `tests/cstatic/cl_torchvision.py` | Dynamic model loading with correct per-model preprocessing; cross-imported by `test_quantized_torchvision.py` |
 | `e2e_quantize_and_import`, `run_and_check` | `tests/ti-dsp-runtime/pt2e-tests/pt2e_utils.py` | Full quantize→import pipeline and MMALIB compile+run+assert; cross-imported by `test_quantized_torchvision.py` |
 

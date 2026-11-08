@@ -258,7 +258,7 @@ Single-layer models compared against PyTorch quantized reference.
 
 MobileNetV2 exercises all four int8 MMALIB kernels together. Input: `dog.jpg`
 from `tests/cstatic/test_images/`, loaded via `cl_torchvision.load_model_with_preprocessing`.
-10 calibration batches (same count as `quantized/model_utils.py`).
+Calibrated with 10 passes over that same image.
 
 Two assertions:
 1. **No-MMALIB, top-1 match** — validates C7xMMAQuantizer + TVM import pipeline

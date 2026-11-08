@@ -49,7 +49,7 @@ def test_mobilenet_v2_pt2e_i8(dsp_mode, record_cycles):
     img = load_image(str(_TEST_IMAGE))
     example = (preproc(img).unsqueeze(0),)
 
-    # 10 calibration batches with randn (same count as quantized/model_utils.py).
+    # Calibrates with 10 passes over the same image.
     mod, input_np, ref_np = e2e_quantize_and_import(
         model, example, dtype="int8", n_calibration_batches=10
     )
