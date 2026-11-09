@@ -6,6 +6,7 @@ quantization (C7xMMAQuantizer, symmetric INT8, QDQ graph) and returns
 a tuple of (tvm_mod, quantized_gm, input_data).
 """
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +17,12 @@ from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 
 from tvm import relax
 from tvm.relax.frontend.torch import C7xMMAQuantizer, from_exported_program
+
+# The yolov5 torch.hub code checks its requirements through ultralytics, which
+# by default pip-installs anything it finds missing: it upgraded the pinned
+# ultralytics==8.4.14 (see setup_test_env.sh) mid-run, breaking every YOLO
+# model loaded after it. ultralytics reads this once, at first import.
+os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 _THIS_DIR = Path(__file__).parent
 _TEST_IMAGES_DIR = _THIS_DIR.parent.parent / "cstatic" / "test_images"
