@@ -34,6 +34,12 @@ _EVAL_IMAGE = _TEST_IMAGES_DIR / "dog.jpg"
 # in calib_images/.
 _YOLO_EVAL_IMAGE = _TEST_IMAGES_DIR / "car.jpg"
 
+# The classifier tests other than ResNet-18 skip without --mmalib. BeagleY-AI
+# and J722S firmware always link MMALIB; the generic int8 path a run without
+# it would test is covered by test_quantized_resnet.py and the dsp-tests conv
+# tests; and compiling that path for a whole network is slow.
+MMALIB_ONLY_REASON = "runs with --mmalib only; test_quantized_resnet.py covers the non-MMALIB path"
+
 
 def _pt2e_quantize(torch_model, example_args, calibration_data=None, strict=True):
     """Shared PT2E quantization pipeline.

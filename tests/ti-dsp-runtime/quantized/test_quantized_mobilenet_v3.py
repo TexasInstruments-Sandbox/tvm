@@ -3,11 +3,12 @@ Quantized MobileNetV3 Large DSP test.
 
 Tests INT8 quantized MobileNetV3 Large on DSP comparing against PyTorch reference.
 
+Runs with --mmalib only (see MMALIB_ONLY_REASON in model_utils.py).
+
 Usage:
-    pytest test_quantized_mobilenet_v3.py -v --dsp-mode=c7x_host
     pytest test_quantized_mobilenet_v3.py -v --dsp-mode=c7x_host --mmalib
-    pytest test_quantized_mobilenet_v3.py -v --dsp-mode=c7x_dload
-    python test_quantized_mobilenet_v3.py --dsp-mode c7x_host
+    pytest test_quantized_mobilenet_v3.py -v --dsp-mode=c7x_dload --mmalib
+    python test_quantized_mobilenet_v3.py --dsp-mode c7x_host --mmalib
 """
 
 import argparse
@@ -24,7 +25,7 @@ from dsp_utils import (
     compile_and_run_dsp,
     get_target_string,
 )
-from model_utils import create_quantized_mobilenet_v3_model
+from model_utils import MMALIB_ONLY_REASON, create_quantized_mobilenet_v3_model
 
 pytestmark = [pytest.mark.c7x_only, pytest.mark.core]
 
@@ -78,6 +79,8 @@ def test_quantized_mobilenet_v3_dsp(
     dsp_mode, dsp_timeout, use_cpp_api, profile_layers, profile, mmalib, record_cycles
 ):
     """Test quantized MobileNetV3 Large on DSP."""
+    if not mmalib:
+        pytest.skip(MMALIB_ONLY_REASON)
     results = _run_test(
         dsp_mode=dsp_mode,
         timeout_ms=dsp_timeout,

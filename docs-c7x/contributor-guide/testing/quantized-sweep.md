@@ -64,6 +64,13 @@ correct per-model preprocessing) and `pt2e-tests/pt2e_utils.py`
 whatever TorchVision model `cl_torchvision.py` can load without needing a
 dedicated function per model.
 
+All of these run with MMALIB offload. Only `test_quantized_resnet.py` also
+runs without `--mmalib`, as the one model-level check of the generic int8
+path; the other classifier tests skip without it (`MMALIB_ONLY_REASON` in
+`model_utils.py`), as YOLO already did. BeagleY-AI and J722S firmware always
+link MMALIB, the generic int8 conv path is covered more cheaply by the
+`dsp-tests` conv tests, and compiling it for a whole network is slow.
+
 ## `test_quantized_yolo.py` status
 
 All 5 models pass on `c7x_host` and BeagleY-AI hardware (`--board
