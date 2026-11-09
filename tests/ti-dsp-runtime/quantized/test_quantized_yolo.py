@@ -169,16 +169,13 @@ def _run_test(
             continue
         dsp_result = dsp_results[result_key]
         if version == "v26":
-            # Threshold set with margin below the ~0.56 observed on this
-            # test's former random-noise input, c7x_host + MMALIB (see module
-            # docstring): with no real objects present, almost all of the
-            # 2100 anchors' class scores land in the same few discrete int8
-            # buckets, so a large fraction of legitimate near-tied ranking
-            # flips is expected -- this is a regression guard against
-            # structural breakage (e.g. the pre-fix state, which matched
-            # near 0%), not a tight accuracy bar.
+            # c7x_host and BeagleY-AI (MMALIB) both match 0.82 of the
+            # reference's detections on car.jpg; the threshold allows twice
+            # the unmatched fraction. The rest are near-tied anchors that
+            # topk ranks differently on the two sides (see module docstring),
+            # not errors.
             match_frac = _match_fraction(dsp_result[0], torch_result[0], iou_thresh=0.5)
-            comparison[key] = match_frac >= 0.40
+            comparison[key] = match_frac >= 0.60
             comparison[key.replace("_passed", "_match_frac")] = match_frac
         else:
             flat_dsp = dsp_result.flatten()
@@ -186,7 +183,10 @@ def _run_test(
                 np.dot(flat_ref, flat_dsp)
                 / (np.linalg.norm(flat_ref) * np.linalg.norm(flat_dsp) + 1e-10)
             )
-            comparison[key] = cos_sim > 0.90
+            # 0.9993-0.9996 measured on car.jpg for all four v5/v8 models,
+            # c7x_host and BeagleY-AI (MMALIB); the threshold allows twice the
+            # worst gap from 1.
+            comparison[key] = cos_sim >= 0.998
             comparison[key.replace("_passed", "_cos_sim")] = cos_sim
 
     return {

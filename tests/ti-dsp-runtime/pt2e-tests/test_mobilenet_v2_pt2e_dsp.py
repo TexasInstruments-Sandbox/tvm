@@ -71,8 +71,9 @@ def test_mobilenet_v2_pt2e_i8(dsp_mode, record_cycles):
     )
 
     # --- Part 2: MMALIB ----------------------------------------------------------
-    # Validates all four MMALIB kernels compile and produce a reasonable result.
-    # max_diff ≤ 20.0 matches the tolerance in quantized/test_quantized_*.py.
+    # Validates all four MMALIB kernels against the fake-quant reference. 1.25
+    # is twice the 0.555 measured on c7x_host and BeagleY-AI (identical
+    # outputs), rounded up to a multiple of 0.25.
     results_mm = compile_and_run_dsp(
         mod=mod,
         input_data=input_np,
@@ -81,9 +82,9 @@ def test_mobilenet_v2_pt2e_i8(dsp_mode, record_cycles):
     )
     dsp_mm = results_mm[result_key].reshape(ref_np.shape).astype(np.float32)
     max_diff = float(np.abs(dsp_mm - ref_np).max())
-    assert max_diff <= 20.0, (
+    assert max_diff <= 1.25, (
         f"MMALIB output diverges from PyTorch quantized reference: "
-        f"max_diff={max_diff:.3f} > 20.0"
+        f"max_diff={max_diff:.3f} > 1.25"
     )
 
     record_cycles("mobilenet_v2_pt2e_i8", results_mm.get("c7x_dload_cycles", 0))

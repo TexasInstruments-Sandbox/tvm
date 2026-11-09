@@ -262,7 +262,7 @@ Calibrated with 10 passes over that same image.
 
 Two assertions:
 1. **No-MMALIB, top-1 match** — validates C7xMMAQuantizer + TVM import pipeline
-2. **MMALIB, `max_diff ≤ 20.0`** — validates all four MMALIB kernels compile and execute. Top-1 not asserted: MMALIB integer arithmetic diverges from float-simulated int8 across 17+ bottleneck blocks. Consistent with `quantized/test_quantized_mobilenet_v2.py` using `atol=25.0` for MMALIB with XNNPACKQuantizer — the gap is inherent to actual int8 arithmetic vs float simulation.
+2. **MMALIB, `max_diff ≤ 1.25`** — validates all four MMALIB kernels against the fake-quant reference. 1.25 is twice the 0.555 measured on `c7x_host` and BeagleY-AI (identical outputs), rounded up to a multiple of 0.25; the per-model tests in `quantized/` set their tolerances the same way.
 
 ## Adding a New Operator
 

@@ -31,6 +31,12 @@ pytestmark = [pytest.mark.c7x_only, pytest.mark.core]
 
 logger = logging.getLogger(__name__)
 
+# Twice the largest |DSP - fake-quant reference| measured on c7x_host and
+# BeagleY-AI (with MMALIB), rounded up to a multiple of 0.25. The output is
+# deterministic for this input and identical on host and board, so the margin
+# only absorbs toolchain and library changes.
+_ATOL = 3.0
+
 
 def _run_test(
     dsp_mode: str = "c7x_host",
@@ -61,12 +67,9 @@ def _run_test(
         profile=profile,
     )
 
-    if mmalib:
-        comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=5e-1, atol=25.0)
-    elif dsp_mode == "c7x_dload":
-        comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=20.0)
-    else:
-        comparison = compare_results(dsp_results, torch_result, "PyTorch", rtol=1e-1, atol=20.0)
+    comparison = compare_results(
+        dsp_results, torch_result, "PyTorch", atol=_ATOL, rtol=0.0, require_top1=True
+    )
 
     return {
         "torch_result": torch_result,

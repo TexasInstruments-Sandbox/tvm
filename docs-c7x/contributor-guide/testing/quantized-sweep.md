@@ -71,6 +71,14 @@ path; the other classifier tests skip without it (`MMALIB_ONLY_REASON` in
 link MMALIB, the generic int8 conv path is covered more cheaply by the
 `dsp-tests` conv tests, and compiling it for a whole network is slow.
 
+The 7 classifier tests compare the DSP output with the fake-quant
+reference using `atol` = twice the largest difference measured on
+`c7x_host` and BeagleY-AI, rounded up to a multiple of 0.25 (`_ATOL` in
+each file, `rtol=0`), and also require the same top-1 class. Host and
+board outputs are bit-identical for these models, so one value covers
+both. Re-measure and update `_ATOL` when a change legitimately moves the
+numbers (calibration set, quantizer, kernel rounding).
+
 ## `test_quantized_yolo.py` status
 
 All 5 models pass on `c7x_host` and BeagleY-AI hardware (`--board
@@ -86,14 +94,15 @@ for any future detection model:
   num_anchors]`, no NMS), mixing small-magnitude box regression with
   bounded-range class scores in the same tensor -- an element-wise bound
   doesn't work here, so pass/fail uses cosine similarity against the
-  PyTorch fake-quantized reference.
+  PyTorch fake-quantized reference (`>= 0.998`; the four models measure
+  0.9993-0.9996).
 - **YOLO26n**: runs the real NMS-free "one2one" head, which does an
   internal `topk` and returns already-*selected* detections
   (`[1, 300, 6]`). A near-tied class score can legitimately make the DSP
   and the fake-quant reference pick a different anchor at the selection
   boundary -- both correct, but a different row at that index -- so this
   one uses greedy IoU+class matching (`_match_fraction`) against the
-  reference set instead.
+  reference set instead (`>= 0.60`; it measures 0.82).
 
 Getting YOLO26n running required a DSP `topk` kernel
 (`src/runtime/ti_dsp/kernels/c7x_topk.cpp`, `relax.topk` has no other

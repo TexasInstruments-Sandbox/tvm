@@ -344,7 +344,10 @@ def assert_dsp_comparison(
         passed_key = key.replace("_max_diff", "_passed")
         if not comparison.get(passed_key, False):
             mode = key.removesuffix("_vs_ref_max_diff")
-            raise AssertionError(f"{mode} failed: max diff = {comparison[key]:.2e}")
+            msg = f"{mode} failed: max diff = {comparison[key]:.2e}"
+            if comparison.get(f"{mode}_vs_ref_top1_match") is False:
+                msg += " (top-1 differs from the reference)"
+            raise AssertionError(msg)
 
     # At least one mode should have produced results
     assert diff_keys, "No DSP results available. Check hardware connection or execution mode."
@@ -1905,6 +1908,7 @@ def compare_results(
     reference_name: str = "reference",
     atol: float = 1e-5,
     rtol: float = 1e-4,
+    require_top1: bool = False,
 ) -> dict:
     """
     Compare DSP results against a reference.
@@ -1915,6 +1919,9 @@ def compare_results(
         reference_name: Name of reference for logging (e.g., "PyTorch")
         atol: Absolute tolerance for comparison
         rtol: Relative tolerance for comparison
+        require_top1: Also require the DSP's argmax (over the flattened
+            output) to equal the reference's, e.g. a classifier's predicted
+            class; recorded as "<mode>_vs_ref_top1_match"
 
     Returns:
         Dictionary with comparison metrics, e.g.:
@@ -1956,6 +1963,17 @@ def compare_results(
         comparison["c7x_dload_vs_ref_max_diff"] = float(diff)
         comparison["c7x_dload_vs_ref_passed"] = passed
         logger.info(f"C7x_dload vs {reference_name}: max diff = {diff:.2e}, passed = {passed}")
+
+    if require_top1:
+        ref_top1 = int(np.argmax(reference))
+        for mode in ("c66x_host", "c66x", "c7x_host", "c7x_dload"):
+            if f"{mode}_result" not in results:
+                continue
+            match = int(np.argmax(results[f"{mode}_result"])) == ref_top1
+            comparison[f"{mode}_vs_ref_top1_match"] = match
+            passed_key = f"{mode}_vs_ref_passed"
+            comparison[passed_key] = bool(comparison[passed_key] and match)
+            logger.info(f"{mode} vs {reference_name}: top-1 match = {match}")
 
     return comparison
 
