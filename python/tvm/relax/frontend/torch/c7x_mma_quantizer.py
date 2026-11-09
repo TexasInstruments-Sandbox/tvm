@@ -35,8 +35,10 @@ import torch
 from torch.fx import GraphModule, Node
 from torchao.quantization.pt2e import HistogramObserver, MinMaxObserver, PerChannelMinMaxObserver
 from torchao.quantization.pt2e.quantizer import (
+    FixedQParamsQuantizationSpec,
     QuantizationAnnotation,
     QuantizationSpec,
+    QuantizationSpecBase,
     Quantizer,
     SharedQuantizationSpec,
 )
@@ -137,6 +139,27 @@ _REACHABILITY_PASSTHROUGH_OPS = frozenset(
 )
 
 
+# hardtanh clamps to [min_val, max_val]; ReLU6 is hardtanh(0, 6). Not annotated
+# itself: its output is observed by its consumer's input spec.
+_HARDTANH_OPS = frozenset([torch.ops.aten.hardtanh.default, torch.ops.aten.hardtanh_.default])
+
+
+def _hardtanh_bound(node: Node) -> float | None:
+    """max(|min_val|, |max_val|) if node's only user is a hardtanh, else None.
+
+    Quantizing node's output to [-bound, bound] loses nothing the clamp keeps,
+    so a conv or linear feeding only a clamp needs no wider range.
+    """
+    if len(node.users) != 1:
+        return None
+    user = next(iter(node.users))
+    if user.op != "call_function" or user.target not in _HARDTANH_OPS:
+        return None
+    lo = user.args[1] if len(user.args) > 1 else user.kwargs.get("min_val", -1.0)
+    hi = user.args[2] if len(user.args) > 2 else user.kwargs.get("max_val", 1.0)
+    return max(abs(float(lo)), abs(float(hi)))  # type: ignore[arg-type]
+
+
 def _feeds_topk(node: Node) -> bool:
     """True if `node`'s output reaches an `aten.topk.default` call through a
     chain of transparent/structural/passthrough ops only (permute, view,
@@ -215,6 +238,12 @@ class C7xMMAQuantizer(Quantizer):
             outlier once the precision it costs the other values outweighs
             clipping it; a tensor with few values keeps behaving like min/max.
             It calibrates more slowly. Weights always use min/max.
+
+    A conv or linear whose only consumer is a hardtanh, such as ReLU6, gets the
+    clamp's range for its output instead of a calibrated one (symmetric
+    activations only). Calibration would record the extremes before the clamp,
+    which in MobileNetV2 are 1.4 to 11 times the clamp's bound (about 3 times
+    typically), so the values the clamp keeps got that much less resolution.
     """
 
     def __init__(
@@ -266,6 +295,25 @@ class C7xMMAQuantizer(Quantizer):
             quant_min=quant_min,
             quant_max=quant_max,
             qscheme=qscheme,
+        )
+
+    def _clamp_range_spec(self, bound: float) -> FixedQParamsQuantizationSpec:
+        """Return a fixed per-tensor symmetric spec covering [-bound, bound]."""
+        if self.dtype == "int8":
+            torch_dtype, quant_min, quant_max = torch.int8, _INT8_MIN, _INT8_MAX
+        else:
+            torch_dtype, quant_min, quant_max = torch.int16, _INT16_MIN, _INT16_MAX
+        # The scale MinMaxObserver gives a tensor whose extreme is bound. A clamp
+        # that saturates is observed with the same scale at its output, so its
+        # input and output scales match and the backend lowers it as an integer
+        # clamp with no requantize.
+        return FixedQParamsQuantizationSpec(
+            dtype=torch_dtype,
+            scale=bound / ((quant_max - quant_min) / 2),
+            zero_point=0,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            qscheme=torch.per_tensor_symmetric,
         )
 
     def _weight_spec(self) -> QuantizationSpec:
@@ -321,7 +369,7 @@ class C7xMMAQuantizer(Quantizer):
             if node.meta.get("quantization_annotation") is not None:
                 continue  # already annotated by a composed quantizer
 
-            output_qspec: QuantizationSpec | SharedQuantizationSpec = act_spec
+            output_qspec: QuantizationSpecBase = act_spec
 
             if node.target in _WEIGHT_OPS:
                 # bias (args[2]) stays float32 — not annotated
@@ -329,6 +377,9 @@ class C7xMMAQuantizer(Quantizer):
                     node.args[0]: act_spec,  # type: ignore[index]
                     node.args[1]: weight_spec,  # type: ignore[index]
                 }
+                bound = _hardtanh_bound(node)
+                if bound is not None and self.symmetric_activations:
+                    output_qspec = self._clamp_range_spec(bound)
             elif node.target in (_TIDL_ACT_OPS | _AVG_POOL_OPS | _NORM_OPS):
                 # Single activation input; weight/bias (if any) stay float32.
                 if not isinstance(node.args[0], Node) or not _is_float_tensor(node.args[0]):

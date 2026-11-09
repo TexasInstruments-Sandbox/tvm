@@ -89,6 +89,10 @@ Depthwise-heavy models such as MobileNet and EfficientNet are the most sensitive
 to this. See [Quantized Model Sweep](../contributor-guide/testing/quantized-sweep.md#measuring-accuracy)
 for how to measure a choice on your model.
 
+The observer doesn't set every range. A conv or linear whose only consumer is
+ReLU6, or another `hardtanh`, is quantized to the clamp's range, since the clamp
+discards anything beyond it (symmetric activations only).
+
 ## Choosing int8 vs int16
 
 `C7xMMAQuantizer(dtype=...)` picks the quantization width for both weights

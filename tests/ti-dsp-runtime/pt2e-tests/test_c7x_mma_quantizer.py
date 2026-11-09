@@ -110,6 +110,62 @@ def test_conv_histogram_observer_produces_qdq(dtype):
     assert _has_dequantize(targets)
 
 
+class ConvReLU6Model(nn.Module):
+    """conv -> ReLU6 -> conv, optionally with the first conv's output also added back."""
+
+    def __init__(self, inplace=True, branch=False):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 8, 3, padding=1)
+        self.relu6 = nn.ReLU6(inplace=inplace)
+        self.next = nn.Conv2d(8, 8, 1)
+        self.branch = branch
+
+    def forward(self, x):
+        y = self.conv(x)
+        if self.branch:
+            return self.next(self.relu6(y.clone())) + y
+        return self.next(self.relu6(y))
+
+
+def _output_scale(gm, target_prefix: str) -> float:
+    """The scale of the quantize node after the first op whose target starts with prefix."""
+    node = next(
+        n
+        for n in gm.graph.nodes
+        if n.op == "call_function" and str(n.target).startswith(target_prefix)
+    )
+    (q,) = [u for u in node.users if "quantize_per_tensor" in str(u.target)]
+    return q.args[1]
+
+
+# Large enough that the first conv's output reaches well beyond 6.
+_RELU6_INPUT = (torch.randn(1, 3, 8, 8) * 50,)
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(("dtype", "half_range"), [("int8", 127.5), ("int16", 32767.5)])
+@pytest.mark.parametrize("inplace", [True, False])
+def test_conv_feeding_relu6_gets_relu6_range(dtype, half_range, inplace):
+    q = quantize_pt2e(ConvReLU6Model(inplace), _RELU6_INPUT, C7xMMAQuantizer(dtype))
+    conv_scale = _output_scale(q, "aten.conv2d")
+    assert conv_scale == pytest.approx(6.0 / half_range)
+    # ReLU6 saturates here, so its output's min/max observer picks the same
+    # scale and the clamp needs no requantize.
+    assert _output_scale(q, "aten.hardtanh") == pytest.approx(conv_scale)
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(
+    ("model", "symmetric"),
+    [(ConvReLU6Model(branch=True), True), (ConvReLU6Model(), False)],
+    ids=["conv-output-has-other-users", "asymmetric"],
+)
+def test_conv_relu6_range_kept_calibrated(model, symmetric):
+    q = quantize_pt2e(model, _RELU6_INPUT, C7xMMAQuantizer("int8", symmetric))
+    # A calibrated range covers the conv's whole output, far beyond 6.
+    assert _output_scale(q, "aten.conv2d") > 2 * 6.0 / 127.5
+
+
 @pytest.mark.quick
 def test_unknown_activation_observer_is_rejected():
     with pytest.raises(ValueError, match="activation_observer"):

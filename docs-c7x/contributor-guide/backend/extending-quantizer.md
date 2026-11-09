@@ -89,6 +89,14 @@ TVM fuses the resulting Q/DQ pattern with an MMALIB kernel call.
 
 - `aten.conv2d.default` covers both regular and depthwise; TVM distinguishes by `groups`.
 - ¹ int16 depthwise only supports **3×3 kernels** (MMALIB-882 blocks 5×5/7×7); 5×5 layers are rejected and fall through to float32.
+- When the op's only user is `aten.hardtanh` / `hardtanh_` (ReLU6 is
+  `hardtanh(0, 6)`), its output gets a `FixedQParamsQuantizationSpec` covering
+  `[-max(|min_val|, |max_val|), +max(|min_val|, |max_val|)]` instead of a calibrated range, with symmetric
+  activations only. The clamp discards everything beyond that, and a calibrated
+  range would cover the pre-clamp extremes. hardtanh itself isn't annotated: its
+  output is observed by its consumer's input spec, which for a saturating ReLU6
+  under min/max is the same scale, so `FuseQDQToC7xRelu` lowers it as a
+  transparent `c7x_int8_clamp`.
 
 ### Group 2 — Activation-Only Compute Ops (`_ACT_ONLY_OPS`)
 
