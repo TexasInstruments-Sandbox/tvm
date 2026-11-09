@@ -171,7 +171,8 @@ classification match instead (see below).
 
 | Function | Location | Purpose |
 |---|---|---|
-| `_pt2e_quantize` | `model_utils.py` | Export → `prepare_pt2e` → calibrate → `convert_pt2e`; used by the 7 per-model files and the YOLO test |
+| `QuantRecipe`, `quantize_with_recipe` | `tests/ti-dsp-runtime/dsp-cpp/quant_recipe.py` | Named quantizer settings and calibration source, and the shared export → `prepare_pt2e` → calibrate → `convert_pt2e` step. `BASELINE_CALIB_IMAGES` (the 12 images in `calib_images/`) is used by the 7 per-model files and the YOLO test; `BASELINE_TEST_IMAGE` (the test input) by `test_quantized_torchvision.py` and the pt2e MobileNetV2 test. Recipes calibrate only on images in the repo; datasets used to measure accuracy stay out of them |
+| `_pt2e_quantize` | `model_utils.py` | Export → calibrate with a `QuantRecipe` → import into TVM; used by the 7 per-model files and the YOLO test |
 | `_quantize_classifier` | `model_utils.py` | Calibrates a TorchVision classifier on `calib_images/` and returns the held-out `dog.jpg` as its input; used by the 7 per-model files |
 | `load_model_with_preprocessing`, `load_image`, `get_all_classification_models` | `tests/cstatic/cl_torchvision.py` | Dynamic model loading with correct per-model preprocessing; cross-imported by `test_quantized_torchvision.py` |
 | `e2e_quantize_and_import`, `run_and_check` | `tests/ti-dsp-runtime/pt2e-tests/pt2e_utils.py` | Full quantize→import pipeline and MMALIB compile+run+assert; cross-imported by `test_quantized_torchvision.py` |

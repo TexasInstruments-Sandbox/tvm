@@ -153,7 +153,7 @@ def preprocess_image(image_path: Path) -> tuple:
     [0, 1] at the network's input resolution, and pil_image is the
     original-resolution RGB image (kept around to draw on later).
 
-    Matches quantized/model_utils.py's _load_yolo_calibration_frames: a
+    Matches quantized/model_utils.py's _load_yolo_frame: a
     plain resize to (size, size), no letterbox padding -- the model's own
     calibration data was built the same way, so this keeps preprocessing
     consistent between calibration and this demo's real inference.

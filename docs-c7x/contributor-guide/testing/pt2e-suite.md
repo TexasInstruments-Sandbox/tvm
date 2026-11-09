@@ -193,8 +193,11 @@ Two assertions: (1) top-1 prediction matches without MMALIB (validates import pi
 | Function | Purpose |
 |----------|---------|
 | `quantize_pt2e(model, inputs, quantizer)` | Export → prepare → calibrate → convert; returns Q/DQ GraphModule |
-| `e2e_quantize_and_import(model, inputs, dtype)` | Full pipeline to Relax IRModule with params bound |
+| `e2e_quantize_and_import(model, inputs, dtype=None, recipe=None)` | Full pipeline to Relax IRModule with params bound. Takes a `dtype` (default int8; one calibration pass over `inputs`) or a `QuantRecipe`, not both |
 | `run_and_check(mod, input, ref, dsp_mode, ...)` | Compile with `-mmalib=1`, run on DSP, assert `max_diff` |
+
+`QuantRecipe` and the shared export and calibration steps live in `dsp-cpp/quant_recipe.py`. See
+[Quantized Model Sweep](quantized-sweep.md#shared-infrastructure) for the named recipes.
 
 ## Prerequisites
 

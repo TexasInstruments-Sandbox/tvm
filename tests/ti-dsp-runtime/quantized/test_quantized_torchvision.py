@@ -53,6 +53,7 @@ _PT2E_TESTS_DIR = _QUANTIZED_DIR.parent / "pt2e-tests"
 sys.path.insert(0, str(_PT2E_TESTS_DIR))
 from dsp_utils import add_board_arg, compile_and_run_dsp, get_target_string  # noqa: E402
 from pt2e_utils import e2e_quantize_and_import, run_and_check  # noqa: E402
+from quant_recipe import BASELINE_TEST_IMAGE  # noqa: E402
 
 pytestmark = [pytest.mark.c7x_only]
 
@@ -136,9 +137,7 @@ def _run_test(model_name: str, dsp_mode: str, mmalib: bool, record_cycles) -> No
     img = load_image(str(_TEST_IMAGE))
     example = (preproc(img).unsqueeze(0),)
 
-    mod, input_np, ref_np = e2e_quantize_and_import(
-        model, example, dtype="int8", n_calibration_batches=10
-    )
+    mod, input_np, ref_np = e2e_quantize_and_import(model, example, recipe=BASELINE_TEST_IMAGE)
 
     if mmalib and model_name in _TOP1_MATCH_ONLY:
         # See _TOP1_MATCH_ONLY above: this model's MMALIB logits are

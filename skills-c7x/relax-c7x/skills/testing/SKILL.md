@@ -26,7 +26,8 @@ tests/ti-dsp-runtime/
 │   ├── smollm_c7x.py       <- compile/infer/test CLI
 │   └── smollm_board.py     <- Board-side inference (no TVM/torch)
 ├── dsp-cpp/
-│   └── dsp_utils.py         <- Core helpers (compile, build, run)
+│   ├── dsp_utils.py         <- Core helpers (compile, build, run)
+│   └── quant_recipe.py      <- Named PT2E recipes (QuantRecipe, calibrate_and_convert)
 └── results/                 <- cycles.csv output
 ```
 

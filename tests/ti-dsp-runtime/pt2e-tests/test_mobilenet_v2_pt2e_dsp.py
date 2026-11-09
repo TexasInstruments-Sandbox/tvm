@@ -30,6 +30,7 @@ import pytest
 
 from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
 from pt2e_utils import e2e_quantize_and_import  # noqa: E402
+from quant_recipe import BASELINE_TEST_IMAGE
 
 _CSTATIC_DIR = Path(__file__).parent.parent.parent / "cstatic"
 sys.path.insert(0, str(_CSTATIC_DIR))
@@ -49,10 +50,7 @@ def test_mobilenet_v2_pt2e_i8(dsp_mode, record_cycles):
     img = load_image(str(_TEST_IMAGE))
     example = (preproc(img).unsqueeze(0),)
 
-    # Calibrates with 10 passes over the same image.
-    mod, input_np, ref_np = e2e_quantize_and_import(
-        model, example, dtype="int8", n_calibration_batches=10
-    )
+    mod, input_np, ref_np = e2e_quantize_and_import(model, example, recipe=BASELINE_TEST_IMAGE)
 
     result_key = "c7x_host_result" if dsp_mode == "c7x_host" else "c7x_dload_result"
 

@@ -84,6 +84,7 @@ from dsp_utils import (  # pyright: ignore[reportMissingImports]
     set_current_board,
 )
 from model_utils import _pt2e_quantize  # pyright: ignore[reportMissingImports]
+from quant_recipe import BASELINE_TEST_IMAGE  # pyright: ignore[reportMissingImports]
 
 from tvm.data.ti_dsp.paths import find_c7x_include_dir
 
@@ -126,7 +127,7 @@ def compile_resnet18_for_board(board: str, input_tensor: torch.Tensor, build_dir
     print("[1/3] Quantizing ResNet-18 (PT2E int8, calibrated on the real input image)...")
     torch_model = resnet18(weights=ResNet18_Weights.DEFAULT).eval()
     example_args = (input_tensor,)
-    mod, _quantized_gm = _pt2e_quantize(torch_model, example_args, calibration_data=[input_tensor])
+    mod, _quantized_gm = _pt2e_quantize(torch_model, example_args, BASELINE_TEST_IMAGE)
 
     print("[2/3] Compiling for C7x + MMALIB...")
     # use_cpp_api=True: DLOAD requires C++ API codegen (see

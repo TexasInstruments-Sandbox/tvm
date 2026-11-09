@@ -12,11 +12,11 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+from quant_recipe import BASELINE_CALIB_IMAGES, quantize_with_recipe
 from torch.export import export
-from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 
 from tvm import relax
-from tvm.relax.frontend.torch import C7xMMAQuantizer, from_exported_program
+from tvm.relax.frontend.torch import from_exported_program
 
 # The yolov5 torch.hub code checks its requirements through ultralytics, which
 # by default pip-installs anything it finds missing: it upgraded the pinned
@@ -26,7 +26,6 @@ os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 _THIS_DIR = Path(__file__).parent
 _TEST_IMAGES_DIR = _THIS_DIR.parent.parent / "cstatic" / "test_images"
-_CALIB_IMAGES_DIR = _THIS_DIR / "calib_images"
 # Input for the classifier tests. It is not in calib_images/, so the DSP is
 # checked on an image the activation ranges were not fitted to.
 _EVAL_IMAGE = _TEST_IMAGES_DIR / "dog.jpg"
@@ -41,33 +40,18 @@ _YOLO_EVAL_IMAGE = _TEST_IMAGES_DIR / "car.jpg"
 MMALIB_ONLY_REASON = "runs with --mmalib only; test_quantized_resnet.py covers the non-MMALIB path"
 
 
-def _pt2e_quantize(torch_model, example_args, calibration_data=None, strict=True):
+def _pt2e_quantize(torch_model, example_args, recipe, load_image=None, strict=True):
     """Shared PT2E quantization pipeline.
 
-    calibration_data: optional iterable of calibration tensors. Defaults to
-    random noise, whose activation ranges don't match real inputs; every
-    model in this file passes real images instead.
+    recipe: QuantRecipe giving the quantizer settings and calibration samples.
+    load_image: reads an image path into a model input; required by a recipe
+    that calibrates on images (see QuantRecipe.calibration_samples).
     strict: passed through to torch.export.export. Models with dynamic
     control flow (e.g. raw ultralytics/yolov5 modules) require False.
 
     Returns (tvm_mod, quantized_gm) with parameters bound.
     """
-    with torch.no_grad():
-        exported_program = export(torch_model, example_args, strict=strict)
-    model_gm = exported_program.module()
-
-    quantizer = C7xMMAQuantizer(dtype="int8", symmetric_activations=True)
-    prepared = prepare_pt2e(model_gm, quantizer)
-
-    with torch.no_grad():
-        if calibration_data is not None:
-            for sample in calibration_data:
-                prepared(sample)
-        else:
-            for _ in range(10):
-                prepared(torch.randn_like(example_args[0]))
-
-    quantized_gm = convert_pt2e(prepared)
+    quantized_gm = quantize_with_recipe(torch_model, example_args, recipe, load_image, strict)
 
     with torch.no_grad():
         exported_program_q = export(quantized_gm, example_args, strict=strict)
@@ -96,14 +80,11 @@ def _quantize_classifier(build_model, weights) -> tuple:
     def load(path):
         return transform(Image.open(path).convert("RGB")).unsqueeze(0)
 
-    calibration_data = [load(p) for p in sorted(_CALIB_IMAGES_DIR.glob("*.jpg"))]
-    if not calibration_data:
-        raise FileNotFoundError(f"no calibration images in {_CALIB_IMAGES_DIR}")
     input_tensor = load(_EVAL_IMAGE)
 
     torch_model = build_model(weights=weights).eval()
     mod, quantized_gm = _pt2e_quantize(
-        torch_model, (input_tensor,), calibration_data=calibration_data
+        torch_model, (input_tensor,), BASELINE_CALIB_IMAGES, load_image=load
     )
     return mod, quantized_gm, input_tensor.numpy()
 
@@ -257,22 +238,6 @@ def _load_yolo_frame(path, size: int) -> torch.Tensor:
     return torch.from_numpy(chw).unsqueeze(0)
 
 
-def _load_yolo_calibration_frames(size: int = 320) -> list:
-    """Load calib_images/ for PT2E calibration, resized to (size, size).
-
-    Random-noise calibration causes poorly-scaled activations at the YOLO DFL
-    head's softmax, which can underflow to a NaN (the same failure documented
-    for TIDL calibration in tidl-tests/test_yolo_dsp.py). Real images give
-    much better INT8 scale estimates; calib_images/ includes street scenes
-    with the cars, buses, people and bicycles a COCO detector expects.
-    Returns a list of float32 [1, 3, size, size] tensors in [0, 1].
-    """
-    frames = [_load_yolo_frame(p, size) for p in sorted(_CALIB_IMAGES_DIR.glob("*.jpg"))]
-    if not frames:
-        raise FileNotFoundError(f"no calibration images in {_CALIB_IMAGES_DIR}")
-    return frames
-
-
 def create_quantized_yolo_model(model_name: str, version: str) -> tuple:
     """Create INT8 quantized YOLO model. Input: [1, 3, 320, 320].
 
@@ -287,9 +252,18 @@ def create_quantized_yolo_model(model_name: str, version: str) -> tuple:
     raw_model = _load_yolov5(model_name) if version == "v5" else _load_yolov8(model_name)
     wrapped = YOLOWrapper(raw_model, version=version).eval()
 
-    input_tensor = _load_yolo_frame(_YOLO_EVAL_IMAGE, YOLO_INPUT_SHAPE[-1])
-    calibration_data = _load_yolo_calibration_frames(size=YOLO_INPUT_SHAPE[-1])
+    size = YOLO_INPUT_SHAPE[-1]
+    input_tensor = _load_yolo_frame(_YOLO_EVAL_IMAGE, size)
+    # Random-noise calibration causes poorly-scaled activations at the YOLO DFL
+    # head's softmax, which can underflow to a NaN (the same failure documented
+    # for TIDL calibration in tidl-tests/test_yolo_dsp.py). Real images give
+    # much better INT8 scale estimates; calib_images/ includes street scenes
+    # with the cars, buses, people and bicycles a COCO detector expects.
     mod, quantized_gm = _pt2e_quantize(
-        wrapped, (input_tensor,), calibration_data=calibration_data, strict=False
+        wrapped,
+        (input_tensor,),
+        BASELINE_CALIB_IMAGES,
+        load_image=lambda path: _load_yolo_frame(path, size),
+        strict=False,
     )
     return mod, quantized_gm, input_tensor.numpy()

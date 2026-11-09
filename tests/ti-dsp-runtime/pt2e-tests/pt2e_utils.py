@@ -10,14 +10,18 @@ Three public functions covering the full quantization and compilation pipeline:
 See docs-c7x/contributor-guide/backend/extending-quantizer.md for the full pipeline description.
 """
 
-import warnings
-
 import numpy as np
 import torch
 import torch.nn as nn
 from dsp_utils import compile_and_run_dsp, get_target_string  # noqa: E402
+from quant_recipe import (
+    TEST_INPUT,
+    QuantRecipe,
+    calibrate_and_convert,
+    export_module,
+    quantize_with_recipe,
+)
 from torch.fx import GraphModule
-from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
 
 import tvm
 from tvm import relax
@@ -28,7 +32,6 @@ def quantize_pt2e(
     model: nn.Module,
     example_inputs: tuple,
     quantizer: C7xMMAQuantizer,
-    n_calibration_batches: int = 1,
 ) -> GraphModule:
     """Export → prepare → calibrate → convert. Returns the converted GraphModule.
 
@@ -36,61 +39,45 @@ def quantize_pt2e(
     does not import into TVM.  Use e2e_quantize_and_import for the full pipeline.
 
     Args:
-        model:                float PyTorch model (eval mode set internally)
-        example_inputs:       tuple of example tensors; used for export and calibration
-        quantizer:            configured C7xMMAQuantizer instance
-        n_calibration_batches: number of times to run example_inputs through the
-                              observers.  More than 1 is only useful when the caller
-                              supplies different inputs on each iteration.
+        model:          float PyTorch model (eval mode set internally)
+        example_inputs: tuple of example tensors; used for export and calibration
+        quantizer:      configured C7xMMAQuantizer instance
 
     Returns:
         GraphModule with Q/DQ nodes replacing the observer modules.
     """
-    model.eval()
-    # torch.export.export() returns an ExportedProgram; .module() unwraps it to a
-    # GraphModule, which is what prepare_pt2e expects.
-    exported = torch.export.export(model, example_inputs).module()
-
-    # prepare_pt2e calls quantizer.annotate() to read the quantization specs, then
-    # inserts MinMaxObserver / PerChannelMinMaxObserver modules at each annotated
-    # tensor edge.  Running inputs through the prepared model fills in the observed
-    # min/max ranges that will become the Q/DQ scale factors.
-    prepared = prepare_pt2e(exported, quantizer)
-    with torch.no_grad():
-        for _ in range(n_calibration_batches):
-            prepared(*example_inputs)
-
-    with warnings.catch_warnings():
-        # convert_pt2e removes observer nodes from the graph; torch emits a
-        # harmless UserWarning("erase_node") for each one.
-        warnings.filterwarnings("ignore", message="erase_node")
-        # convert_pt2e replaces observer modules with explicit quantize/dequantize
-        # (Q/DQ) nodes, producing a graph of the form q → dq → op → q → dq → ...
-        return convert_pt2e(prepared)
+    return calibrate_and_convert(export_module(model, example_inputs), quantizer, [example_inputs])
 
 
 def e2e_quantize_and_import(
     model: nn.Module,
     example_inputs: tuple,
-    dtype: str = "int8",
-    n_calibration_batches: int = 1,
+    dtype: str | None = None,
+    recipe: QuantRecipe | None = None,
+    load_image=None,
 ) -> tuple[tvm.IRModule, np.ndarray, np.ndarray]:
     """Run the full PT2E → TVM import pipeline.
 
     Args:
-        model:                float PyTorch model (eval mode set internally)
-        example_inputs:       tuple of example tensors defining input shapes
-        dtype:                "int8" or "int16"
-        n_calibration_batches: passed through to quantize_pt2e
+        model:          float PyTorch model (eval mode set internally)
+        example_inputs: tuple of example tensors defining input shapes
+        dtype:          "int8" (the default) or "int16", to calibrate once on
+                        example_inputs, which suits the single-op tests. Can't
+                        be combined with recipe, which sets its own dtype.
+        recipe:         model-level QuantRecipe
+        load_image:     see QuantRecipe.calibration_samples
 
     Returns:
         mod:      Relax IRModule with params bound, ready for compile_and_run_dsp
         input_np: numpy array matching example_inputs[0]
         ref_np:   PyTorch quantized model CPU output (correctness reference)
     """
-    quantized_pt = quantize_pt2e(
-        model, example_inputs, C7xMMAQuantizer(dtype=dtype), n_calibration_batches
-    )
+    if recipe is None:
+        dtype = dtype or "int8"
+        recipe = QuantRecipe(f"single-pass-{dtype}", TEST_INPUT, dtype=dtype)
+    elif dtype is not None:
+        raise ValueError(f"pass dtype or recipe, not both: {recipe.name} sets its own dtype")
+    quantized_pt = quantize_with_recipe(model, example_inputs, recipe, load_image)
 
     with torch.no_grad():
         # Capture PyTorch's simulated-quantization output now, before re-export,
