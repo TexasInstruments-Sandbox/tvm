@@ -40,6 +40,7 @@ from eval_datasets import MAX_EVAL_IMAGES, datasets_dir, imagenetv2_split
 from quant_recipe import (
     BASELINE_CALIB_IMAGES,
     BASELINE_TEST_IMAGE,
+    HISTOGRAM_CALIB_IMAGES,
     QuantRecipe,
     calibrate_and_convert,
     export_module,
@@ -58,7 +59,7 @@ DEFAULT_MODELS = (
     "regnet_x_400mf",
     "squeezenet1_1",
 )
-RECIPES = {r.name: r for r in (BASELINE_CALIB_IMAGES, BASELINE_TEST_IMAGE)}
+RECIPES = {r.name: r for r in (BASELINE_CALIB_IMAGES, BASELINE_TEST_IMAGE, HISTOGRAM_CALIB_IMAGES)}
 # The tests' input, used for export and by BASELINE_TEST_IMAGE, as in the sweep.
 _EXAMPLE_IMAGE = _TESTS_DIR / "cstatic" / "test_images" / "dog.jpg"
 _LOAD_CHUNK = 32

@@ -11,6 +11,7 @@ from quant_recipe import (
     BASELINE_CALIB_IMAGES,
     BASELINE_TEST_IMAGE,
     CALIB_IMAGES_DIR,
+    HISTOGRAM_CALIB_IMAGES,
     TEST_INPUT,
     QuantRecipe,
     calibrate_and_convert,
@@ -28,10 +29,10 @@ class _ConvModel(nn.Module):
         return self.conv(x)
 
 
-def _input_scale(samples: list[tuple]) -> float:
+def _input_scale(samples: list[tuple], quantizer: C7xMMAQuantizer | None = None) -> float:
     """The scale of the input's quantize node after calibrating on samples."""
     exported = torch.export.export(_ConvModel().eval(), samples[0]).module()
-    quantized = calibrate_and_convert(exported, C7xMMAQuantizer("int8"), samples)
+    quantized = calibrate_and_convert(exported, quantizer or C7xMMAQuantizer("int8"), samples)
     for node in quantized.graph.nodes:
         if node.op == "call_function" and "quantize_per_tensor" in str(node.target):
             scale = node.args[1]
@@ -95,6 +96,33 @@ def test_recipe_configures_the_quantizer(dtype, symmetric):
     quantizer = recipe.quantizer()
     assert quantizer.dtype == dtype
     assert quantizer.symmetric_activations == symmetric
+
+
+@pytest.mark.quick
+def test_recipe_selects_the_activation_observer():
+    assert BASELINE_CALIB_IMAGES.quantizer().activation_observer == "minmax"
+    assert HISTOGRAM_CALIB_IMAGES.quantizer().activation_observer == "histogram"
+    assert HISTOGRAM_CALIB_IMAGES.calibration == BASELINE_CALIB_IMAGES.calibration
+
+
+@pytest.mark.quick
+def test_histogram_observer_is_not_set_by_one_outlier():
+    torch.manual_seed(0)
+    # Large enough that the outlier costs more precision across all the values
+    # than clipping it would. At a few thousand values, histogram keeps this one.
+    typical = torch.randn(1, 3, 512, 512)
+    outlier = typical.clone()
+    outlier[0, 0, 0, 0] = 100.0
+    samples = [(typical,), (outlier,)]
+
+    minmax_scale = _input_scale(samples)
+    histogram_scale = _input_scale(
+        samples, C7xMMAQuantizer("int8", activation_observer="histogram")
+    )
+
+    # One pixel at 100 sets min/max's range, about 30 times the rest of the data's.
+    assert minmax_scale == pytest.approx(100.0 / 127.5, rel=0.01)
+    assert histogram_scale < minmax_scale / 4
 
 
 @pytest.mark.quick

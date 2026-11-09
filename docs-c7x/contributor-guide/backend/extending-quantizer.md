@@ -61,7 +61,8 @@ float PyTorch model
 | Output | same as activations | per-tensor | same as activations |
 
 Observers used:
-- Activations: `torchao.quantization.pt2e.MinMaxObserver`
+- Activations: `torchao.quantization.pt2e.MinMaxObserver` by default, or
+  `HistogramObserver` with `activation_observer="histogram"`
 - Weights: `torchao.quantization.pt2e.PerChannelMinMaxObserver`
 
 **Note:** The `torch.ao` observer hierarchy is incompatible — `convert_pt2e` would
@@ -380,13 +381,6 @@ handles only layer norm). Options:
 
 Until a kernel exists, `group_norm` should remain unannotated so it stays
 float32 without QDQ overhead.
-
-### HistogramObserver (Optional)
-
-`C7xMMAQuantizer` uses `MinMaxObserver` for activations. With large calibration
-datasets, `HistogramObserver` produces tighter scales (clips outliers) at
-higher memory cost. With current 10-batch calibration, difference is negligible.
-To switch, replace `MinMaxObserver` in `_act_spec()` in `c7x_mma_quantizer.py`.
 
 ## Known Constraints
 

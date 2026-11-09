@@ -98,6 +98,25 @@ def test_conv_int8_affine_produces_qdq():
 
 
 @pytest.mark.quick
+@pytest.mark.parametrize("dtype", ["int8", "int16"])
+def test_conv_histogram_observer_produces_qdq(dtype):
+    q = quantize_pt2e(
+        ConvModel(),
+        (torch.randn(1, 3, 8, 8),),
+        C7xMMAQuantizer(dtype, activation_observer="histogram"),
+    )
+    targets = _call_function_targets(q)
+    assert _has_quantize(targets)
+    assert _has_dequantize(targets)
+
+
+@pytest.mark.quick
+def test_unknown_activation_observer_is_rejected():
+    with pytest.raises(ValueError, match="activation_observer"):
+        C7xMMAQuantizer("int8", activation_observer="no-such-observer")
+
+
+@pytest.mark.quick
 def test_linear_int8_produces_qdq():
     q = quantize_pt2e(LinearModel(), (torch.randn(1, 16),), C7xMMAQuantizer("int8"))
     targets = _call_function_targets(q)

@@ -66,6 +66,22 @@ and random noise produces different ranges from real images. The
 per-model tests in `quantized/` calibrate on `quantized/calib_images/` and
 run the DSP on an image outside that set.
 
+## Choosing an Activation Observer
+
+`C7xMMAQuantizer(activation_observer=...)` sets how calibration turns the values
+it sees into a range:
+
+- `"minmax"` (default) uses the extremes. One outlier widens the range for every
+  value, so on models with outliers, adding calibration data can reduce accuracy.
+- `"histogram"` picks the range with the least total squared error over the values
+  seen. It saturates an outlier once the precision it costs the other values
+  outweighs clipping it, so a tensor with few values, such as the output of a
+  global pool, still behaves much like min/max. It calibrates more slowly.
+
+Depthwise-heavy models such as MobileNet and EfficientNet are the most sensitive
+to this. See [Quantized Model Sweep](../contributor-guide/testing/quantized-sweep.md#measuring-accuracy)
+for how to measure a choice on your model.
+
 ## Choosing int8 vs int16
 
 `C7xMMAQuantizer(dtype=...)` picks the quantization width for both weights

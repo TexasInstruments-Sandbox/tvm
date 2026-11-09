@@ -38,15 +38,21 @@ class QuantRecipe:
         calibration: CALIB_IMAGES or TEST_INPUT.
         dtype: "int8" or "int16".
         symmetric_activations: passed to C7xMMAQuantizer.
+        activation_observer: passed to C7xMMAQuantizer.
     """
 
     name: str
     calibration: str
     dtype: str = "int8"
     symmetric_activations: bool = True
+    activation_observer: str = "minmax"
 
     def quantizer(self) -> C7xMMAQuantizer:
-        return C7xMMAQuantizer(dtype=self.dtype, symmetric_activations=self.symmetric_activations)
+        return C7xMMAQuantizer(
+            dtype=self.dtype,
+            symmetric_activations=self.symmetric_activations,
+            activation_observer=self.activation_observer,
+        )
 
     def calibration_samples(
         self, test_input: tuple, load_image: Callable[[Path], torch.Tensor] | None = None
@@ -79,6 +85,12 @@ BASELINE_CALIB_IMAGES = QuantRecipe("baseline-calib-images", CALIB_IMAGES)
 # The torchvision sweep and the pt2e MobileNetV2 test: one sample, and the test
 # input is the calibration input.
 BASELINE_TEST_IMAGE = QuantRecipe("baseline-test-image", TEST_INPUT)
+
+# BASELINE_CALIB_IMAGES with the histogram observer, which reduces how much
+# outliers widen the activation ranges.
+HISTOGRAM_CALIB_IMAGES = QuantRecipe(
+    "histogram-calib-images", CALIB_IMAGES, activation_observer="histogram"
+)
 
 
 def export_module(model: nn.Module, example_inputs: tuple, strict: bool = True) -> GraphModule:

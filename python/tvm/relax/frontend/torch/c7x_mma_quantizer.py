@@ -33,7 +33,7 @@ import warnings
 
 import torch
 from torch.fx import GraphModule, Node
-from torchao.quantization.pt2e import MinMaxObserver, PerChannelMinMaxObserver
+from torchao.quantization.pt2e import HistogramObserver, MinMaxObserver, PerChannelMinMaxObserver
 from torchao.quantization.pt2e.quantizer import (
     QuantizationAnnotation,
     QuantizationSpec,
@@ -179,6 +179,10 @@ def _is_float_tensor(node: Node) -> bool:
     return isinstance(val, torch.Tensor) and val.is_floating_point()
 
 
+# Observers for activation tensors, chosen by C7xMMAQuantizer(activation_observer=).
+_ACTIVATION_OBSERVERS = {"minmax": MinMaxObserver, "histogram": HistogramObserver}
+
+
 class C7xMMAQuantizer(Quantizer):
     """torchao PT2E quantizer targeting TI C7x MMALIB.
 
@@ -203,13 +207,32 @@ class C7xMMAQuantizer(Quantizer):
         dtype: "int8" or "int16".
         symmetric_activations: Use per-tensor symmetric for activations.
             Forced True for int16 (no asymmetric lowering path exists).
+        activation_observer: How calibration sets each activation's range.
+            "minmax" uses the extremes seen, so a single outlier widens the
+            range for every value, and the range keeps growing with more
+            calibration data. "histogram" picks the range with the least
+            total squared error over the values seen, so it saturates an
+            outlier once the precision it costs the other values outweighs
+            clipping it; a tensor with few values keeps behaving like min/max.
+            It calibrates more slowly. Weights always use min/max.
     """
 
-    def __init__(self, dtype: str = "int8", symmetric_activations: bool = True):
+    def __init__(
+        self,
+        dtype: str = "int8",
+        symmetric_activations: bool = True,
+        activation_observer: str = "minmax",
+    ):
         super().__init__()
         if dtype not in ("int8", "int16"):
             raise ValueError(f"dtype must be 'int8' or 'int16', got {dtype!r}")
+        if activation_observer not in _ACTIVATION_OBSERVERS:
+            raise ValueError(
+                f"activation_observer must be one of {sorted(_ACTIVATION_OBSERVERS)}, "
+                f"got {activation_observer!r}"
+            )
         self.dtype = dtype
+        self.activation_observer = activation_observer
         if dtype == "int16" and not symmetric_activations:
             warnings.warn(
                 "int16 activations require symmetric quantization; "
@@ -220,13 +243,13 @@ class C7xMMAQuantizer(Quantizer):
         self.symmetric_activations = symmetric_activations
 
     def _act_spec(self) -> QuantizationSpec:
-        """Return the QuantizationSpec for activation tensors (per-tensor, MinMaxObserver).
+        """Return the QuantizationSpec for activation tensors (per-tensor).
 
         QuantizationSpec bundles the observer class, dtype, numeric range, and
         quantization scheme into one object.  prepare_pt2e reads these fields to
         decide which observer module to insert and how to configure it.
 
-        MinMaxObserver must come from torchao.quantization.pt2e, not torch.ao —
+        Observers must come from torchao.quantization.pt2e, not torch.ao —
         torchao's convert_pt2e only recognises torchao observer classes; torch.ao
         observers would be left as opaque call_module nodes after conversion.
         """
@@ -239,7 +262,7 @@ class C7xMMAQuantizer(Quantizer):
         )
         return QuantizationSpec(
             dtype=torch_dtype,
-            observer_or_fake_quant_ctr=MinMaxObserver,
+            observer_or_fake_quant_ctr=_ACTIVATION_OBSERVERS[self.activation_observer],
             quant_min=quant_min,
             quant_max=quant_max,
             qscheme=qscheme,
