@@ -22,6 +22,7 @@ tests/ti-dsp-runtime/
 │   └── test_mobilenet_v2_pt2e_dsp.py  <- MobileNetV2 integration test
 ├── tidl-tests/              <- TIDL partition + e2e tests
 ├── quantized/               <- Full quantized model tests
+├── accuracy/                <- Float vs Q/DQ accuracy on a dataset (evaluate.py, C7X_DATASETS_DIR)
 ├── SmolLM/                  <- LLM e2e pipeline
 │   ├── smollm_c7x.py       <- compile/infer/test CLI
 │   └── smollm_board.py     <- Board-side inference (no TVM/torch)

@@ -183,6 +183,34 @@ whole models compound int8 rounding error across many layers, so
 `test_quantized_torchvision.py` passes `max_diff=25` explicitly instead
 of relying on the default.
 
+## Measuring accuracy
+
+The tests above compare the DSP with PyTorch on one image, which says nothing
+about accuracy. `tests/ti-dsp-runtime/accuracy/evaluate.py` measures what
+quantization costs: it runs the float model and the Q/DQ graph from
+`convert_pt2e` on the same images, in PyTorch only, with no compile or board.
+
+```bash
+cd tests/ti-dsp-runtime
+C7X_DATASETS_DIR=~/datasets python accuracy/evaluate.py resnet18 --n 5000 --out report.json
+```
+
+It needs ImageNetV2 MatchedFrequency under `C7X_DATASETS_DIR`, in the layout
+described in `accuracy/eval_datasets.py`. Nothing downloads it, and no data or
+file list belongs in this repository. Its images have the same terms of use as
+ImageNet's.
+
+- `top1_delta` is quantized minus float on the same images, and
+  `top1_delta_stderr` is its standard error. Read the delta rather than the
+  absolute accuracy, which isn't comparable with published ImageNet numbers.
+- `top1_tied_quant` is how often the largest quantized logits tie. Ties break by
+  lowest class index, as `np.argmax` does.
+- `--recipe` picks a named `QuantRecipe`. `--calibrate-on-dataset N` calibrates
+  on N held-out dataset images instead, as an analysis, not a recipe.
+
+Per-layer error and MMALIB coverage aren't measured yet. Its unit tests
+(`accuracy/test_accuracy_harness.py`) need no dataset and aren't in a CI stage yet.
+
 ## Prerequisites
 
 - TVM built with the `c_static_lib` backend (`TVM_HOME` set, `PYTHONPATH`
