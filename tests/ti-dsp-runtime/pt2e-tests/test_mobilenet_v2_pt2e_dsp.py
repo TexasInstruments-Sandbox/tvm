@@ -48,7 +48,8 @@ def test_mobilenet_v2_pt2e_i8(dsp_mode, record_cycles):
 
     model, preproc, _ = load_model_with_preprocessing("mobilenet_v2")
     img = load_image(str(_TEST_IMAGE))
-    example = (preproc(img).unsqueeze(0),)
+    # NCHW, as the DSP is given: the transform returns a channels-last view.
+    example = (preproc(img).unsqueeze(0).contiguous(),)
 
     mod, input_np, ref_np = e2e_quantize_and_import(model, example, recipe=BASELINE_TEST_IMAGE)
 

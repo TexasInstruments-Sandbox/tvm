@@ -164,7 +164,8 @@ def preprocess_image(image_path: Path) -> tuple:
         raise FileNotFoundError(f"Could not load test image: {image_path}")
     resized = image.resize((size, size))
     chw = (np.array(resized).astype(np.float32) / 255.0).transpose(2, 0, 1)
-    return chw[np.newaxis, ...], image
+    # NCHW in memory, as _load_yolo_frame: transpose() alone leaves a channels-last view.
+    return np.ascontiguousarray(chw[np.newaxis, ...]), image
 
 
 def deploy_and_run_on_board(

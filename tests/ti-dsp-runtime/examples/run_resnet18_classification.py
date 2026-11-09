@@ -109,7 +109,9 @@ def preprocess_image(image_path: Path):
 
     transform = ResNet18_Weights.DEFAULT.transforms()
     image = Image.open(image_path).convert("RGB")
-    return transform(image).unsqueeze(0)
+    # NCHW, as the DSP is given: the transform returns a channels-last view, and
+    # the quantized model's output depends on layout.
+    return transform(image).unsqueeze(0).contiguous()
 
 
 def compile_resnet18_for_board(board: str, input_tensor: torch.Tensor, build_dir: Path) -> Path:

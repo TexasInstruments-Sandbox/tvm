@@ -135,7 +135,8 @@ TORCHVISION_MODELS = sorted(
 def _run_test(model_name: str, dsp_mode: str, mmalib: bool, record_cycles) -> None:
     model, preproc, _ = load_model_with_preprocessing(model_name)
     img = load_image(str(_TEST_IMAGE))
-    example = (preproc(img).unsqueeze(0),)
+    # NCHW, as the DSP is given: the transform returns a channels-last view.
+    example = (preproc(img).unsqueeze(0).contiguous(),)
 
     mod, input_np, ref_np = e2e_quantize_and_import(model, example, recipe=BASELINE_TEST_IMAGE)
 

@@ -159,7 +159,10 @@ def evaluate(
             raise FileNotFoundError(path)
         tensor = preprocess(image)
         assert isinstance(tensor, torch.Tensor)
-        return tensor.unsqueeze(0)
+        # The transform returns a channels-last view, and the Q/DQ graph's output
+        # depends on input layout (the float model's doesn't). NCHW is what the
+        # DSP is given, so measure that.
+        return tensor.unsqueeze(0).contiguous()
 
     quantized = _quantize(model, load, recipe, split.calibration_paths)
 

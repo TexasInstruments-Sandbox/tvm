@@ -66,6 +66,13 @@ and random noise produces different ranges from real images. The
 per-model tests in `quantized/` calibrate on `quantized/calib_images/` and
 run the DSP on an image outside that set.
 
+Make inputs NCHW-contiguous (`.contiguous()`) for calibration and for any
+PyTorch reference you compare the DSP with. TorchVision's transforms return a
+channels-last view, and the quantized graph's output depends on memory layout
+even though the float model's doesn't: a tiny float difference flips a rounding
+decision, and the change spreads through later layers. The DSP is always given
+NCHW data.
+
 ## Choosing an Activation Observer
 
 `C7xMMAQuantizer(activation_observer=...)` sets how calibration turns the values

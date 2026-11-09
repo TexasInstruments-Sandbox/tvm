@@ -78,7 +78,10 @@ def _quantize_classifier(build_model, weights) -> tuple:
     transform = weights.transforms()
 
     def load(path):
-        return transform(Image.open(path).convert("RGB")).unsqueeze(0)
+        # The transform returns a channels-last view, and the Q/DQ graph's output
+        # depends on input layout. The DSP is given NCHW, so calibrate and
+        # compute the reference on NCHW too.
+        return transform(Image.open(path).convert("RGB")).unsqueeze(0).contiguous()
 
     input_tensor = load(_EVAL_IMAGE)
 
@@ -234,7 +237,8 @@ def _load_yolo_frame(path, size: int) -> torch.Tensor:
     from PIL import Image  # noqa: PLC0415
 
     img = Image.open(path).convert("RGB").resize((size, size))
-    chw = (np.array(img).astype(np.float32) / 255.0).transpose(2, 0, 1)
+    # transpose() alone leaves a channels-last view; see _quantize_classifier.
+    chw = np.ascontiguousarray((np.array(img).astype(np.float32) / 255.0).transpose(2, 0, 1))
     return torch.from_numpy(chw).unsqueeze(0)
 
 
