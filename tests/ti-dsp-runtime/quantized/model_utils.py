@@ -30,6 +30,9 @@ _CALIB_IMAGES_DIR = _THIS_DIR / "calib_images"
 # Input for the classifier tests. It is not in calib_images/, so the DSP is
 # checked on an image the activation ranges were not fitted to.
 _EVAL_IMAGE = _TEST_IMAGES_DIR / "dog.jpg"
+# Input for the YOLO tests: a car and people for the detector to find, and not
+# in calib_images/.
+_YOLO_EVAL_IMAGE = _TEST_IMAGES_DIR / "car.jpg"
 
 
 def _pt2e_quantize(torch_model, example_args, calibration_data=None, strict=True):
@@ -235,31 +238,40 @@ def _load_yolov8(model_name: str):
     return model
 
 
-def _load_yolo_calibration_frames(size: int = 320) -> list:
-    """Load real test images for PT2E calibration, resized to (size, size).
+def _load_yolo_frame(path, size: int) -> torch.Tensor:
+    """One image as a float32 [1, 3, size, size] tensor in [0, 1].
 
-    Random-noise calibration (used by the other models in this file) causes
-    poorly-scaled activations at the YOLO DFL head's softmax, which can
-    underflow to a NaN (the same failure documented for TIDL calibration in
-    tidl-tests/test_yolo_dsp.py). Real images give much better INT8 scale
-    estimates.  Returns a list of float32 [1, 3, size, size] tensors in
-    [0, 1]; falls back to a single random frame if no images are found.
+    A plain resize to (size, size), no letterbox padding, for both calibration
+    and the test input.
     """
     from PIL import Image  # noqa: PLC0415
 
-    frames = []
-    for p in sorted(_TEST_IMAGES_DIR.glob("*.jpg")):
-        img = Image.open(p).convert("RGB").resize((size, size))
-        arr = np.array(img).astype(np.float32) / 255.0  # HWC [0,1]
-        chw = arr.transpose(2, 0, 1)  # CHW
-        frames.append(torch.from_numpy(chw).unsqueeze(0))
+    img = Image.open(path).convert("RGB").resize((size, size))
+    chw = (np.array(img).astype(np.float32) / 255.0).transpose(2, 0, 1)
+    return torch.from_numpy(chw).unsqueeze(0)
+
+
+def _load_yolo_calibration_frames(size: int = 320) -> list:
+    """Load calib_images/ for PT2E calibration, resized to (size, size).
+
+    Random-noise calibration causes poorly-scaled activations at the YOLO DFL
+    head's softmax, which can underflow to a NaN (the same failure documented
+    for TIDL calibration in tidl-tests/test_yolo_dsp.py). Real images give
+    much better INT8 scale estimates; calib_images/ includes street scenes
+    with the cars, buses, people and bicycles a COCO detector expects.
+    Returns a list of float32 [1, 3, size, size] tensors in [0, 1].
+    """
+    frames = [_load_yolo_frame(p, size) for p in sorted(_CALIB_IMAGES_DIR.glob("*.jpg"))]
     if not frames:
-        frames.append(torch.rand(1, 3, size, size, dtype=torch.float32))
+        raise FileNotFoundError(f"no calibration images in {_CALIB_IMAGES_DIR}")
     return frames
 
 
-def create_quantized_yolo_model(model_name: str, version: str, seed: int = 42) -> tuple:
+def create_quantized_yolo_model(model_name: str, version: str) -> tuple:
     """Create INT8 quantized YOLO model. Input: [1, 3, 320, 320].
+
+    Calibrated on calib_images/; input_data is _YOLO_EVAL_IMAGE, which is not
+    in that set.
 
     model_name: e.g. "yolov5n", "yolov5s", "yolov8n", "yolov8s", "yolo26n".
     version: "v5" (torch.hub loader) or "v8"/"v26" (ultralytics package
@@ -269,12 +281,9 @@ def create_quantized_yolo_model(model_name: str, version: str, seed: int = 42) -
     raw_model = _load_yolov5(model_name) if version == "v5" else _load_yolov8(model_name)
     wrapped = YOLOWrapper(raw_model, version=version).eval()
 
-    example_args = (torch.randn(*YOLO_INPUT_SHAPE, dtype=torch.float32),)
+    input_tensor = _load_yolo_frame(_YOLO_EVAL_IMAGE, YOLO_INPUT_SHAPE[-1])
     calibration_data = _load_yolo_calibration_frames(size=YOLO_INPUT_SHAPE[-1])
     mod, quantized_gm = _pt2e_quantize(
-        wrapped, example_args, calibration_data=calibration_data, strict=False
+        wrapped, (input_tensor,), calibration_data=calibration_data, strict=False
     )
-
-    np.random.seed(seed)
-    input_data = np.random.rand(*YOLO_INPUT_SHAPE).astype(np.float32)
-    return mod, quantized_gm, input_data
+    return mod, quantized_gm, input_tensor.numpy()

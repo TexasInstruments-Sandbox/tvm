@@ -68,6 +68,9 @@ dedicated function per model.
 
 All 5 models pass on `c7x_host` and BeagleY-AI hardware (`--board
 beagley-ai`); v5n/s and v8n/s were also previously verified on AM67A.
+They calibrate on the 12 images in `quantized/calib_images/` and run on
+`tests/cstatic/test_images/car.jpg` (a car and people, not in that set),
+all resized to 320x320 without letterboxing.
 
 Two comparison strategies, by output shape -- follow whichever matches
 for any future detection model:

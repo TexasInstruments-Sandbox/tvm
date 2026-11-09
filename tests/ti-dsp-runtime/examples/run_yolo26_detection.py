@@ -121,8 +121,8 @@ def compile_yolo26_for_board(
     set_current_board(board)
     build_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[1/3] Quantizing {MODEL_NAME} (PT2E int8, calibrated on the real test images)...")
-    mod, _quantized_gm, _random_input = create_quantized_yolo_model(MODEL_NAME, version="v26")
+    print(f"[1/3] Quantizing {MODEL_NAME} (PT2E int8, calibrated on real images)...")
+    mod, _quantized_gm, _test_input = create_quantized_yolo_model(MODEL_NAME, version="v26")
 
     print("[2/3] Compiling for C7x + MMALIB...")
     # use_cpp_api=True is not a style choice -- DLOAD requires C++ API codegen

@@ -170,7 +170,7 @@ def _run_test(
         dsp_result = dsp_results[result_key]
         if version == "v26":
             # Threshold set with margin below the ~0.56 observed on this
-            # test's random-noise input, c7x_host + MMALIB (see module
+            # test's former random-noise input, c7x_host + MMALIB (see module
             # docstring): with no real objects present, almost all of the
             # 2100 anchors' class scores land in the same few discrete int8
             # buckets, so a large fraction of legitimate near-tied ranking
