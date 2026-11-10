@@ -293,7 +293,7 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.
 
 2. **Protocol version handshake** via a PING round-trip, comparing the
    firmware's major version against `C7X_SERVICE_VERSION` (currently
-   v3.0.0, the per-buffer dmabuf protocol). A major mismatch aborts
+   v4.2.0; see the version table in the firmware skill). A major mismatch aborts
    `open()` with an explicit message instead of failing later, deeper,
    with something that reads like an unrelated bug.
 
@@ -945,6 +945,11 @@ The export table in `dyn_loader.c` provides these categories to loaded modules:
 - **VM builtins (direct C++ API)**: `tvm_dsp_*` direct-call variants for the
   C7x C++ API backend
 - **Math**: `expf`, `logf`, `sqrtf`, `powf`, `floorf`, `fmaxf`, etc.
+- **TIDL** (`--tidl ON`): the TIDL algo function table, memory pool globals,
+  cache/interrupt helpers, and the IALG wrapper `init_tidl_subgraph` /
+  `process_tidl_subgraph` / `free_tidl_subgraph` (`tidl/tidl_api.c`, compiled
+  into the firmware since service version 4.2.0, so TIDL modules carry only
+  the generated bridge and network blobs).
 
 ### Module Unload Lifecycle
 

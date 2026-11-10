@@ -203,6 +203,9 @@ SECTIONS
 
 /* TIDL support (firmware provides TIDL algo libs + shared resources) */
 --import=TIDL_VISION_FXNS
+--import=init_tidl_subgraph
+--import=process_tidl_subgraph
+--import=free_tidl_subgraph
 --import=g_l1_mem_addr
 --import=g_l2_mem_addr
 --import=g_l3_mem_addr

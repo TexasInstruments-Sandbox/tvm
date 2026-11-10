@@ -152,6 +152,7 @@ visible in `c7x_compute status`. Bump the major for any incompatible wire or exp
 | 3.x | TVM 0.23 | per-buffer dmabuf protocol |
 | 4.0.0 | TVM 0.27 | `TVMBackendGetFuncFromEnv`/`TVMBackendRunOnce` dropped from the export table (0.27 removed them; packed lookups use `TVMBackendGetFuncFromGlobalRegistry`), so 0.23-built DLOAD modules do not load |
 | 4.1.0 | TVM 0.27 | TIDL modules keep storage out of the L2 fast pool; J722S TIDL uses the vision_apps L2/L3 layout (see Memory Layout) |
+| 4.2.0 | TVM 0.27 | `--tidl ON` firmware compiles `tidl/tidl_api.c` and exports `init_tidl_subgraph`/`process_tidl_subgraph`/`free_tidl_subgraph`; TIDL modules built from this tree no longer carry the wrapper and fail to load on older firmware |
 
 A board flashed from the 0.23 tree reports 3.x; rebuild **and** redeploy firmware and client from
 the same tree, then reboot.
@@ -380,8 +381,9 @@ The firmware exports 116 symbols for DLOAD modules to import (`dsp_syms[]`):
 - ~90 TVM runtime + stdlib symbols (VM builtins, memory allocators, platform services, C7x kernels)
 - 10 MMALIB wrapper symbols (when built with MMALIB)
 - 16 TIDL support symbols: `appUdmaGetObj`, `appMemAlloc`, `appMemFree`, `getUDMADrvObjPtr`, L1/L2/L3 memory globals, cache/interrupt helpers
+- 3 TIDL IALG wrapper entry points (`--tidl ON` only): `init_tidl_subgraph`, `process_tidl_subgraph`, `free_tidl_subgraph`, from `src/runtime/ti_dsp/tidl/tidl_api.c` compiled into the firmware. The module side declares them in `dynmod/c7x_dynmod/dsp_syms.c` and `--import`s them in `c7x_dynmod.cmd`; keep the three lists in step by hand
 
-The 116 count is for a `--tidl ON` build. Some entries are conditional on
+The 116 count predates the 3 wrapper entry points and is for a `--tidl ON` build. Some entries are conditional on
 build flags — e.g. `c7x_int8_max_pool_tidl`'s `extern` + `SYM()` entry are
 both wrapped in `#ifdef USE_TIDL_RUNTIME`, so a `--tidl OFF` build (the
 beagley-ai convention — see "TIDL/MMALIB Linkage" above) exports fewer

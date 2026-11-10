@@ -163,10 +163,14 @@ __declspec(dllexport) void CacheP_wbInv() {}
 __declspec(dllexport) void DebugP_log() {}
 
 /* ========================================================================
- * TIDL support (following neo-tvm dsp_syms.c convention)
- * Firmware provides TIDL algo libs; model module links tidl_api.lib.
+ * TIDL support
+ * Firmware provides the TIDL algo libs and the IALG wrapper (tidl_api.c);
+ * the generated bridge in the module calls the three entry points.
  * ======================================================================== */
 __declspec(dllexport) void* TIDL_VISION_FXNS;
+__declspec(dllexport) void* init_tidl_subgraph() { return (void*)0; }
+__declspec(dllexport) int32_t process_tidl_subgraph() { return 0; }
+__declspec(dllexport) int32_t free_tidl_subgraph() { return 0; }
 __declspec(dllexport) void* g_l1_mem_addr;
 __declspec(dllexport) void* g_l2_mem_addr;
 __declspec(dllexport) void* g_l3_mem_addr;

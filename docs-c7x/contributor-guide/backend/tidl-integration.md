@@ -33,8 +33,8 @@ libraries and the C7504 MMALIB:
   (`j722s` or `am62d`). The `c_static_lib` target only knows the device: the
   default target gets `-device=<device>`, an explicit target's `-device=` wins,
   and `-device=am62d` defaults `l2-sram-size` to 240 KB. The AM62D toolchain
-  and PC libs follow from the device. The dynmod build takes the SDK root
-  (ivision headers) from `$PSDK_INSTALL_PATH`.
+  and PC libs follow from the device. The dynmod build needs no SDK: the TIDL
+  IALG wrapper is in the firmware (see [Firmware-side wrapper](#firmware-side-wrapper)).
 - TIDL's "L2" is the 240 KB L2 AUX bank and its "L3" the 1 MB L2 MAIN bank,
   the same assignment as on J722S (see [On-chip memory](#on-chip-memory)).
 - Verified on an AM62D EVM: MobileNetV2 (`test_tidl_mv2_e2e.py -k correctness
@@ -91,7 +91,8 @@ generate_bridge()   Generate tidl_bridge.c/h resolving the extern calls
     |               tensor padding channels (no-op for non-TIDL builds).
     v
 _build_dynmod()     TI C7x cross-compile; embeds TIDL artifacts as .rodata;
-    |               links tidl_api.c (IALG wrapper) + bridge
+    |               links the bridge, which imports init/process/
+    |               free_tidl_subgraph from the firmware
     v
 lib0.out  --DLOAD-->  AM67A (J722S): TIDL int8 on MMA + TVM float32 on scalar C7x
 ```
@@ -316,6 +317,29 @@ list and per-file requirements.
   deployment
 - [Firmware Design Deep-Dive](../firmware/design-deep-dive.md) — DLOAD
   module unload ordering, symbol export table
+
+## Firmware-side wrapper
+
+The IALG wrapper `src/runtime/ti_dsp/tidl/tidl_api.c` (with `tidl_api_mem.c`
+and `ti_mem_manager.c`) is compiled into the `c7x_compute` firmware when it is
+built `--tidl ON`, and exported through the DLOAD symbol table as
+`init_tidl_subgraph`, `process_tidl_subgraph` and `free_tidl_subgraph`. A
+TIDL `lib0.out` holds only the generated bridge, the embedded `tidl_net_N` /
+`tidl_io_N` blobs and `tidl_bridge_cleanup`, so building it needs neither
+`itidl_ti.h` (c7x-mma-tidl) nor `ivision.h` (PSDK).
+
+Consequences:
+
+- TIDL modules need firmware service version 4.2.0 or later. On older
+  firmware DLOAD fails to resolve `init_tidl_subgraph`.
+- The module-to-firmware contract is the three signatures in `tidl_api.h` plus
+  the `tvm_tidl_rt_info` layout.
+- Changing `tidl_api.c` (tracing, `flowCtrl`, `TIDL_COPY_NETWORK_BUF`) on
+  hardware needs a firmware rebuild, `deploy-c7x.sh` and a reboot, not a model
+  recompile. `c7x_host` still compiles `tidl_api.c` per build.
+- The wrapper's pool state (`init_mem_regions`, scratch pointers) lives for the
+  firmware's lifetime, shared by every loaded module, as the physical L1/L2/L3
+  regions already were.
 
 ## Wheel-only compiles
 

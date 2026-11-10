@@ -161,6 +161,12 @@ compile error (it used to warn and skip output padding).
 
 ## IALG Lifecycle (tidl_api.c)
 
+On `c7x_dload`, `tidl_api.c` is compiled into the firmware (`--tidl ON`) and exported as
+`init/process/free_tidl_subgraph`; `lib0.out` only carries the bridge and the network blobs, so
+the module build needs no TIDL/PSDK headers. Needs firmware service version >= 4.2.0. Editing
+`tidl_api.c` therefore needs a firmware rebuild + redeploy for hardware; `c7x_host` still compiles
+it per build.
+
 ```
 init_tidl_subgraph():
   init_mem_regions(L1/L2/L3) → TIDL_createParamsInit(cp) →

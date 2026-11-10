@@ -384,10 +384,28 @@ if(USE_TIDL_RUNTIME)
     endif()
     target_sources(${PROJECT_NAME}.out PRIVATE
         ${TVM_DSP_RUNTIME_DIR}/mmalib/tidl_maxpool_wrapper.cpp
+        # TIDL IALG wrapper (init/process/free_tidl_subgraph), exported to
+        # DLOAD modules so a module build needs no TIDL or PSDK headers.
+        ${TVM_DSP_RUNTIME_DIR}/tidl/tidl_api.c
+        ${TVM_DSP_RUNTIME_DIR}/tidl/tidl_api_mem.c
+        ${TVM_DSP_RUNTIME_DIR}/tidl/ti_mem_manager.c
+    )
+    # These used to be compiled into every module with the dynmod flags
+    # (--c99); the firmware's default C dialect rejects their C99 loops.
+    # tidl_api.c #undefs TIDL_MAX_NUM_CORES and sets 4 before itidl_ti.h,
+    # which overrides the AM62D define below; on J722S itidl_ti.h then
+    # redefines it to 2 from SOC_J722S.  That is exactly what the module
+    # build produced, so leave both alone.
+    set_source_files_properties(
+        ${TVM_DSP_RUNTIME_DIR}/tidl/tidl_api.c
+        ${TVM_DSP_RUNTIME_DIR}/tidl/tidl_api_mem.c
+        ${TVM_DSP_RUNTIME_DIR}/tidl/ti_mem_manager.c
+        PROPERTIES COMPILE_OPTIONS "--c99"
     )
     target_include_directories(${PROJECT_NAME}.out PRIVATE
         ${TVM_DSP_RUNTIME_DIR}/mmalib
-        # TIDL headers needed by tidl_maxpool_wrapper.cpp
+        ${TVM_DSP_RUNTIME_DIR}/tidl
+        # TIDL headers needed by tidl_maxpool_wrapper.cpp and tidl_api.c
         ${_TIDL_SRC_ROOT}/inc
         ${_TIDL_SRC_ROOT}/algo/inc
         # tidl_spatialMaxPool_ixX_oxX.h lives in the tidl-kernels submodule

@@ -146,9 +146,10 @@ Invocation rules that bite on this tree:
 - The c7x_host runtime library must exist first: `cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host`.
 - Keep the pinned tvm-ffi (see `relax-c7x:build`); don't run tests through `uv run`.
 - Never run two `c7x_dload` sessions on the same board. One session per board, in parallel, is fine.
-- Testing against an **installed wheel** (not the source tree): export `TVM_HOME` to the repo root. Without it the
-  dynmod cmake resolves `src/runtime/ti_dsp/firmware/c7x/common` under site-packages and `tidl_api.c` fails with
-  `cannot open source file "rproc_trace.h"`.
+- Testing against an **installed wheel** (not the source tree): `c7x_dload` TIDL builds need no `TVM_HOME`,
+  `C7X_MMA_TIDL_PATH` or `PSDK_INSTALL_PATH` (the wheel bundles the import tools and IOBufDesc layout, and
+  `tidl_api.c` is in the firmware). `c7x_host` TIDL builds still use the source tree's `dsp-cpp` harness, so
+  export `TVM_HOME` to the repo root for those.
 - TIDL imports write fixed `/tmp` files (`perfsimPrivData.bin`, `nc_infofile.txt`, `netbufinfo.bin`). If another user
   (Jenkins `sdomcbuild`) owns them, the import fails with "Memory Planning Failed", and a local TIDL run leaves files
   that later break Jenkins. Don't run TIDL tests locally while Jenkins is in a TIDL stage; remove the files afterwards.

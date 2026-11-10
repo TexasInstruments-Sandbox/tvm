@@ -494,7 +494,8 @@ Phase 6: _build_dynmod()
     |  CMakeLists.txt at src/runtime/ti_dsp/dynmod/
     |  TI C7x cross-compile via toolchain-c7x.cmake
     |  Embeds TIDL artifacts (net.bin + io.bin as .rodata)
-    |  Links tidl_api.c (IALG wrapper) + bridge
+    |  Links the bridge; init/process/free_tidl_subgraph come from the
+    |  firmware (tidl_api.c is compiled into c7x_compute, --tidl ON)
     v
 lib0.out (DLOAD module)
     |
@@ -596,7 +597,6 @@ The C7x DLOAD module build infrastructure lives at
 | `CMakeLists.txt` | Standalone dynmod build (used by `build()` API) |
 | `c7x_dynmod/dsp_syms.c` | Pseudo-firmware symbol table for DLOAD |
 | `c7x_dynmod/c7x_dynmod.cmd` | Linker script for relocatable ELF |
-| `c7x_dynmod/tidl_firmware_syms.c` | TIDL firmware symbol stubs |
 | `c7x_dynmod/gen_dsp_syms_sect.py` | Embed dsp_syms.out as .dsp_syms_out section |
 
 The test CMakeLists.txt at `tests/ti-dsp-runtime/dsp-cpp/` references

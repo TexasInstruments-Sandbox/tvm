@@ -232,9 +232,6 @@ build_x86() {
             cp -L "$C7X_TIDL/tidl_tools/$f" "$DATA/tidl/tidl_tools/"
         done
     fi
-    # TIDL API C sources compiled into lib0.out when USE_TIDL=ON.
-    # dynmod/CMakeLists.txt references ${DSP_RUNTIME_DIR}/tidl/*.c directly.
-    cp "$DSP_RT/tidl/"*.c "$DATA/tidl/"
 
     # Build infrastructure
     cp "$DSP_RT/cmake/toolchain-c7x.cmake" "$DATA/cmake/"

@@ -80,11 +80,9 @@ option(MODEL_RETURNS_TUPLE "Model returns tuple" ON)
 set(TIDL_BRIDGE_SOURCES "" CACHE STRING "Extra .c files for TIDL bridge")
 
 # === TIDL Integration (optional) ===
-# When enabled, links TIDL algo libraries and TIDL API source files into
-# the model DLOAD module.  Only used with c7x-dynmod target.
-option(USE_TIDL "Link TIDL libraries into model module" OFF)
-set(PSDK_PATH "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06"
-    CACHE PATH "Path to TI Processor SDK (for TIDL/MMALIB libs and headers)")
+# c7x_host: compiles the TIDL API sources and links the TIDL PC algo libs.
+# c7x-dynmod: embeds the TIDL network blobs; the TIDL API is in the firmware.
+option(USE_TIDL "Enable TIDL subgraph offload" OFF)
 # === Tilde expansion helper ===
 # CMake doesn't expand ~ in paths read from environment variables.
 macro(expand_tilde VAR)
@@ -569,8 +567,8 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x_host")
             add_compile_definitions(TIDL_MAX_NUM_CORES=4 HOST_EMULATION)
             # Host stubs for firmware-provided symbols that TIDL algo expects
             # at runtime (appMemAlloc/Free, TVM_cacheWbInvRegion, interrupt
-            # lock/unlock, DMA no-ops).  Equivalent to tidl_firmware_syms.c
-            # on the DLOAD path, but without __declspec(dllexport) syntax.
+            # lock/unlock, DMA no-ops), which the firmware provides on the
+            # DLOAD path.
             # appUdmaGetObj is intentionally absent: under HOST_EMULATION +
             # REF_ONLY, TIDL's algInit skips the NULL UDMA check, so no stub
             # is needed.  The bridge passes NULL for the UDMA handle.
@@ -802,60 +800,12 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
     set(TIDL_LIB_FLAGS "")
     set(TIDL_EXPORT_FLAGS "")
     if(USE_TIDL)
-        # TIDL headers from c7x-mma-tidl source tree.
-        # The source header (itidl_io.h) uses TIDL_IO_MAX_NUM_CORES=4 for
-        # sTIDL_IOBufDesc_t, matching the import tool's struct layout.
-        # The PSDK header uses SOC-dependent TIDL_MAX_NUM_CORES (2 for J722S),
-        # causing a struct size mismatch with the io.bin artifacts.
-        set(C7X_MMA_TIDL_PATH "$ENV{C7X_MMA_TIDL_PATH}")
-        if(NOT C7X_MMA_TIDL_PATH)
-            set(C7X_MMA_TIDL_PATH "$ENV{HOME}/ml/c7x-mma-tidl")
-        endif()
-        if(EXISTS "${C7X_MMA_TIDL_PATH}/ti_dl/inc/itidl_ti.h")
-            set(TIDL_INC_PATH "${C7X_MMA_TIDL_PATH}/ti_dl/inc")
-        else()
-            set(TIDL_INC_PATH "${PSDK_PATH}/c7x-mma-tidl/ti_dl/inc")
-        endif()
-        set(IVISION_INC_PATH "${PSDK_PATH}/ivision")
-        if(NOT EXISTS "${TIDL_INC_PATH}/itidl_ti.h")
-            message(FATAL_ERROR "TIDL headers not found at: ${TIDL_INC_PATH}")
-        endif()
-        list(APPEND DYNMOD_INCLUDES -I${TIDL_API_DIR} -I${TIDL_INC_PATH} -I${IVISION_INC_PATH})
-
-        # NOTE: TIDL algo libraries (tidl_algo.lib, MMALIB) are linked
-        # into the FIRMWARE, not the model module.  The model only needs
-        # tidl_api sources compiled below.  Firmware symbols (TIDL_VISION_FXNS,
-        # appMemAlloc, DmaUtils, etc.) are resolved by DLOAD at load time.
-
-        # Compile TIDL API source files
-        set(TIDL_SRCS
-            ${TIDL_API_DIR}/tidl_api.c
-            ${TIDL_API_DIR}/tidl_api_mem.c
-            ${TIDL_API_DIR}/ti_mem_manager.c
-        )
-        foreach(TIDL_SRC ${TIDL_SRCS})
-            get_filename_component(TIDL_SRC_NAME ${TIDL_SRC} NAME_WE)
-            set(TIDL_OBJ "${CMAKE_CURRENT_BINARY_DIR}/${TIDL_SRC_NAME}.obj")
-            add_custom_command(
-                OUTPUT "${TIDL_OBJ}"
-                COMMAND ${CMAKE_C_COMPILER}
-                    ${C_FLAGS_LIST}
-                    ${DYNMOD_INCLUDES}
-                    ${DYNMOD_DEFINES}
-                    --compile_only
-                    --output_file="${TIDL_OBJ}"
-                    "${TIDL_SRC}"
-                DEPENDS "${TIDL_SRC}"
-                COMMENT "TIDL: Compiling ${TIDL_SRC_NAME}.c"
-            )
-            list(APPEND TIDL_OBJ_FILES "${TIDL_OBJ}")
-        endforeach()
-
-        # Export TIDL API symbols for DLOAD
+        # tidl_api.c and the TIDL algo libraries live in the FIRMWARE; the
+        # module holds only the bridge and the network blobs, and DLOAD
+        # resolves init/process/free_tidl_subgraph at load time.
+        list(APPEND DYNMOD_INCLUDES -I${TIDL_API_DIR})
         set(TIDL_EXPORT_FLAGS
-            --export=init_tidl_subgraph
-            --export=process_tidl_subgraph
-            --export=free_tidl_subgraph
+            --export=tidl_bridge_cleanup
         )
 
         # Embed TIDL artifacts (multi-subgraph: glob for net.bin + io.bin)
@@ -913,23 +863,7 @@ elseif(TVM_DSP_TARGET STREQUAL "c7x-dynmod")
             message(STATUS "  TIDL artifacts: ${TIDL_ARTIFACTS_DIR}")
         endif()
 
-        # Compile TIDL firmware symbol stubs (separate from dsp_syms to avoid
-        # symbol redefinition errors with malloc/free from rts*.lib)
-        set(TIDL_FW_SYMS_SRC "${DYNMOD_DIR}/tidl_firmware_syms.c")
-        set(TIDL_FW_SYMS_OBJ "${CMAKE_CURRENT_BINARY_DIR}/tidl_firmware_syms.obj")
-        add_custom_command(
-            OUTPUT "${TIDL_FW_SYMS_OBJ}"
-            COMMAND ${CMAKE_C_COMPILER}
-                ${C_FLAGS_LIST}
-                --compile_only
-                --output_file="${TIDL_FW_SYMS_OBJ}"
-                "${TIDL_FW_SYMS_SRC}"
-            DEPENDS "${TIDL_FW_SYMS_SRC}"
-            COMMENT "TIDL: Compiling firmware symbol stubs"
-        )
-        list(APPEND TIDL_OBJ_FILES "${TIDL_FW_SYMS_OBJ}")
-
-        message(STATUS "  TIDL: enabled (libs from ${TIDL_LIB_PATH})")
+        message(STATUS "  TIDL: enabled")
     endif()
 
     # Compile lib*.c → lib*.obj

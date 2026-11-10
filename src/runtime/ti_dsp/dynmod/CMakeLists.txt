@@ -73,21 +73,6 @@ set(TIDL_BRIDGE_SOURCES "" CACHE STRING "Extra .c files for TIDL bridge")
 
 # === TIDL Integration (optional) ===
 option(USE_TIDL "Link TIDL libraries into model module" OFF)
-# TVM_DSP_DEVICE is passed in by the caller and validated by the toolchain file (project() above).
-if(TVM_DSP_DEVICE STREQUAL "am62d")
-    set(_PSDK_PATH_DEFAULT "/opt/ti/am62d")
-else()
-    set(_PSDK_PATH_DEFAULT "/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06")
-endif()
-# PSDK_INSTALL_PATH is the repo-wide SDK root (see cmake/boards.cmake).  When set
-# it wins over a cached value (FORCE, same pattern as TVM_HOME above) so that a
-# reused build directory never keeps a stale SDK path; otherwise PSDK_PATH can
-# be passed with -D, falling back to the per-device default.
-if(NOT "$ENV{PSDK_INSTALL_PATH}" STREQUAL "")
-    set(PSDK_PATH "$ENV{PSDK_INSTALL_PATH}" CACHE PATH "Path to TI Processor SDK" FORCE)
-else()
-    set(PSDK_PATH "${_PSDK_PATH_DEFAULT}" CACHE PATH "Path to TI Processor SDK")
-endif()
 
 # === Weights ===
 set(WEIGHTS_FILE "${GENERATED_CODE_DIR}/weights.bin" CACHE FILEPATH "Path to weights.bin")
@@ -314,51 +299,12 @@ set(TIDL_OBJ_FILES "")
 set(TIDL_LIB_FLAGS "")
 set(TIDL_EXPORT_FLAGS "")
 if(USE_TIDL)
-    # TIDL headers
-    set(C7X_MMA_TIDL_PATH "$ENV{C7X_MMA_TIDL_PATH}")
-    if(NOT C7X_MMA_TIDL_PATH)
-        set(C7X_MMA_TIDL_PATH "$ENV{HOME}/ml/c7x-mma-tidl")
-    endif()
-    if(EXISTS "${C7X_MMA_TIDL_PATH}/ti_dl/inc/itidl_ti.h")
-        set(TIDL_INC_PATH "${C7X_MMA_TIDL_PATH}/ti_dl/inc")
-    else()
-        set(TIDL_INC_PATH "${PSDK_PATH}/c7x-mma-tidl/ti_dl/inc")
-    endif()
-    set(IVISION_INC_PATH "${PSDK_PATH}/ivision")
-    if(NOT EXISTS "${TIDL_INC_PATH}/itidl_ti.h")
-        message(FATAL_ERROR "TIDL headers not found at: ${TIDL_INC_PATH}")
-    endif()
-    list(APPEND DYNMOD_INCLUDES -I${TIDL_API_DIR} -I${TIDL_INC_PATH} -I${IVISION_INC_PATH})
-
-    # Compile TIDL API source files
-    set(TIDL_SRCS
-        ${TIDL_API_DIR}/tidl_api.c
-        ${TIDL_API_DIR}/tidl_api_mem.c
-        ${TIDL_API_DIR}/ti_mem_manager.c
-    )
-    foreach(TIDL_SRC ${TIDL_SRCS})
-        get_filename_component(TIDL_SRC_NAME ${TIDL_SRC} NAME_WE)
-        set(TIDL_OBJ "${CMAKE_CURRENT_BINARY_DIR}/${TIDL_SRC_NAME}.obj")
-        add_custom_command(
-            OUTPUT "${TIDL_OBJ}"
-            COMMAND ${CMAKE_C_COMPILER}
-                ${C_FLAGS_LIST}
-                ${DYNMOD_INCLUDES}
-                ${DYNMOD_DEFINES}
-                --compile_only
-                --output_file="${TIDL_OBJ}"
-                "${TIDL_SRC}"
-            DEPENDS "${TIDL_SRC}"
-            COMMENT "TIDL: Compiling ${TIDL_SRC_NAME}.c"
-        )
-        list(APPEND TIDL_OBJ_FILES "${TIDL_OBJ}")
-    endforeach()
-
-    # Export TIDL API symbols for DLOAD
+    # tidl_api.c (init/process/free_tidl_subgraph) is compiled into the
+    # firmware and resolved at DLOAD time, so the module needs only the
+    # generated bridge, tidl_api.h and the embedded network blobs -- no TIDL
+    # or PSDK headers.  The firmware looks up tidl_bridge_cleanup on unload.
+    list(APPEND DYNMOD_INCLUDES -I${TIDL_API_DIR})
     set(TIDL_EXPORT_FLAGS
-        --export=init_tidl_subgraph
-        --export=process_tidl_subgraph
-        --export=free_tidl_subgraph
         --export=tidl_bridge_cleanup
     )
 
@@ -420,21 +366,6 @@ if(USE_TIDL)
         endforeach()
         message(STATUS "  TIDL artifacts: ${TIDL_ARTIFACTS_DIR}")
     endif()
-
-    # Compile TIDL firmware symbol stubs
-    set(TIDL_FW_SYMS_SRC "${DYNMOD_DIR}/tidl_firmware_syms.c")
-    set(TIDL_FW_SYMS_OBJ "${CMAKE_CURRENT_BINARY_DIR}/tidl_firmware_syms.obj")
-    add_custom_command(
-        OUTPUT "${TIDL_FW_SYMS_OBJ}"
-        COMMAND ${CMAKE_C_COMPILER}
-            ${C_FLAGS_LIST}
-            --compile_only
-            --output_file="${TIDL_FW_SYMS_OBJ}"
-            "${TIDL_FW_SYMS_SRC}"
-        DEPENDS "${TIDL_FW_SYMS_SRC}"
-        COMMENT "TIDL: Compiling firmware symbol stubs"
-    )
-    list(APPEND TIDL_OBJ_FILES "${TIDL_FW_SYMS_OBJ}")
 
     message(STATUS "  TIDL: enabled")
 endif()
@@ -500,7 +431,7 @@ if(TIDL_BRIDGE_SOURCES AND EXISTS "${TIDL_BRIDGE_SOURCES}")
     )
 endif()
 
-# Link lib*.obj + dsp_syms.out.obj [+ TIDL objs] -> lib0.out
+# Link lib*.obj + dsp_syms.out.obj [+ TIDL network blobs] -> lib0.out
 add_custom_command(
     OUTPUT "${LIB0_OUT}"
     COMMAND ${CMAKE_COMMAND} -E time

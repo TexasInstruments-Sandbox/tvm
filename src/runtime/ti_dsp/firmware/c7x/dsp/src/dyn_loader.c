@@ -314,6 +314,8 @@ extern void dsp_trace_msg(const char *msg);
 /* TIDL_VISION_FXNS: IALG function table from tidl_algo.lib.
  * Must be exported so DLOAD modules can call into TIDL. */
 extern char TIDL_VISION_FXNS[];
+/* TIDL IALG wrapper (tidl/tidl_api.c), called by the generated bridge. */
+#include "tidl/tidl_api.h"
 #endif
 
 #ifdef USE_TI_MMALIB
@@ -468,8 +470,9 @@ static const DspSymEntry dsp_syms[] = {
     SYM_ALIAS("DebugP_log", debugp_log_wrapper),
 
     /* TIDL support (firmware provides TIDL algo libs + shared resources).
-     * DLOAD modules link tidl_api.lib (thin wrapper) and resolve these
-     * symbols from the firmware at load time.
+     * The IALG wrapper (init/process/free_tidl_subgraph) is compiled into
+     * the firmware; DLOAD modules hold only the generated bridge and the
+     * network blobs, and resolve these symbols at load time.
      * Note: SYM_ALIAS with & for variables — SYM() reads the value
      * which isn't a compile-time constant for the TI compiler. */
     SYM(getUDMADrvObjPtr),
@@ -489,6 +492,9 @@ static const DspSymEntry dsp_syms[] = {
     SYM(dsp_trace_msg),
 #ifdef USE_TIDL_RUNTIME
     SYM(TIDL_VISION_FXNS),
+    SYM(init_tidl_subgraph),
+    SYM(process_tidl_subgraph),
+    SYM(free_tidl_subgraph),
 #endif
 
 #ifdef USE_TI_MMALIB

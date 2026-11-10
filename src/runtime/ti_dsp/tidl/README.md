@@ -96,8 +96,10 @@ The import tool writes artifacts using the source header (CORES=4).
 The DLOAD module must read them with matching layout.
 
 **Fix:** `tidl_api.c` forces `#define TIDL_MAX_NUM_CORES 4` before
-`#include "itidl_ti.h"`.  The DLOAD module build (`CMakeLists.txt`)
-includes headers from c7x-mma-tidl source (not PSDK).
+`#include "itidl_ti.h"`.  On the DLOAD path these sources are compiled
+into the `c7x_compute` firmware (`firmware/c7x/dsp/CMakeLists.txt`, `--tidl
+ON`) against the c7x-mma-tidl source headers, and exported to modules;
+`c7x_host` compiles them into the host executable.
 
 ## Output Tensor Mapping
 

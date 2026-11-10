@@ -2,9 +2,8 @@
  * Host-emulation stubs for TIDL firmware-provided symbols.
  *
  * Compiled only when HOST_EMULATION is defined (c7x_host build with
- * USE_TIDL=ON).  This is the host-emulation equivalent of
- * dynmod/c7x_dynmod/tidl_firmware_syms.c (DLOAD), providing the same
- * symbol set without __declspec(dllexport) or TI-specific syntax.
+ * USE_TIDL=ON).  On the DLOAD path the c7x_compute firmware provides
+ * these symbols (firmware/c7x/dsp/src/tidl_support.c).
  *
  * Symbols provided:
  *   appMemAlloc / appMemFree   -- malloc/free backed DDR allocator
