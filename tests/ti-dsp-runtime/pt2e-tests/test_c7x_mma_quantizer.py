@@ -254,6 +254,96 @@ def test_invalid_smooth_activation_percentile_is_rejected(percentile):
 
 
 @pytest.mark.quick
+def test_invalid_depthwise_block_percentile_is_rejected():
+    with pytest.raises(ValueError, match="depthwise_block_percentile"):
+        C7xMMAQuantizer("int8", depthwise_block_percentile=50)
+
+
+class DepthwiseReLUBlock(nn.Module):
+    """MobileNetV3's ReLU block: expand -> ReLU -> depthwise -> ReLU -> project."""
+
+    def __init__(self):
+        super().__init__()
+        self.expand = nn.Conv2d(3, 16, 1)
+        self.dw = nn.Conv2d(16, 16, 3, padding=1, groups=16)
+        self.project = nn.Conv2d(16, 8, 1)
+
+    def forward(self, x):
+        return self.project(torch.relu(self.dw(torch.relu(self.expand(x)))))
+
+
+class SqueezeExciteBlock(nn.Module):
+    """conv -> act -> x * gate(pool(x)) -> project; EfficientNet's with SiLU/sigmoid."""
+
+    def __init__(self, act=nn.SiLU):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 16, 3, padding=1)
+        self.act = act()
+        self.fc1 = nn.Conv2d(16, 4, 1)
+        self.fc2 = nn.Conv2d(4, 16, 1)
+        self.project = nn.Conv2d(16, 8, 1)
+
+    def forward(self, x):
+        y = self.act(self.conv(x))
+        gate = torch.sigmoid(self.fc2(torch.relu(self.fc1(y.mean((2, 3), keepdim=True)))))
+        return self.project(y * gate)
+
+
+def _scales_with_outlier(model, quantizer) -> list[float]:
+    """Activation scales in graph order, calibrated on an input with one outlier."""
+    torch.manual_seed(0)
+    x = torch.randn(1, 3, 64, 64)
+    x[0, :, 32, 32] = 40.0  # a few large values a 0.01% percentile clips
+    q = quantize_pt2e(model, (x,), quantizer)
+    return [
+        float(n.args[1])
+        for n in q.graph.nodes
+        if n.op == "call_function"
+        and "quantize_per_tensor" in str(n.target)
+        and "dequantize" not in str(n.target)
+    ]
+
+
+def _changed(model, dtype="int8"):
+    """Positions whose scale the depthwise-block rule changes, and whether all shrank."""
+    clip = _scales_with_outlier(model, C7xMMAQuantizer(dtype))
+    plain = _scales_with_outlier(model, C7xMMAQuantizer(dtype, depthwise_block_percentile=None))
+    assert len(clip) == len(plain)
+    changed = [i for i, (a, b) in enumerate(zip(clip, plain)) if a != b]
+    return changed, all(clip[i] < plain[i] for i in changed), len(clip)
+
+
+@pytest.mark.quick
+def test_relu_tensors_next_to_a_depthwise_conv_get_percentile_range():
+    changed, shrank, n = _changed(DepthwiseReLUBlock())
+    # Both convs read by a ReLU next to the depthwise conv (and the ReLU outputs that
+    # share their scales) clip; the model input and the projection's output don't.
+    assert changed and shrank
+    assert 0 not in changed and n - 1 not in changed
+
+
+@pytest.mark.quick
+def test_squeeze_excite_output_after_silu_gets_percentile_range():
+    changed, shrank, _ = _changed(SqueezeExciteBlock())
+    assert len(changed) == 1 and shrank, "only the gated SiLU output, read by the projection"
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(
+    ("model", "dtype"),
+    [
+        (ConvReLUModel(), "int8"),
+        (SqueezeExciteBlock(act=nn.ReLU), "int8"),
+        (DepthwiseReLUBlock(), "int16"),
+    ],
+    ids=["relu-without-depthwise", "relu-squeeze-excite", "int16"],
+)
+def test_depthwise_block_rule_leaves_other_tensors_alone(model, dtype):
+    changed, _, _ = _changed(model, dtype)
+    assert changed == []
+
+
+@pytest.mark.quick
 def test_unknown_activation_observer_is_rejected():
     with pytest.raises(ValueError, match="activation_observer"):
         C7xMMAQuantizer("int8", activation_observer="no-such-observer")

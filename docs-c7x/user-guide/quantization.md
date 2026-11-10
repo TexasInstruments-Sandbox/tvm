@@ -98,6 +98,17 @@ about -42 to -10 points of top-1 against float, and MobileNetV3-Large from about
 to -7, while ReLU networks have no such tensors and are unchanged. Pass
 `smooth_activation_percentile=None` to use the observer for these tensors too.
 
+Two more kinds of tensor in depthwise (inverted-residual) blocks get a percentile
+range, clipping 0.01% of the values from each tail: a conv output read only by ReLUs
+next to a depthwise conv (the conv is depthwise, or the ReLU feeds one), and a
+squeeze-excite output (a SiLU or hardswish output times its gate). A few outlying
+channels set their ranges in the same way. On ImageNetV2 this took MobileNetV3-Large
+from about -7 to -4 points of top-1 against float, EfficientNet-B0 from about -10 to
+-8 and MNASNet 0.5 from about -8 to -4, and gained ShuffleNetV2 and MNASNet 1.0 about
+half a point. Clipping the ReLU tensors of a network without depthwise convs, such as
+a ResNet, costs it accuracy instead, so those are left alone. Pass
+`depthwise_block_percentile=None` to use the observer for these tensors too.
+
 The observer doesn't set every range. A conv or linear whose only consumer is
 ReLU6, or another `hardtanh`, is quantized to the clamp's range, since the clamp
 discards anything beyond it (symmetric activations only).

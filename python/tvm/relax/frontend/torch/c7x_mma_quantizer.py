@@ -235,6 +235,54 @@ def _around_smooth_activation(node: Node) -> bool:
     )
 
 
+# Squeeze-excite gates: the excitation after its activation.
+_GATES = frozenset(
+    [
+        torch.ops.aten.sigmoid.default,
+        torch.ops.aten.hardsigmoid.default,
+        torch.ops.aten.hardsigmoid_.default,
+    ]
+)
+_RELUS = frozenset([torch.ops.aten.relu.default, torch.ops.aten.relu_.default])
+
+
+def _is_depthwise_conv(node: Node) -> bool:
+    if node.op != "call_function" or node.target != torch.ops.aten.conv2d.default:
+        return False
+    args = tuple(node.args)
+    groups = args[6] if len(args) > 6 else node.kwargs.get("groups", 1)
+    src = args[0] if args else None
+    val = src.meta.get("val") if isinstance(src, Node) else None
+    if not isinstance(groups, int) or not isinstance(val, torch.Tensor) or val.dim() != 4:
+        return False
+    return groups > 1 and groups == int(val.shape[1])
+
+
+def _in_depthwise_block(node: Node) -> bool:
+    """True for the tensors of a depthwise block that its outliers set the range of.
+
+    A squeeze-excite output: a SiLU or hardswish output times its gate. And a conv
+    output read only by ReLUs next to a depthwise conv: the conv is depthwise, or
+    the ReLU feeds one. (BN is already folded into the conv when annotate runs.)
+    """
+    if node.op != "call_function":
+        return False
+    if node.target == torch.ops.aten.mul.Tensor:
+        args = [a for a in node.args if isinstance(a, Node) and a.op == "call_function"]
+        return (
+            len(args) == 2
+            and any(a.target in _SMOOTH_ACTIVATIONS for a in args)
+            and any(a.target in _GATES for a in args)
+        )
+    if node.target != torch.ops.aten.conv2d.default or not node.users:
+        return False
+    if not all(u.op == "call_function" and u.target in _RELUS for u in node.users):
+        return False
+    return _is_depthwise_conv(node) or any(
+        _is_depthwise_conv(v) for u in node.users for v in u.users
+    )
+
+
 class _PercentileObserver(HistogramObserver):
     """Range between the p-th and (100 - p)-th percentiles of the values seen.
 
@@ -304,6 +352,14 @@ class C7xMMAQuantizer(Quantizer):
             carry far larger values than the rest, and a range that covers them
             leaves the other channels few codes; ReLU networks have no such
             tensors and are unaffected.
+        depthwise_block_percentile: The same, for two kinds of tensor in
+            depthwise (inverted-residual) blocks, whose per-channel outliers set
+            their range in the same way: a conv output read only by ReLUs next
+            to a depthwise conv (the conv is depthwise, or the ReLU feeds one),
+            and a squeeze-excite output (a SiLU or hardswish output times its
+            gate). None leaves them to activation_observer. int8 only. Networks
+            without depthwise convs or such squeeze-excite blocks are
+            unaffected; clipping the ReLU tensors of a ResNet instead costs it.
 
     A conv or linear whose only consumer is a hardtanh, such as ReLU6, gets the
     clamp's range for its output instead of a calibrated one (symmetric
@@ -318,6 +374,7 @@ class C7xMMAQuantizer(Quantizer):
         symmetric_activations: bool = True,
         activation_observer: str = "minmax",
         smooth_activation_percentile: float | None = 0.1,
+        depthwise_block_percentile: float | None = 0.01,
     ):
         super().__init__()
         if dtype not in ("int8", "int16"):
@@ -327,14 +384,16 @@ class C7xMMAQuantizer(Quantizer):
                 f"activation_observer must be one of {sorted(_ACTIVATION_OBSERVERS)}, "
                 f"got {activation_observer!r}"
             )
-        if smooth_activation_percentile is not None and not 0 < smooth_activation_percentile < 50:
-            raise ValueError(
-                "smooth_activation_percentile must be in (0, 50) or None, "
-                f"got {smooth_activation_percentile!r}"
-            )
+        for name, value in (
+            ("smooth_activation_percentile", smooth_activation_percentile),
+            ("depthwise_block_percentile", depthwise_block_percentile),
+        ):
+            if value is not None and not 0 < value < 50:
+                raise ValueError(f"{name} must be in (0, 50) or None, got {value!r}")
         self.dtype = dtype
         self.activation_observer = activation_observer
         self.smooth_activation_percentile = smooth_activation_percentile
+        self.depthwise_block_percentile = depthwise_block_percentile
         if dtype == "int16" and not symmetric_activations:
             warnings.warn(
                 "int16 activations require symmetric quantization; "
@@ -521,35 +580,51 @@ class C7xMMAQuantizer(Quantizer):
             )
             annotated.append(node)
 
-        if self.dtype == "int8" and self.smooth_activation_percentile is not None:
-            self._clip_around_smooth_activations(annotated, act_spec)
+        if self.dtype == "int8":
+            self._clip_ranges(annotated, act_spec)
         return model
 
-    def _clip_around_smooth_activations(self, annotated: list[Node], act_spec) -> None:
-        """Give the tensors around smooth activations a percentile range.
+    def _percentile_for(self, node: Node) -> float | None:
+        """Percent clipped from each tail of node's output, or None for act_spec's range."""
+        if self.smooth_activation_percentile is not None and _around_smooth_activation(node):
+            return self.smooth_activation_percentile
+        if self.depthwise_block_percentile is not None and _in_depthwise_block(node):
+            return self.depthwise_block_percentile
+        return None
+
+    def _clip_ranges(self, annotated: list[Node], act_spec) -> None:
+        """Give the tensors the percentile options name a percentile range.
 
         The choice is per tensor: its output spec and every input edge reading it
         switch together. An edge whose spec differed from its producer's output
         spec would get a second observer, and so a requantize between them.
         """
-        clip_spec = dataclasses.replace(
-            act_spec,
-            observer_or_fake_quant_ctr=_PercentileObserver.with_args(
-                percentile=self.smooth_activation_percentile
-            ),
-        )
+        specs: dict[float, QuantizationSpec] = {}
+
+        def clip_spec(percentile: float) -> QuantizationSpec:
+            if percentile not in specs:
+                specs[percentile] = dataclasses.replace(
+                    act_spec,
+                    observer_or_fake_quant_ctr=_PercentileObserver.with_args(percentile=percentile),
+                )
+            return specs[percentile]
+
         for node in annotated:
             annotation = node.meta["quantization_annotation"]
             for arg, spec in list(annotation.input_qspec_map.items()):
-                if spec == act_spec and _around_smooth_activation(arg):
-                    annotation.input_qspec_map[arg] = clip_spec
-                    # A transparent op after an unannotated producer (max_pool2d
-                    # after an in-place silu_) has an output observer of its own;
-                    # make it follow the clipped edge, or the op would requantize.
-                    if node.target in _TRANSPARENT_OPS and annotation.output_qspec == act_spec:
-                        annotation.output_qspec = SharedQuantizationSpec((arg, node))
-            if annotation.output_qspec == act_spec and _around_smooth_activation(node):
-                annotation.output_qspec = clip_spec
+                percentile = self._percentile_for(arg) if spec == act_spec else None
+                if percentile is None:
+                    continue
+                annotation.input_qspec_map[arg] = clip_spec(percentile)
+                # A transparent op after an unannotated producer (max_pool2d after
+                # an in-place silu_) has an output observer of its own; make it
+                # follow the clipped edge, or the op would requantize.
+                if node.target in _TRANSPARENT_OPS and annotation.output_qspec == act_spec:
+                    annotation.output_qspec = SharedQuantizationSpec((arg, node))
+            if annotation.output_qspec == act_spec:
+                percentile = self._percentile_for(node)
+                if percentile is not None:
+                    annotation.output_qspec = clip_spec(percentile)
 
     def validate(self, model: GraphModule) -> None:
         """Warn if any weight was annotated with a per-tensor spec.

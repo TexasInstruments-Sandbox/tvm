@@ -72,7 +72,12 @@ Observers used:
   second observer and a requantize between them. For the same reason a
   transparent op after an unannotated producer (YOLO's max pools after an
   in-place `silu_`), whose output would keep an observer of its own, follows
-  its clipped input edge.
+  its clipped input edge. Two kinds of tensor in depthwise blocks get the same
+  observer at `depthwise_block_percentile` (default 0.01): a conv output read
+  only by ReLUs next to a depthwise conv (BN is folded into the conv by the
+  time `annotate` runs), and a squeeze-excite output, a SiLU or hardswish
+  output times a sigmoid or hardsigmoid gate. No op annotates the multiply, so
+  its percentile goes on the edges that read it.
 - Weights: `torchao.quantization.pt2e.PerChannelMinMaxObserver`
 
 **Note:** The `torch.ao` observer hierarchy is incompatible — `convert_pt2e` would
