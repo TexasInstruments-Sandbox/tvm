@@ -73,10 +73,15 @@ even though the float model's doesn't: a tiny float difference flips a rounding
 decision, and the change spreads through later layers. The DSP is always given
 NCHW data.
 
-## Choosing an Activation Observer
+## How Activation Ranges Are Chosen
 
-`C7xMMAQuantizer(activation_observer=...)` sets how calibration turns the values
-it sees into a range:
+Each activation tensor gets one scale (per tensor, not per channel). How
+calibration turns the values it sees into that range is the main accuracy lever,
+and you don't have to choose it per model: the quantizer recognises a few kinds of
+tensor from the graph's structure and ranges them differently. Everything else uses
+the observer.
+
+`C7xMMAQuantizer(activation_observer=...)` picks the observer:
 
 - `"minmax"` (default) uses the extremes. One outlier widens the range for every
   value, so on models with outliers, adding calibration data can reduce accuracy.
@@ -85,33 +90,32 @@ it sees into a range:
   outweighs clipping it, so a tensor with few values, such as the output of a
   global pool, still behaves much like min/max. It calibrates more slowly.
 
-Depthwise-heavy models such as MobileNet and EfficientNet are the most sensitive
-to this. See [Quantized Model Sweep](../contributor-guide/testing/quantized-sweep.md#measuring-accuracy)
-for how to measure a choice on your model.
+With int8, these tensors are ranged by rule instead, because a few channels or
+values set their range and leave the rest few codes:
 
-With int8, the tensors around SiLU, hardswish and hardsigmoid (their inputs and
-outputs, and a sigmoid's input) use a percentile range whichever observer you
-choose: 0.1% of the values are clipped from each tail. In these tensors a few
-channels carry far larger values than the rest, and a range wide enough for them
-leaves the other channels few codes. On ImageNetV2 this took EfficientNet-B0 from
-about -42 to -10 points of top-1 against float, and MobileNetV3-Large from about -13
-to -7, while ReLU networks have no such tensors and are unchanged. Pass
-`smooth_activation_percentile=None` to use the observer for these tensors too.
+| Tensor | Range | Turn off with |
+|---|---|---|
+| A conv or linear output read only by ReLU6 (or another `hardtanh`) | the clamp's range: the clamp discards anything beyond it | (symmetric activations only; always on) |
+| The inputs and outputs of SiLU, hardswish and hardsigmoid, and a sigmoid's input | 0.1% of values clipped from each tail | `smooth_activation_percentile=None` |
+| In depthwise (inverted-residual) blocks: a conv output read only by ReLUs next to a depthwise conv, and a squeeze-excite output (a SiLU or hardswish output times its gate) | 0.01% clipped from each tail | `depthwise_block_percentile=None` |
 
-Two more kinds of tensor in depthwise (inverted-residual) blocks get a percentile
-range, clipping 0.01% of the values from each tail: a conv output read only by ReLUs
-next to a depthwise conv (the conv is depthwise, or the ReLU feeds one), and a
-squeeze-excite output (a SiLU or hardswish output times its gate). A few outlying
-channels set their ranges in the same way. On ImageNetV2 this took MobileNetV3-Large
-from about -7 to -4 points of top-1 against float, EfficientNet-B0 from about -10 to
--8 and MNASNet 0.5 from about -8 to -4, and gained ShuffleNetV2 and MNASNet 1.0 about
-half a point. Clipping the ReLU tensors of a network without depthwise convs, such as
-a ResNet, costs it accuracy instead, so those are left alone. Pass
-`depthwise_block_percentile=None` to use the observer for these tensors too.
+A network with none of these tensors, such as a ResNet, quantizes with the observer
+alone. The rules are kept to these tensors on purpose: clipping a ResNet's ReLU
+tensors the same way costs it accuracy.
 
-The observer doesn't set every range. A conv or linear whose only consumer is
-ReLU6, or another `hardtanh`, is quantized to the clamp's range, since the clamp
-discards anything beyond it (symmetric activations only).
+Measured effect, quantized minus float top-1 in points (calibrated on the repo's 12
+images, 5,000 ImageNetV2 images):
+
+| Model | min/max only | Defaults |
+|---|---|---|
+| ResNet-18 | -0.2 | -0.2 |
+| MobileNetV2 (ReLU6) | -1.1 | -1.1 |
+| ShuffleNetV2 x0.5 | -1.6 | -1.2 |
+| MNASNet 0.5 | -8.5 | -4.0 |
+| MobileNetV3-Large | -12.7 | -4.0 |
+| EfficientNet-B0 | -41.7 | -7.9 |
+
+MobileNetV2's clamp rule is on in both columns.
 
 ## Choosing int8 vs int16
 
@@ -129,6 +133,51 @@ of the activation setting. See [MMALIB Integration -- Supported
 Operations](../contributor-guide/backend/mmalib-integration.md#supported-operations)
 for the exact shape/alignment constraints MMALIB places on each op per
 dtype.
+
+## Checking Accuracy on Your Model
+
+Measure what quantization costs before you deploy. `convert_pt2e`'s output
+(`quantized_gm` above) is the reference the DSP reproduces: the repo's DSP tests
+compare the board against it. So comparing it with the float model in PyTorch, on
+held-out data and with your task's own metric, predicts the DSP's accuracy without
+compiling anything:
+
+```python
+with torch.no_grad():
+    for x, target in held_out_data:            # not the calibration samples
+        x = x.contiguous()
+        float_out, quant_out = model(x), quantized_gm(x)
+        # score both against target with your metric; also compare them directly,
+        # e.g. top-1 agreement or the cosine of the outputs
+```
+
+Report the difference between the two, not the quantized score alone. For
+ImageNet-style classifiers, `tests/ti-dsp-runtime/accuracy/evaluate.py` does this
+on ImageNetV2; see [Quantized Model Sweep -- Measuring accuracy](../contributor-guide/testing/quantized-sweep.md#measuring-accuracy).
+
+## If Accuracy Is Poor
+
+In order:
+
+1. Check the calibration data: real inputs, preprocessed exactly as at inference,
+   NCHW-contiguous (see [Calibration](#calibration-use-real-data)).
+2. Try `activation_observer="histogram"`. It was never clearly better than the
+   default on the models measured here, but it can be on a model with outliers in
+   tensors the rules don't cover.
+3. If your model isn't one of the families above, measure with each range rule
+   turned off as well (`smooth_activation_percentile=None`,
+   `depthwise_block_percentile=None`). The rules were measured on those families.
+4. Use `dtype="int16"`. It costs speed and narrows MMALIB coverage (see the
+   table above), and is the fallback when int8 can't represent the model.
+
+There's no per-layer report yet that names the tensors costing the most, and no way
+to put only some layers in int16.
+
+Known gap: MobileNetV3-Small loses about 46 points of top-1 in int8. Its stem's output
+has channels whose values differ by over 100x, feeding a depthwise conv that weights
+the small channels most, and no single per-tensor range serves them all. With
+`dtype="int16"` it comes within half a point of float in PyTorch; expect it to run
+slower, since int16 covers fewer ops (see the table above).
 
 ## Confirming It Actually Offloaded
 
