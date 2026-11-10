@@ -251,15 +251,19 @@ class _ConcatLowerer(PyExprMutator):
 
         The composite body contains dq(xi,si,zi) for each input plus the
         concat and output quantize — same structure as channel_scale_multiply.
-        Walk bindings, collect dq_entries and o_scale/o_zp, then emit te.extern.
+        Walk bindings, collect the dequantizes and o_scale/o_zp, then emit
+        te.extern with the inputs in the concat's tuple order.
         """
         param_to_arg = dict(zip(func.params, call.args))
 
-        dq_entries = []  # [(int8_input_arg, scale_val, zp_val)]
+        bindings = func.body.blocks[0].bindings
+        var_to_val = {b.var: b.value for b in bindings}
+        dq_by_var = {}  # dq output Var -> (int8_input_arg, scale_val, zp_val)
+        concat_call = None
         o_scale_val = o_zp_val = None
         concat_axis = None
 
-        for binding in func.body.blocks[0].bindings:
+        for binding in bindings:
             val = binding.value
             if not isinstance(val, relax.Call) or not hasattr(val.op, "name"):
                 continue
@@ -269,22 +273,38 @@ class _ConcatLowerer(PyExprMutator):
                 inp = param_to_arg.get(val.args[0], val.args[0])
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                dq_entries.append((inp, float(s.value.numpy()), int(z.value.numpy())))
+                dq_by_var[binding.var] = (inp, float(s.value.numpy()), int(z.value.numpy()))
 
             elif "concat" in op_name:
+                concat_call = val
                 try:
                     concat_axis = int(val.attrs.axis)
                 except Exception:
                     pass
 
-            elif "quantize" in op_name and dq_entries:
+            elif "quantize" in op_name and dq_by_var:
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
                 o_scale_val = float(s.value.numpy())
                 o_zp_val = int(z.value.numpy())
 
-        if not dq_entries or o_scale_val is None:
+        if not dq_by_var or concat_call is None or o_scale_val is None:
             return super().visit_call_(call)
+
+        # The kernel writes slot i at channel offset C0+...+C(i-1), so the slots
+        # follow the concat's tuple. The bindings needn't: an input defined later
+        # in the calling function is bound later in the composite.
+        tuple_arg = concat_call.args[0]
+        if isinstance(tuple_arg, relax.Var):
+            tuple_arg = var_to_val.get(tuple_arg, tuple_arg)
+        if not isinstance(tuple_arg, relax.Tuple):
+            return super().visit_call_(call)
+        dq_entries = []  # [(int8_input_arg, scale_val, zp_val)]
+        for field in tuple_arg.fields:
+            entry = dq_by_var.get(field)
+            if entry is None:
+                return super().visit_call_(call)
+            dq_entries.append(entry)
 
         # Only axis=1 (NCHW channel axis) is supported by the kernel.
         if concat_axis != 1:
