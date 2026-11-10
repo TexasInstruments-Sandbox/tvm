@@ -597,6 +597,7 @@ removed, destroying the pattern the MMALIB passes need to match.
 3.  EliminateQDQTransparent               ← remove dequant/quant around no-op ops
                                              (max_pool2d, reshape, permute, flatten, cat)
 3a. FuseQDQToC7xActivation               ← gelu, silu, hardsigmoid, hardswish → c7x_int8_*
+                                             (and silu/hardswish × SE gate → *_gate_multiply)
 3b. FuseQDQToC7xAvgPool                   ← global/spatial avg_pool2d → c7x_int8_*_avg_pool
 3c. FuseQDQToC7xLayerNorm                ← layer_norm → c7x_int8_layer_norm
 4.  FuseQDQToInt8Conv2D                   ← generic int8 conv for non-MMALIB ops

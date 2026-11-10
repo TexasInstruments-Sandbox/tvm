@@ -136,6 +136,8 @@ __declspec(dllexport) int32_t c7x_int8_silu_f32out() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_hardsigmoid() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_hardswish() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_channel_scale_multiply() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_silu_gate_multiply() { return 0; }
+__declspec(dllexport) int32_t c7x_int8_hardswish_gate_multiply() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_global_avg_pool() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_avg_pool() { return 0; }
 __declspec(dllexport) int32_t c7x_int8_max_pool() { return 0; }

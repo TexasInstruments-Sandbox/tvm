@@ -158,6 +158,12 @@ extern int32_t c7x_int8_channel_scale_multiply(
                                    int32_t, int32_t,
                                    float, int32_t, float, int32_t,
                                    float, int32_t);
+extern int32_t c7x_int8_silu_gate_multiply(const void *, const void *, void *,
+                                           int32_t, int32_t,
+                                           int32_t, float, int32_t, float);
+extern int32_t c7x_int8_hardswish_gate_multiply(const void *, const void *, void *,
+                                                int32_t, int32_t,
+                                                int32_t, float, int32_t, float);
 /* C7x-native average-pool kernels (no TIDL library calls) */
 extern int32_t c7x_int8_global_avg_pool(const void *, void *,
                                         int32_t, int32_t, int32_t, int32_t,
@@ -423,6 +429,8 @@ static const DspSymEntry dsp_syms[] = {
     SYM(c7x_int8_hardsigmoid),
     SYM(c7x_int8_hardswish),
     SYM(c7x_int8_channel_scale_multiply),
+    SYM(c7x_int8_silu_gate_multiply),
+    SYM(c7x_int8_hardswish_gate_multiply),
     /* C7x-native average-pool kernels (no TIDL library calls) */
     SYM(c7x_int8_global_avg_pool),
     SYM(c7x_int8_avg_pool),

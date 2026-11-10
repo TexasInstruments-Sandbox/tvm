@@ -48,6 +48,12 @@
  *   by looping over C channels with per-channel Q13 scale derived from the
  *   excitation vector, then streaming the H×W feature map via SE0.
  *
+ * c7x_int8_silu_gate_multiply / c7x_int8_hardswish_gate_multiply: the
+ *   squeeze-excite output computed from the activation's int8 input, the
+ *   activation times a per-channel float gate, requantized once.  Same
+ *   per-channel SE loop as channel_scale_multiply_vec, with silu_vec's or
+ *   hardswish_vec's float math inside it.
+ *
  * gelu, hardsigmoid: scalar float only (applied to tiny tensors ≤C
  *   elements from global avg pool — not on the hot path).
  *
@@ -565,4 +571,163 @@ int32_t c7x_int8_channel_scale_multiply(
     }
     return 0;
 #endif
+}
+
+/* =========================================================================
+ * c7x_int8_silu_gate_multiply / c7x_int8_hardswish_gate_multiply
+ *
+ * The squeeze-excite output of a block whose activation output is also read
+ * elsewhere, computed from the activation's int8 INPUT:
+ *
+ *   x_f    = (in[c*H_W + j] - zx) * sx
+ *   y_f    = act(x_f) * gate[c]
+ *   out    = clamp(round(y_f / sy) + zy, -128, 127)
+ *
+ * This is what the quantized PyTorch graph computes: the float activation
+ * times the gate, quantized once.  Multiplying a requantized copy of the
+ * activation instead (c7x_int8_channel_scale_multiply's input) adds a second
+ * rounding, and clips wherever the scale chosen for the activation's other
+ * reader is narrower than the activation's range.
+ *
+ * gate is float32 [C]: the excitation after its own activation (a sigmoid or
+ * a dequantized hardsigmoid), computed by the graph over C values.  in and
+ * out are [C, H_W] (NCHW, N = 1).
+ *
+ * The activation math is silu_vec's (exp_taylor + vec_recip) or
+ * hardswish_vec's, so the activation matches c7x_int8_silu /
+ * c7x_int8_hardswish exactly; the multiply comes before the requantize, in
+ * the reference's order.  Per-channel SE loop as channel_scale_multiply_vec.
+ * ========================================================================= */
+
+#ifdef __C7524__
+
+struct SiluVec {
+    static inline __float8 apply(__float8 x) {
+        return x * vec_recip(exp_taylor((__float8)0.0f - x) + (__float8)1.0f);
+    }
+    static inline float scalar(float x) { return _silu(x); }
+};
+
+struct HardswishVec {
+    static inline __float8 apply(__float8 x) {
+        return x * __max((__float8)0.0f,
+                         __min((__float8)1.0f, x * (__float8)(1.0f / 6.0f) + (__float8)0.5f));
+    }
+    static inline float scalar(float x) { return _hardswish(x); }
+};
+
+template <typename Act>
+static void gate_multiply_vec(
+        const int8_t* __restrict__ in,
+        const float*  __restrict__ gate,
+        int8_t*       __restrict__ out,
+        int32_t C, int32_t H_W,
+        int32_t zx, float sx, int32_t zy, float sy) {
+
+    const __float8 vzx    = (__float8)((float)zx);
+    const __float8 vsx    = (__float8)sx;
+    const __float8 vzy    = (__float8)((float)zy);
+    const __float8 vinvsy = (__float8)(1.0f / sy);
+    const __float8 vlo    = (__float8)(-128.0f);
+    const __float8 vhi    = (__float8)(127.0f);
+
+    const int32_t nvec  = H_W / 8;
+    const int32_t nvec4 = nvec & ~3;
+
+    for (int32_t c = 0; c < C; c++) {
+        const float    g      = gate[c];
+        const __float8 vg     = (__float8)g;
+        const int8_t*  in_ch  = in  + (int32_t)c * H_W;
+        int8_t*        out_ch = out + (int32_t)c * H_W;
+
+        /* No stream for a channel smaller than one vector: it is all tail. */
+        if (nvec > 0) {
+            __SE_TEMPLATE_v1 se = se_int8_signext_template((uint32_t)(nvec * 8));
+            __SE0_OPEN(const_cast<int8_t*>(in_ch), se);
+
+            int32_t i = 0;
+
+            /* 4x unrolled, no MUST_ITERATE pragma: nvec4 can be 0 for small H_W
+             * (7x7 squeeze-excite maps), as in channel_scale_multiply_vec. */
+            for (; i < nvec4; i += 4) {
+                __float8 vf0 = __int_to_float(__SE0ADV(int8));
+                __float8 vf1 = __int_to_float(__SE0ADV(int8));
+                __float8 vf2 = __int_to_float(__SE0ADV(int8));
+                __float8 vf3 = __int_to_float(__SE0ADV(int8));
+
+                vf0 = Act::apply((vf0 - vzx) * vsx) * vg;
+                vf1 = Act::apply((vf1 - vzx) * vsx) * vg;
+                vf2 = Act::apply((vf2 - vzx) * vsx) * vg;
+                vf3 = Act::apply((vf3 - vzx) * vsx) * vg;
+
+                vf0 = __max(vlo, __min(vhi, vf0 * vinvsy + vzy));
+                vf1 = __max(vlo, __min(vhi, vf1 * vinvsy + vzy));
+                vf2 = __max(vlo, __min(vhi, vf2 * vinvsy + vzy));
+                vf3 = __max(vlo, __min(vhi, vf3 * vinvsy + vzy));
+
+                __vstore_pack_byte((__char8*)(out_ch + (i+0)*8), __float_to_int(vf0));
+                __vstore_pack_byte((__char8*)(out_ch + (i+1)*8), __float_to_int(vf1));
+                __vstore_pack_byte((__char8*)(out_ch + (i+2)*8), __float_to_int(vf2));
+                __vstore_pack_byte((__char8*)(out_ch + (i+3)*8), __float_to_int(vf3));
+            }
+
+            for (; i < nvec; ++i) {
+                __float8 vf = __int_to_float(__SE0ADV(int8));
+                vf = Act::apply((vf - vzx) * vsx) * vg;
+                vf = __max(vlo, __min(vhi, vf * vinvsy + vzy));
+                __vstore_pack_byte((__char8*)(out_ch + i*8), __float_to_int(vf));
+            }
+
+            __SE0_CLOSE();
+        }
+
+        /* Scalar tail: H_W % 8 remaining elements of this channel. */
+        for (int32_t j = nvec * 8; j < H_W; ++j)
+            out_ch[j] = rq_f(Act::scalar(dq_f(in_ch[j], zx, sx)) * g, zy, sy);
+    }
+}
+
+#endif  /* __C7524__ */
+
+#ifndef __C7524__
+/* Scalar form for non-C7524 targets. */
+static void gate_multiply_scalar(
+        float (*act)(float),
+        const int8_t* in, const float* gate, int8_t* out,
+        int32_t C, int32_t H_W,
+        int32_t zx, float sx, int32_t zy, float sy) {
+    for (int32_t c = 0; c < C; c++)
+        for (int32_t j = 0; j < H_W; j++)
+            out[c * H_W + j] = rq_f(act(dq_f(in[c * H_W + j], zx, sx)) * gate[c], zy, sy);
+}
+#endif
+
+extern "C"
+int32_t c7x_int8_silu_gate_multiply(
+        const void* in, const void* gate, void* out,
+        int32_t C, int32_t H_W,
+        int32_t zx, float sx, int32_t zy, float sy) {
+#ifdef __C7524__
+    gate_multiply_vec<SiluVec>((const int8_t*)in, (const float*)gate, (int8_t*)out,
+                               C, H_W, zx, sx, zy, sy);
+#else
+    gate_multiply_scalar(_silu, (const int8_t*)in, (const float*)gate, (int8_t*)out,
+                         C, H_W, zx, sx, zy, sy);
+#endif
+    return 0;
+}
+
+extern "C"
+int32_t c7x_int8_hardswish_gate_multiply(
+        const void* in, const void* gate, void* out,
+        int32_t C, int32_t H_W,
+        int32_t zx, float sx, int32_t zy, float sy) {
+#ifdef __C7524__
+    gate_multiply_vec<HardswishVec>((const int8_t*)in, (const float*)gate, (int8_t*)out,
+                                    C, H_W, zx, sx, zy, sy);
+#else
+    gate_multiply_scalar(_hardswish, (const int8_t*)in, (const float*)gate, (int8_t*)out,
+                         C, H_W, zx, sx, zy, sy);
+#endif
+    return 0;
 }

@@ -29,6 +29,20 @@ Relax IR has these sub-graph structures:
 
 Replaces each with call_extern to the corresponding c7x_int8_* C wrapper.
 
+An activation's float result can also be read by an op the quantizer leaves in
+float: a concat, or a squeeze-excite multiply by a [1,C,1,1] gate. The quantized
+PyTorch graph gives that reader the float activation, rounded once at the
+reader's own output scale. Before matching, _unshare_shared_activations gives
+each such reader its own copy of the activation chain, so it is computed from
+the activation's int8 input rather than from a requantized copy of its output
+(which would add a rounding, and clipping wherever that copy's scale is narrower
+than the activation's range):
+
+  concat reader:    the copy is quantized at the concat's output scale, lowered
+                    to the same c7x_int8_* kernel, and copied by the concat as is.
+  multiply reader:  dq -> activation -> multiply(gate) -> q is lowered to
+                    c7x_int8_{silu,hardswish}_gate_multiply.
+
 Kernels: src/runtime/ti_dsp/kernels/c7x_activation.c
 """
 
@@ -38,7 +52,7 @@ import tvm
 from tvm import relax, te, tirx
 from tvm.ir.module import IRModule
 from tvm.ir.transform import PassContext
-from tvm.relax.dpl.pattern import is_op, wildcard
+from tvm.relax.dpl.pattern import CallPattern, is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import find_composite_span, propagate_span
@@ -163,6 +177,59 @@ def _make_hardswish_pattern_commuted():
     return q, {"x": x, "d_scale": d_s, "d_zp": d_z, "o_scale": o_s, "o_zp": o_z}
 
 
+def _make_hardswish_chain(commuted: bool):
+    """dq → add(dq, 3) → clip → clip → multiply → divide: hardswish's float output.
+
+    commuted: multiply(clip, dq) rather than multiply(dq, clip) (PT2E exports both).
+    """
+    x, d_s, d_z = wildcard(), wildcard(), wildcard()
+    dq = is_op("relax.dequantize")(x, d_s, d_z)
+    added = is_op("relax.add")(dq, wildcard())
+    clipped1 = is_op("relax.clip")(added, wildcard(), wildcard())
+    clipped2 = is_op("relax.clip")(clipped1, wildcard(), wildcard())
+    mul = (
+        is_op("relax.multiply")(clipped2, dq) if commuted else is_op("relax.multiply")(dq, clipped2)
+    )
+    act = is_op("relax.divide")(mul, wildcard())
+    return act, {"x": x, "d_scale": d_s, "d_zp": d_z}
+
+
+# Float output of each activation chain _unshare_shared_activations can copy, and
+# that a gate-multiply composite starts from. _make_silu_f32out_pattern is exactly
+# SiLU's chain.
+_ACTIVATION_CHAINS = {
+    "silu": [_make_silu_f32out_pattern],
+    "hardswish": [lambda: _make_hardswish_chain(False), lambda: _make_hardswish_chain(True)],
+}
+
+
+def _make_gate_multiply_pattern(chain_factory, act_first: bool):
+    """dq → activation → multiply(activation, gate) → q: a squeeze-excite output.
+
+    gate is the [1,C,1,1] float excitation (a sigmoid, or a dequantized hardsigmoid),
+    computed outside the composite. act_first: the multiply's operand order.
+    """
+    act, annotations = chain_factory()
+    gate = wildcard()
+    mul = is_op("relax.multiply")(act, gate) if act_first else is_op("relax.multiply")(gate, act)
+    o_s, o_z = wildcard(), wildcard()
+    q = is_op("relax.quantize")(mul, o_s, o_z)
+    return q, {**annotations, "act": act, "gate": gate, "o_scale": o_s, "o_zp": o_z}
+
+
+def _gate_multiply_entries():
+    """(composite name, pattern factory, activation) for every chain and operand order."""
+    entries = []
+    for act_name, chains in _ACTIVATION_CHAINS.items():
+        for i, chain in enumerate(chains):
+            for act_first in (True, False):
+                name = f"tidl_act.{act_name}_gate_multiply_{i}{'' if act_first else '_commuted'}"
+                entries.append(
+                    (name, lambda c=chain, a=act_first: _make_gate_multiply_pattern(c, a), act_name)
+                )
+    return entries
+
+
 def _make_channel_scale_multiply_pattern():
     """dq(in1) * dq(in2) → q — SE-block excitation × feature-map multiply.
 
@@ -218,7 +285,15 @@ def _make_channel_scale_multiply_pattern_commuted():
 # than in a wholly separate registry) so _COMPOSITE_NAMES/_ActivationLowerer
 # recognize and lower it correctly when that later pass invokes the same
 # _run_patterns/_ActivationLowerer machinery.
+_GATE_MULTIPLY_ENTRIES = _gate_multiply_entries()
+
+# Composite name → activation, for the fused squeeze-excite composites.
+_GATE_MULTIPLY_ACT = {name: act for name, _, act in _GATE_MULTIPLY_ENTRIES}
+
+# Gate-multiply composites come first: they contain a whole activation chain, which
+# the single-activation patterns would otherwise claim.
 _PATTERN_REGISTRY = [
+    *[(name, factory) for name, factory, _ in _GATE_MULTIPLY_ENTRIES],
     ("tidl_act.gelu", _make_gelu_pattern),
     ("tidl_act.silu", _make_silu_pattern),
     ("tidl_act.silu_f32out", _make_silu_f32out_pattern),
@@ -284,6 +359,31 @@ def _check_silu_f32out(ctx) -> bool:
         if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
     return True
+
+
+def _gate_shapes(act_ty, gate_ty):
+    """(C, H*W) if act is int8-able [1,C,H,W] and gate is float32 [1,C,1,1], else None."""
+    if not isinstance(act_ty, relax.TensorType) or not isinstance(gate_ty, relax.TensorType):
+        return None
+    if act_ty.shape is None or gate_ty.shape is None or str(gate_ty.dtype) != "float32":
+        return None
+    a, g = list(act_ty.shape), list(gate_ty.shape)
+    if len(a) != 4 or len(g) != 4 or not all(isinstance(s, tirx.IntImm) for s in a + g):
+        return None
+    n, c, h, w = (int(s) for s in a)
+    if n != 1 or [int(s) for s in g] != [1, c, 1, 1] or h * w <= 1:
+        return None
+    return c, h * w
+
+
+def _check_gate_multiply(ctx) -> bool:
+    """Require _check_activation's conditions, a [1,C,H,W] activation and a float32
+    [1,C,1,1] gate."""
+    if not _check_activation(ctx):
+        return False
+    act = ctx.annotated_expr["act"]
+    gate = ctx.annotated_expr["gate"]
+    return _gate_shapes(getattr(act, "ty", None), getattr(gate, "ty", None)) is not None
 
 
 def _check_channel_scale_multiply(ctx) -> bool:
@@ -359,7 +459,92 @@ class _ActivationLowerer(PyExprMutator):
             return self._lower_channel_scale_multiply(call, func)
         if name in _DFL_SOFTMAX_NAMES:
             return self._lower_dfl_softmax(call, func)
+        if name in _GATE_MULTIPLY_ACT:
+            return self._lower_gate_multiply(call, func, _GATE_MULTIPLY_ACT[name])
         return self._lower_single_input(call, func, name)
+
+    def _lower_gate_multiply(self, call, func, act_name):
+        """Lower a gate-multiply composite to c7x_int8_<act>_gate_multiply.
+
+        Inputs: the activation's int8 input and the float32 [1,C,1,1] gate (the
+        multiply operand that is a composite parameter). The dequantize gives the
+        input qparams; the final quantize the output qparams.
+        """
+        param_to_arg = dict(zip(func.params, call.args))
+        bindings = func.body.blocks[0].bindings
+        values = {b.var: b.value for b in bindings}
+
+        dq = next(
+            (
+                b.value
+                for b in bindings
+                if isinstance(b.value, relax.Call)
+                and getattr(b.value.op, "name", "") == "relax.dequantize"
+            ),
+            None,
+        )
+        q = bindings[-1].value
+        if dq is None or not (
+            isinstance(q, relax.Call) and getattr(q.op, "name", "") == "relax.quantize"
+        ):
+            return super().visit_call_(call)
+        mul = values.get(q.args[0])
+        if not (isinstance(mul, relax.Call) and getattr(mul.op, "name", "") == "relax.multiply"):
+            return super().visit_call_(call)
+        gate_param = next((a for a in mul.args if a in param_to_arg), None)
+        act_var = next((a for a in mul.args if a in values), None)
+        if gate_param is None or act_var is None:
+            return super().visit_call_(call)
+
+        def const(expr):
+            return param_to_arg.get(expr, expr).value.numpy()
+
+        x_arg = param_to_arg.get(dq.args[0], dq.args[0])
+        gate_arg = param_to_arg[gate_param]
+        shapes = _gate_shapes(act_var.ty, gate_param.ty)
+        if shapes is None or not isinstance(call.ty, relax.TensorType):
+            return super().visit_call_(call)
+        n_ch, hw = shapes
+        d_scale_v, d_zp_v = float(const(dq.args[1])), int(const(dq.args[2]))
+        o_scale_v, o_zp_v = float(const(q.args[1])), int(const(q.args[2]))
+        output_shape = [int(s) for s in call.ty.shape]
+        extern_name = f"c7x_int8_{act_name}_gate_multiply"
+
+        def te_gate_multiply(x_t, gate_t):
+            def fcompute(ins, outs):
+                return tirx.call_extern(
+                    "int32",
+                    extern_name,
+                    ins[0].data,
+                    ins[1].data,
+                    outs[0].data,
+                    tirx.IntImm("int32", n_ch),
+                    tirx.IntImm("int32", hw),
+                    tirx.IntImm("int32", d_zp_v),
+                    tirx.FloatImm("float32", d_scale_v),
+                    tirx.IntImm("int32", o_zp_v),
+                    tirx.FloatImm("float32", o_scale_v),
+                )
+
+            return te.extern(
+                output_shape, [x_t, gate_t], fcompute, name="tidl_act_gate_out", dtype="int8"
+            )
+
+        result = self.builder_.call_te(
+            te_gate_multiply, x_arg, gate_arg, primfunc_name_hint=extern_name
+        )
+        self.count += 1
+        logger.debug(
+            "Fused %s: C=%d HW=%d d_zp=%d d_scale=%.6g o_zp=%d o_scale=%.6g",
+            extern_name,
+            n_ch,
+            hw,
+            d_zp_v,
+            d_scale_v,
+            o_zp_v,
+            o_scale_v,
+        )
+        return propagate_span(result, find_composite_span(func))
 
     def _lower_silu_f32out(self, call, call_sinfo, x_arg, d_scale_val, d_zp_val, span):
         """Lower a silu_f32out composite to c7x_int8_silu_f32out.
@@ -752,6 +937,197 @@ class _ActivationLowerer(PyExprMutator):
 # =========================================================================
 
 
+def _is_op(expr, name: str) -> bool:
+    return isinstance(expr, relax.Call) and getattr(expr.op, "name", "") == name
+
+
+def _is_scalar(expr) -> bool:
+    ty = getattr(expr, "ty", None)
+    return isinstance(ty, relax.TensorType) and ty.ndim == 0
+
+
+def _match_activation_chain(expr, values):
+    """The chain's calls if expr is an activation's float output, else None.
+
+    Only call patterns belong to the chain: a wildcard (the int8 input, a scale)
+    can match a call too, and copying it would duplicate the producer.
+    """
+    for chains in _ACTIVATION_CHAINS.values():
+        for chain in chains:
+            pat, _ = chain()
+            matched = pat.extract_matched_expr(expr, values)
+            if matched is not None:
+                return [e for p, e in matched.items() if isinstance(p, CallPattern)]
+    return None
+
+
+def _plan_unsharing(func: relax.Function) -> dict:
+    """Map each float reader binding var to (concat quantize, [(activation var, chain calls)]).
+
+    Only for an activation output that has its own quantize reader. Readers:
+      concat whose only user is a per-tensor quantize -> (that quantize, every such
+          activation it reads)
+      multiply by a [1,C,1,1] gate whose only user is a quantize -> (None, [the activation])
+    Other readers keep the tuple-output path and are logged.
+    """
+    bindings = [b for block in func.body.blocks for b in block.bindings]
+    values = {b.var: b.value for b in bindings}
+    users: dict = {b.var: [] for b in bindings}
+    for b in bindings:
+
+        def note(e, reader=b.var):
+            if isinstance(e, relax.Var) and e in users:
+                users[e].append(reader)
+
+        relax.analysis.post_order_visit(b.value, note)
+
+    def only_quantize_reader(var):
+        readers = users.get(var, [])
+        return (
+            values[readers[0]]
+            if len(readers) == 1 and _is_op(values[readers[0]], "relax.quantize")
+            else None
+        )
+
+    plan: dict = {}
+    for b in bindings:
+        readers = users[b.var]
+        if len(readers) < 2 or not any(_is_op(values[r], "relax.quantize") for r in readers):
+            continue
+        chain = _match_activation_chain(b.value, values)
+        if chain is None:
+            continue
+        for r in dict.fromkeys(readers):  # a concat can read the activation twice
+            rv = values[r]
+            if _is_op(rv, "relax.quantize"):
+                continue
+            q = only_quantize_reader(r)
+            if _is_op(rv, "relax.concat") and q is not None:
+                # The copy takes the concat's qparams, so they must be per-tensor.
+                if all(_is_scalar(a) for a in q.args[1:3]):
+                    plan.setdefault(r, (q, []))[1].append((b.var, chain))
+                else:
+                    logger.info("Activation %s: concat reader is quantized per channel", b.var.name)
+            elif _is_op(rv, "relax.multiply") and q is not None:
+                gate = rv.args[1] if rv.args[0].same_as(b.var) else rv.args[0]
+                if _gate_shapes(b.var.ty, getattr(gate, "ty", None)) is not None:
+                    plan[r] = (None, [(b.var, chain)])
+                else:
+                    logger.info(
+                        "Activation %s: multiply reader is not a [1,C,1,1] gate", b.var.name
+                    )
+            else:
+                logger.info(
+                    "Activation %s: float reader %s keeps a requantized copy",
+                    b.var.name,
+                    getattr(getattr(rv, "op", None), "name", type(rv).__name__),
+                )
+    return plan
+
+
+@mutator
+class _Unsharer(PyExprMutator):
+    """Rewrite each planned reader to read its own copy of the activation chain."""
+
+    def __init__(self, mod: IRModule, plan: dict, values: dict):
+        super().__init__(mod)
+        self.plan = plan
+        self.values = values  # the original function's var → bound value
+        self.count = 0
+
+    def _copy_chain(self, act_var, chain):
+        """Re-emit the chain's calls as fresh bindings. Everything outside the chain
+        (the int8 input, the constants) is read through the usual remapping."""
+        copies: dict = {}
+
+        def chain_index(expr):
+            value = self.values.get(expr) if isinstance(expr, relax.Var) else expr
+            if not isinstance(value, relax.Call):
+                return None
+            return next((i for i, c in enumerate(chain) if c.same_as(value)), None)
+
+        def copy(expr):
+            i = chain_index(expr)
+            if i is None:
+                return self.visit_expr(expr)
+            if i not in copies:
+                call = chain[i]
+                new_args = [copy(a) for a in call.args]
+                copies[i] = self.builder_.emit(
+                    relax.Call(call.op, new_args, call.attrs, call.ty_args)
+                )
+            return copies[i]
+
+        return copy(act_var)
+
+    def visit_var_binding_(self, binding: relax.VarBinding):
+        entry = self.plan.get(binding.var)
+        if entry is None:
+            return super().visit_var_binding_(binding)
+        concat_q, acts = entry
+        copies = []  # [(original activation var, its copy)]
+        for act_var, chain in acts:
+            copy = self._copy_chain(act_var, chain)
+            if concat_q is not None:
+                # Quantize the copy at the concat's output scale: the concat then
+                # copies it as is, and the result equals quantizing the concatenated
+                # float.
+                scale, zp = self.visit_expr(concat_q.args[1]), self.visit_expr(concat_q.args[2])
+                q = self.builder_.emit(relax.Call(concat_q.op, [copy, scale, zp], concat_q.attrs))
+                copy = self.builder_.emit(
+                    relax.op.dequantize(
+                        q, scale, zp, axis=int(concat_q.attrs.axis), out_dtype="float32"
+                    )
+                )
+            copies.append((act_var, copy))
+
+        def swap(expr):
+            if isinstance(expr, relax.Var):
+                for act_var, copy in copies:
+                    if expr.same_as(act_var):
+                        return copy
+            return self.visit_expr(expr)
+
+        value = binding.value
+        if _is_op(value, "relax.concat"):
+            fields = value.args[0].fields if isinstance(value.args[0], relax.Tuple) else None
+            if fields is None:
+                return super().visit_var_binding_(binding)
+            new_value = relax.Call(value.op, [relax.Tuple([swap(f) for f in fields])], value.attrs)
+        else:
+            new_value = relax.Call(value.op, [swap(a) for a in value.args], value.attrs)
+        new_var = (
+            self.builder_.emit(new_value)
+            if isinstance(binding.var, relax.DataflowVar)
+            else self.builder_.emit_output(new_value)
+        )
+        self.set_var_remap(binding.var, new_var)
+        self.count += 1
+
+
+def _unshare_shared_activations(mod: IRModule) -> IRModule:
+    """Give each float reader of a shared activation output its own activation copy.
+
+    See the module docstring. The original activation keeps its quantize readers.
+    """
+    total = 0
+    for gv, func in list(mod.functions_items()):
+        if not isinstance(func, relax.Function) or (func.attrs and "Composite" in func.attrs):
+            continue
+        plan = _plan_unsharing(func)
+        if not plan:
+            continue
+        values = {b.var: b.value for block in func.body.blocks for b in block.bindings}
+        unsharer = _Unsharer(mod, plan, values)
+        new_func = unsharer.visit_expr(func)
+        unsharer.builder_.update_func(gv, new_func)
+        mod = unsharer.builder_.get()
+        total += unsharer.count
+    if total:
+        logger.info("FuseQDQToC7xActivation: gave %d float readers their own activation", total)
+    return mod
+
+
 def _run_activation_patterns(mod: IRModule, pattern_list: list):
     """Run FuseOpsByPattern + lowering for one set of patterns.
 
@@ -928,9 +1304,16 @@ class FuseQDQToC7xActivation:
                 check = _check_channel_scale_multiply
                 round2.append((composite_name, pat, annotations, check))
             else:
-                check = _check_activation
+                check = (
+                    _check_gate_multiply
+                    if composite_name in _GATE_MULTIPLY_ACT
+                    else _check_activation
+                )
                 round1.append((composite_name, pat, annotations, check))
 
+        # Give each float reader of a shared activation output its own copy of the
+        # activation, so Round 1 matches it without a tuple-output composite.
+        mod = _unshare_shared_activations(mod)
         mod, n1, tuple_fields = _run_activation_patterns(mod, round1)
 
         # Round 1 hardswish composites with a shared SE-multiply output produce

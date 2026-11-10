@@ -85,6 +85,21 @@ int32_t c7x_int8_channel_scale_multiply(
     float s_feat, int32_t z_feat,
     float s_out,  int32_t z_out);
 
+/* Squeeze-excite output from the activation's int8 input:
+ * out[c, j] = quantize(act(dequantize(in[c, j])) * gate[c]), one rounding.
+ * in/out are int8 [C, H_W] (NCHW, N = 1); gate is float32 [C]. For an
+ * activation whose output is also read elsewhere at another scale, so the
+ * multiply must not read a requantized copy of it. */
+int32_t c7x_int8_silu_gate_multiply(
+    const void* in, const void* gate, void* out,
+    int32_t C, int32_t H_W,
+    int32_t zx, float sx, int32_t zy, float sy);
+
+int32_t c7x_int8_hardswish_gate_multiply(
+    const void* in, const void* gate, void* out,
+    int32_t C, int32_t H_W,
+    int32_t zx, float sx, int32_t zy, float sy);
+
 #ifdef __cplusplus
 }
 #endif

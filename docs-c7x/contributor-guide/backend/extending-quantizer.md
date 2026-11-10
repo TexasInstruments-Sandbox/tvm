@@ -125,6 +125,24 @@ call — despite the internal `_TIDL_ACT_OPS` set name).
 | `aten.hardsigmoid.default` | `c7x_int8_hardsigmoid` |
 | `aten.hardswish.default` | `c7x_int8_hardswish` |
 
+An activation's float output can also feed an op the quantizer leaves in
+float: a concat (YOLOv5, YOLOv8) or a squeeze-excite multiply by a
+`[1,C,1,1]` gate (EfficientNet, MobileNetV3). PyTorch's quantized graph gives
+that reader the float activation, rounded once at the reader's own output
+scale. Reading the activation's int8 output back through a dequantize instead
+would round a second time, and clip wherever the activation's own output scale
+is narrower than the reader's range. So before matching, the pass gives each
+such reader its own copy of the activation chain:
+
+- A concat whose only user is a per-tensor quantize reads a second
+  `c7x_int8_<act>` call at the concat's output scale.
+- `quantize(act(dequantize(x)) * gate)` lowers to `c7x_int8_silu_gate_multiply`
+  or `c7x_int8_hardswish_gate_multiply`, which apply the gate before the one
+  requantize.
+
+A float reader of any other kind keeps the dequantized int8 output, and the pass
+logs it at INFO.
+
 ### Group 4 — Average Pooling Ops (`_AVG_POOL_OPS`)
 
 Single activation input; output gets independent quantization.
