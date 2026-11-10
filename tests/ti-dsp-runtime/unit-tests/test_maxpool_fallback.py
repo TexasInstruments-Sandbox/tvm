@@ -17,15 +17,16 @@ from tvm.relax import TensorType as TensorStructInfo
 pytestmark = pytest.mark.quick
 
 
-def _build_qdq_maxpool_model():
+def _build_qdq_maxpool_model(out_scale=0.00935):
     """Build a minimal model: dequantize(x) -> max_pool2d -> quantize(out).
 
-    Uses matching scale/zp on the DQ and Q so _check_maxpool's transparent
+    By default the DQ and Q share scale/zp, so _check_maxpool's transparent
     condition holds and the pattern fuses.
     """
     bb = relax.BlockBuilder()
     x = relax.Var("x", TensorStructInfo((1, 64, 112, 112), "int8"))
     s = ti_tensor_const(np.array(0.00935, dtype=np.float32))
+    s_out = ti_tensor_const(np.array(out_scale, dtype=np.float32))
     z = ti_tensor_const(np.array(0, dtype=np.int8))
 
     with bb.function("main", [x]):
@@ -34,7 +35,7 @@ def _build_qdq_maxpool_model():
             pool = bb.emit(
                 relax.op.nn.max_pool2d(dq, pool_size=(3, 3), strides=(2, 2), padding=(1, 1))
             )
-            result = bb.emit(relax.op.quantize(pool, s, z, out_dtype="int8"))
+            result = bb.emit(relax.op.quantize(pool, s_out, z, out_dtype="int8"))
             bb.emit_output(result)
         bb.emit_func_output(result)
 
@@ -55,3 +56,11 @@ def test_fallback_emits_scalar_kernel():
     # the scalar kernel must.
     assert "c7x_int8_max_pool_tidl" not in text
     assert "c7x_int8_max_pool" in text
+
+
+def test_scale_change_is_not_fused():
+    """The kernel copies int8 codes, so a pool that requantizes stays in float."""
+    mod = tvm.relax.transform.FuseQDQToTIDLMaxPool()(_build_qdq_maxpool_model(0.0131))
+    text = mod.script()
+    assert "c7x_int8_max_pool" not in text
+    assert "R.nn.max_pool2d" in text

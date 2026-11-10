@@ -56,6 +56,7 @@ from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import find_composite_span, propagate_span
+from .ti_eliminate_qdq_transparent import _scales_match
 
 logger = logging.getLogger(__name__)
 
@@ -78,12 +79,12 @@ def _make_max_pool_pattern():
 
 
 def _check_maxpool(ctx) -> bool:
-    """Require int8 input, compile-time QDQ constants, and transparent scales.
+    """Require int8 input, compile-time QDQ constants, and transparent qparams.
 
-    The transparent condition (d_zp == o_zp) is required because the kernel
-    does no float conversion.  C7xMMAQuantizer annotates max_pool2d with
-    SharedQuantizationSpec (output shares input params), so this always holds
-    for quantized models produced by that quantizer.
+    The kernel copies int8 codes, so the input and output scales and zero points
+    must match. They need not: an observer on the max pool's input edge and one
+    on its output calibrate separately. A pool left unfused stays
+    dq -> max_pool2d -> q, which EliminateQDQTransparent leaves alone too.
     """
     x = ctx.annotated_expr["x"]
     if isinstance(x, tvm.ir.GenericConst):
@@ -99,10 +100,15 @@ def _check_maxpool(ctx) -> bool:
         if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
             return False
 
-    # Transparent condition: input and output zero-points must match.
+    # Transparent condition: input and output qparams must match.
     d_zp = ctx.annotated_expr["d_zp"]
     o_zp = ctx.annotated_expr["o_zp"]
     if int(d_zp.value.numpy()) != int(o_zp.value.numpy()):
+        return False
+    d_scale = float(ctx.annotated_expr["d_scale"].value.numpy())
+    o_scale = float(ctx.annotated_expr["o_scale"].value.numpy())
+    if not _scales_match(d_scale, o_scale):
+        logger.info("max_pool2d not fused: input scale %g, output scale %g", d_scale, o_scale)
         return False
 
     return True

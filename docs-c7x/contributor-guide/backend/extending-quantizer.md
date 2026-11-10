@@ -171,6 +171,12 @@ Single activation input. Output forced to share **same** scale as input via
 `SharedQuantizationSpec`. `EliminateQDQTransparent` then removes Q/DQ wrappers
 entirely, leaving the op to receive and produce raw int8 data.
 
+The sharing needs an annotated producer. After one that isn't annotated (a
+`cat`, an in-place `silu_`), the output gets an observer of its own, which can
+calibrate to a different scale than the input edge. Both `EliminateQDQTransparent`
+and `FuseQDQToTIDLMaxPool` check that the scales match, and leave such an op as
+float `dequantize -> op -> quantize` otherwise.
+
 | `node.target` | why scale unchanged |
 |---|---|
 | `aten.max_pool2d.default` | `max` is monotonic — preserves rank order |
