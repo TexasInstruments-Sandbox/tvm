@@ -2,8 +2,13 @@
  * TIDL firmware symbol stubs for DLOAD link resolution.
  *
  * These provide definitions at static link time for symbols that TIDL
- * algo libraries reference.  At runtime, DLOAD patches these with the
- * real firmware addresses.
+ * algo libraries reference.
+ *
+ * A definition here is linked into the module and wins over the matching
+ * --import in c7x_dynmod.cmd (the linker warns "--import option ignored"),
+ * so DLOAD never binds it to the firmware.  Do not stub anything the module
+ * actually calls: TVM_lockInterrupts/TVM_unlockInterrupts are imported from
+ * the firmware (tidl_support.c) via dsp_syms.c and c7x_dynmod.cmd.
  */
 #include <stdint.h>
 
@@ -15,8 +20,6 @@ __declspec(dllexport) uint8_t* g_tidl_l2_mem_addr = 0;
 __declspec(dllexport) uint32_t g_tidl_l2_mem_size = 0;
 __declspec(dllexport) uint8_t* g_tidl_l3_mem_addr = 0;
 __declspec(dllexport) uint32_t g_tidl_l3_mem_size = 0;
-__declspec(dllexport) void TVM_lockInterrupts() {}
-__declspec(dllexport) void TVM_unlockInterrupts() {}
 
 /* DmaUtils (from firmware dmautils_standalone library) */
 __declspec(dllexport) void DmaUtilsAutoInc3d_configure() {}
