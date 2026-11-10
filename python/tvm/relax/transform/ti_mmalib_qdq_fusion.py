@@ -51,7 +51,9 @@ from .ti_mmalib_legalize import (
     _call_extern_checked,
     _check_conv2d_mmalib_constraints,
     _resolve_constant_tensor,
+    _scale_value,
     _validate_and_fold_bias,
+    _zero_point_value,
 )
 
 logger = logging.getLogger(__name__)
@@ -347,27 +349,26 @@ class _MMALIBQDQLowerer(PyExprMutator):
             return super().visit_call_(call)
         w_scale_np = w_scale_arg.value.numpy().flatten()
 
-        d_scale_arg = param_to_arg[roles["d_scale"]]
-        if not isinstance(d_scale_arg, tvm.ir.GenericConst):
+        # A regular conv mixes its input channels, so its input scale must be one
+        # value; its output may be per channel (folded into the per-channel
+        # requantize).
+        d_scale_val = _scale_value(param_to_arg[roles["d_scale"]])
+        o_scale_val = _scale_value(param_to_arg[roles["o_scale"]], w_int8_np.shape[0])
+        if d_scale_val is None or o_scale_val is None:
+            logger.info(
+                "MMALIB conv2d: input scale not per-tensor, or output scale of another"
+                " length; declining"
+            )
             return super().visit_call_(call)
-        d_scale_val = float(d_scale_arg.value.numpy())
-
-        o_scale_arg = param_to_arg[roles["o_scale"]]
-        if not isinstance(o_scale_arg, tvm.ir.GenericConst):
-            return super().visit_call_(call)
-        o_scale_val = float(o_scale_arg.value.numpy())
 
         d_zp_val = 0
         if "d_zp" in roles:
-            d_zp_arg = param_to_arg[roles["d_zp"]]
-            if isinstance(d_zp_arg, tvm.ir.GenericConst):
-                d_zp_val = int(d_zp_arg.value.numpy())
-
+            d_zp_val = _zero_point_value(param_to_arg[roles["d_zp"]])
         o_zp_val = 0
         if "o_zp" in roles:
-            o_zp_arg = param_to_arg[roles["o_zp"]]
-            if isinstance(o_zp_arg, tvm.ir.GenericConst):
-                o_zp_val = int(o_zp_arg.value.numpy())
+            o_zp_val = _zero_point_value(param_to_arg[roles["o_zp"]])
+        if d_zp_val is None or o_zp_val is None:
+            return super().visit_call_(call)
 
         bias_np = None
         if has_bias and "bias" in roles:

@@ -49,7 +49,9 @@ from .ti_mmalib_constants import C7X_VEC_SIZE_BYTES
 from .ti_mmalib_legalize import (
     _call_extern_checked,
     _resolve_constant_tensor,
+    _scale_value,
     _validate_and_fold_bias,
+    _zero_point_value,
 )
 
 logger = logging.getLogger(__name__)
@@ -407,27 +409,28 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
             return super().visit_call_(call)
         w_scale_np = w_scale_arg.value.numpy().flatten()
 
-        d_scale_arg = param_to_arg[roles["d_scale"]]
-        if not isinstance(d_scale_arg, tvm.ir.GenericConst):
+        # Each output channel reads one input channel, so a per-channel input scale
+        # folds into the per-channel requantize like a per-channel output scale does.
+        # Output channel c reads input channel c // multiplier.
+        channels = w_int8_np.shape[0]
+        data_layout = s_tir.slayout(roles["conv_attrs"].data_layout)
+        c_in = int(data_arg.ty.shape[data_layout.index_of("C")])
+        d_scale_val = _scale_value(param_to_arg[roles["d_scale"]], c_in)
+        o_scale_val = _scale_value(param_to_arg[roles["o_scale"]], channels)
+        if d_scale_val is None or o_scale_val is None or channels % c_in:
+            logger.info("MMALIB dwconv2d: scales neither per-tensor nor per-channel; declining")
             return super().visit_call_(call)
-        d_scale_val = float(d_scale_arg.value.numpy())
-
-        o_scale_arg = param_to_arg[roles["o_scale"]]
-        if not isinstance(o_scale_arg, tvm.ir.GenericConst):
-            return super().visit_call_(call)
-        o_scale_val = float(o_scale_arg.value.numpy())
+        if isinstance(d_scale_val, np.ndarray):
+            d_scale_val = np.repeat(d_scale_val, channels // c_in)
 
         d_zp_val = 0
         if "d_zp" in roles:
-            d_zp_arg = param_to_arg[roles["d_zp"]]
-            if isinstance(d_zp_arg, tvm.ir.GenericConst):
-                d_zp_val = int(d_zp_arg.value.numpy())
-
+            d_zp_val = _zero_point_value(param_to_arg[roles["d_zp"]])
         o_zp_val = 0
         if "o_zp" in roles:
-            o_zp_arg = param_to_arg[roles["o_zp"]]
-            if isinstance(o_zp_arg, tvm.ir.GenericConst):
-                o_zp_val = int(o_zp_arg.value.numpy())
+            o_zp_val = _zero_point_value(param_to_arg[roles["o_zp"]])
+        if d_zp_val is None or o_zp_val is None:
+            return super().visit_call_(call)
 
         bias_np = None
         if has_bias and "bias" in roles:
@@ -438,12 +441,10 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
 
         # Extract dimensions
         attrs = roles["conv_attrs"]
-        # Weight is [C_out, 1, KH, KW] for depthwise (OIHW)
-        channels = w_int8_np.shape[0]
+        # Weight is [C_out, 1, KH, KW] for depthwise (OIHW); channels is C_out.
         KH, KW = w_int8_np.shape[2], w_int8_np.shape[3]
 
         data_sinfo = data_arg.ty
-        data_layout = s_tir.slayout(attrs.data_layout)
         H_in = int(data_sinfo.shape[data_layout.index_of("H")])
         W_in = int(data_sinfo.shape[data_layout.index_of("W")])
 

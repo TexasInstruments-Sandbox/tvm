@@ -335,8 +335,10 @@ def _check_activation(ctx) -> bool:
     else:
         return False
 
+    # Per-tensor constants only: the kernels take one scale and zero point each.
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
+        arg = ctx.annotated_expr[name]
+        if not isinstance(arg, tvm.ir.GenericConst) or arg.value.numpy().size != 1:
             return False
     return True
 

@@ -178,6 +178,13 @@ combined_rescale[ch]   = d_scale * w_scale[ch] / o_scale
 (scale_u8[ch], shift_u8[ch]) = best_uint8_approx(combined_rescale[ch])
 ```
 
+`o_scale` may also be per channel (`o_scale[ch]`, an activation quantized per
+channel), and so may a depthwise conv's `d_scale` (`d_scale[ch]`): each depthwise
+output channel reads one input channel, so its requantize takes that channel's
+scale. A regular conv sums over its input channels, so its `d_scale` must be one
+value; the int8 activation kernels take one scale each, so `FuseQDQToC7xActivation`
+leaves a per-channel activation in float.
+
 `best_uint8_approx` (`_float_to_scale_shift` in `ti_mmalib_legalize.py`)
 finds integers `s ∈ [0,255]`, `sh ∈ [0,31]` such that `s × 2^(-sh) ≈
 combined_rescale[ch]` — this `(scale, shift)` pair is the fixed-point

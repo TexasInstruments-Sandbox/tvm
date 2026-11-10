@@ -1670,6 +1670,23 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             relax.op.dequantize(data, scale, zero_point, axis=0, out_dtype="float32")
         )
 
+    def _quantize_per_channel(self, node: fx.Node) -> relax.Var:
+        # args: (data, scale_1d, zp_1d, axis, quant_min, quant_max, dtype). Weights'
+        # quantize is folded into constants by convert_pt2e, so this is an
+        # activation with per-channel scales.
+        import numpy as np
+
+        args = self.retrieve_args(node)
+        data, scale, zero_point = args[0], args[1], args[2]
+        axis = int(args[3])
+        out_dtype = BaseFXGraphImporter._convert_data_type(args[6])
+        n_channels = int(zero_point.ty.shape[0])
+        if not (hasattr(zero_point, "ty") and zero_point.ty.dtype == "int8"):
+            zero_point = relax.const(np.zeros(n_channels, dtype=np.int8), "int8")
+        return self.block_builder.emit(
+            relax.op.quantize(data, scale, zero_point, axis=axis, out_dtype=out_dtype)
+        )
+
     def _dequantize_per_channel(self, node: fx.Node) -> relax.Var:
         # args: (data, scale_1d, zp_1d, axis, quant_min, quant_max, dtype)
         import numpy as np
@@ -2053,6 +2070,7 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             # quantization
             "quantize_per_tensor.default": self._quantize_per_tensor,
             "dequantize_per_tensor.default": self._dequantize_per_tensor,
+            "quantize_per_channel.default": self._quantize_per_channel,
             "dequantize_per_channel.default": self._dequantize_per_channel,
             # datatype
             "to.dtype": self._to,

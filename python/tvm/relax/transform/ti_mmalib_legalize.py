@@ -483,12 +483,38 @@ def _scale_shift_or_none(rescale: np.ndarray):
         return None, None
 
 
+def _scale_value(arg, n_channels=None):
+    """A compile-time scale as a float, or as an array of n_channels per-channel scales.
+
+    None if arg isn't a constant, or is a vector of another length (or a vector where
+    the caller, by passing n_channels=None, accepts only a scalar).
+    """
+    if not isinstance(arg, tvm.ir.GenericConst):
+        return None
+    v = arg.value.numpy()
+    if v.size == 1:
+        return float(v.reshape(()))
+    if n_channels is not None and v.size == n_channels:
+        return v.astype(np.float64).reshape(n_channels)
+    return None
+
+
+def _zero_point_value(arg):
+    """A compile-time zero point as an int; a per-channel vector only if all equal."""
+    if not isinstance(arg, tvm.ir.GenericConst):
+        return None
+    v = arg.value.numpy().reshape(-1)
+    if v.size and np.all(v == v[0]):
+        return int(v[0])
+    return None
+
+
 def _validate_and_fold_bias(
     w_scale_np: np.ndarray,
     n_channels: int,
     bias_np,
-    d_scale_val: float,
-    o_scale_val: float,
+    d_scale_val: Union[float, np.ndarray],
+    o_scale_val: Union[float, np.ndarray],
     zp_correction: Union[int, np.ndarray] = 0,
     o_zp_val: int = 0,
     bias_dtype: type = np.int32,
@@ -496,6 +522,9 @@ def _validate_and_fold_bias(
 ):
     """Validate the weight-scale size and rescale range, then fold the
     float bias into accumulator scale.
+
+    d_scale_val and o_scale_val may each be an array of n_channels per-output-
+    channel scales (a per-channel activation); the folding is elementwise.
 
     Order matters: both checks below must run *before* the bias fold. A
     collapsed weight scale (e.g. float32 eps for a constant tensor) makes
