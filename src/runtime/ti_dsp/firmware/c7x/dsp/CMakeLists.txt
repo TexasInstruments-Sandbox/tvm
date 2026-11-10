@@ -390,8 +390,15 @@ if(USE_TIDL_RUNTIME)
         ${TVM_DSP_RUNTIME_DIR}/tidl/tidl_api_mem.c
         ${TVM_DSP_RUNTIME_DIR}/tidl/ti_mem_manager.c
     )
-    # These used to be compiled into every module with the dynmod flags
-    # (--c99); the firmware's default C dialect rejects their C99 loops.
+    # Compile these the way the module build did, or TIDL inference gets
+    # slower:
+    #  - --c99: the firmware's default C dialect rejects their C99 loops.
+    #  - -O3 --auto_inline=500: the dynmod Release flags, not the firmware's -O2.
+    #  - printf -> shm_printf: in a module, printf is resolved to the
+    #    firmware's fast shm_printf (dyn_loader.c); compiled into the
+    #    firmware it would bind to the RTS printf and its add_device stdout
+    #    path instead, which is slow for the per-layer table printed after
+    #    every inference.
     # tidl_api.c #undefs TIDL_MAX_NUM_CORES and sets 4 before itidl_ti.h,
     # which overrides the AM62D define below; on J722S itidl_ti.h then
     # redefines it to 2 from SOC_J722S.  That is exactly what the module
@@ -400,7 +407,8 @@ if(USE_TIDL_RUNTIME)
         ${TVM_DSP_RUNTIME_DIR}/tidl/tidl_api.c
         ${TVM_DSP_RUNTIME_DIR}/tidl/tidl_api_mem.c
         ${TVM_DSP_RUNTIME_DIR}/tidl/ti_mem_manager.c
-        PROPERTIES COMPILE_OPTIONS "--c99"
+        PROPERTIES COMPILE_OPTIONS
+            "--c99;-O3;--auto_inline=500;--preinclude=${CMAKE_CURRENT_SOURCE_DIR}/src/shm_printf.h;-Dprintf=shm_printf"
     )
     target_include_directories(${PROJECT_NAME}.out PRIVATE
         ${TVM_DSP_RUNTIME_DIR}/mmalib

@@ -337,6 +337,11 @@ Consequences:
 - Changing `tidl_api.c` (tracing, `flowCtrl`, `TIDL_COPY_NETWORK_BUF`) on
   hardware needs a firmware rebuild, `deploy-c7x.sh` and a reboot, not a model
   recompile. `c7x_host` still compiles `tidl_api.c` per build.
+- The firmware compiles the three files with the old module flags (`--c99`,
+  `-O3 --auto_inline=500`) and with `printf` mapped to `shm_printf`, which is
+  what DLOAD bound a module's `printf` to. With the firmware's own `-O2` and
+  RTS `printf` (which the per-layer cycle table printed after every inference
+  goes through), TIDL inference is slower.
 - The wrapper's pool state (`init_mem_regions`, scratch pointers) lives for the
   firmware's lifetime, shared by every loaded module, as the physical L1/L2/L3
   regions already were.
