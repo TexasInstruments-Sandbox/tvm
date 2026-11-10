@@ -359,3 +359,14 @@ before the bundled tools, and an explicit `header_path` before the bundled
 table. A missing layout, a missing `params_1.bin` or a layout/blob size
 mismatch fails the compile; earlier versions only logged a warning and shipped
 the model without TIDL output padding.
+
+`c7x_host` TIDL builds work from the wheel too. `build_wheel.sh` builds the
+host glue (`tidl_api.c`, `tidl_api_mem.c`, `ti_mem_manager.c`,
+`tidl_host_stubs.c`) as `libtidl_api_host.a` with the dsp-cpp harness's own
+`tidl_api_host` target, and stages it in `tvm/data/ti_dsp/lib/host/` with the
+J722S TIDL PC archives and the C7524 MMALIB x86 archives, plus the harness
+itself in `tvm/data/ti_dsp/host/`. When `lib/host/libtidl_api_host.a` exists,
+the harness links these (`TIDL_PREBUILT`, default on) and skips all SDK
+discovery. A source checkout has no bundle, so it compiles `tidl_api.c` per
+build against `C7X_MMA_TIDL_PATH`, `PSDK_INSTALL_PATH` (ivision) and
+`MMALIB_PATH`, as before.

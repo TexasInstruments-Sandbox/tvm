@@ -148,8 +148,10 @@ Invocation rules that bite on this tree:
 - Never run two `c7x_dload` sessions on the same board. One session per board, in parallel, is fine.
 - Testing against an **installed wheel** (not the source tree): `c7x_dload` TIDL builds need no `TVM_HOME`,
   `C7X_MMA_TIDL_PATH` or `PSDK_INSTALL_PATH` (the wheel bundles the import tools and IOBufDesc layout, and
-  `tidl_api.c` is in the firmware). `c7x_host` TIDL builds still use the source tree's `dsp-cpp` harness, so
-  export `TVM_HOME` to the repo root for those.
+  `tidl_api.c` is in the firmware). `c7x_host` TIDL builds use the wheel's bundled harness and prebuilt
+  `lib/host/` archives, also without SDKs. In a source tree the harness compiles `tidl_api.c` each build
+  (`C7X_MMA_TIDL_PATH`, `PSDK_INSTALL_PATH`/ivision and `MMALIB_PATH` still apply); `-DTIDL_PREBUILT=ON/OFF`
+  overrides the auto-detection.
 - TIDL imports write fixed `/tmp` files (`perfsimPrivData.bin`, `nc_infofile.txt`, `netbufinfo.bin`). If another user
   (Jenkins `sdomcbuild`) owns them, the import fails with "Memory Planning Failed", and a local TIDL run leaves files
   that later break Jenkins. Don't run TIDL tests locally while Jenkins is in a TIDL stage; remove the files afterwards.

@@ -108,6 +108,20 @@ class TestCompileWheelContents:
         assert layout["size"] > 0 and "outBufSize" in layout["fields"]
 
     @_skip_source_tree
+    def test_tidl_host_bundle(self):
+        """c7x_host TIDL must build from the wheel: the glue archive, the
+        TIDL/MMALIB x86 archives and the dsp-cpp harness are bundled."""
+        from tvm.data.ti_dsp.paths import find_host_harness_dir, get_ti_dsp_path
+        harness = find_host_harness_dir()
+        assert harness is not None, "c7x_host harness not bundled"
+        assert (harness / "main_dsp.cpp").exists()
+        host = get_ti_dsp_path() / "lib" / "host"
+        for name in ("tidl_api_host", "tidl_algo", "tidl_ref", "tidl_priv", "tidl_kernels",
+                     "tidl_avx_kernels", "tidl_custom", "mmalib_x86_64", "mmalib_cn_x86_64",
+                     "common_x86_64"):
+            assert (host / f"lib{name}.a").exists(), f"lib{name}.a not bundled"
+
+    @_skip_source_tree
     def test_dynmod_infra_bundled(self):
         """Dynmod build infrastructure must be bundled."""
         from tvm.data.ti_dsp.paths import find_dsp_runtime_dir

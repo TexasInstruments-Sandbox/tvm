@@ -159,6 +159,22 @@ build_x86() {
             check_file "$C7X_TIDL/tidl_tools/$f" \
                 "Build c7x-mma-tidl (build_j722s.sh) so tidl_tools/$f exists"
         done
+        # c7x_host TIDL: the J722S x86 TIDL algo libs (same tree as the .so)
+        # and the C7524 MMALIB x86 libs they call, defaulting to the MMALIB
+        # the dsp-cpp harness links in source mode. Names and order match
+        # dsp-cpp's TIDL_PC_LIB_NAMES / MMALIB_HOST_LIB_NAMES.
+        TIDL_PC_LIB_DIR="$C7X_TIDL/ti_dl/lib/J722S/PC/algo/release"
+        HOST_TIDL_LIBS="tidl_algo tidl_ref tidl_priv tidl_kernels tidl_avx_kernels tidl_custom"
+        HOST_MMALIB_ROOT="${MMALIB_PATH:-/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mmalib_11_02_00_06}"
+        HOST_MMALIB_DIR="$HOST_MMALIB_ROOT/lib/C7524/release"
+        HOST_MMALIB_LIBS="mmalib_x86_64 mmalib_cn_x86_64 common_x86_64"
+        for l in $HOST_TIDL_LIBS; do
+            check_file "$TIDL_PC_LIB_DIR/lib$l.a" "Build the c7x-mma-tidl J722S PC libs"
+        done
+        for l in $HOST_MMALIB_LIBS; do
+            check_file "$HOST_MMALIB_DIR/lib$l.a" \
+                "Set MMALIB_PATH to the MMALIB the c7x_host harness links"
+        done
     fi
 
     # --- Clean ---
@@ -231,10 +247,46 @@ build_x86() {
         for f in $TIDL_TOOLS_FILES; do
             cp -L "$C7X_TIDL/tidl_tools/$f" "$DATA/tidl/tidl_tools/"
         done
+
+        # c7x_host TIDL without SDKs: build the TIDL glue (tidl_api.c and
+        # friends) with the harness's own tidl_api_host target, so the flags
+        # are exactly those of a source-mode build, and against the same
+        # itidl_ti.h as the shipped libtidl_*.a. The harness links lib/host
+        # instead of compiling the glue when it finds this bundle.
+        echo ">>> Building TIDL host-emulation glue ..."
+        HOST_GLUE_BUILD="$(mktemp -d)"
+        (cd "$HOST_GLUE_BUILD" && \
+            C7X_MMA_TIDL_PATH="$C7X_TIDL" MMALIB_PATH="$HOST_MMALIB_ROOT" \
+            cmake -DTVM_DSP_TARGET=c7x_host -DTVM_HOME="$TVM_HOME" \
+                  -DCMAKE_BUILD_TYPE=Release -DUSE_TIDL=ON -DTIDL_PREBUILT=OFF \
+                  -DGENERATED_CODE_DIR="$HOST_GLUE_BUILD" \
+                  "$TVM_HOME/tests/ti-dsp-runtime/dsp-cpp" > cmake.log 2>&1 && \
+            cmake --build . --target tidl_api_host >> cmake.log 2>&1) || {
+            echo "ERROR: TIDL host glue build failed, see $HOST_GLUE_BUILD/cmake.log"
+            exit 1
+        }
+        mkdir -p "$DATA/lib/host"
+        cp "$HOST_GLUE_BUILD/libtidl_api_host.a" "$DATA/lib/host/"
+        rm -rf "$HOST_GLUE_BUILD"
+        for l in $HOST_TIDL_LIBS; do
+            cp "$TIDL_PC_LIB_DIR/lib$l.a" "$DATA/lib/host/"
+        done
+        for l in $HOST_MMALIB_LIBS; do
+            cp "$HOST_MMALIB_DIR/lib$l.a" "$DATA/lib/host/"
+        done
     fi
 
     # Build infrastructure
-    cp "$DSP_RT/cmake/toolchain-c7x.cmake" "$DATA/cmake/"
+    cp "$DSP_RT/cmake/toolchain-c7x.cmake" "$DSP_RT/cmake/WeightEmbedding.cmake" "$DATA/cmake/"
+    # c7x_host harness (tidl.py _build_c7x_host): dsp-cpp's main, io/ and
+    # CMakeLists, plus the two runtime sources it compiles in. It finds the
+    # headers and libtvm_dsp_runtime_c7x_host.a through DSP_RUNTIME_DIR.
+    DSP_CPP="$TVM_HOME/tests/ti-dsp-runtime/dsp-cpp"
+    mkdir -p "$DATA/host/io" "$DATA/dma" "$DATA/mmalib"
+    cp "$DSP_CPP/CMakeLists.txt" "$DSP_CPP/main_dsp.cpp" "$DATA/host/"
+    cp "$DSP_CPP/io/"*.cpp "$DSP_CPP/io/"*.h "$DATA/host/io/"
+    cp "$DSP_RT/dma/tvm_dsp_dma_host.c" "$DATA/dma/"
+    cp "$DSP_RT/mmalib/tidl_maxpool_wrapper.cpp" "$DATA/mmalib/"
     cp -a "$DSP_RT/dynmod/." "$DATA/dynmod/"
     rm -rf "$DATA/dynmod/build-dynmod" "$DATA/dynmod/build" 2>/dev/null || true
     mkdir -p "$DATA/scripts"

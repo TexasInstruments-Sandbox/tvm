@@ -1732,8 +1732,9 @@ def _build_c7x_host(
 ) -> Path:
     """Build a C7x host-emulation executable from generated code.
 
-    Uses the CMakeLists.txt at ``tests/ti-dsp-runtime/dsp-cpp/`` with
-    g++ and the TI C7000 Host Emulation library.  Mirrors
+    Uses the dsp-cpp CMakeLists.txt (bundled under ``tvm/data/ti_dsp/host``
+    in the wheel, else ``tests/ti-dsp-runtime/dsp-cpp/``) with g++ and the
+    TI C7000 Host Emulation library.  Mirrors
     ``build_dsp_c7x_host`` in ``dsp_utils.py`` but lives in the Python
     library so ``TIDLOffloadCompiler`` does not depend on test utilities.
 
@@ -1760,9 +1761,19 @@ def _build_c7x_host(
     Path
         Path to the built cg_dsp executable.
     """
+    # Harness: bundled in the wheel (with prebuilt TIDL host libs, so no SDK
+    # is needed), else the source tree's dsp-cpp, which compiles tidl_api.c.
     _tvm_home_env = os.environ.get("TVM_HOME")
     tvm_home = Path(_tvm_home_env) if _tvm_home_env else Path(__file__).resolve().parents[5]
-    dsp_cpp_dir = tvm_home / "tests" / "ti-dsp-runtime" / "dsp-cpp"
+    try:
+        from tvm.data.ti_dsp.paths import find_dsp_runtime_dir, find_host_harness_dir
+
+        dsp_cpp_dir = find_host_harness_dir()
+        dsp_runtime_dir = find_dsp_runtime_dir() if dsp_cpp_dir is not None else None
+    except ImportError:
+        dsp_cpp_dir = dsp_runtime_dir = None
+    if dsp_cpp_dir is None:
+        dsp_cpp_dir = tvm_home / "tests" / "ti-dsp-runtime" / "dsp-cpp"
 
     if not dsp_cpp_dir.exists():
         raise FileNotFoundError(
@@ -1782,6 +1793,8 @@ def _build_c7x_host(
         f"-DGENERATED_CODE_DIR={generated_dir}",
         f"-DWEIGHTS_FILE={generated_dir / 'weights.bin'}",
     ]
+    if dsp_runtime_dir is not None:
+        cmake_cmd.append(f"-DDSP_RUNTIME_DIR={dsp_runtime_dir}")
     if tidl_bridge is not None:
         if isinstance(tidl_bridge, (list, tuple)):
             cmake_cmd.append("-DTIDL_BRIDGE_SOURCES=" + ";".join(str(p) for p in tidl_bridge))

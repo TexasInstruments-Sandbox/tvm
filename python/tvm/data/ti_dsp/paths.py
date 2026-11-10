@@ -110,3 +110,12 @@ def find_tidl_tools_dir() -> Optional[str]:
     if (bundled / "device_config.cfg").exists():
         return str(bundled)
     return None
+
+
+def find_host_harness_dir() -> Optional[Path]:
+    """Find the bundled c7x_host build harness (dsp-cpp: main_dsp.cpp, io/,
+    CMakeLists.txt), staged by build_wheel.sh."""
+    bundled = _DATA_DIR / "host"
+    if (bundled / "CMakeLists.txt").exists():
+        return bundled
+    return None
