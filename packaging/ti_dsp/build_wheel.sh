@@ -35,7 +35,8 @@
 #   TVM_HOME           - TVM repo root (default: script's grandparent dir)
 #   DSP_BUILD_NUM      - Post-release build number (default: 1)
 #   TIDL_RELAX_SO      - Path to tidl_model_import_relax.so
-#   C7X_MMA_TIDL_PATH  - c7x-mma-tidl repo root (fallback for TIDL .so)
+#   C7X_MMA_TIDL_PATH  - c7x-mma-tidl repo root (TIDL .so fallback; source of
+#                        the IOBufDesc layout table and tidl_tools)
 #   STRIP_LIBS         - Strip debug symbols from .so files (default: 1)
 
 set -euo pipefail
@@ -141,13 +142,23 @@ build_x86() {
 
     TIDL_SO=""
     if [ "$TIDL" = "ON" ]; then
-        TIDL_SO="${TIDL_RELAX_SO:-}"
-        if [ -z "$TIDL_SO" ]; then
-            C7X_TIDL="${C7X_MMA_TIDL_PATH:-$HOME/ml/c7x-mma-tidl}"
-            TIDL_SO="$C7X_TIDL/ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
-        fi
+        C7X_TIDL="${C7X_MMA_TIDL_PATH:-$HOME/ml/c7x-mma-tidl}"
+        TIDL_SO="${TIDL_RELAX_SO:-$C7X_TIDL/ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so}"
         check_file "$TIDL_SO" \
             "Build TIDL .so or set TIDL_RELAX_SO / C7X_MMA_TIDL_PATH (or pass --tidl OFF for a beagley-ai-style no-TIDL wheel)"
+        # The IOBufDesc layout and tidl_tools are taken from $C7X_TIDL. Keep
+        # TIDL_RELAX_SO (if set) pointing into the same tree: a layout or
+        # tool that differs from the .so's build misreads its blobs.
+        TIDL_IO_H="$C7X_TIDL/ti_dl/inc/itidl_io.h"
+        check_file "$TIDL_IO_H" \
+            "Set C7X_MMA_TIDL_PATH to the c7x-mma-tidl tree the TIDL .so was built in"
+        # Only what tidl_model_import_relax.so runs or reads, not the whole
+        # directory (it also holds TI headers and ONNX/TFLite runtime plugins).
+        TIDL_TOOLS_FILES="PC_dsp_test_dl_algo.out ti_cnnperfsim.out device_config.cfg"
+        for f in $TIDL_TOOLS_FILES; do
+            check_file "$C7X_TIDL/tidl_tools/$f" \
+                "Build c7x-mma-tidl (build_j722s.sh) so tidl_tools/$f exists"
+        done
     fi
 
     # --- Clean ---
@@ -210,6 +221,16 @@ build_x86() {
         if [ -f "$TIDL_CUSTOM" ]; then
             cp "$TIDL_CUSTOM" "$DATA/tidl/"
         fi
+        # sTIDL_IOBufDesc_t layout, for reading params_1.bin without the
+        # header (itidl_io.h is not redistributable). The script has no
+        # module-level tvm imports, so it runs without loading libtvm.
+        python3 "$TVM_HOME/python/tvm/relax/backend/tidl/io_buf_desc.py" \
+            --header "$TIDL_IO_H" --out "$DATA/tidl/sTIDL_IOBufDesc_t.layout.json"
+        # Every tidl_tools entry is a symlink into ti_dl/ or arm-tidl/, hence -L.
+        mkdir -p "$DATA/tidl/tidl_tools"
+        for f in $TIDL_TOOLS_FILES; do
+            cp -L "$C7X_TIDL/tidl_tools/$f" "$DATA/tidl/tidl_tools/"
+        done
     fi
     # TIDL API C sources compiled into lib0.out when USE_TIDL=ON.
     # dynmod/CMakeLists.txt references ${DSP_RUNTIME_DIR}/tidl/*.c directly.

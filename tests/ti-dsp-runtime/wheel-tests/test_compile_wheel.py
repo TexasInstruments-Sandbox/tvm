@@ -79,6 +79,35 @@ class TestCompileWheelContents:
         assert path is not None, "tidl_model_import_relax.so not found"
 
     @_skip_source_tree
+    def test_tidl_tools_bundled(self):
+        """The tools the TIDL import .so runs must be bundled, and used when
+        neither tidl_tools_path nor C7X_MMA_TIDL_PATH is set."""
+        import os
+        from pathlib import Path
+        from unittest import mock
+        from tvm.data.ti_dsp.paths import find_tidl_tools_dir
+        from tvm.relax.backend.tidl._gate import resolve_tools_path
+        tools = find_tidl_tools_dir()
+        assert tools is not None, "tidl_tools not bundled"
+        for name in ("PC_dsp_test_dl_algo.out", "ti_cnnperfsim.out"):
+            assert os.access(Path(tools) / name, os.X_OK), f"{name} missing or not executable"
+        env = {k: v for k, v in os.environ.items() if k != "C7X_MMA_TIDL_PATH"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            assert resolve_tools_path({}) == tools
+
+    @_skip_source_tree
+    def test_tidl_iobufdesc_layout_bundled(self):
+        """The IOBufDesc layout table must be bundled and valid, so TIDL
+        output padding works without itidl_io.h."""
+        from tvm.data.ti_dsp.paths import find_tidl_iobufdesc_layout
+        from tvm.relax.backend.tidl.io_buf_desc import load_layout
+        path = find_tidl_iobufdesc_layout()
+        assert path is not None, "sTIDL_IOBufDesc_t.layout.json not found"
+        layout, source = load_layout()
+        assert source == path
+        assert layout["size"] > 0 and "outBufSize" in layout["fields"]
+
+    @_skip_source_tree
     def test_dynmod_infra_bundled(self):
         """Dynmod build infrastructure must be bundled."""
         from tvm.data.ti_dsp.paths import find_dsp_runtime_dir

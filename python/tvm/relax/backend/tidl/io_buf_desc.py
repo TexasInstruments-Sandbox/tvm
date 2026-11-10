@@ -25,16 +25,23 @@ write past the end.
 
 Layout is derived by parsing the struct out of ``itidl_io.h`` rather than
 hard-coding offsets, and the computed total is checked against the blob size.
+The wheel cannot ship ``itidl_io.h``, so ``packaging/ti_dsp/build_wheel.sh``
+runs this module once (``python -m tvm.relax.backend.tidl.io_buf_desc``) to
+write the parsed layout as JSON, from the same c7x-mma-tidl tree the bundled
+import library comes from; :func:`load_layout` prefers that table and falls back
+to the header in a source checkout.
 That check matters: ``src/runtime/ti_dsp/tidl/tidl_api.c`` already documents
 how a ``TIDL_MAX_NUM_CORES`` mismatch silently shifts every field in this
 struct, so a layout change must fail loudly here instead of returning
 plausible-looking garbage.
 """
 
+import argparse
+import json
 import os
 import re
 import struct
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # Element type -> size in bytes, from the eTIDL_ElementType defines in
 # itidl_io.h.  Mirrors tidl_element_size() in
@@ -73,10 +80,13 @@ _FIELD_RE = re.compile(
 _DIM_RE = re.compile(r"\[([^\]]+)\]")
 
 
-def _default_header_path() -> Optional[str]:
+STRUCT_NAME = "sTIDL_IOBufDesc_t"
+LAYOUT_FILE = f"{STRUCT_NAME}.layout.json"
+
+
+def _default_header_path() -> str:
     root = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-    path = os.path.join(root, "ti_dl", "inc", "itidl_io.h")
-    return path if os.path.isfile(path) else None
+    return os.path.join(root, "ti_dl", "inc", "itidl_io.h")
 
 
 def _strip_casts(expr: str) -> str:
@@ -223,24 +233,22 @@ class TIDLIOBufDesc:
         return result
 
 
-def parse_io_buf_desc(blob_path: str, header_path: Optional[str] = None) -> TIDLIOBufDesc:
-    """Parse a ``subgraph<N>_params_1.bin`` written by the TIDL import tool.
+def parse_layout_from_header(header_path: str) -> Dict[str, Any]:
+    """Parse ``sTIDL_IOBufDesc_t`` out of ``itidl_io.h`` into a layout table.
 
-    Raises ValueError if the struct layout derived from ``itidl_io.h`` does not
-    account for exactly the blob's bytes -- see the module docstring.
+    Returns ``{"struct": ..., "size": total_bytes, "fields": {name: [offset,
+    count, elem_size, ctype, row_stride]}}``; the JSON form of this is what the
+    wheel bundles.
     """
-    header_path = header_path or _default_header_path()
-    if header_path is None or not os.path.isfile(header_path):
-        raise FileNotFoundError(f"itidl_io.h not found (looked at {header_path!r})")
     with open(header_path, "r", encoding="utf-8", errors="replace") as fh:
         text = fh.read()
 
-    body = re.search(r"typedef struct\s*\{(.*?)\}\s*sTIDL_IOBufDesc_t\s*;", text, re.DOTALL)
+    body = re.search(rf"typedef struct\s*\{{(.*?)\}}\s*{STRUCT_NAME}\s*;", text, re.DOTALL)
     if body is None:
-        raise ValueError(f"Could not find sTIDL_IOBufDesc_t in {header_path}")
+        raise ValueError(f"Could not find {STRUCT_NAME} in {header_path}")
     defines = _parse_defines(text)
 
-    fields: Dict[str, tuple] = {}
+    fields: Dict[str, list] = {}
     offset = 0
     for line in body.group(1).splitlines():
         if "//" in line:
@@ -250,7 +258,7 @@ def parse_io_buf_desc(blob_path: str, header_path: Optional[str] = None) -> TIDL
             continue
         ctype = m.group("type")
         if ctype not in _TYPE_SIZE:
-            raise ValueError(f"Unhandled type {ctype!r} in sTIDL_IOBufDesc_t")
+            raise ValueError(f"Unhandled type {ctype!r} in {STRUCT_NAME}")
         esize = _TYPE_SIZE[ctype]
         dims = [_eval_dim(d, defines) for d in _DIM_RE.findall(m.group("dims"))]
         count = 1
@@ -258,19 +266,86 @@ def parse_io_buf_desc(blob_path: str, header_path: Optional[str] = None) -> TIDL
             count *= d
         # For 2-D name arrays keep the inner stride so name_at() can index rows.
         stride = dims[-1] * esize if len(dims) == 2 else None
-        fields[m.group("name")] = (offset, count, esize, ctype, stride)
+        fields[m.group("name")] = [offset, count, esize, ctype, stride]
         offset += count * esize
+    return {"struct": STRUCT_NAME, "size": offset, "fields": fields}
 
+
+def _load_layout_json(path: str) -> Dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as fh:
+        layout = json.load(fh)
+    if (
+        not isinstance(layout, dict)
+        or layout.get("struct") != STRUCT_NAME
+        or not isinstance(layout.get("size"), int)
+        or not isinstance(layout.get("fields"), dict)
+    ):
+        raise ValueError(f"{path} is not a valid {STRUCT_NAME} layout table")
+    return layout
+
+
+def load_layout(header_path: Optional[str] = None) -> Tuple[Dict[str, Any], str]:
+    """Find the ``sTIDL_IOBufDesc_t`` layout; returns ``(layout, source)``.
+
+    Lookup order: *header_path*, the table bundled in the wheel, then
+    ``itidl_io.h`` under ``$C7X_MMA_TIDL_PATH`` (source checkouts).  Raises
+    FileNotFoundError naming every place it looked.
+    """
+    if header_path is not None:
+        if not os.path.isfile(header_path):
+            raise FileNotFoundError(f"itidl_io.h not found at {header_path!r}")
+        return parse_layout_from_header(header_path), header_path
+
+    tried = []
+    try:
+        from tvm.data.ti_dsp.paths import find_tidl_iobufdesc_layout  # noqa: PLC0415
+
+        bundled = find_tidl_iobufdesc_layout()
+    except ImportError:
+        bundled = None
+    if bundled is not None:
+        return _load_layout_json(bundled), bundled
+    tried.append(f"bundled tvm/data/ti_dsp/tidl/{LAYOUT_FILE}")
+
+    header = _default_header_path()
+    if os.path.isfile(header):
+        return parse_layout_from_header(header), header
+    tried.append(header)
+    raise FileNotFoundError(
+        f"No {STRUCT_NAME} layout found (tried: {', '.join(tried)}). Install a "
+        "wheel built with --tidl ON, or set C7X_MMA_TIDL_PATH to a c7x-mma-tidl tree."
+    )
+
+
+def read_io_buf_desc(
+    blob_path: str, layout: Dict[str, Any], source: str = "layout"
+) -> TIDLIOBufDesc:
+    """Read a ``subgraph<N>_params_1.bin`` blob with an already loaded layout.
+
+    Raises ValueError if the layout does not account for exactly the blob's
+    bytes -- see the module docstring.
+    """
     with open(blob_path, "rb") as fh:
         blob = fh.read()
-    if offset != len(blob):
+    if layout["size"] != len(blob):
         raise ValueError(
-            f"sTIDL_IOBufDesc_t layout mismatch: {header_path} implies {offset} bytes "
+            f"{STRUCT_NAME} layout mismatch: {source} implies {layout['size']} bytes "
             f"but {blob_path} is {len(blob)} bytes. The header used to write the blob "
-            "differs from the one parsed here (see TIDL_MAX_NUM_CORES in tidl_api.c); "
-            "refusing to read fields at wrong offsets."
+            "differs from the one the layout came from (see TIDL_MAX_NUM_CORES in "
+            "tidl_api.c); refusing to read fields at wrong offsets."
         )
+    fields = {name: tuple(f) for name, f in layout["fields"].items()}
     return TIDLIOBufDesc(fields, blob)
+
+
+def parse_io_buf_desc(blob_path: str, header_path: Optional[str] = None) -> TIDLIOBufDesc:
+    """Parse a ``subgraph<N>_params_1.bin`` written by the TIDL import tool.
+
+    The layout comes from :func:`load_layout`.  Raises FileNotFoundError if no
+    layout is available and ValueError if it does not match the blob size.
+    """
+    layout, source = load_layout(header_path)
+    return read_io_buf_desc(blob_path, layout, source)
 
 
 def tidl_output_storage_bytes(artifacts_dir: str, sg_id: int) -> Dict[int, int]:
@@ -279,3 +354,19 @@ def tidl_output_storage_bytes(artifacts_dir: str, sg_id: int) -> Dict[int, int]:
     if not os.path.isfile(blob):
         return {}
     return parse_io_buf_desc(blob).output_byte_sizes()
+
+
+def main(argv: Optional[List[str]] = None) -> None:
+    """Write the layout table parsed from ``itidl_io.h`` (used by build_wheel.sh)."""
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("--header", required=True, help="path to itidl_io.h")
+    parser.add_argument("--out", required=True, help=f"output path ({LAYOUT_FILE})")
+    args = parser.parse_args(argv)
+    layout = parse_layout_from_header(args.header)
+    with open(args.out, "w", encoding="utf-8") as fh:
+        json.dump(layout, fh, indent=1, sort_keys=True)
+        fh.write("\n")
+
+
+if __name__ == "__main__":
+    main()

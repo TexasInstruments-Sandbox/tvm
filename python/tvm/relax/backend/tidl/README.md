@@ -392,7 +392,7 @@ each subgraph gets its own `_process()` function and instance.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `artifacts_dir` | per-process temp dir, removed at exit | Output directory for TIDL binaries; set it to keep them |
-| `tidl_tools_path` | auto-detect from `C7X_MMA_TIDL_PATH` | Path to device_config.cfg; `tidl_model_import_relax.so` is derived from its parent dir |
+| `tidl_tools_path` | `$C7X_MMA_TIDL_PATH/tidl_tools`, else the wheel's bundled copy | Path to device_config.cfg and the import tools; `tidl_model_import_relax.so` is derived from its parent dir if not bundled |
 | `calibration_inputs` | **required** | List of per-frame numpy arrays (one `(1,C,H,W)` array per calibration image); random data is rejected -- TIDL derives int8 quantization scales from the *statistics* of these inputs, so random noise yields scales that don't reflect real activation ranges and produces wrong classification results downstream (use real, representative images) |
 | `num_calibration_frames` | 1 | Calibration iterations |
 | `skip_failing_subgraphs` | `False` | Fall back to TVM instead of raising when a subgraph fails `TIDL_relaxOptimizeNet`/`PostProcessNet` |

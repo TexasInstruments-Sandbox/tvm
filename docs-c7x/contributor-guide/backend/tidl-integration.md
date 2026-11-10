@@ -170,7 +170,7 @@ needs to be excluded explicitly.
 | Key | Default | Description |
 |-----|---------|--------------|
 | `artifacts_dir` | per-process temp dir, removed at exit | Output directory for TIDL binaries; set it to keep them |
-| `tidl_tools_path` | auto-detect from `C7X_MMA_TIDL_PATH` env | Path to the TIDL import tool/config |
+| `tidl_tools_path` | `$C7X_MMA_TIDL_PATH/tidl_tools`, else the copy bundled in the wheel | Path to the TIDL import tools and `device_config.cfg` |
 | `calibration_inputs` | **required** | List of per-frame numpy arrays (one `(1,C,H,W)` array per calibration image). Random calibration data is rejected: TIDL derives int8 quantization scales from the statistics of these inputs, so unrepresentative data produces wrong scales and wrong classification results downstream |
 | `num_calibration_frames` | 1 | Number of calibration iterations |
 | `skip_failing_subgraphs` | `False` | Fall back to TVM instead of raising when a subgraph fails TIDL's own network-compiler/post-processing step |
@@ -316,3 +316,22 @@ list and per-file requirements.
   deployment
 - [Firmware Design Deep-Dive](../firmware/design-deep-dive.md) — DLOAD
   module unload ordering, symbol export table
+
+## Wheel-only compiles
+
+A wheel built with `--tidl ON` bundles what the import and compile steps used
+to read from a c7x-mma-tidl tree:
+
+| Bundled under `tvm/data/ti_dsp/tidl/` | Replaces |
+|---|---|
+| `tidl_model_import_relax.so`, `tidl_model_custom_import.so` | `ti_dl/utils/tidlModelImport/out/` |
+| `tidl_tools/` (`PC_dsp_test_dl_algo.out`, `ti_cnnperfsim.out`, `device_config.cfg`) | `$C7X_MMA_TIDL_PATH/tidl_tools` |
+| `sTIDL_IOBufDesc_t.layout.json` | parsing `itidl_io.h` to size TIDL outputs |
+
+`build_wheel.sh` takes all of them from the same c7x-mma-tidl tree, so the
+layout table matches the `.so` that writes `params_1.bin`. Explicit settings
+still win: `config["tidl_tools_path"]` and `C7X_MMA_TIDL_PATH` are checked
+before the bundled tools, and an explicit `header_path` before the bundled
+table. A missing layout, a missing `params_1.bin` or a layout/blob size
+mismatch fails the compile; earlier versions only logged a warning and shipped
+the model without TIDL output padding.

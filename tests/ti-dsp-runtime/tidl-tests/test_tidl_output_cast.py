@@ -132,6 +132,14 @@ def _const_value(expr):
 # ---------------------------------------------------------------------------
 
 
+def _patch_desc(monkeypatch, desc):
+    """Make _fix_output_dtype_mismatches read *desc* for every subgraph."""
+    monkeypatch.setattr(
+        "tvm.relax.backend.tidl.io_buf_desc.load_layout", lambda *a, **k: ({}, "fake")
+    )
+    monkeypatch.setattr("tvm.relax.backend.tidl.io_buf_desc.read_io_buf_desc", lambda *a, **k: desc)
+
+
 class TestOutputCastInsertion:
     def test_cast_inserted_in_main(self):
         """The dead-mutator regression: the call site must actually change."""
@@ -220,10 +228,7 @@ class TestOutputSlotRemap:
             def output_slot_map(self, num_out=None):
                 return [1, 0]
 
-        monkeypatch.setattr(
-            "tvm.relax.backend.tidl.io_buf_desc.parse_io_buf_desc",
-            lambda *a, **k: _FakeDesc(),
-        )
+        _patch_desc(monkeypatch, _FakeDesc())
 
         mod = _build_module("tidl_subgraph_0", ["float32", "int8"])
 
@@ -281,10 +286,7 @@ class TestNarrowIntegerOutput:
             def output_slot_map(self, num_out=None):
                 return [0]
 
-        monkeypatch.setattr(
-            "tvm.relax.backend.tidl.io_buf_desc.parse_io_buf_desc",
-            lambda *a, **k: _FakeDesc(),
-        )
+        _patch_desc(monkeypatch, _FakeDesc())
         mod = _build_module("tidl_subgraph_0", ["int32"])
         with tempfile.NamedTemporaryFile() as f:
             artifacts = {"tidl_subgraph_0": {"sg_id": 0, "io_bin": f.name}}

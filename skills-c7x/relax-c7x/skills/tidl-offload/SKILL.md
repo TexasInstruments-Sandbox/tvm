@@ -122,8 +122,9 @@ docs). Grouped by category:
 ## TIDL Import Pipeline
 
 `TIDLOffloadCompiler.tidl_import()`, once per subgraph:
-1. Load `tidl_model_import_relax.so` — path is derived from `tidl_tools_path`'s
-   parent dir (the `tidl_relax_so_path` config key has been removed)
+1. Load `tidl_model_import_relax.so` — `TIDL_RELAX_SO_PATH`, the wheel's bundled copy,
+   then `tidl_tools_path`'s parent dir / `C7X_MMA_TIDL_PATH`. `tidl_tools_path` itself
+   resolves `config` → `$C7X_MMA_TIDL_PATH/tidl_tools` → bundled `tvm/data/ti_dsp/tidl/tidl_tools`
 2. `TIDL_relaxInit()` — device config + artifacts dir (once, before the
    per-subgraph loop begins)
 3. `TIDL_relaxImportInit()` — once per subgraph, before the per-composite loop
@@ -152,6 +153,11 @@ before the first inference request — needed for YOLO offloading). Each
 
 `tidl_bridge_cleanup()` frees all persistent TIDL handles via
 `free_tidl_subgraph()` at module teardown.
+
+Output sizing reads `params_1.bin` via `io_buf_desc.py`, using the wheel's
+`sTIDL_IOBufDesc_t.layout.json` (generated from `itidl_io.h` by `build_wheel.sh`) or, in a source
+tree, `itidl_io.h` under `C7X_MMA_TIDL_PATH`. Missing layout / descriptor or a size mismatch is a
+compile error (it used to warn and skip output padding).
 
 ## IALG Lifecycle (tidl_api.c)
 

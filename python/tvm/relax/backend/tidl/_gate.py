@@ -145,15 +145,29 @@ def load_relax_so(path: Optional[str] = None, tidl_tools_path: Optional[str] = N
 
 
 def resolve_tools_path(config: Dict[str, Any]) -> str:
-    """``tidl_tools`` directory from *config* or ``C7X_MMA_TIDL_PATH``."""
+    """``tidl_tools`` directory for the import library.
+
+    Order: ``config["tidl_tools_path"]``, ``$C7X_MMA_TIDL_PATH/tidl_tools``,
+    then the copy bundled in the wheel.  Explicit settings win so a
+    contributor can point at a freshly built c7x-mma-tidl tree.
+    """
     tools = config.get("tidl_tools_path")
+    if tools is not None:
+        return tools
+    root = os.environ.get("C7X_MMA_TIDL_PATH")
+    if root is not None:
+        return os.path.join(root, "tidl_tools")
+    try:
+        from tvm.data.ti_dsp.paths import find_tidl_tools_dir  # noqa: PLC0415
+
+        tools = find_tidl_tools_dir()
+    except ImportError:
+        tools = None
     if tools is None:
-        root = os.environ.get("C7X_MMA_TIDL_PATH")
-        if root is None:
-            raise ValueError(
-                "Either 'tidl_tools_path' in config or C7X_MMA_TIDL_PATH env must be set."
-            )
-        tools = os.path.join(root, "tidl_tools")
+        raise ValueError(
+            "No tidl_tools directory: set 'tidl_tools_path' in config or C7X_MMA_TIDL_PATH, "
+            "or install a wheel built with --tidl ON (which bundles tidl_tools)."
+        )
     return tools
 
 
@@ -200,7 +214,8 @@ def ensure_initialized(config: Dict[str, Any], artifacts_dir: str, force: bool =
 _MISSING_LIBRARY_MSG = (
     "TIDL partitioning needs tidl_model_import_relax.so to decide which ops can be "
     "offloaded, and it could not be loaded. Build it (c7x-mma-tidl/build_j722s.sh) and "
-    "set C7X_MMA_TIDL_PATH (or config['tidl_tools_path']), or pass config['allow_fn'] "
+    "set C7X_MMA_TIDL_PATH (or config['tidl_tools_path']) or install a wheel built with "
+    "--tidl ON, or pass config['allow_fn'] "
     "(structure-only tests use lambda call: 1)."
 )
 

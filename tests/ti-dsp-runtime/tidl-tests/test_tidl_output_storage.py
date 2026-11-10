@@ -193,6 +193,45 @@ class TestIOBufDescReader:
         with pytest.raises(ValueError, match="layout mismatch"):
             parse_io_buf_desc(str(bogus), header_path=header)
 
+    def test_table_matches_header(self, tmp_path):
+        """The JSON table the wheel bundles must be the header's layout, and
+        reading a blob through it must reject a size mismatch the same way."""
+        from tvm.relax.backend.tidl import io_buf_desc
+
+        header = os.path.join(C7X_MMA_TIDL_PATH, "ti_dl", "inc", "itidl_io.h")
+        if not os.path.isfile(header):
+            pytest.skip("itidl_io.h not available")
+        table = tmp_path / io_buf_desc.LAYOUT_FILE
+        io_buf_desc.main(["--header", header, "--out", str(table)])
+        layout = io_buf_desc._load_layout_json(str(table))
+        assert layout == io_buf_desc.parse_layout_from_header(header)
+
+        blob = tmp_path / "subgraph0_params_1.bin"
+        blob.write_bytes(b"\0" * layout["size"])
+        desc = io_buf_desc.read_io_buf_desc(str(blob), layout)
+        assert desc.scalar("numOutputBuf") == 0
+        blob.write_bytes(b"\0" * (layout["size"] - 4))
+        with pytest.raises(ValueError, match="layout mismatch"):
+            io_buf_desc.read_io_buf_desc(str(blob), layout)
+
+    def test_rejects_invalid_table(self, tmp_path):
+        from tvm.relax.backend.tidl import io_buf_desc
+
+        table = tmp_path / io_buf_desc.LAYOUT_FILE
+        table.write_text('{"struct": "something_else", "size": 4, "fields": {}}')
+        with pytest.raises(ValueError, match="not a valid"):
+            io_buf_desc._load_layout_json(str(table))
+
+    def test_missing_layout_is_an_error(self, tmp_path, monkeypatch):
+        """No bundled table and no header must raise, naming where it looked."""
+        import tvm.data.ti_dsp.paths as paths
+        from tvm.relax.backend.tidl import io_buf_desc
+
+        monkeypatch.setattr(paths, "find_tidl_iobufdesc_layout", lambda: None)
+        monkeypatch.setenv("C7X_MMA_TIDL_PATH", str(tmp_path))
+        with pytest.raises(FileNotFoundError, match="itidl_io.h"):
+            io_buf_desc.load_layout()
+
 
 class TestTIDLRepeatedInference:
     """Hardware: a second inference must match the first, byte for byte."""

@@ -89,3 +89,24 @@ def find_dsp_runtime_dir() -> Optional[Path]:
         if src.is_dir():
             return src
     return None
+
+
+def find_tidl_iobufdesc_layout() -> Optional[str]:
+    """Find the sTIDL_IOBufDesc_t layout table bundled by build_wheel.sh.
+
+    Generated from itidl_io.h when the wheel is built, so a wheel install can
+    read TIDL's params_1.bin without the (non-redistributable) header.
+    """
+    bundled = _DATA_DIR / "tidl" / "sTIDL_IOBufDesc_t.layout.json"
+    if bundled.exists():
+        return str(bundled)
+    return None
+
+
+def find_tidl_tools_dir() -> Optional[str]:
+    """Find the tidl_tools directory (perfsim, PC algo, device config) bundled
+    for tidl_model_import_relax.so."""
+    bundled = _DATA_DIR / "tidl" / "tidl_tools"
+    if (bundled / "device_config.cfg").exists():
+        return str(bundled)
+    return None
