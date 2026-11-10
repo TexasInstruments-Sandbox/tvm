@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # BeagleY-AI (with MMALIB), rounded up to a multiple of 0.25. The output is
 # deterministic for this input and identical on host and board, so the margin
 # only absorbs toolchain and library changes.
-_ATOL = 3.0
+_ATOL = 1.5
 
 
 def _run_test(

@@ -166,6 +166,93 @@ def test_conv_relu6_range_kept_calibrated(model, symmetric):
     assert _output_scale(q, "aten.conv2d") > 2 * 6.0 / 127.5
 
 
+class ConvSiLUModel(nn.Module):
+    """conv -> SiLU -> conv, optionally with the first conv's output also added back."""
+
+    def __init__(self, branch=False):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 8, 3, padding=1)
+        self.act = nn.SiLU()
+        self.next = nn.Conv2d(8, 8, 1)
+        self.branch = branch
+
+    def forward(self, x):
+        y = self.conv(x)
+        if self.branch:
+            return self.next(self.act(y)) + y
+        return self.next(self.act(y))
+
+
+class ConvReLUModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 8, 3, padding=1)
+        self.next = nn.Conv2d(8, 8, 1)
+
+    def forward(self, x):
+        return self.next(torch.relu(self.conv(x)))
+
+
+def _quantize_scales(model, quantizer) -> tuple[list[float], list[str]]:
+    """Every activation quantize node's scale in graph order, and the graph's ops."""
+    torch.manual_seed(0)
+    q = quantize_pt2e(model, (torch.randn(1, 3, 64, 64),), quantizer)
+    targets = _call_function_targets(q)
+    scales = [
+        n.args[1]
+        for n in q.graph.nodes
+        if n.op == "call_function"
+        and "quantize_per_tensor" in str(n.target)
+        and "dequantize" not in str(n.target)
+    ]
+    return scales, targets
+
+
+@pytest.mark.quick
+def test_tensors_around_silu_get_percentile_range():
+    model = ConvSiLUModel()
+    (clip, clip_ops) = _quantize_scales(model, C7xMMAQuantizer("int8"))
+    (plain, plain_ops) = _quantize_scales(
+        model, C7xMMAQuantizer("int8", smooth_activation_percentile=None)
+    )
+    # input, conv output (the SiLU's input), SiLU output, next conv output
+    assert len(clip) == len(plain) == 4
+    assert clip_ops == plain_ops, "the graph's structure must not change"
+    assert clip[0] == plain[0]
+    assert clip[1] < plain[1] and clip[2] < plain[2], "percentile range is inside min/max"
+    assert clip[3] == plain[3]
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(
+    ("model", "dtype"),
+    [(ConvReLUModel(), "int8"), (ConvSiLUModel(), "int16")],
+    ids=["relu-network", "int16"],
+)
+def test_percentile_range_leaves_other_tensors_alone(model, dtype):
+    clip = _quantize_scales(model, C7xMMAQuantizer(dtype))
+    plain = _quantize_scales(model, C7xMMAQuantizer(dtype, smooth_activation_percentile=None))
+    assert clip == plain
+
+
+@pytest.mark.quick
+def test_conv_output_with_other_users_keeps_its_range():
+    clip, _ = _quantize_scales(ConvSiLUModel(branch=True), C7xMMAQuantizer("int8"))
+    plain, _ = _quantize_scales(
+        ConvSiLUModel(branch=True), C7xMMAQuantizer("int8", smooth_activation_percentile=None)
+    )
+    # The conv output also feeds the add, so it isn't only a SiLU input.
+    assert clip[1] == plain[1]
+    assert clip[2] < plain[2], "the SiLU output still gets a percentile range"
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize("percentile", [0, 50, -1])
+def test_invalid_smooth_activation_percentile_is_rejected(percentile):
+    with pytest.raises(ValueError, match="smooth_activation_percentile"):
+        C7xMMAQuantizer("int8", smooth_activation_percentile=percentile)
+
+
 @pytest.mark.quick
 def test_unknown_activation_observer_is_rejected():
     with pytest.raises(ValueError, match="activation_observer"):
@@ -460,6 +547,28 @@ def test_transparent_ops_output_uses_shared_spec():
                 f"{node.target} output_qspec should be SharedQuantizationSpec, "
                 f"got {type(ann.output_qspec)}"
             )
+
+
+class _InplaceSiluPool(nn.Module):
+    """YOLO's SPPF shape: a max pool after an in-place SiLU, which isn't annotated."""
+
+    def forward(self, x):
+        y = torch.nn.functional.silu(x * 1.0, inplace=True)
+        return torch.nn.functional.max_pool2d(y, 5, stride=1, padding=2)
+
+
+@pytest.mark.quick
+def test_max_pool_after_inplace_silu_keeps_the_clipped_scale():
+    """The rule clips the pool's input edge; its output must follow, or it requantizes."""
+    x = torch.randn(1, 1, 64, 64)
+    x[0, 0, 32, 32] = 50.0  # one outlier: the percentile clips it, a min/max output would not
+    q = quantize_pt2e(_InplaceSiluPool(), (x,), C7xMMAQuantizer("int8"))
+    (pool,) = [n for n in q.graph.nodes if n.target == torch.ops.aten.max_pool2d.default]
+    dq_in = pool.args[0]
+    (q_out,) = [u for u in pool.users if "quantize_per_tensor" in str(u.target)]
+    assert "dequantize" in str(dq_in.target)
+    assert float(q_out.args[1]) == float(dq_in.args[1])
+    assert int(q_out.args[2]) == int(dq_in.args[2])
 
 
 @pytest.mark.quick

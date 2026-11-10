@@ -89,6 +89,15 @@ Depthwise-heavy models such as MobileNet and EfficientNet are the most sensitive
 to this. See [Quantized Model Sweep](../contributor-guide/testing/quantized-sweep.md#measuring-accuracy)
 for how to measure a choice on your model.
 
+With int8, the tensors around SiLU, hardswish and hardsigmoid (their inputs and
+outputs, and a sigmoid's input) use a percentile range whichever observer you
+choose: 0.1% of the values are clipped from each tail. In these tensors a few
+channels carry far larger values than the rest, and a range wide enough for them
+leaves the other channels few codes. On ImageNetV2 this took EfficientNet-B0 from
+about -42 to -10 points of top-1 against float, and MobileNetV3-Large from about -13
+to -7, while ReLU networks have no such tensors and are unchanged. Pass
+`smooth_activation_percentile=None` to use the observer for these tensors too.
+
 The observer doesn't set every range. A conv or linear whose only consumer is
 ReLU6, or another `hardtanh`, is quantized to the clamp's range, since the clamp
 discards anything beyond it (symmetric activations only).

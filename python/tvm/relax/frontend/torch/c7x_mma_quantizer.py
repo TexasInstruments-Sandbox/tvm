@@ -27,6 +27,7 @@ See docs-c7x/contributor-guide/backend/extending-quantizer.md for the full
 pipeline and usage examples.
 """
 
+import dataclasses
 import logging
 import operator
 import warnings
@@ -205,6 +206,63 @@ def _is_float_tensor(node: Node) -> bool:
 # Observers for activation tensors, chosen by C7xMMAQuantizer(activation_observer=).
 _ACTIVATION_OBSERVERS = {"minmax": MinMaxObserver, "histogram": HistogramObserver}
 
+# Smooth activations with no upper bound (and hardsigmoid, which shares hardswish's
+# kernel input). The tensors around them get a percentile range; see
+# C7xMMAQuantizer(smooth_activation_percentile=).
+_SMOOTH_ACTIVATIONS = frozenset(
+    [
+        torch.ops.aten.silu.default,
+        torch.ops.aten.silu_.default,
+        torch.ops.aten.hardswish.default,
+        torch.ops.aten.hardswish_.default,
+        torch.ops.aten.hardsigmoid.default,
+        torch.ops.aten.hardsigmoid_.default,
+    ]
+)
+# Squeeze-excite gates read a conv output through a plain sigmoid.
+_SMOOTH_ACTIVATION_INPUTS = _SMOOTH_ACTIVATIONS | {torch.ops.aten.sigmoid.default}
+
+
+def _around_smooth_activation(node: Node) -> bool:
+    """True if node is a smooth activation's output, or feeds only smooth activations."""
+    if node.op != "call_function":
+        return False
+    if node.target in _SMOOTH_ACTIVATIONS:
+        return True
+    return bool(node.users) and all(
+        user.op == "call_function" and user.target in _SMOOTH_ACTIVATION_INPUTS
+        for user in node.users
+    )
+
+
+class _PercentileObserver(HistogramObserver):
+    """Range between the p-th and (100 - p)-th percentiles of the values seen.
+
+    Accumulates the same histogram as HistogramObserver, but instead of searching
+    for the range with the least squared error it clips `percentile` percent of
+    the values from each tail. The approach follows AdaptiveRangeShrinkObserver in
+    TI's edgeai-torchmodelopt (xmodelopt/quantization/v3/observer_utils.py,
+    BSD-3-Clause); this implementation is written on torchao's base class.
+    """
+
+    def __init__(self, *args, percentile: float = 0.1, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.percentile = percentile
+
+    def _non_linear_param_search(self) -> tuple[torch.Tensor, torch.Tensor]:
+        hist = self.histogram.float()
+        total = hist.sum()
+        if total == 0 or not bool(self.max_val > self.min_val):
+            return self.min_val, self.max_val
+        cdf = torch.cumsum(hist, dim=0) / total
+        tail = self.percentile / 100.0
+        start = torch.searchsorted(cdf, torch.tensor([tail]), side="left")[0]
+        end = torch.searchsorted(cdf, torch.tensor([1.0 - tail]), side="right")[0]
+        width = (self.max_val - self.min_val) / self.bins
+        new_min = self.min_val + width * start
+        new_max = torch.minimum(self.min_val + width * (end + 1), self.max_val)
+        return new_min, new_max
+
 
 class C7xMMAQuantizer(Quantizer):
     """torchao PT2E quantizer targeting TI C7x MMALIB.
@@ -238,6 +296,14 @@ class C7xMMAQuantizer(Quantizer):
             outlier once the precision it costs the other values outweighs
             clipping it; a tensor with few values keeps behaving like min/max.
             It calibrates more slowly. Weights always use min/max.
+        smooth_activation_percentile: Percent of values clipped from each tail
+            of the tensors around SiLU, hardswish and hardsigmoid (their inputs
+            and outputs, and a sigmoid's input), whatever activation_observer
+            is. None uses activation_observer for these tensors too. int8 only:
+            int16 has the resolution to spare. A few channels of these tensors
+            carry far larger values than the rest, and a range that covers them
+            leaves the other channels few codes; ReLU networks have no such
+            tensors and are unaffected.
 
     A conv or linear whose only consumer is a hardtanh, such as ReLU6, gets the
     clamp's range for its output instead of a calibrated one (symmetric
@@ -251,6 +317,7 @@ class C7xMMAQuantizer(Quantizer):
         dtype: str = "int8",
         symmetric_activations: bool = True,
         activation_observer: str = "minmax",
+        smooth_activation_percentile: float | None = 0.1,
     ):
         super().__init__()
         if dtype not in ("int8", "int16"):
@@ -260,8 +327,14 @@ class C7xMMAQuantizer(Quantizer):
                 f"activation_observer must be one of {sorted(_ACTIVATION_OBSERVERS)}, "
                 f"got {activation_observer!r}"
             )
+        if smooth_activation_percentile is not None and not 0 < smooth_activation_percentile < 50:
+            raise ValueError(
+                "smooth_activation_percentile must be in (0, 50) or None, "
+                f"got {smooth_activation_percentile!r}"
+            )
         self.dtype = dtype
         self.activation_observer = activation_observer
+        self.smooth_activation_percentile = smooth_activation_percentile
         if dtype == "int16" and not symmetric_activations:
             warnings.warn(
                 "int16 activations require symmetric quantization; "
@@ -352,6 +425,7 @@ class C7xMMAQuantizer(Quantizer):
         """
         act_spec = self._act_spec()
         weight_spec = self._weight_spec()
+        annotated: list[Node] = []
 
         for node in model.graph.nodes:
             if node.op != "call_function":
@@ -445,8 +519,37 @@ class C7xMMAQuantizer(Quantizer):
                 output_qspec=output_qspec,
                 _annotated=True,  # prevents double-annotation when composed with another quantizer
             )
+            annotated.append(node)
 
+        if self.dtype == "int8" and self.smooth_activation_percentile is not None:
+            self._clip_around_smooth_activations(annotated, act_spec)
         return model
+
+    def _clip_around_smooth_activations(self, annotated: list[Node], act_spec) -> None:
+        """Give the tensors around smooth activations a percentile range.
+
+        The choice is per tensor: its output spec and every input edge reading it
+        switch together. An edge whose spec differed from its producer's output
+        spec would get a second observer, and so a requantize between them.
+        """
+        clip_spec = dataclasses.replace(
+            act_spec,
+            observer_or_fake_quant_ctr=_PercentileObserver.with_args(
+                percentile=self.smooth_activation_percentile
+            ),
+        )
+        for node in annotated:
+            annotation = node.meta["quantization_annotation"]
+            for arg, spec in list(annotation.input_qspec_map.items()):
+                if spec == act_spec and _around_smooth_activation(arg):
+                    annotation.input_qspec_map[arg] = clip_spec
+                    # A transparent op after an unannotated producer (max_pool2d
+                    # after an in-place silu_) has an output observer of its own;
+                    # make it follow the clipped edge, or the op would requantize.
+                    if node.target in _TRANSPARENT_OPS and annotation.output_qspec == act_spec:
+                        annotation.output_qspec = SharedQuantizationSpec((arg, node))
+            if annotation.output_qspec == act_spec and _around_smooth_activation(node):
+                annotation.output_qspec = clip_spec
 
     def validate(self, model: GraphModule) -> None:
         """Warn if any weight was annotated with a per-tensor spec.

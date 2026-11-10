@@ -62,7 +62,17 @@ float PyTorch model
 
 Observers used:
 - Activations: `torchao.quantization.pt2e.MinMaxObserver` by default, or
-  `HistogramObserver` with `activation_observer="histogram"`
+  `HistogramObserver` with `activation_observer="histogram"`. With int8, the
+  tensors around SiLU, hardswish and hardsigmoid instead use `_PercentileObserver`,
+  which clips `smooth_activation_percentile` percent (default 0.1) of the values
+  from each tail of a `HistogramObserver` histogram. The approach follows
+  `AdaptiveRangeShrinkObserver` in TI's edgeai-torchmodelopt (BSD-3-Clause). The
+  choice is per tensor: its output spec and every input edge reading it switch
+  together, since an edge whose spec differed from its producer's would get a
+  second observer and a requantize between them. For the same reason a
+  transparent op after an unannotated producer (YOLO's max pools after an
+  in-place `silu_`), whose output would keep an observer of its own, follows
+  its clipped input edge.
 - Weights: `torchao.quantization.pt2e.PerChannelMinMaxObserver`
 
 **Note:** The `torch.ao` observer hierarchy is incompatible — `convert_pt2e` would
