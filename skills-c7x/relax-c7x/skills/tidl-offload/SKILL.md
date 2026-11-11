@@ -308,7 +308,8 @@ For general test debugging (DSP_KEEP_TEMP, failure modes), see `relax-c7x:testin
 | `c7x-mma-tidl/.../tidlParseRelax/tidl_parse_relax_declines.cpp` | the eligibility rules (one per composite) |
 | `python/tvm/relax/backend/tidl/tidl.py` | TIDLOffloadCompiler: partition, import, lower, bridge, codegen_and_build |
 | `python/tvm/contrib/c7x/io_meta.py` | `write_io_meta()`/`compute_io_meta()` — the `tvm_dsp_io_meta.bin` blob |
-| `src/runtime/ti_dsp/tidl/tidl_api.c` | IALG lifecycle on-device |
+| `src/runtime/ti_dsp/tidl/tidl_api.c` | IALG lifecycle on-device (built into the firmware) |
+| `python/tvm/relax/backend/tidl/io_buf_desc.py` | `params_1.bin` reader + layout-table writer |
 | `src/runtime/ti_dsp/tidl/tidl_api_mem.c` | appMemAlloc/Free wrappers |
 | `tests/ti-dsp-runtime/tidl-tests/` | All TIDL tests |
 | `docs-c7x/contributor-guide/backend/tidl-integration.md` | Full design document |

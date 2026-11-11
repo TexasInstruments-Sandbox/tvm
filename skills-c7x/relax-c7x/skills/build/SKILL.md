@@ -109,7 +109,7 @@ for the codegen side of `tidl-kernels`.
 | TI MCU+ SDK | `MCU_PLUS_SDK_PATH` — derived from `PSDK_INSTALL_PATH` + per-board subdir: j722s-evm→`mcu_plus_sdk_j722s_11_00_00_12`, beagley-ai→`mcu_plus_sdk_j722s_11_02_01_05` |
 | TI Processor SDK RTOS | `PSDK_INSTALL_PATH` — **no default, must always be exported** (see CLAUDE.md); on this dev machine: j722s-evm→`/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06`, beagley-ai→`/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_02_01_03` |
 | MMALIB | `MMALIB_PATH` — derived from `PSDK_INSTALL_PATH` + per-board subdir: j722s-evm→`mmalib_11_02_00_06`, beagley-ai→`mmalib_11_02_00_11` |
-| c7x-mma-tidl | `C7X_MMA_TIDL_PATH` (for TIDL offload; not board-keyed) |
+| c7x-mma-tidl | `C7X_MMA_TIDL_PATH` (for TIDL offload; not board-keyed). Needed to build `--tidl ON` firmware and wheels, and for TIDL compiles from a source tree; a `--tidl ON` wheel bundles what compiles need |
 | CMake | 3.16+ |
 | Ninja | any |
 | LLVM | 15+ (18 is what this tree is built with) |

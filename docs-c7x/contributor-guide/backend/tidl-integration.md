@@ -52,7 +52,8 @@ libraries and the C7504 MMALIB:
 | `python/tvm/relax/backend/tidl/patterns.py` | TIDL `FusionPattern` definitions (74 patterns); structure only, no constraint logic |
 | `python/tvm/relax/backend/tidl/_gate.py` | The eligibility gate: rebuilds the composite for each match and asks `TIDL_relaxAllowNode` in `tidl_model_import_relax.so` |
 | `python/tvm/relax/backend/tidl/README.md` | Full pattern/constraint reference and pipeline architecture (source of truth for this page) |
-| `src/runtime/ti_dsp/tidl/tidl_api.{c,h}` | DLOAD-module-side IALG lifecycle (`init/process/free_tidl_subgraph`) |
+| `src/runtime/ti_dsp/tidl/tidl_api.{c,h}` | IALG lifecycle (`init/process/free_tidl_subgraph`), compiled into the firmware and exported to DLOAD modules; compiled into the executable for `c7x_host` |
+| `python/tvm/relax/backend/tidl/io_buf_desc.py` | Reads `params_1.bin` (`sTIDL_IOBufDesc_t`) for output sizing; also writes the layout table the wheel bundles |
 | `src/runtime/ti_dsp/tidl/tidl_api_mem.{c,h}` | `appMemAlloc`/`appMemFree` routed to the TVM DDR heap |
 | `src/runtime/ti_dsp/tidl/ti_mem_manager.{c,h}` | Bump allocator for L1/L2/L3 SRAM pools used by TIDL |
 | `src/runtime/ti_dsp/tidl/tidl_host_stubs.c` | x86 stubs for firmware-provided symbols, `c7x_host` builds only |
