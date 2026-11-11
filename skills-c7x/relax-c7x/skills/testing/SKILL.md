@@ -146,12 +146,16 @@ Invocation rules that bite on this tree:
 - The c7x_host runtime library must exist first: `cd src/runtime/ti_dsp && bash build_runtime.sh c7x_host`.
 - Keep the pinned tvm-ffi (see `relax-c7x:build`); don't run tests through `uv run`.
 - Never run two `c7x_dload` sessions on the same board. One session per board, in parallel, is fine.
-- Testing against an **installed wheel** (not the source tree): `c7x_dload` TIDL builds need no `TVM_HOME`,
-  `C7X_MMA_TIDL_PATH` or `PSDK_INSTALL_PATH` (the wheel bundles the import tools and IOBufDesc layout, and
-  `tidl_api.c` is in the firmware). `c7x_host` TIDL builds use the wheel's bundled harness and prebuilt
-  `lib/host/` archives, also without SDKs. In a source tree the harness compiles `tidl_api.c` each build
-  (`C7X_MMA_TIDL_PATH`, `PSDK_INSTALL_PATH`/ivision and `MMALIB_PATH` still apply); `-DTIDL_PREBUILT=ON/OFF`
-  overrides the auto-detection.
+- TIDL tests read the TIDL tools directory: the packaged `python/tvm/data/ti_dsp/tidl` (stage it in a
+  source tree with `cd src/runtime/ti_dsp && bash build_runtime.sh tidl-tools`; an installed
+  `--tidl ON` wheel already has it), or `--tidl-tools-dir=<dir>`. No env var selects it; the old
+  `C7X_MMA_TIDL_PATH`/`tidl_tools_path` test plumbing is gone. Unstaged → library-gated tests skip.
+  Re-stage after editing `tidl_api.c`/`tidl_host_stubs.c` for `c7x_host`: the harness links the
+  staged `host/libtidl_api_host.a`. Pass `**tidl_tools_config()` (from `dsp_utils`) into a test's
+  compiler config; gate with `has_tidl_tools(need)`.
+- Testing against an **installed wheel** (not the source tree): TIDL builds need no `TVM_HOME`,
+  `C7X_MMA_TIDL_PATH` or `PSDK_INSTALL_PATH` -- the wheel carries the TIDL tools directory and the
+  `c7x_host` harness, and `tidl_api.c` is in the firmware for `c7x_dload`.
 - TIDL imports write fixed `/tmp` files (`perfsimPrivData.bin`, `nc_infofile.txt`, `netbufinfo.bin`). If another user
   (Jenkins `sdomcbuild`) owns them, the import fails with "Memory Planning Failed", and a local TIDL run leaves files
   that later break Jenkins. Don't run TIDL tests locally while Jenkins is in a TIDL stage; remove the files afterwards.

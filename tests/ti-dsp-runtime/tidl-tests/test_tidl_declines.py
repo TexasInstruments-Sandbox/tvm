@@ -13,10 +13,10 @@ struct, so those values are computed independently from the op's attributes.
 """
 
 import json
-import os
 
 import numpy as np
 import pytest
+from dsp_utils import has_tidl_tools, tidl_tools_config  # noqa: E402
 
 import tvm
 from tvm import relax
@@ -24,12 +24,8 @@ from tvm.relax.backend.tidl import _gate, partition_for_tidl
 
 pytestmark = [pytest.mark.quick]
 
-C7X_MMA_TIDL_PATH = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
-)
 pytestmark += [
-    pytest.mark.skipif(not os.path.isfile(RELAX_SO_PATH), reason="relax .so not built"),
+    pytest.mark.skipif(not has_tidl_tools(), reason="relax .so not built"),
 ]
 
 F32 = "float32"
@@ -1311,7 +1307,7 @@ for version, last in [("11_00_06_00", 1), ("11_00_07_00", 0)]:
 
 @pytest.fixture(scope="module", autouse=True)
 def _library():
-    _gate.load_relax_so(tidl_tools_path=os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools"))
+    _gate.load_relax_so(tidl_tools_config())
 
 
 def _run(mod, pattern, config=None):

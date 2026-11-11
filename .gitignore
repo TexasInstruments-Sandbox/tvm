@@ -331,3 +331,7 @@ results/
 docs/plans
 .codewhale/
 /build
+
+# TIDL tools directory staged by src/runtime/ti_dsp/build_runtime.sh tidl-tools
+# (packaging/ti_dsp/stage_tidl_tools.sh); built from TI SDKs, never committed.
+/python/tvm/data/ti_dsp/tidl/

@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import partition_snapshot as ps  # noqa: E402
-from test_tidl_allownode import TIDL_TOOLS_PATH  # noqa: E402
+from dsp_utils import tidl_tools_config  # noqa: E402
 
 
 def collect(only=None):
@@ -27,7 +27,7 @@ def collect(only=None):
             continue
         try:
             out[f"model/{name}"] = ps.snapshot_module(
-                ps.partition_real_model(name, TIDL_TOOLS_PATH)
+                ps.partition_real_model(name, tidl_tools_config())
             )
         except Exception as e:  # noqa: BLE001
             print(f"SKIPPED {name}: {type(e).__name__}: {str(e)[:150]}")

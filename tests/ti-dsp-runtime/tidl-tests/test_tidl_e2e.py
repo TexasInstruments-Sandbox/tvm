@@ -54,8 +54,8 @@ from tvm import relax
 from tvm.relax.backend.tidl import (
     LowerTIDLToTIR,
     TIDLOffloadCompiler,
-    partition_for_tidl,
     generate_artifacts_c,
+    partition_for_tidl,
 )
 from tvm.relax.frontend import nn
 
@@ -64,22 +64,7 @@ _TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DSP_CPP_DIR = os.path.join(_TESTS_DIR, "dsp-cpp")
 sys.path.insert(0, _DSP_CPP_DIR)
 
-from dsp_utils import get_current_board, get_tidl_soc_dir  # noqa: E402
-
-_C7X_MMA_TIDL_PATH = os.environ.get(
-    "C7X_MMA_TIDL_PATH",
-    os.path.expanduser("~/ml/c7x-mma-tidl"),
-)
-_RELAX_SO_PATH = os.path.join(
-    _C7X_MMA_TIDL_PATH,
-    "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so",
-)
-_TIDL_TOOLS_PATH = os.path.join(_C7X_MMA_TIDL_PATH, "tidl_tools")
-# get_tidl_soc_dir() follows --board (AM62A for am62d, J722S otherwise); the board
-# is set in pytest_configure, before this module is collected.
-_TIDL_PC_LIB_DIR = os.path.join(
-    _C7X_MMA_TIDL_PATH, f"ti_dl/lib/{get_tidl_soc_dir()}/PC/algo/release"
-)
+from dsp_utils import get_current_board, has_tidl_tools, tidl_tools_config  # noqa: E402
 
 
 def _has_c7x_host_env():
@@ -89,12 +74,12 @@ def _has_c7x_host_env():
 
 def _has_import_so():
     """Check if the TIDL import .so is present."""
-    return os.path.isfile(_RELAX_SO_PATH)
+    return has_tidl_tools()
 
 
 def _has_tidl_pc_libs():
-    """Check if PC (x86-64) TIDL algo libs are present."""
-    return os.path.isfile(os.path.join(_TIDL_PC_LIB_DIR, "libtidl_algo.a"))
+    """Check if the TIDL tools directory has the c7x_host link libraries."""
+    return has_tidl_tools("host")
 
 
 def _export_and_bind(model_cls, input_spec):
@@ -230,7 +215,7 @@ class TestTIDLPipelineHost:
 @pytest.mark.skipif(
     not _has_import_so(),
     reason=(
-        f"tidl_model_import_relax.so not found at {_RELAX_SO_PATH} (build from c7x-mma-tidl repo)"
+        "TIDL tools directory not staged (src/runtime/ti_dsp/build_runtime.sh tidl-tools)"
     ),
 )
 class TestTIDLPipelineHostRealBridge:
@@ -290,10 +275,7 @@ class TestTIDLPipelineHostRealBridge:
         # exercise the MMA co-processor emulation but does validate the real
         # TIDL inference pipeline end-to-end on the host.
         if not _has_tidl_pc_libs():
-            pytest.skip(
-                f"PC TIDL algo libs not found at {_TIDL_PC_LIB_DIR}/libtidl_algo.a. "
-                "Build them from the c7x-mma-tidl repo (PC target)."
-            )
+            pytest.skip("TIDL tools directory has no c7x_host libraries (host/)")
 
         # 1. Create and partition model
         mod = _export_and_bind(
@@ -308,7 +290,7 @@ class TestTIDLPipelineHostRealBridge:
             config={
                 "board": get_current_board(),
                 "artifacts_dir": artifacts_dir,
-                "tidl_tools_path": _TIDL_TOOLS_PATH,
+                **tidl_tools_config(),
                 "num_calibration_frames": 1,
                 # Pipeline test — accuracy not checked; one random frame is enough.
                 "calibration_inputs": [np.random.randn(1, 3, 32, 32).astype("float32")],

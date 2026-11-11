@@ -43,6 +43,7 @@ from tvm.relax import transform
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from . import _gate
+from . import tools as tidl_tools
 from .constant_chains import fold_constant_only_chains
 from .patterns import get_tidl_patterns
 
@@ -658,7 +659,7 @@ class TIDLOffloadCompiler:
         artifacts_dir = self._artifacts_dir
         os.makedirs(artifacts_dir, exist_ok=True)
 
-        tidl_tools_path = _gate.resolve_tools_path(self.config)
+        tidl_tools_path = tidl_tools.import_tools_path(self.config)
 
         # ---- Load .so and TIDL_relaxInit ------------------------------
         _gate.ensure_initialized(self.config, artifacts_dir, force=True)
@@ -972,6 +973,7 @@ class TIDLOffloadCompiler:
             mod,
             failed_subgraphs=failed_subgraphs or set(),
             artifacts=artifacts,
+            config=self.config,
         )
 
     # ------------------------------------------------------------------
@@ -1114,7 +1116,7 @@ class TIDLOffloadCompiler:
 
         # A missing layout or descriptor is fatal: skipping it would ship the
         # model with TVM's declared output dtypes instead of TIDL's.
-        layout, layout_src = load_layout()
+        layout, layout_src = load_layout(config=self.config)
         for stub_name, (gv, func, art, sg_id) in tidl_stubs.items():
             io_bin = art.get("io_bin")
             if not io_bin or not os.path.isfile(io_bin):
@@ -1530,6 +1532,7 @@ class TIDLOffloadCompiler:
                 tidl_bridge=tidl_bridge_sources,
                 use_tidl=bool(artifacts),
                 device=device,
+                config=self.config,
             )
         else:
             module_path = _build_dynmod(
@@ -1729,12 +1732,14 @@ def _build_c7x_host(
     tidl_artifacts_dir: Optional[str] = None,
     build_type: str = "Release",
     device: Optional[str] = None,
+    config: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """Build a C7x host-emulation executable from generated code.
 
     Uses the dsp-cpp CMakeLists.txt (bundled under ``tvm/data/ti_dsp/host``
     in the wheel, else ``tests/ti-dsp-runtime/dsp-cpp/``) with g++ and the
-    TI C7000 Host Emulation library.  Mirrors
+    TI C7000 Host Emulation library.  TIDL links the libraries in the TIDL
+    tools directory's ``host/`` (see ``tools.py``).  Mirrors
     ``build_dsp_c7x_host`` in ``dsp_utils.py`` but lives in the Python
     library so ``TIDLOffloadCompiler`` does not depend on test utilities.
 
@@ -1753,16 +1758,17 @@ def _build_c7x_host(
     build_type : str
         CMake build type (Release or Debug).
     device : str, optional
-        Target device; ``"am62d"`` links the AM62A TIDL PC libs and C7504
-        MMALIB host libs, anything else the J722S ones.
+        Target device; ``"am62d"`` selects the C7504 MMALIB host defines,
+        anything else the J722S ones.
+    config : dict, optional
+        Compiler config; ``tidl_tools_dir`` selects the TIDL tools directory.
 
     Returns
     -------
     Path
         Path to the built cg_dsp executable.
     """
-    # Harness: bundled in the wheel (with prebuilt TIDL host libs, so no SDK
-    # is needed), else the source tree's dsp-cpp, which compiles tidl_api.c.
+    # Harness: bundled in the wheel, else the source tree's dsp-cpp.
     _tvm_home_env = os.environ.get("TVM_HOME")
     tvm_home = Path(_tvm_home_env) if _tvm_home_env else Path(__file__).resolve().parents[5]
     try:
@@ -1802,6 +1808,7 @@ def _build_c7x_host(
             cmake_cmd.append(f"-DTIDL_BRIDGE_SOURCES={tidl_bridge}")
     if use_tidl:
         cmake_cmd.append("-DUSE_TIDL=ON")
+        cmake_cmd.append(f"-DTIDL_HOST_LIB_DIR={tidl_tools.host_lib_dir(config)}")
     if tidl_artifacts_dir:
         cmake_cmd.append(f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
     if device == "am62d":
@@ -2444,6 +2451,7 @@ def _lower_tidl_pass(
     mod: IRModule,
     failed_subgraphs=None,
     artifacts=None,
+    config: Optional[Dict[str, Any]] = None,
 ) -> IRModule:
     """Implementation of the LowerTIDLToTIR pass.
 
@@ -2459,6 +2467,9 @@ def _lower_tidl_pass(
         Artifact dict from tidl_import, keyed by subgraph function name.
         Each entry must contain an ``"sg_id"`` key so bridge symbol
         names stay consistent when subgraphs are skipped.
+    config : dict, optional
+        Compiler config; ``tidl_tools_dir`` selects the TIDL tools directory
+        whose layout table sizes the subgraph outputs.
     """
     if failed_subgraphs is None:
         failed_subgraphs = set()
@@ -2575,7 +2586,7 @@ def _lower_tidl_pass(
         from .io_buf_desc import load_layout, read_io_buf_desc  # noqa: PLC0415
 
         if layout is None:
-            layout = load_layout()
+            layout = load_layout(config=config)
         slots = read_io_buf_desc(io_bin, *layout).output_byte_sizes()
         if slots:
             storage_bytes[sg_name] = [slots.get(s, 0) for s in range(max(slots) + 1)]
@@ -2858,8 +2869,8 @@ def partition_for_tidl(mod: IRModule, config: Optional[Dict[str, Any]] = None) -
 
     This only runs Phase 1 (pattern matching + merge).  Which matches may be
     offloaded is decided by ``TIDL_relaxAllowNode`` in
-    ``tidl_model_import_relax.so``, so the library must be available (see
-    ``C7X_MMA_TIDL_PATH`` / ``config["tidl_tools_path"]``); pass
+    ``tidl_model_import_relax.so``, so the library must be available (the
+    packaged TIDL tools or ``config["tidl_tools_dir"]``, see ``tools.py``); pass
     ``config["allow_fn"] = lambda call: 1`` to test pattern structure alone.
 
     Parameters

@@ -23,8 +23,8 @@ import textwrap
 import numpy as np
 import pytest
 import test_tidl_layer_offload as layer_models
-
 import tvm_ffi
+from dsp_utils import has_tidl_tools, tidl_tools_config  # noqa: E402
 
 import tvm
 from tvm import relax
@@ -34,14 +34,9 @@ from tvm.script import relax as R
 
 pytestmark = [pytest.mark.quick]
 
-C7X_MMA_TIDL_PATH = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
-)
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
 
 requires_so = pytest.mark.skipif(
-    not os.path.isfile(RELAX_SO_PATH), reason="tidl_model_import_relax.so not built"
+    not has_tidl_tools(), reason="tidl_model_import_relax.so not built"
 )
 
 op = relax.op
@@ -60,7 +55,7 @@ def _single_op_module(fn):
 @pytest.fixture(scope="module")
 def tidl_so():
     """Make sure the library is loadable (partition initialises it itself)."""
-    _gate.load_relax_so(tidl_tools_path=TIDL_TOOLS_PATH)
+    _gate.load_relax_so(tidl_tools_config())
 
 
 def _layer_model_builders():
@@ -350,7 +345,7 @@ class TestNodeNameLists:
 
     def test_deny_list_by_name_rejects_exactly_that_node(self):
         mod = layer_models._build_sigmoid_model()
-        base_cfg = {"tidl_tools_path": TIDL_TOOLS_PATH}
+        base_cfg = dict(tidl_tools_config())
         baseline = {r.node_name: r.verdict for r in _gate_results(mod, base_cfg)}
         sig = next(n for n in baseline if n.startswith("tidl.sigmoid:"))
         assert baseline[sig]
@@ -371,16 +366,13 @@ class TestGateFailsClosed:
         # (not be swallowed or mistaken for a cyclic-dependency fallback).
         code = textwrap.dedent(
             """
-            import os
-            os.environ.pop("TIDL_RELAX_SO_PATH", None)
-            os.environ["C7X_MMA_TIDL_PATH"] = "/nonexistent"
+            from pathlib import Path
             from tvm.script import ir as I, relax as R
             import tvm
             from tvm import relax
-            # A wheel install bundles the .so, which load_relax_so prefers
-            # over C7X_MMA_TIDL_PATH; hide it too.
+            # Point the packaged TIDL tools directory at an empty one.
             import tvm.data.ti_dsp.paths as _paths
-            _paths.find_tidl_relax_so = lambda: None
+            _paths.bundled_tidl_tools_dir = lambda: Path("/nonexistent")
             from tvm.relax.backend.tidl import _gate
             from tvm.relax.dpl.pattern import is_op, wildcard
             from tvm.relax.transform import FusionPattern
@@ -464,7 +456,7 @@ class TestFirmwareGates:
     """C7: ops the Relay parsers gate on the c7x firmware version."""
 
     def _verdicts(self, firmware=None):
-        cfg = {"tidl_tools_path": TIDL_TOOLS_PATH}
+        cfg = dict(tidl_tools_config())
         if firmware:
             cfg["tidl_options"] = {"advanced_options:c7x_firmware_version": firmware}
         mod = _single_op_module(op.log)

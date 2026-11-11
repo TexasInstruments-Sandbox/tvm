@@ -72,9 +72,11 @@ Offload eligibility is decided by `TIDL_relaxAllowNode` in
 `c7x-mma-tidl/build_j722s.sh` (CI must do this before `tidl-tests`). **The
 `quick` and `core` tiers are therefore no longer `.so`-free.**
 
-`conftest.py` defaults `C7X_MMA_TIDL_PATH` to `~/ml/c7x-mma-tidl` and skips the
-library-dependent tests, rather than failing, when the `.so` is absent. Two
-mechanisms do that:
+The `.so` comes from the TIDL tools directory: the packaged
+`python/tvm/data/ti_dsp/tidl` (stage it with
+`cd src/runtime/ti_dsp && bash build_runtime.sh tidl-tools`) or
+`--tidl-tools-dir=<dir>`. `conftest.py` skips the library-dependent tests,
+rather than failing, when it is not staged. Two mechanisms do that:
 
 - modules listed in `_NEEDS_SO_MODULES` (`conftest.py`) are skipped at
   collection — these are the ones that partition without gating themselves;
@@ -273,6 +275,21 @@ vars above still exported:
 cd src/runtime/ti_dsp/firmware/c7x/dsp
 ./build.sh --board j722s-evm
 ```
+
+### Stage the TIDL tools directory
+
+TIDL compiles (and so these tests) read the import library, tools, layout and
+`c7x_host` libraries from one directory, never from `C7X_MMA_TIDL_PATH`.
+Stage it from the tree you just built (the env vars above are read only here):
+
+```bash
+cd src/runtime/ti_dsp
+bash build_runtime.sh tidl-tools     # -> python/tvm/data/ti_dsp/tidl
+```
+
+Re-run it after rebuilding c7x-mma-tidl. To test another TIDL build, stage it
+elsewhere with `packaging/ti_dsp/stage_tidl_tools.sh` and pass
+`--tidl-tools-dir=<dir>` to pytest.
 
 ### Verify
 

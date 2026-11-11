@@ -7,6 +7,7 @@
 #   ./build_runtime.sh c66x             # Build C66x cross-compiled only
 #   ./build_runtime.sh c7x              # Build C7x cross-compiled only
 #   ./build_runtime.sh c7x_host         # Build C7x host emulation only
+#   ./build_runtime.sh tidl-tools       # Stage the TIDL tools directory
 #   ./build_runtime.sh clean            # Remove all build directories
 #
 #   --board <j722s-evm|beagley-ai|am62d> # Target board (required for c7x)
@@ -24,6 +25,15 @@
 #   TI_CGT_C7000_PATH   - TI C7000 compiler (required for c7x targets)
 #   MCU_PLUS_SDK_PATH    - MCU+ SDK for J722S (required for c7x DMA; default
 #                          is board-dependent, see cmake/boards.cmake)
+#   C7X_MMA_TIDL_PATH    - built c7x-mma-tidl tree (tidl-tools only)
+#   PSDK_INSTALL_PATH    - TI Processor SDK RTOS for J722S (tidl-tools only)
+#   MMALIB_PATH          - MMALIB root (tidl-tools only; default derives from
+#                          PSDK_INSTALL_PATH)
+#
+# tidl-tools stages python/tvm/data/ti_dsp/tidl, the TIDL tools directory the
+# TIDL offload flow reads (see packaging/ti_dsp/stage_tidl_tools.sh). These
+# SDK variables are read only here, when the directory is built: compiling a
+# model never reads them.
 
 set -euo pipefail
 
@@ -164,6 +174,19 @@ build_c7x_host() {
     cd "$SCRIPT_DIR"
 }
 
+build_tidl_tools() {
+    echo ""
+    echo "=== Staging TIDL tools directory ==="
+    : "${C7X_MMA_TIDL_PATH:?tidl-tools needs C7X_MMA_TIDL_PATH (a built c7x-mma-tidl tree)}"
+    : "${PSDK_INSTALL_PATH:?tidl-tools needs PSDK_INSTALL_PATH (TI Processor SDK RTOS for J722S)}"
+    local mmalib_args=""
+    [ -n "${MMALIB_PATH:-}" ] && mmalib_args="--mmalib $MMALIB_PATH"
+    # shellcheck disable=SC2086  # mmalib_args is "" or "--mmalib <path>"
+    bash "$SCRIPT_DIR/../../../packaging/ti_dsp/stage_tidl_tools.sh" \
+        --c7x-mma-tidl "$C7X_MMA_TIDL_PATH" --psdk "$PSDK_INSTALL_PATH" $mmalib_args \
+        "$SCRIPT_DIR/../../../python/tvm/data/ti_dsp/tidl"
+}
+
 do_clean() {
     echo "Cleaning build directories..."
     rm -rf "build-c66x-host${BUILD_SUFFIX}" "build-c66x${BUILD_SUFFIX}" \
@@ -177,10 +200,11 @@ case "$TARGET" in
     c66x)      build_c66x ;;
     c7x)       build_c7x ;;
     c7x_host)  build_c7x_host ;;
+    tidl-tools) build_tidl_tools ;;
     clean)     do_clean ;;
     all)       build_c66x; build_c7x; build_c7x_host ;;
     *)
-        echo "Usage: $0 [c66x_host|c66x|c7x|c7x_host|clean|all] --board <j722s-evm|beagley-ai|am62d> [--ddr <4gb|8gb>]"
+        echo "Usage: $0 [c66x_host|c66x|c7x|c7x_host|tidl-tools|clean|all] --board <j722s-evm|beagley-ai|am62d> [--ddr <4gb|8gb>]"
         echo "  (--board is required only for the c7x target)"
         exit 1
         ;;

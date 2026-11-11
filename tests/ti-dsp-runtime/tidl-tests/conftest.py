@@ -89,12 +89,10 @@ def has_c7x_host_env():
 
 
 def has_tidl_pc_libs():
-    """True if PC (x86-64) TIDL algo libs are present."""
-    c7x = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-    from dsp_utils import get_tidl_soc_dir
+    """True if the TIDL tools directory has the c7x_host link libraries."""
+    from dsp_utils import has_tidl_tools
 
-    soc = get_tidl_soc_dir()
-    return os.path.isfile(os.path.join(c7x, f"ti_dl/lib/{soc}/PC/algo/release/libtidl_algo.a"))
+    return has_tidl_tools("host")
 
 
 def tidl_build_and_run(compiler, mod, params, input_data, tmp_path, dsp_mode):
@@ -199,12 +197,6 @@ def pytest_configure(config):
 # ``allow_fn=lambda call: 1`` in the compiler config and drop off this list.
 # ---------------------------------------------------------------------------
 
-_C7X_MMA_TIDL_PATH = os.environ.setdefault(
-    "C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl")
-)
-RELAX_SO_PATH = os.path.join(
-    _C7X_MMA_TIDL_PATH, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
-)
 
 # Keep sorted. See tidl-tests/README.md ("Library-gated tests").
 _NEEDS_SO_MODULES = (
@@ -224,10 +216,12 @@ _NEEDS_SO_MODULES = (
 
 
 def pytest_collection_modifyitems(config, items):  # noqa: ARG001
-    """Skip (not fail) tests that partition through the .so when it isn't built."""
-    if os.path.isfile(RELAX_SO_PATH):
+    """Skip (not fail) tests that partition through the .so when it isn't staged."""
+    from dsp_utils import has_tidl_tools
+
+    if has_tidl_tools():
         return
-    skip = pytest.mark.skip(reason="tidl_model_import_relax.so not built (partition needs it)")
+    skip = pytest.mark.skip(reason="TIDL tools directory not staged (partition needs the .so)")
     for item in items:
         # Match on the file name: nodeid is relative to rootdir, which differs
         # between `pytest tidl-tests/...` and `pytest --rootdir=... tests/...`.

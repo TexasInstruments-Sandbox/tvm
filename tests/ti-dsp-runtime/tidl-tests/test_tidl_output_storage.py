@@ -26,6 +26,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
 import tvm
 from tvm import relax
 
@@ -33,7 +34,7 @@ _TESTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_TESTS_DIR / "dsp-cpp"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dsp_utils import get_current_board  # noqa: E402
+from dsp_utils import get_current_board, has_tidl_tools, tidl_tools_config  # noqa: E402
 
 from tvm.relax.backend.tidl.output_storage import (  # noqa: E402
     MODULE_ATTR,
@@ -44,13 +45,6 @@ _HW = 16
 _CHANNELS = 8
 _LOGICAL_BYTES = _CHANNELS * _HW * _HW * 4  # 8192
 
-C7X_MMA_TIDL_PATH = os.environ.get(
-    "C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl")
-)
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
-)
 
 
 def _module_with_tidl_call(padded: int):
@@ -176,6 +170,15 @@ class TestPadTIDLOutputStoragePass:
 class TestIOBufDescReader:
     """The descriptor reader must validate its own layout assumptions."""
 
+    @staticmethod
+    def _staged_layout():
+        from tvm.relax.backend.tidl import io_buf_desc
+
+        try:
+            return io_buf_desc.load_layout(config=tidl_tools_config())
+        except FileNotFoundError:
+            pytest.skip("TIDL tools directory not staged")
+
     def test_rejects_layout_mismatch(self, tmp_path):
         """A short blob must raise, not silently read fields at wrong offsets.
 
@@ -183,29 +186,9 @@ class TestIOBufDescReader:
         field in this struct; reading garbage offsets would produce a plausible
         but wrong allocation size.
         """
-        from tvm.relax.backend.tidl.io_buf_desc import parse_io_buf_desc
-
-        header = os.path.join(C7X_MMA_TIDL_PATH, "ti_dl", "inc", "itidl_io.h")
-        if not os.path.isfile(header):
-            pytest.skip("itidl_io.h not available")
-        bogus = tmp_path / "subgraph0_params_1.bin"
-        bogus.write_bytes(b"\0" * 64)
-        with pytest.raises(ValueError, match="layout mismatch"):
-            parse_io_buf_desc(str(bogus), header_path=header)
-
-    def test_table_matches_header(self, tmp_path):
-        """The JSON table the wheel bundles must be the header's layout, and
-        reading a blob through it must reject a size mismatch the same way."""
         from tvm.relax.backend.tidl import io_buf_desc
 
-        header = os.path.join(C7X_MMA_TIDL_PATH, "ti_dl", "inc", "itidl_io.h")
-        if not os.path.isfile(header):
-            pytest.skip("itidl_io.h not available")
-        table = tmp_path / io_buf_desc.LAYOUT_FILE
-        io_buf_desc.main(["--header", header, "--out", str(table)])
-        layout = io_buf_desc._load_layout_json(str(table))
-        assert layout == io_buf_desc.parse_layout_from_header(header)
-
+        layout, _ = self._staged_layout()
         blob = tmp_path / "subgraph0_params_1.bin"
         blob.write_bytes(b"\0" * layout["size"])
         desc = io_buf_desc.read_io_buf_desc(str(blob), layout)
@@ -213,6 +196,14 @@ class TestIOBufDescReader:
         blob.write_bytes(b"\0" * (layout["size"] - 4))
         with pytest.raises(ValueError, match="layout mismatch"):
             io_buf_desc.read_io_buf_desc(str(blob), layout)
+
+    def test_staged_table_matches_parser(self, tmp_path):
+        """The staged table must round-trip through the writer used to make it."""
+        from tvm.relax.backend.tidl import io_buf_desc
+
+        layout, source = self._staged_layout()
+        assert source.endswith(io_buf_desc.LAYOUT_FILE)
+        assert layout["size"] > 0 and "outBufSize" in layout["fields"]
 
     def test_rejects_invalid_table(self, tmp_path):
         from tvm.relax.backend.tidl import io_buf_desc
@@ -222,15 +213,51 @@ class TestIOBufDescReader:
         with pytest.raises(ValueError, match="not a valid"):
             io_buf_desc._load_layout_json(str(table))
 
-    def test_missing_layout_is_an_error(self, tmp_path, monkeypatch):
-        """No bundled table and no header must raise, naming where it looked."""
-        import tvm.data.ti_dsp.paths as paths
-        from tvm.relax.backend.tidl import io_buf_desc
 
-        monkeypatch.setattr(paths, "find_tidl_iobufdesc_layout", lambda: None)
-        monkeypatch.setenv("C7X_MMA_TIDL_PATH", str(tmp_path))
-        with pytest.raises(FileNotFoundError, match="itidl_io.h"):
-            io_buf_desc.load_layout()
+@pytest.mark.quick
+@pytest.mark.core
+class TestTIDLToolsDir:
+    """The TIDL tools directory: config['tidl_tools_dir'], else packaged, else error."""
+
+    def test_configured_dir_missing_is_an_error(self, tmp_path):
+        from tvm.relax.backend.tidl import tools
+
+        with pytest.raises(FileNotFoundError, match="tidl_tools_dir"):
+            tools.tidl_tools_dir({"tidl_tools_dir": str(tmp_path / "nope")})
+
+    def test_configured_dir_never_falls_back_to_packaged(self, tmp_path):
+        """An incomplete configured directory fails even if the packaged one is fine."""
+        from tvm.relax.backend.tidl import tools
+
+        (tmp_path / "tidl_tools").mkdir()
+        with pytest.raises(FileNotFoundError, match="tidl_model_import_relax.so"):
+            tools.tidl_tools_dir({"tidl_tools_dir": str(tmp_path)})
+
+    def test_missing_packaged_dir_is_an_error(self, tmp_path, monkeypatch):
+        import tvm.data.ti_dsp.paths as paths
+        from tvm.relax.backend.tidl import tools
+
+        monkeypatch.setattr(paths, "bundled_tidl_tools_dir", lambda: tmp_path)
+        with pytest.raises(FileNotFoundError, match="packaged"):
+            tools.tidl_tools_dir({})
+
+    def test_environment_is_ignored(self, tmp_path, monkeypatch):
+        """No environment variable selects or overrides the directory."""
+        import tvm.data.ti_dsp.paths as paths
+        from tvm.relax.backend.tidl import tools
+
+        monkeypatch.setattr(paths, "bundled_tidl_tools_dir", lambda: tmp_path)
+        for var in ("C7X_MMA_TIDL_PATH", "TIDL_RELAX_SO_PATH", "TIDL_TOOLS_PATH"):
+            monkeypatch.setenv(var, "/should/not/be/read")
+        with pytest.raises(FileNotFoundError) as exc:
+            tools.tidl_tools_dir({})
+        assert "/should/not/be/read" not in str(exc.value)
+
+    def test_old_config_key_is_rejected(self):
+        from tvm.relax.backend.tidl import tools
+
+        with pytest.raises(ValueError, match="tidl_tools_dir"):
+            tools.tidl_tools_dir({"tidl_tools_path": "/x/tidl_tools"})
 
 
 class TestTIDLRepeatedInference:
@@ -242,8 +269,8 @@ class TestTIDLRepeatedInference:
             pytest.skip("requires --dsp-mode=c7x_dload (needs a board)")
         if os.environ.get("TI_CGT_C7000_PATH") is None:
             pytest.skip("TI_CGT_C7000_PATH not set")
-        if not os.path.isfile(RELAX_SO_PATH):
-            pytest.skip(f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}")
+        if not has_tidl_tools():
+            pytest.skip("TIDL tools directory not staged")
 
     def test_repeat_matches_single_inference(self, tmp_path):
         """Run one TIDL module under both c7x_compute verbs and compare.
@@ -253,10 +280,10 @@ class TestTIDLRepeatedInference:
         inference leaked into the second.  The output is 8 KiB, chosen to exceed
         TIDL's padding overrun -- smaller outputs cannot expose it.
         """
+        from dsp_utils import run_dsp_dload  # noqa: PLC0415
+
         from tvm.relax.backend.tidl import TIDLOffloadCompiler
         from tvm.relax.frontend import nn
-
-        from dsp_utils import run_dsp_dload  # noqa: PLC0415
 
         class ConvReluModel(nn.Module):
             def __init__(self):
@@ -282,7 +309,7 @@ class TestTIDLRepeatedInference:
             config={
                 "board": get_current_board(),
                 "artifacts_dir": str(tmp_path / "tidl_artifacts"),
-                "tidl_tools_path": TIDL_TOOLS_PATH,
+                **tidl_tools_config(),
                 "num_calibration_frames": 2,
                 "calibration_inputs": [
                     np.random.randn(1, 3, _HW, _HW).astype("float32") for _ in range(2)

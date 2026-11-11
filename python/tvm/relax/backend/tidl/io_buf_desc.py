@@ -25,12 +25,11 @@ write past the end.
 
 Layout is derived by parsing the struct out of ``itidl_io.h`` rather than
 hard-coding offsets, and the computed total is checked against the blob size.
-The wheel cannot ship ``itidl_io.h``, so ``packaging/ti_dsp/build_wheel.sh``
-runs this module once (``python -m tvm.relax.backend.tidl.io_buf_desc``) to
-write the parsed layout as JSON, from the same c7x-mma-tidl tree the bundled
-import library comes from; :func:`load_layout` prefers that table and falls back
-to the header in a source checkout.
-That check matters: ``src/runtime/ti_dsp/tidl/tidl_api.c`` already documents
+``itidl_io.h`` cannot be redistributed, so ``packaging/ti_dsp/stage_tidl_tools.sh``
+runs this module once (``python3 io_buf_desc.py --header ... --out ...``) to
+write the parsed layout as JSON into the TIDL tools directory, from the same
+c7x-mma-tidl tree as the import library; :func:`load_layout` reads that table.
+The size check matters: ``src/runtime/ti_dsp/tidl/tidl_api.c`` already documents
 how a ``TIDL_MAX_NUM_CORES`` mismatch silently shifts every field in this
 struct, so a layout change must fail loudly here instead of returning
 plausible-looking garbage.
@@ -82,11 +81,6 @@ _DIM_RE = re.compile(r"\[([^\]]+)\]")
 
 STRUCT_NAME = "sTIDL_IOBufDesc_t"
 LAYOUT_FILE = f"{STRUCT_NAME}.layout.json"
-
-
-def _default_header_path() -> str:
-    root = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-    return os.path.join(root, "ti_dl", "inc", "itidl_io.h")
 
 
 def _strip_casts(expr: str) -> str:
@@ -284,37 +278,23 @@ def _load_layout_json(path: str) -> Dict[str, Any]:
     return layout
 
 
-def load_layout(header_path: Optional[str] = None) -> Tuple[Dict[str, Any], str]:
+def load_layout(
+    header_path: Optional[str] = None, config: Optional[Dict[str, Any]] = None
+) -> Tuple[Dict[str, Any], str]:
     """Find the ``sTIDL_IOBufDesc_t`` layout; returns ``(layout, source)``.
 
-    Lookup order: *header_path*, the table bundled in the wheel, then
-    ``itidl_io.h`` under ``$C7X_MMA_TIDL_PATH`` (source checkouts).  Raises
-    FileNotFoundError naming every place it looked.
+    *header_path* (an ``itidl_io.h``) wins if given; otherwise the table in the
+    TIDL tools directory (``config["tidl_tools_dir"]`` or the packaged one,
+    see :mod:`.tools`). Raises FileNotFoundError if neither is there.
     """
     if header_path is not None:
         if not os.path.isfile(header_path):
             raise FileNotFoundError(f"itidl_io.h not found at {header_path!r}")
         return parse_layout_from_header(header_path), header_path
+    from . import tools  # noqa: PLC0415
 
-    tried = []
-    try:
-        from tvm.data.ti_dsp.paths import find_tidl_iobufdesc_layout  # noqa: PLC0415
-
-        bundled = find_tidl_iobufdesc_layout()
-    except ImportError:
-        bundled = None
-    if bundled is not None:
-        return _load_layout_json(bundled), bundled
-    tried.append(f"bundled tvm/data/ti_dsp/tidl/{LAYOUT_FILE}")
-
-    header = _default_header_path()
-    if os.path.isfile(header):
-        return parse_layout_from_header(header), header
-    tried.append(header)
-    raise FileNotFoundError(
-        f"No {STRUCT_NAME} layout found (tried: {', '.join(tried)}). Install a "
-        "wheel built with --tidl ON, or set C7X_MMA_TIDL_PATH to a c7x-mma-tidl tree."
-    )
+    path = tools.layout_path(config)
+    return _load_layout_json(path), path
 
 
 def read_io_buf_desc(

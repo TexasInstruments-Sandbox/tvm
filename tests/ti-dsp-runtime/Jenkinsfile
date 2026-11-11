@@ -327,6 +327,18 @@ pipeline {
                     }
                 }
 
+                stage('TIDL Tools Directory') {
+                    steps {
+                        // Stages python/tvm/data/ti_dsp/tidl, the TIDL tools
+                        // directory every TIDL compile reads; the x86 wheel
+                        // packages the same files.
+                        sh '''
+                            cd src/runtime/ti_dsp
+                            bash build_runtime.sh tidl-tools
+                        '''
+                    }
+                }
+
                 stage('C7x Firmware') {
                     steps {
                         script {

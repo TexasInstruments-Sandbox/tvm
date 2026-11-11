@@ -88,11 +88,10 @@ def _yolo(name):
     return mod, params
 
 
-def partition_real_model(name, tidl_tools_path, artifacts_dir="/tmp/tidl_snapshot"):
+def partition_real_model(name, tidl_config=None, artifacts_dir="/tmp/tidl_snapshot"):
+    """*tidl_config* selects the TIDL tools directory (dsp_utils.tidl_tools_config())."""
     mod, params = _yolo(name) if name.startswith("yolo") else _torchvision(name)
-    compiler = TIDLOffloadCompiler(
-        {"tidl_tools_path": tidl_tools_path, "artifacts_dir": artifacts_dir}
-    )
+    compiler = TIDLOffloadCompiler({**(tidl_config or {}), "artifacts_dir": artifacts_dir})
     return compiler.partition(compiler.prepare(mod, params))
 
 

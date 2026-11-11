@@ -51,8 +51,8 @@ Environment
 Requires all of the following (test is skipped otherwise):
 
 - tidl_model_import_relax.so  -- Relax FFI bridge to TIDL import tool.
-  Built from c7x-mma-tidl repo (see tidl README for build steps).
-  Located via TIDL_RELAX_SO_PATH or auto-detected from C7X_MMA_TIDL_PATH.
+  From the TIDL tools directory: tvm/data/ti_dsp/tidl (staged by
+  build_runtime.sh tidl-tools) or --tidl-tools-dir.
 
 - TI C7x cross-compiler (TI_CGT_C7000_PATH) -- cl7x / lnk7x used by
   the cmake dynmod build to produce the relocatable ELF module.
@@ -82,21 +82,11 @@ _TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DSP_CPP_DIR = os.path.join(_TESTS_DIR, "dsp-cpp")
 sys.path.insert(0, _DSP_CPP_DIR)
 
-from dsp_utils import get_current_board  # noqa: E402
-
-C7X_MMA_TIDL_PATH = os.environ.get(
-    "C7X_MMA_TIDL_PATH",
-    os.path.expanduser("~/ml/c7x-mma-tidl"),
-)
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH,
-    "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so",
-)
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
+from dsp_utils import get_current_board, has_tidl_tools, tidl_tools_config  # noqa: E402
 
 
 def _has_import_so():
-    return os.path.isfile(RELAX_SO_PATH)
+    return has_tidl_tools()
 
 
 def _has_c7x_compiler():
@@ -148,7 +138,7 @@ class TestTIDLImportE2E:
     @pytest.fixture(autouse=True)
     def _check_deps(self):
         if not _has_import_so():
-            pytest.skip(f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}")
+            pytest.skip("TIDL tools directory not staged")
         if not _has_c7x_compiler():
             pytest.skip("TI_CGT_C7000_PATH not set")
 
@@ -174,7 +164,7 @@ class TestTIDLImportE2E:
             config={
                 "board": get_current_board(),
                 "artifacts_dir": str(tmp_path / "tidl_artifacts"),
-                "tidl_tools_path": TIDL_TOOLS_PATH,
+                **tidl_tools_config(),
                 "num_calibration_frames": 2,
                 "calibration_inputs": [
                     np.random.randn(1, 3, 32, 32).astype("float32"),
@@ -225,7 +215,7 @@ class TestTIDLImportE2E:
             config={
                 "board": get_current_board(),
                 "artifacts_dir": str(tmp_path / "tidl_artifacts"),
-                "tidl_tools_path": TIDL_TOOLS_PATH,
+                **tidl_tools_config(),
                 "num_calibration_frames": 2,
                 "calibration_inputs": [
                     np.random.randn(1, 3, 32, 32).astype("float32"),

@@ -19,28 +19,26 @@ compiled and ran, and only the numbers were wrong.
   shows on the device.
 """
 
-import os
 import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 import pytest
+
 from tvm import relax
 
 _TESTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_TESTS_DIR / "dsp-cpp"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dsp_utils import get_current_board  # noqa: E402
+from dsp_utils import get_current_board, tidl_tools_config  # noqa: E402
 
 from tvm.relax.backend.tidl import TIDLOffloadCompiler  # noqa: E402
 from tvm.relax.backend.tidl.io_buf_desc import parse_io_buf_desc  # noqa: E402
 
 pytestmark = [pytest.mark.needs_tidl_so]
 
-C7X_MMA_TIDL_PATH = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
 
 
 def _compiler(artifacts_dir, calib):
@@ -48,7 +46,7 @@ def _compiler(artifacts_dir, calib):
         config={
             "board": get_current_board(),
             "artifacts_dir": str(artifacts_dir),
-            "tidl_tools_path": TIDL_TOOLS_PATH,
+            **tidl_tools_config(),
             "calibration_inputs": calib,
             "skip_failing_subgraphs": False,
         }

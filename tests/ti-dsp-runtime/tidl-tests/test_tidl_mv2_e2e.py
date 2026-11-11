@@ -35,20 +35,11 @@ _DSP_CPP_DIR = os.path.join(_TESTS_DIR, "dsp-cpp")
 _TEST_IMAGES_DIR = Path(_TESTS_DIR).parent / "cstatic" / "test_images"
 sys.path.insert(0, _DSP_CPP_DIR)
 
-from dsp_utils import get_current_board  # noqa: E402
+from dsp_utils import get_current_board, has_tidl_tools, tidl_tools_config  # noqa: E402
 
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
 
-C7X_MMA_TIDL_PATH = os.environ.get(
-    "C7X_MMA_TIDL_PATH",
-    os.path.expanduser("~/ml/c7x-mma-tidl"),
-)
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH,
-    "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so",
-)
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
 
 # Expected calibration stats ceiling: if max exceeds this the tool is broken.
 _STATS_MAX_THRESHOLD = 1000.0
@@ -81,7 +72,7 @@ _CALIB_INPUTS = _load_calibration_images()
 
 
 def _has_import_so():
-    return os.path.isfile(RELAX_SO_PATH)
+    return has_tidl_tools()
 
 
 def _has_c7x_compiler():
@@ -166,7 +157,7 @@ class TestTIDLMV2E2E:
         if not _has_torch():
             pytest.fail("torch/torchvision not installed")
         if not _has_import_so():
-            pytest.fail(f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}")
+            pytest.fail("TIDL tools directory not staged")
         if not _has_c7x_compiler():
             pytest.fail("TI_CGT_C7000_PATH not set")
 
@@ -190,7 +181,7 @@ class TestTIDLMV2E2E:
             config={
                 "board": get_current_board(),
                 "artifacts_dir": artifacts_dir,
-                "tidl_tools_path": TIDL_TOOLS_PATH,
+                **tidl_tools_config(),
                 "num_calibration_frames": len(calib_inputs),
                 "calibration_inputs": calib_inputs,
             }
@@ -250,7 +241,7 @@ class TestTIDLMV2E2E:
             config={
                 "board": get_current_board(),
                 "artifacts_dir": artifacts_dir,
-                "tidl_tools_path": TIDL_TOOLS_PATH,
+                **tidl_tools_config(),
                 "num_calibration_frames": len(calib_inputs),
                 "calibration_inputs": calib_inputs,
                 "profile_layers": True,
@@ -381,7 +372,7 @@ def main():
         config={
             "board": get_current_board(),
             "artifacts_dir": artifacts_dir,
-            "tidl_tools_path": TIDL_TOOLS_PATH,
+            **tidl_tools_config(),
             "num_calibration_frames": len(calib),
             "calibration_inputs": calib,
         }

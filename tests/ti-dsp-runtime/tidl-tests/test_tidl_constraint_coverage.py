@@ -21,6 +21,7 @@ import os
 import constraint_coverage as cc
 import pytest
 import test_tidl_declines as D
+from dsp_utils import tidl_tools_config
 
 from tvm.relax.backend.tidl import _gate
 
@@ -33,7 +34,7 @@ NEEDS_CASE = "needs a decline-table case"
 def coverage():
     if not os.path.isdir(cc.CONSTRAINT_DIR):
         pytest.skip("c7x-mma-tidl constraint headers not found")
-    _gate.load_relax_so(tidl_tools_path=os.path.join(cc.C7X_MMA_TIDL_PATH, "tidl_tools"))
+    _gate.load_relax_so(tidl_tools_config())
     return cc.load_map()
 
 

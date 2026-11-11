@@ -18,24 +18,17 @@ import tempfile
 
 import numpy as np
 import pytest
+from dsp_utils import has_tidl_tools, tidl_tools_config  # noqa: E402
+
 import tvm
 from tvm import relax
 from tvm.relax.backend.tidl import get_tidl_patterns
+from tvm.relax.backend.tidl import tools as tidl_tools
 from tvm.relax.frontend import nn
 
 # ---------------------------------------------------------------------------
 # Locate and load the .so
 # ---------------------------------------------------------------------------
-
-C7X_MMA_TIDL_PATH = os.environ.get(
-    "C7X_MMA_TIDL_PATH",
-    os.path.expanduser("~/ml/c7x-mma-tidl"),
-)
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH,
-    "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so",
-)
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -43,12 +36,12 @@ def load_relax_so():
     """Load the TIDL Relax import .so once per module."""
     if tvm.get_global_func("TIDL_relaxInit", allow_missing=True) is not None:
         return  # already loaded by a prior test module in this session
-    if not os.path.isfile(RELAX_SO_PATH):
-        pytest.skip(f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}")
+    if not has_tidl_tools():
+        pytest.skip("TIDL tools directory not staged")
     # The gate's loader also re-opens libtvm_compiler.so RTLD_GLOBAL, which the .so needs.
     from tvm.relax.backend.tidl._gate import load_relax_so as _load  # noqa: PLC0415
 
-    _load(RELAX_SO_PATH)
+    _load(tidl_tools_config())
 
 
 # ---------------------------------------------------------------------------
@@ -71,11 +64,12 @@ _FFI_NAMES = [
 def _init_tidl():
     """Call TIDL_relaxInit with minimal options.  Skips if device_config.cfg
     is missing (need c7x-mma-tidl tree)."""
-    device_cfg = os.path.join(TIDL_TOOLS_PATH, "device_config.cfg")
+    tools_path = tidl_tools.import_tools_path(tidl_tools_config())
+    device_cfg = os.path.join(tools_path, "device_config.cfg")
     if not os.path.isfile(device_cfg):
         pytest.skip(f"device_config.cfg not found at {device_cfg}")
     init_fn = tvm.get_global_func("TIDL_relaxInit")
-    ret = init_fn(1, {"tidl_tools_path": TIDL_TOOLS_PATH, "artifacts_folder": "/tmp"})
+    ret = init_fn(1, {"tidl_tools_path": tools_path, "artifacts_folder": "/tmp"})
     assert ret == 0, f"TIDL_relaxInit returned {ret}"
 
 
@@ -383,7 +377,7 @@ class TestTIDLImport:
         return TIDLOffloadCompiler(
             config={
                 "artifacts_dir": str(tmpdir),
-                "tidl_tools_path": TIDL_TOOLS_PATH,
+                **tidl_tools_config(),
                 "num_calibration_frames": 1,
                 "calibration_inputs": [calib_frame],
             }

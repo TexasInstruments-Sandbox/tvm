@@ -109,7 +109,7 @@ for the codegen side of `tidl-kernels`.
 | TI MCU+ SDK | `MCU_PLUS_SDK_PATH` — derived from `PSDK_INSTALL_PATH` + per-board subdir: j722s-evm→`mcu_plus_sdk_j722s_11_00_00_12`, beagley-ai→`mcu_plus_sdk_j722s_11_02_01_05` |
 | TI Processor SDK RTOS | `PSDK_INSTALL_PATH` — **no default, must always be exported** (see CLAUDE.md); on this dev machine: j722s-evm→`/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06`, beagley-ai→`/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_02_01_03` |
 | MMALIB | `MMALIB_PATH` — derived from `PSDK_INSTALL_PATH` + per-board subdir: j722s-evm→`mmalib_11_02_00_06`, beagley-ai→`mmalib_11_02_00_11` |
-| c7x-mma-tidl | `C7X_MMA_TIDL_PATH` (for TIDL offload; not board-keyed). Needed to build `--tidl ON` firmware and wheels, and for TIDL compiles from a source tree; a `--tidl ON` wheel bundles what compiles need |
+| c7x-mma-tidl | `C7X_MMA_TIDL_PATH` (not board-keyed). Read only at build time: `--tidl ON` firmware, and `build_runtime.sh tidl-tools`, which stages the TIDL tools directory (`python/tvm/data/ti_dsp/tidl`) that TIDL compiles read. Compiling a model never reads it |
 | CMake | 3.16+ |
 | Ninja | any |
 | LLVM | 15+ (18 is what this tree is built with) |
@@ -226,7 +226,7 @@ key + `known_hosts` there, and keep `.ssh/` gitignored.
 | `usermod: user '<name>' does not exist` from `with_the_same_user` inside `docker/bash.sh` | Base image ships a default `ubuntu` user at uid 1000, colliding with a host user also at uid 1000 | Already handled in the Dockerfile (`userdel` guarded on existence); apply the same fix if a future base image reintroduces this |
 | `error: The interpreter at /usr is externally managed` from `uv pip install --system` inside a running container | Debian's python3.12 (a transitive dep of `llvm-18-dev`, not baked in deliberately) is PEP-668-protected | Use a venv, not `--system`/`--break-system-packages` — the image already bakes one at `/opt/venv-build` for wheel packaging |
 | `Required file not found: .../tidl_model_import_relax.so` from `build_wheel.sh --target x86` | Default `--tidl ON` requires a TIDL `.so` this beagley-ai-scoped image doesn't have | Pass `--tidl OFF` (done automatically by `build_all.sh --wheels` for `--board beagley-ai`) |
-| `Required file not found: .../itidl_io.h`, `tidl_tools/...`, `libtidl_*.a` or `libmmalib_x86_64.a` from `build_wheel.sh --target x86 --tidl ON` | A `--tidl ON` wheel bundles everything a wheel-only TIDL compile needs: the IOBufDesc layout (from `itidl_io.h`), `tidl_tools`, and the c7x_host glue + TIDL/MMALIB x86 archives, all taken from `C7X_MMA_TIDL_PATH` and `MMALIB_PATH` | Point `C7X_MMA_TIDL_PATH` at the c7x-mma-tidl tree the `.so` was built in (with J722S PC libs built) and `MMALIB_PATH` at the C7524 MMALIB |
+| `Required file not found: .../python/tvm/data/ti_dsp/tidl/...` from `build_wheel.sh --target x86 --tidl ON` | The wheel packages the TIDL tools directory staged in the source tree, and it is not staged | `cd src/runtime/ti_dsp && bash build_runtime.sh tidl-tools` (needs `C7X_MMA_TIDL_PATH` = a built c7x-mma-tidl tree, `PSDK_INSTALL_PATH`, `TI_CGT_C7000_PATH`), or `--tidl OFF` |
 | `ssh`/`scp` to the board fail intermittently with rc=255 / `Connection reset by peer` from inside `docker/bash.sh` | Non-interactive container runs use bridge networking; board traffic through bridge NAT is flaky | Re-run board validation with `docker/bash.sh --net=host ...` |
 
 ## 1. TVM Core (C++ + Python)
@@ -296,6 +296,13 @@ bash build_runtime.sh c7x --board j722s-evm
 # required -- only the SDK-version subdir under it is picked automatically)
 export PSDK_INSTALL_PATH=/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_02_01_03
 bash build_runtime.sh c7x --board beagley-ai
+
+# TIDL tools directory (j722s-evm): stages python/tvm/data/ti_dsp/tidl, which
+# every TIDL compile reads (import .so, tools, layout, c7x_host libs). Needs a
+# built c7x-mma-tidl tree (build_j722s.sh). Re-run after rebuilding it.
+export C7X_MMA_TIDL_PATH=$HOME/ml/c7x-mma-tidl
+export PSDK_INSTALL_PATH=/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06
+bash build_runtime.sh tidl-tools
 
 # C66x cross-compilation
 bash build_runtime.sh c66x
@@ -445,7 +452,7 @@ through `tvm.relax.backend.tidl._gate.load_relax_so`, which re-opens the compile
 ```
 1. Python env (uv pip install)
 2. TVM core (ninja)
-3. DSP runtime (build_runtime.sh c7x_host, c7x)
+3. DSP runtime (build_runtime.sh c7x_host, c7x), plus `tidl-tools` for j722s-evm
 4. TIDL import library (build_j722s.sh)  [if using TIDL]
 5. Firmware (build.sh)
 6. Deploy firmware (deploy-c7x.sh) + reboot the board

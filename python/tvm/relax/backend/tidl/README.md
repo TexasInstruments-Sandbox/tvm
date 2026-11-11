@@ -13,7 +13,6 @@ from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
 compiler = TIDLOffloadCompiler(config={
     "artifacts_dir": "./tidl_artifacts",
-    "tidl_tools_path": "~/ml/c7x-mma-tidl/tidl_tools",
     # Required: real per-frame inputs used to collect calibration
     # statistics for each TIDL subgraph (see Config keys below).
     "calibration_inputs": calib_frames,
@@ -28,7 +27,8 @@ result.gen_dir       # Path to generated code directory
 result.artifacts     # {sg_name: {"net_bin": path, "io_bin": path}}
 ```
 
-Requires: `tidl_model_import_relax.so`, TI C7x cross-compiler.
+Requires: the TIDL tools directory (in the wheel, or `build_runtime.sh tidl-tools` in a source
+tree), TI C7x cross-compiler.
 
 ### Step-by-step (for debugging or custom pipelines)
 
@@ -39,7 +39,6 @@ from tvm.relax.backend.tidl import TIDLOffloadCompiler, LowerTIDLToTIR
 
 compiler = TIDLOffloadCompiler(config={
     "artifacts_dir": "./tidl_artifacts",
-    "tidl_tools_path": "~/ml/c7x-mma-tidl/tidl_tools",
     "calibration_inputs": calib_frames,
 })
 
@@ -392,7 +391,7 @@ each subgraph gets its own `_process()` function and instance.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `artifacts_dir` | per-process temp dir, removed at exit | Output directory for TIDL binaries; set it to keep them |
-| `tidl_tools_path` | `$C7X_MMA_TIDL_PATH/tidl_tools`, else the wheel's bundled copy | Path to device_config.cfg and the import tools; `tidl_model_import_relax.so` is derived from its parent dir if not bundled |
+| `tidl_tools_dir` | packaged `tvm/data/ti_dsp/tidl` | TIDL tools directory (import `.so`, `tidl_tools/`, layout, `host/`); see `tools.py`. A missing or incomplete one is an error. The old `tidl_tools_path` key is rejected |
 | `calibration_inputs` | **required** | List of per-frame numpy arrays (one `(1,C,H,W)` array per calibration image); random data is rejected -- TIDL derives int8 quantization scales from the *statistics* of these inputs, so random noise yields scales that don't reflect real activation ranges and produces wrong classification results downstream (use real, representative images) |
 | `num_calibration_frames` | 1 | Calibration iterations |
 | `skip_failing_subgraphs` | `False` | Fall back to TVM instead of raising when a subgraph fails `TIDL_relaxOptimizeNet`/`PostProcessNet` |

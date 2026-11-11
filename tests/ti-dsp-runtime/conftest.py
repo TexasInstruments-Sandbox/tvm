@@ -23,9 +23,17 @@ def pytest_addoption(parser):
         help="Target board for c7x_dload (hardware) runs. Required whenever "
         "--dsp-mode=c7x_dload is used; ignored for c7x_host emulation.",
     )
+    parser.addoption(
+        "--tidl-tools-dir",
+        action="store",
+        default=None,
+        help="TIDL tools directory for TIDL tests (passed as config['tidl_tools_dir']). "
+        "Default: the one in the tvm package, tvm/data/ti_dsp/tidl.",
+    )
 
 
 def pytest_configure(config):
-    from dsp_utils import set_current_board
+    from dsp_utils import set_current_board, set_tidl_tools_dir
 
     set_current_board(config.getoption("--board"))
+    set_tidl_tools_dir(config.getoption("--tidl-tools-dir"))

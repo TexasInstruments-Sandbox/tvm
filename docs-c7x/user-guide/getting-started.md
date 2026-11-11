@@ -165,3 +165,54 @@ See [MMALIB Integration](../contributor-guide/backend/mmalib-integration.md)
 for the full QDQ fusion pipeline, supported-op constraints, per-model
 performance, and the firmware/codegen build flags that scope
 BeagleY-AI to MMALIB alone.
+
+## TIDL Offloading
+
+On AM67A (`j722s-evm`), `TIDLOffloadCompiler` hands supported subgraphs of a
+float32 model to TIDL, which quantizes them to int8 with your calibration
+data and runs them on the MMA. The rest of the model stays in TVM. BeagleY-AI
+firmware is built without TIDL, so this path does not apply there.
+
+```python
+from tvm.relax.backend.tidl import TIDLOffloadCompiler
+
+compiler = TIDLOffloadCompiler(config={
+    "board": "j722s-evm",
+    "calibration_inputs": calib_frames,   # list of (1, C, H, W) arrays
+    "num_calibration_frames": len(calib_frames),
+})
+result = compiler.build(mod, params=params, exec_mode="c7x_dload")
+# result.module_path -> lib0.out, loaded on the board like any other module
+```
+
+`exec_mode="c7x_host"` builds an x86 host-emulation executable instead, with no
+board needed.
+
+### TIDL tools
+
+Compiling needs TI's prebuilt TIDL tools: the TIDL import library, the tools
+it runs, and the TIDL and MMALIB libraries for host emulation. The
+`tvm-ti-c7x-compile` wheel includes them in `tvm/data/ti_dsp/tidl`, and
+`TIDLOffloadCompiler` uses that copy by default, so a wheel install needs no
+TI SDK and no environment variables.
+
+To use a different set of TIDL tools, pass the directory that holds them:
+
+```python
+TIDLOffloadCompiler(config={"tidl_tools_dir": "/path/to/tidl", ...})
+```
+
+It must have the same layout as `tvm/data/ti_dsp/tidl` (see
+[TIDL tools directory](../contributor-guide/backend/tidl-integration.md#tidl-tools-directory)).
+If it is missing or incomplete, compilation fails with an error that names the
+missing files; it does not fall back to the packaged copy. No environment
+variable selects the TIDL tools. The `tidl_tools_path` config key from earlier
+releases is no longer accepted.
+
+**Firmware.** A TIDL `lib0.out` calls into the TIDL runtime built into the
+`c7x_compute` firmware, so the board needs firmware service version 4.2.0 or
+later (`c7x_compute status` prints the version). Install the firmware from the
+same release as the wheel; see [Deploying Firmware](deploying-firmware.md).
+
+See [TIDL Integration](../contributor-guide/backend/tidl-integration.md) for
+the supported ops, the full configuration, and how the tools directory is built.

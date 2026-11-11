@@ -15,24 +15,17 @@ dynamic range, not bit-exact. Run serially, one board:
         --board j722s-evm -v
 """
 
-import os
 
 import numpy as np
 import pytest
-from dsp_utils import get_current_board
+from conftest import tidl_build_and_run
+from dsp_utils import get_current_board, has_tidl_tools, tidl_tools_config
 
 import tvm
-from conftest import tidl_build_and_run
 from tvm import relax
 from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
-C7X_MMA_TIDL_PATH = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
-)
-
-pytestmark = pytest.mark.skipif(not os.path.isfile(RELAX_SO_PATH), reason="relax .so not built")
+pytestmark = pytest.mark.skipif(not has_tidl_tools(), reason="relax .so not built")
 
 op = relax.op
 nn = relax.op.nn
@@ -174,7 +167,7 @@ def test_accepted_config_matches_reference(case, dsp_mode, tmp_path):
         {
             "board": get_current_board(),
             "artifacts_dir": str(tmp_path / "tidl_artifacts"),
-            "tidl_tools_path": TIDL_TOOLS_PATH,
+            **tidl_tools_config(),
             "num_calibration_frames": len(calib),
             "calibration_inputs": calib,
         }

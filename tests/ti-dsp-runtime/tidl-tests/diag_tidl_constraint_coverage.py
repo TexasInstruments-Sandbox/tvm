@@ -17,13 +17,14 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import constraint_coverage as cc  # noqa: E402
 import test_tidl_declines as D  # noqa: E402
+from dsp_utils import tidl_tools_config  # noqa: E402
 
 from tvm.relax.backend.tidl import _gate  # noqa: E402
 
 
 def case_reasons():
     """``{case_id: reason}`` for every rejecting case in the decline table."""
-    _gate.load_relax_so(tidl_tools_path=os.path.join(cc.C7X_MMA_TIDL_PATH, "tidl_tools"))
+    _gate.load_relax_so(tidl_tools_config())
     out = {}
     for p in D.CASES:
         pattern, mod, verdict, _, config = p.values

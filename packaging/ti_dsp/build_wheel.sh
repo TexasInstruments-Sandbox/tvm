@@ -34,9 +34,6 @@
 # Environment variables:
 #   TVM_HOME           - TVM repo root (default: script's grandparent dir)
 #   DSP_BUILD_NUM      - Post-release build number (default: 1)
-#   TIDL_RELAX_SO      - Path to tidl_model_import_relax.so
-#   C7X_MMA_TIDL_PATH  - c7x-mma-tidl repo root (TIDL .so fallback; source of
-#                        the IOBufDesc layout table and tidl_tools)
 #   STRIP_LIBS         - Strip debug symbols from .so files (default: 1)
 
 set -euo pipefail
@@ -140,40 +137,18 @@ build_x86() {
     check_file "$DSP_RT/firmware/c7x/arm/build${RUNTIME_SUFFIX}/c7x_compute" \
         "Build ARM client: cd firmware/c7x/arm && ./build.sh --board $BOARD --ddr $DDR"
 
-    TIDL_SO=""
+    # TIDL tools directory: staged into the source tree by
+    # build_runtime.sh tidl-tools (packaging/ti_dsp/stage_tidl_tools.sh), and
+    # packaged as-is with the rest of python/tvm, so a wheel and a source
+    # tree use the same files.
+    TIDL_TOOLS_SRC="$TVM_HOME/python/tvm/data/ti_dsp/tidl"
     if [ "$TIDL" = "ON" ]; then
-        C7X_TIDL="${C7X_MMA_TIDL_PATH:-$HOME/ml/c7x-mma-tidl}"
-        TIDL_SO="${TIDL_RELAX_SO:-$C7X_TIDL/ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so}"
-        check_file "$TIDL_SO" \
-            "Build TIDL .so or set TIDL_RELAX_SO / C7X_MMA_TIDL_PATH (or pass --tidl OFF for a beagley-ai-style no-TIDL wheel)"
-        # The IOBufDesc layout and tidl_tools are taken from $C7X_TIDL. Keep
-        # TIDL_RELAX_SO (if set) pointing into the same tree: a layout or
-        # tool that differs from the .so's build misreads its blobs.
-        TIDL_IO_H="$C7X_TIDL/ti_dl/inc/itidl_io.h"
-        check_file "$TIDL_IO_H" \
-            "Set C7X_MMA_TIDL_PATH to the c7x-mma-tidl tree the TIDL .so was built in"
-        # Only what tidl_model_import_relax.so runs or reads, not the whole
-        # directory (it also holds TI headers and ONNX/TFLite runtime plugins).
-        TIDL_TOOLS_FILES="PC_dsp_test_dl_algo.out ti_cnnperfsim.out device_config.cfg"
-        for f in $TIDL_TOOLS_FILES; do
-            check_file "$C7X_TIDL/tidl_tools/$f" \
-                "Build c7x-mma-tidl (build_j722s.sh) so tidl_tools/$f exists"
-        done
-        # c7x_host TIDL: the J722S x86 TIDL algo libs (same tree as the .so)
-        # and the C7524 MMALIB x86 libs they call, defaulting to the MMALIB
-        # the dsp-cpp harness links in source mode. Names and order match
-        # dsp-cpp's TIDL_PC_LIB_NAMES / MMALIB_HOST_LIB_NAMES.
-        TIDL_PC_LIB_DIR="$C7X_TIDL/ti_dl/lib/J722S/PC/algo/release"
-        HOST_TIDL_LIBS="tidl_algo tidl_ref tidl_priv tidl_kernels tidl_avx_kernels tidl_custom"
-        HOST_MMALIB_ROOT="${MMALIB_PATH:-/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mmalib_11_02_00_06}"
-        HOST_MMALIB_DIR="$HOST_MMALIB_ROOT/lib/C7524/release"
-        HOST_MMALIB_LIBS="mmalib_x86_64 mmalib_cn_x86_64 common_x86_64"
-        for l in $HOST_TIDL_LIBS; do
-            check_file "$TIDL_PC_LIB_DIR/lib$l.a" "Build the c7x-mma-tidl J722S PC libs"
-        done
-        for l in $HOST_MMALIB_LIBS; do
-            check_file "$HOST_MMALIB_DIR/lib$l.a" \
-                "Set MMALIB_PATH to the MMALIB the c7x_host harness links"
+        for f in tidl_model_import_relax.so tidl_model_custom_import.so \
+                 tidl_tools/PC_dsp_test_dl_algo.out tidl_tools/ti_cnnperfsim.out \
+                 tidl_tools/device_config.cfg sTIDL_IOBufDesc_t.layout.json \
+                 host/libtidl_api_host.a; do
+            check_file "$TIDL_TOOLS_SRC/$f" \
+                "Stage the TIDL tools: cd src/runtime/ti_dsp && bash build_runtime.sh tidl-tools (or pass --tidl OFF for a beagley-ai-style no-TIDL wheel)"
         done
     fi
 
@@ -227,53 +202,12 @@ build_x86() {
         cp "$ARM_SO/libc7x_arm_runtime.so" "$DATA/firmware/libc7x_arm_runtime.so"
     fi
 
-    # TIDL — copy both the TVM bridge and its runtime dependency so the
-    # dynamic linker can find tidl_model_custom_import.so when loading
-    # tidl_model_import_relax.so from the installed wheel path. Skipped
-    # entirely for --tidl OFF (e.g. beagley-ai, which never builds TIDL).
-    if [ "$TIDL" = "ON" ]; then
-        cp "$TIDL_SO" "$DATA/tidl/"
-        TIDL_CUSTOM="$(dirname "$TIDL_SO")/tidl_model_custom_import.so"
-        if [ -f "$TIDL_CUSTOM" ]; then
-            cp "$TIDL_CUSTOM" "$DATA/tidl/"
-        fi
-        # sTIDL_IOBufDesc_t layout, for reading params_1.bin without the
-        # header (itidl_io.h is not redistributable). The script has no
-        # module-level tvm imports, so it runs without loading libtvm.
-        python3 "$TVM_HOME/python/tvm/relax/backend/tidl/io_buf_desc.py" \
-            --header "$TIDL_IO_H" --out "$DATA/tidl/sTIDL_IOBufDesc_t.layout.json"
-        # Every tidl_tools entry is a symlink into ti_dl/ or arm-tidl/, hence -L.
-        mkdir -p "$DATA/tidl/tidl_tools"
-        for f in $TIDL_TOOLS_FILES; do
-            cp -L "$C7X_TIDL/tidl_tools/$f" "$DATA/tidl/tidl_tools/"
-        done
-
-        # c7x_host TIDL without SDKs: build the TIDL glue (tidl_api.c and
-        # friends) with the harness's own tidl_api_host target, so the flags
-        # are exactly those of a source-mode build, and against the same
-        # itidl_ti.h as the shipped libtidl_*.a. The harness links lib/host
-        # instead of compiling the glue when it finds this bundle.
-        echo ">>> Building TIDL host-emulation glue ..."
-        HOST_GLUE_BUILD="$(mktemp -d)"
-        (cd "$HOST_GLUE_BUILD" && \
-            C7X_MMA_TIDL_PATH="$C7X_TIDL" MMALIB_PATH="$HOST_MMALIB_ROOT" \
-            cmake -DTVM_DSP_TARGET=c7x_host -DTVM_HOME="$TVM_HOME" \
-                  -DCMAKE_BUILD_TYPE=Release -DUSE_TIDL=ON -DTIDL_PREBUILT=OFF \
-                  -DGENERATED_CODE_DIR="$HOST_GLUE_BUILD" \
-                  "$TVM_HOME/tests/ti-dsp-runtime/dsp-cpp" > cmake.log 2>&1 && \
-            cmake --build . --target tidl_api_host >> cmake.log 2>&1) || {
-            echo "ERROR: TIDL host glue build failed, see $HOST_GLUE_BUILD/cmake.log"
-            exit 1
-        }
-        mkdir -p "$DATA/lib/host"
-        cp "$HOST_GLUE_BUILD/libtidl_api_host.a" "$DATA/lib/host/"
-        rm -rf "$HOST_GLUE_BUILD"
-        for l in $HOST_TIDL_LIBS; do
-            cp "$TIDL_PC_LIB_DIR/lib$l.a" "$DATA/lib/host/"
-        done
-        for l in $HOST_MMALIB_LIBS; do
-            cp "$HOST_MMALIB_DIR/lib$l.a" "$DATA/lib/host/"
-        done
+    # The TIDL tools directory came along with python/tvm above. A --tidl
+    # OFF wheel (e.g. beagley-ai, which never builds TIDL) must not carry
+    # one, even if the source tree has it staged.
+    if [ "$TIDL" = "OFF" ]; then
+        rm -rf "$DATA/tidl"
+        mkdir -p "$DATA/tidl"
     fi
 
     # Build infrastructure

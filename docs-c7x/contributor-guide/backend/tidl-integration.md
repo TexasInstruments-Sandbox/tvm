@@ -27,7 +27,9 @@ libraries and the C7504 MMALIB:
 - Build the importer and TIDL libs with `c7x-mma-tidl/build_am62d.sh`
   (`TARGET_SOC=AM62A`), then build the firmware with
   `firmware/c7x/dsp/build.sh --board am62d` (`--tidl ON` is the default; it
-  needs `C7X_MMA_TIDL_PATH`).
+  needs `C7X_MMA_TIDL_PATH`). The [TIDL tools directory](#tidl-tools-directory)
+  is J722S-only so far, so AM62D compiles need a `tidl_tools_dir` staged from
+  an AM62A c7x-mma-tidl build.
 - `TIDLOffloadCompiler` takes the board from `config["board"]` (`j722s-evm`,
   `beagley-ai` or `am62d`; default `j722s-evm`) and maps it to a device
   (`j722s` or `am62d`). The `c_static_lib` target only knows the device: the
@@ -172,7 +174,7 @@ needs to be excluded explicitly.
 | Key | Default | Description |
 |-----|---------|--------------|
 | `artifacts_dir` | per-process temp dir, removed at exit | Output directory for TIDL binaries; set it to keep them |
-| `tidl_tools_path` | `$C7X_MMA_TIDL_PATH/tidl_tools`, else the copy bundled in the wheel | Path to the TIDL import tools and `device_config.cfg` |
+| `tidl_tools_dir` | the packaged one, `tvm/data/ti_dsp/tidl` | [TIDL tools directory](#tidl-tools-directory) to use instead of the packaged one. The old `tidl_tools_path` key is rejected |
 | `calibration_inputs` | **required** | List of per-frame numpy arrays (one `(1,C,H,W)` array per calibration image). Random calibration data is rejected: TIDL derives int8 quantization scales from the statistics of these inputs, so unrepresentative data produces wrong scales and wrong classification results downstream |
 | `num_calibration_frames` | 1 | Number of calibration iterations |
 | `skip_failing_subgraphs` | `False` | Fall back to TVM instead of raising when a subgraph fails TIDL's own network-compiler/post-processing step |
@@ -337,7 +339,9 @@ Consequences:
   the `tvm_tidl_rt_info` layout.
 - Changing `tidl_api.c` (tracing, `flowCtrl`, `TIDL_COPY_NETWORK_BUF`) on
   hardware needs a firmware rebuild, `deploy-c7x.sh` and a reboot, not a model
-  recompile. `c7x_host` still compiles `tidl_api.c` per build.
+  recompile. For `c7x_host`, re-stage the
+  [TIDL tools directory](#tidl-tools-directory), whose `host/` holds the
+  compiled glue.
 - The firmware compiles the three files with the old module flags (`--c99`,
   `-O3 --auto_inline=500`) and with `printf` mapped to `shm_printf`, which is
   what DLOAD bound a module's `printf` to. With the firmware's own `-O2` and
@@ -347,32 +351,90 @@ Consequences:
   firmware's lifetime, shared by every loaded module, as the physical L1/L2/L3
   regions already were.
 
-## Wheel-only compiles
+## TIDL tools directory
 
-A wheel built with `--tidl ON` bundles what the import and compile steps used
-to read from a c7x-mma-tidl tree:
+Compiling a TIDL-offloaded model reads prebuilt TIDL files: the import library
+that partitions and imports, the tools it runs, the layout of the descriptor
+it writes, and, for `c7x_host`, the TIDL and MMALIB x86 libraries. They all
+live in one directory with a fixed layout:
 
-| Bundled under `tvm/data/ti_dsp/tidl/` | Replaces |
-|---|---|
-| `tidl_model_import_relax.so`, `tidl_model_custom_import.so` | `ti_dl/utils/tidlModelImport/out/` |
-| `tidl_tools/` (`PC_dsp_test_dl_algo.out`, `ti_cnnperfsim.out`, `device_config.cfg`) | `$C7X_MMA_TIDL_PATH/tidl_tools` |
-| `sTIDL_IOBufDesc_t.layout.json` | parsing `itidl_io.h` to size TIDL outputs |
+```
+tvm/data/ti_dsp/tidl/
+  tidl_model_import_relax.so      partition gate + import (TIDL_relax* FFI)
+  tidl_model_custom_import.so     loaded by the above (RUNPATH $ORIGIN)
+  tidl_tools/
+    PC_dsp_test_dl_algo.out       calibration, run by the import library
+    ti_cnnperfsim.out             network compiler, run by the import library
+    device_config.cfg             L2/MSMC sizes, read at TIDL_relaxInit
+  sTIDL_IOBufDesc_t.layout.json   params_1.bin layout (output sizing)
+  host/                           c7x_host link
+    libtidl_api_host.a            tidl_api.c and helpers, -DHOST_EMULATION
+    libtidl_{algo,ref,priv,kernels,avx_kernels,custom}.a
+    libmmalib_x86_64.a, libmmalib_cn_x86_64.a, libcommon_x86_64.a
+```
 
-`build_wheel.sh` takes all of them from the same c7x-mma-tidl tree, so the
-layout table matches the `.so` that writes `params_1.bin`. Explicit settings
-still win: `config["tidl_tools_path"]` and `C7X_MMA_TIDL_PATH` are checked
-before the bundled tools, and an explicit `header_path` before the bundled
-table. A missing layout, a missing `params_1.bin` or a layout/blob size
-mismatch fails the compile; earlier versions only logged a warning and shipped
-the model without TIDL output padding.
+`tidl_api.h` in the same directory is a TVM source file, not part of the
+staged contents.
 
-`c7x_host` TIDL builds work from the wheel too. `build_wheel.sh` builds the
-host glue (`tidl_api.c`, `tidl_api_mem.c`, `ti_mem_manager.c`,
-`tidl_host_stubs.c`) as `libtidl_api_host.a` with the dsp-cpp harness's own
-`tidl_api_host` target, and stages it in `tvm/data/ti_dsp/lib/host/` with the
-J722S TIDL PC archives and the C7524 MMALIB x86 archives, plus the harness
-itself in `tvm/data/ti_dsp/host/`. When `lib/host/libtidl_api_host.a` exists,
-the harness links these (`TIDL_PREBUILT`, default on) and skips all SDK
-discovery. A source checkout has no bundle, so it compiles `tidl_api.c` per
-build against `C7X_MMA_TIDL_PATH`, `PSDK_INSTALL_PATH` (ivision) and
-`MMALIB_PATH`, as before.
+**Lookup.** `python/tvm/relax/backend/tidl/tools.py` is the only code that
+finds the directory, and every consumer goes through it (`_gate.py` for the
+import library and tools, `io_buf_desc.py` for the layout, `_build_c7x_host`
+for `host/`):
+
+1. `config["tidl_tools_dir"]`, if set;
+2. otherwise the copy in the package, `tvm/data/ti_dsp/tidl`;
+3. otherwise an error that names the directory and the missing files.
+
+A configured directory that is missing or incomplete is an error; it never
+falls back to the packaged copy. No environment variable is read: a stale one
+would silently mix files from different TIDL builds, and the import library,
+tools, layout and host libraries must all come from one build. The import
+library can be loaded once per process, so asking for a second, different
+directory in the same process is an error too.
+
+**Staging.** Nothing in a c7x-mma-tidl build has this layout (the files come
+from five places in it, plus `ivision.h` and MMALIB from the Processor SDK), so
+`packaging/ti_dsp/stage_tidl_tools.sh` assembles it:
+
+```bash
+packaging/ti_dsp/stage_tidl_tools.sh --c7x-mma-tidl <built tree> \
+    --psdk <PSDK RTOS J722S> [--mmalib <MMALIB root>] <dest>
+```
+
+It copies the import library and tools, writes the layout table from that
+tree's `itidl_io.h`, and builds `libtidl_api_host.a` with the dsp-cpp harness's
+own `tidl_api_host` target (`-DTIDL_GLUE_ONLY=ON`) against the same tree's
+`itidl_ti.h` as the `libtidl_*.a` it copies. A glue library built against a
+different `itidl_ti.h` would shift struct layouts without any error.
+
+There are two callers, so a source tree and a wheel get identical files:
+
+- **Source tree:** `src/runtime/ti_dsp/build_runtime.sh tidl-tools` stages into
+  `python/tvm/data/ti_dsp/tidl` (git-ignored), reading `C7X_MMA_TIDL_PATH`,
+  `PSDK_INSTALL_PATH` and optionally `MMALIB_PATH`. `build_all.sh` runs it for
+  `j722s-evm`, and so does the Jenkins `TIDL Tools Directory` stage. These SDK
+  variables are read only here, when the directory is built; compiling a
+  model never reads them.
+- **Wheel:** `build_wheel.sh --tidl ON` packages `python/tvm` as-is, so it
+  carries the directory staged in the source tree, and checks that it is
+  complete. `--tidl OFF` (BeagleY-AI) removes it from the wheel.
+
+Re-stage after rebuilding c7x-mma-tidl, and after editing `tidl_api.c`,
+`tidl_api_mem.c`, `ti_mem_manager.c` or `tidl_host_stubs.c` if you run
+`c7x_host`: the harness links `host/libtidl_api_host.a` rather than compiling
+them. (On `c7x_dload` the firmware compiles them, see
+[Firmware-side wrapper](#firmware-side-wrapper).)
+
+**Testing another TIDL build.** Stage it to a scratch directory and point the
+compiler at it, or pass it to the test suite:
+
+```bash
+packaging/ti_dsp/stage_tidl_tools.sh --c7x-mma-tidl ~/c7x-mma-tidl-new \
+    --psdk $PSDK_INSTALL_PATH /tmp/tidl-new
+pytest --rootdir=tests/ti-dsp-runtime tests/ti-dsp-runtime/tidl-tests/ \
+    --dsp-mode=c7x_host --tidl-tools-dir=/tmp/tidl-new
+```
+
+A missing layout, a missing `params_1.bin` or a layout/blob size mismatch
+fails the compile; earlier versions only logged a warning and shipped the
+model without TIDL output padding.

@@ -66,14 +66,6 @@ def find_c7x_include_dir() -> Optional[Path]:
     return None
 
 
-def find_tidl_relax_so() -> Optional[str]:
-    """Find tidl_model_import_relax.so in the bundled package."""
-    bundled = _DATA_DIR / "tidl" / "tidl_model_import_relax.so"
-    if bundled.exists():
-        return str(bundled)
-    return None
-
-
 def find_dsp_runtime_dir() -> Optional[Path]:
     """Find the DSP runtime directory for dynmod builds.
 
@@ -91,25 +83,15 @@ def find_dsp_runtime_dir() -> Optional[Path]:
     return None
 
 
-def find_tidl_iobufdesc_layout() -> Optional[str]:
-    """Find the sTIDL_IOBufDesc_t layout table bundled by build_wheel.sh.
+def bundled_tidl_tools_dir() -> Path:
+    """The TIDL tools directory inside the package: tvm/data/ti_dsp/tidl.
 
-    Generated from itidl_io.h when the wheel is built, so a wheel install can
-    read TIDL's params_1.bin without the (non-redistributable) header.
+    Staged by packaging/ti_dsp/stage_tidl_tools.sh, from build_wheel.sh for a
+    wheel or from build_runtime.sh tidl-tools for a source tree. It may not
+    exist (a --tidl OFF wheel, or a source tree that has not been staged);
+    see tvm.relax.backend.tidl.tools.
     """
-    bundled = _DATA_DIR / "tidl" / "sTIDL_IOBufDesc_t.layout.json"
-    if bundled.exists():
-        return str(bundled)
-    return None
-
-
-def find_tidl_tools_dir() -> Optional[str]:
-    """Find the tidl_tools directory (perfsim, PC algo, device config) bundled
-    for tidl_model_import_relax.so."""
-    bundled = _DATA_DIR / "tidl" / "tidl_tools"
-    if (bundled / "device_config.cfg").exists():
-        return str(bundled)
-    return None
+    return _DATA_DIR / "tidl"
 
 
 def find_host_harness_dir() -> Optional[Path]:

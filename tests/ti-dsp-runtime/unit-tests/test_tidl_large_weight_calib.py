@@ -25,24 +25,15 @@ import os
 
 import numpy as np
 import pytest
+from dsp_utils import has_tidl_tools, tidl_tools_config  # noqa: E402
 
 import tvm
 from tvm import relax
 from tvm.relax.frontend import nn
 
-C7X_MMA_TIDL_PATH = os.environ.get(
-    "C7X_MMA_TIDL_PATH",
-    os.path.expanduser("~/ml/c7x-mma-tidl"),
-)
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH,
-    "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so",
-)
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
-
 pytestmark = pytest.mark.skipif(
-    not os.path.isfile(RELAX_SO_PATH),
-    reason=f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}",
+    not has_tidl_tools(),
+    reason="TIDL tools directory not staged",
 )
 
 
@@ -53,7 +44,7 @@ def _load_so():
     # The gate's loader also re-opens libtvm_compiler.so RTLD_GLOBAL, which the .so needs.
     from tvm.relax.backend.tidl._gate import load_relax_so  # noqa: PLC0415
 
-    load_relax_so(RELAX_SO_PATH)
+    load_relax_so(tidl_tools_config())
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +95,7 @@ def _build_and_import(tmp_path, w_max: float, label: str) -> float:
     compiler = TIDLOffloadCompiler(
         config={
             "artifacts_dir": artifacts_dir,
-            "tidl_tools_path": TIDL_TOOLS_PATH,
+            **tidl_tools_config(),
             "num_calibration_frames": len(calib),
             "calibration_inputs": calib,
         }

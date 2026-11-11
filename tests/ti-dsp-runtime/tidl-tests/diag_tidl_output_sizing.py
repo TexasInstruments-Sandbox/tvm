@@ -24,7 +24,7 @@ Usage:
     python diag_tidl_output_sizing.py --model conv8 --board j722s-evm
     python diag_tidl_output_sizing.py --model mv2   --board j722s-evm
 
-Requires TI_CGT_C7000_PATH, C7X_MMA_TIDL_PATH and a board running c7x_compute
+Requires TI_CGT_C7000_PATH, a staged TIDL tools directory and a board running c7x_compute
 firmware.  Hardware runs must not overlap with a test suite.
 """
 
@@ -40,7 +40,12 @@ _TESTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_TESTS_DIR / "dsp-cpp"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dsp_utils import add_board_arg, get_current_board, run_dsp_dload  # noqa: E402
+from dsp_utils import (  # noqa: E402
+    add_board_arg,
+    get_current_board,
+    run_dsp_dload,
+    tidl_tools_config,
+)
 
 _HW = 16
 
@@ -119,7 +124,7 @@ def main() -> int:
 
     if args.board is None:
         parser.error("--board is required (this runs on hardware)")
-    for var in ("TI_CGT_C7000_PATH", "C7X_MMA_TIDL_PATH"):
+    for var in ("TI_CGT_C7000_PATH",):
         if os.environ.get(var) is None:
             parser.error(f"{var} is not set")
 
@@ -137,8 +142,7 @@ def main() -> int:
         config={
             "board": get_current_board(),
             "artifacts_dir": str(work_dir / "tidl_artifacts"),
-            "tidl_tools_path": os.path.join(
-                os.environ["C7X_MMA_TIDL_PATH"], "tidl_tools"),
+            **tidl_tools_config(),
             "num_calibration_frames": len(calib),
             "calibration_inputs": calib,
         }

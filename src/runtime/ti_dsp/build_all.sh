@@ -25,6 +25,10 @@
 # own default (--tidl ON, which forces --mmalib ON too), as does am62d (which
 # also needs the AM62A TIDL libs from c7x-mma-tidl/build_am62d.sh and
 # C7X_MMA_TIDL_PATH); am62d has no --wheels support yet.
+#
+# j722s-evm also stages the TIDL tools directory (build_runtime.sh
+# tidl-tools) that TIDL offload reads when compiling, from C7X_MMA_TIDL_PATH
+# and PSDK_INSTALL_PATH. It is J722S-only, so am62d skips it.
 
 set -euo pipefail
 
@@ -94,6 +98,11 @@ echo "=== [3/5] DSP runtime (c7x_host, board-independent emulation) ==="
 
 echo "=== [4/5] DSP runtime (c7x, board=$TVM_BOARD) ==="
 ( cd src/runtime/ti_dsp && bash build_runtime.sh c7x --board "$TVM_BOARD" "${DDR_ARGS[@]}" )
+
+if [ "$TVM_BOARD" = "j722s-evm" ]; then
+    echo "=== [4b/5] TIDL tools directory ==="
+    ( cd src/runtime/ti_dsp && bash build_runtime.sh tidl-tools )
+fi
 
 echo "=== [5/5] Firmware + ARM client (board=$TVM_BOARD) ==="
 ( cd src/runtime/ti_dsp/firmware/c7x/dsp && \

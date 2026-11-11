@@ -21,7 +21,8 @@ from tvm import relax
 from tvm.relax.backend.tidl import TIDLOffloadCompiler, _gate
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_tidl_allownode import TIDL_TOOLS_PATH, _composites_in, _equal_ignoring_attrs  # noqa: E402
+from dsp_utils import tidl_tools_config  # noqa: E402
+from test_tidl_allownode import _composites_in, _equal_ignoring_attrs  # noqa: E402
 
 
 def _torchvision_module(name):
@@ -59,7 +60,7 @@ def _rss_mb():
 
 def run(name, artifacts="/tmp/tidl_gate_spike"):
     mod, params = _load(name)
-    compiler = TIDLOffloadCompiler({"tidl_tools_path": TIDL_TOOLS_PATH, "artifacts_dir": artifacts})
+    compiler = TIDLOffloadCompiler({**tidl_tools_config(), "artifacts_dir": artifacts})
     prepared = compiler.prepare(mod, params)
 
     base = TIDLOffloadCompiler({**compiler.config, "allow_fn": lambda call: 1})

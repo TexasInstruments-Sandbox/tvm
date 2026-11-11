@@ -10,14 +10,10 @@ import os
 
 import partition_snapshot as ps
 import pytest
+from dsp_utils import has_tidl_tools, tidl_tools_config
 
 pytestmark = [pytest.mark.quick]
 
-C7X_MMA_TIDL_PATH = os.environ.get("C7X_MMA_TIDL_PATH", os.path.expanduser("~/ml/c7x-mma-tidl"))
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
-RELAX_SO = os.path.join(
-    C7X_MMA_TIDL_PATH, "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
-)
 
 _SNAPSHOTS = ps.load_snapshots() if os.path.exists(ps.SNAPSHOT_PATH) else {}
 
@@ -34,18 +30,18 @@ def test_snapshot_file_is_present():
 
 @pytest.mark.parametrize("name", sorted(k for k in _SNAPSHOTS if k.startswith("layer/")))
 def test_layer_partition_matches_snapshot(name):
-    if not os.path.isfile(RELAX_SO):
-        pytest.skip("tidl_model_import_relax.so not built")
+    if not has_tidl_tools():
+        pytest.skip("TIDL tools directory not staged")
     builder = ps.layer_model_builders()[name.split("/", 1)[1]]
     assert ps.snapshot_module(ps.partition_layer_model(builder)) == _SNAPSHOTS[name]
 
 
 @pytest.mark.parametrize("name", sorted(k for k in _SNAPSHOTS if k.startswith("model/")))
 def test_model_partition_matches_snapshot(name):
-    if not os.path.isfile(RELAX_SO):
-        pytest.skip("tidl_model_import_relax.so not built")
+    if not has_tidl_tools():
+        pytest.skip("TIDL tools directory not staged")
     try:
-        mod = ps.partition_real_model(name.split("/", 1)[1], TIDL_TOOLS_PATH)
+        mod = ps.partition_real_model(name.split("/", 1)[1], tidl_tools_config())
     except (ImportError, OSError) as e:
         # Only a missing model source/weights file is a skip. RuntimeError is
         # deliberately not caught: that is what a failed partition and a

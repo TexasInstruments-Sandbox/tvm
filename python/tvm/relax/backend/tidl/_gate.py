@@ -44,13 +44,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import tvm
 from tvm import relax
 
+from . import tools
+
 logger = logging.getLogger(__name__)
 
 #: Function attribute carrying the deny/allow-list name of a composite.
 NODE_NAME_ATTR = "tidl_node_name"
 
 # Relative path from the c7x-mma-tidl root to the Relax import .so.
-_RELAX_SO_REL = "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so"
 
 AllowFn = Callable[[Any], int]
 
@@ -61,6 +62,9 @@ _active_allow_fn: Optional[AllowFn] = None
 
 # Key of the config TIDL_relaxInit last ran with; init is skipped when equal.
 _init_key: Optional[Tuple] = None
+
+# Real path of the loaded tidl_model_import_relax.so (see load_relax_so).
+_loaded_relax_so: Optional[str] = None
 
 # Program index of every binding in the module being fused, installed by
 # partition() before each FuseOpsByPattern call. None when a caller drives the
@@ -99,35 +103,22 @@ def _expose_compiler_symbols() -> None:
         ctypes.CDLL(lib._name, mode=ctypes.RTLD_GLOBAL)
 
 
-def load_relax_so(path: Optional[str] = None, tidl_tools_path: Optional[str] = None) -> None:
+def load_relax_so(config: Optional[Dict[str, Any]] = None) -> None:
     """Load ``tidl_model_import_relax.so`` and verify its FFI functions.
 
-    Resolution order: *path*, ``TIDL_RELAX_SO_PATH``, the bundled package,
-    the sibling of *tidl_tools_path*, ``$C7X_MMA_TIDL_PATH``.
+    The library comes from the TIDL tools directory (see :mod:`.tools`). It
+    can be loaded once per process, so asking for one from a different
+    directory afterwards is an error rather than a silent reuse.
     """
-    if tvm.get_global_func("TIDL_relaxInit", allow_missing=True) is not None:
+    global _loaded_relax_so  # noqa: PLW0603
+    path = os.path.realpath(tools.relax_so_path(config))
+    if _loaded_relax_so is not None:
+        if path != _loaded_relax_so:
+            raise RuntimeError(
+                f"tidl_model_import_relax.so is already loaded from {_loaded_relax_so}; "
+                f"cannot load {path} in the same process. Use one tidl_tools_dir per process."
+            )
         return
-    if path is None:
-        path = os.environ.get("TIDL_RELAX_SO_PATH")
-    if path is None:
-        try:
-            from tvm.data.ti_dsp.paths import find_tidl_relax_so  # noqa: PLC0415
-
-            path = find_tidl_relax_so()
-        except ImportError:
-            pass
-    if path is None and tidl_tools_path is not None:
-        c7x = os.path.dirname(os.path.abspath(tidl_tools_path))
-        path = os.path.join(c7x, _RELAX_SO_REL)
-    if path is None:
-        c7x = os.environ.get("C7X_MMA_TIDL_PATH")
-        if c7x:
-            path = os.path.join(c7x, _RELAX_SO_REL)
-    if not path or not os.path.isfile(path):
-        raise FileNotFoundError(
-            f"tidl_model_import_relax.so not found (tried: {path!r}).  "
-            "Pass 'tidl_tools_path' in config or set C7X_MMA_TIDL_PATH."
-        )
     _expose_compiler_symbols()
     tvm.runtime.load_module(path)
     required = [
@@ -142,33 +133,7 @@ def load_relax_so(path: Optional[str] = None, tidl_tools_path: Optional[str] = N
     for name in required:
         if tvm.get_global_func(name, allow_missing=True) is None:
             raise RuntimeError(f"FFI function '{name}' not registered after loading .so")
-
-
-def resolve_tools_path(config: Dict[str, Any]) -> str:
-    """``tidl_tools`` directory for the import library.
-
-    Order: ``config["tidl_tools_path"]``, ``$C7X_MMA_TIDL_PATH/tidl_tools``,
-    then the copy bundled in the wheel.  Explicit settings win so a
-    contributor can point at a freshly built c7x-mma-tidl tree.
-    """
-    tools = config.get("tidl_tools_path")
-    if tools is not None:
-        return tools
-    root = os.environ.get("C7X_MMA_TIDL_PATH")
-    if root is not None:
-        return os.path.join(root, "tidl_tools")
-    try:
-        from tvm.data.ti_dsp.paths import find_tidl_tools_dir  # noqa: PLC0415
-
-        tools = find_tidl_tools_dir()
-    except ImportError:
-        tools = None
-    if tools is None:
-        raise ValueError(
-            "No tidl_tools directory: set 'tidl_tools_path' in config or C7X_MMA_TIDL_PATH, "
-            "or install a wheel built with --tidl ON (which bundles tidl_tools)."
-        )
-    return tools
+    _loaded_relax_so = path
 
 
 def invalidate_init() -> None:
@@ -193,11 +158,11 @@ def ensure_initialized(config: Dict[str, Any], artifacts_dir: str, force: bool =
     not gate against the state the import left behind.
     """
     global _init_key  # noqa: PLW0603
-    tools = resolve_tools_path(config)
-    load_relax_so(tidl_tools_path=tools)
+    tools_path = tools.import_tools_path(config)
+    load_relax_so(config)
 
     options = dict(config.get("tidl_options", {}))
-    options.setdefault("tidl_tools_path", tools)
+    options.setdefault("tidl_tools_path", tools_path)
     options.setdefault("artifacts_folder", artifacts_dir)
     options = {str(k): str(v) for k, v in options.items()}
 
@@ -213,10 +178,11 @@ def ensure_initialized(config: Dict[str, Any], artifacts_dir: str, force: bool =
 
 _MISSING_LIBRARY_MSG = (
     "TIDL partitioning needs tidl_model_import_relax.so to decide which ops can be "
-    "offloaded, and it could not be loaded. Build it (c7x-mma-tidl/build_j722s.sh) and "
-    "set C7X_MMA_TIDL_PATH (or config['tidl_tools_path']) or install a wheel built with "
-    "--tidl ON, or pass config['allow_fn'] "
-    "(structure-only tests use lambda call: 1)."
+    "offloaded, and it could not be loaded from the TIDL tools directory. Install a "
+    "tvm-ti-c7x-compile wheel built with TIDL support, stage the directory in a source "
+    "tree (src/runtime/ti_dsp/build_runtime.sh tidl-tools), or set "
+    "config['tidl_tools_dir']; or pass config['allow_fn'] (structure-only tests use "
+    "lambda call: 1)."
 )
 
 

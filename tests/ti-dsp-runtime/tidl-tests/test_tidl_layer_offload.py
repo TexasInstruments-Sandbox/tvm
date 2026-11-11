@@ -35,21 +35,11 @@ _TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DSP_CPP_DIR = os.path.join(_TESTS_DIR, "dsp-cpp")
 sys.path.insert(0, _DSP_CPP_DIR)
 
-from dsp_utils import get_current_board  # noqa: E402
-
-C7X_MMA_TIDL_PATH = os.environ.get(
-    "C7X_MMA_TIDL_PATH",
-    os.path.expanduser("~/ml/c7x-mma-tidl"),
-)
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH,
-    "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so",
-)
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
+from dsp_utils import get_current_board, has_tidl_tools, tidl_tools_config  # noqa: E402
 
 
 def _has_full_tidl_env():
-    return os.path.isfile(RELAX_SO_PATH) and os.environ.get("TI_CGT_C7000_PATH") is not None
+    return has_tidl_tools() and os.environ.get("TI_CGT_C7000_PATH") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1244,6 +1234,7 @@ def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape, 
     Returns (output, n_artifacts).
     """
     from conftest import tidl_build_and_run
+
     from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
     model = model_cls()
@@ -1262,7 +1253,7 @@ def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape, 
         config={
             "board": get_current_board(),
             "artifacts_dir": str(tmp_path / "tidl_artifacts"),
-            "tidl_tools_path": TIDL_TOOLS_PATH,
+            **tidl_tools_config(),
             "num_calibration_frames": 2,
             "calibration_inputs": [
                 np.random.randn(*input_data.shape).astype("float32"),

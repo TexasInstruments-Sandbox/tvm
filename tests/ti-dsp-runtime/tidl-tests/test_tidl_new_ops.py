@@ -28,21 +28,11 @@ _TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DSP_CPP_DIR = os.path.join(_TESTS_DIR, "dsp-cpp")
 sys.path.insert(0, _DSP_CPP_DIR)
 
-from dsp_utils import get_current_board  # noqa: E402
-
-C7X_MMA_TIDL_PATH = os.environ.get(
-    "C7X_MMA_TIDL_PATH",
-    os.path.expanduser("~/ml/c7x-mma-tidl"),
-)
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH,
-    "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so",
-)
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
+from dsp_utils import get_current_board, has_tidl_tools, tidl_tools_config  # noqa: E402
 
 
 def _has_import_so():
-    return os.path.isfile(RELAX_SO_PATH)
+    return has_tidl_tools()
 
 
 def _has_c7x_compiler():
@@ -57,6 +47,7 @@ def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape, 
     Returns (output, n_artifacts).
     """
     from conftest import tidl_build_and_run
+
     from tvm.relax.backend.tidl import TIDLOffloadCompiler
 
     model = model_cls()
@@ -75,7 +66,7 @@ def _build_and_run(model_cls, input_spec, input_data, tmp_path, expected_shape, 
         config={
             "board": get_current_board(),
             "artifacts_dir": str(tmp_path / "tidl_artifacts"),
-            "tidl_tools_path": TIDL_TOOLS_PATH,
+            **tidl_tools_config(),
             "num_calibration_frames": 2,
             "calibration_inputs": [
                 np.random.randn(*input_data.shape).astype("float32"),
@@ -175,7 +166,7 @@ class TestTIDLNewOps:
     @pytest.fixture(autouse=True)
     def _check_deps(self):
         if not _has_import_so():
-            pytest.skip(f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}")
+            pytest.skip("TIDL tools directory not staged")
         if not _has_c7x_compiler():
             pytest.skip("TI_CGT_C7000_PATH not set")
 

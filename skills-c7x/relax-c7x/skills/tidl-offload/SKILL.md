@@ -122,9 +122,7 @@ docs). Grouped by category:
 ## TIDL Import Pipeline
 
 `TIDLOffloadCompiler.tidl_import()`, once per subgraph:
-1. Load `tidl_model_import_relax.so` — `TIDL_RELAX_SO_PATH`, the wheel's bundled copy,
-   then `tidl_tools_path`'s parent dir / `C7X_MMA_TIDL_PATH`. `tidl_tools_path` itself
-   resolves `config` → `$C7X_MMA_TIDL_PATH/tidl_tools` → bundled `tvm/data/ti_dsp/tidl/tidl_tools`
+1. Load `tidl_model_import_relax.so` from the TIDL tools directory (see below)
 2. `TIDL_relaxInit()` — device config + artifacts dir (once, before the
    per-subgraph loop begins)
 3. `TIDL_relaxImportInit()` — once per subgraph, before the per-composite loop
@@ -132,7 +130,7 @@ docs). Grouped by category:
 5. `TIDL_relaxOptimizeNet()` — run network compiler
 6. `TIDL_relaxPostProcessNet()` — write net.bin + params_1.bin
 
-Config: `artifacts_dir`, `tidl_tools_path`, `num_calibration_frames`,
+Config: `artifacts_dir`, `tidl_tools_dir`, `num_calibration_frames`,
 `skip_failing_subgraphs`, `max_subgraphs`, and **`calibration_inputs`**
 (required — a list of per-frame `(1,C,H,W)` numpy arrays; `tidl_import()`
 raises `ValueError` if omitted, since random calibration data produced
@@ -154,18 +152,41 @@ before the first inference request — needed for YOLO offloading). Each
 `tidl_bridge_cleanup()` frees all persistent TIDL handles via
 `free_tidl_subgraph()` at module teardown.
 
-Output sizing reads `params_1.bin` via `io_buf_desc.py`, using the wheel's
-`sTIDL_IOBufDesc_t.layout.json` (generated from `itidl_io.h` by `build_wheel.sh`) or, in a source
-tree, `itidl_io.h` under `C7X_MMA_TIDL_PATH`. Missing layout / descriptor or a size mismatch is a
-compile error (it used to warn and skip output padding).
+Output sizing reads `params_1.bin` via `io_buf_desc.py`, using `sTIDL_IOBufDesc_t.layout.json`
+from the TIDL tools directory. Missing layout / descriptor or a size mismatch is a compile error
+(it used to warn and skip output padding).
+
+## TIDL Tools Directory
+
+Every prebuilt TIDL file the compile reads (import `.so`s, `tidl_tools/`, the layout JSON, and
+`host/` with `libtidl_api_host.a` + TIDL/MMALIB x86 libs for `c7x_host`) lives in one directory,
+resolved only by `python/tvm/relax/backend/tidl/tools.py`:
+
+1. `config["tidl_tools_dir"]` if set; else 2. the packaged `tvm/data/ti_dsp/tidl`; else 3. error.
+
+- **No env vars** (`C7X_MMA_TIDL_PATH`, `TIDL_RELAX_SO_PATH` are not read at compile time): a stale
+  one mixed TIDL builds. A configured dir that is missing/incomplete errors; never falls back.
+- `config["tidl_tools_path"]` (old key) raises `ValueError`.
+- The import `.so` loads once per process; a different dir later in the same process raises.
+- **Staging:** `packaging/ti_dsp/stage_tidl_tools.sh --c7x-mma-tidl <tree> --psdk <psdk> <dest>`
+  assembles it (c7x-mma-tidl scatters these files over 5 dirs; ivision/MMALIB from the PSDK).
+  Source tree: `cd src/runtime/ti_dsp && bash build_runtime.sh tidl-tools` (reads
+  `C7X_MMA_TIDL_PATH`/`PSDK_INSTALL_PATH`, build time only) → `python/tvm/data/ti_dsp/tidl`
+  (git-ignored). `build_all.sh` (j722s-evm) and the Jenkins `TIDL Tools Directory` stage run it;
+  `build_wheel.sh --tidl ON` packages it as-is. J722S only.
+- **Re-stage** after rebuilding c7x-mma-tidl, or after editing `tidl_api.c`/`tidl_api_mem.c`/
+  `ti_mem_manager.c`/`tidl_host_stubs.c` for `c7x_host` (the harness links `host/`, it no longer
+  compiles them).
+- Tests: `--tidl-tools-dir=<dir>` (pytest option) → `dsp_utils.tidl_tools_config()`; tests use
+  `has_tidl_tools(need)` to skip when not staged.
 
 ## IALG Lifecycle (tidl_api.c)
 
 On `c7x_dload`, `tidl_api.c` is compiled into the firmware (`--tidl ON`) and exported as
 `init/process/free_tidl_subgraph`; `lib0.out` only carries the bridge and the network blobs, so
 the module build needs no TIDL/PSDK headers. Needs firmware service version >= 4.2.0. Editing
-`tidl_api.c` therefore needs a firmware rebuild + redeploy for hardware; `c7x_host` still compiles
-it per build.
+`tidl_api.c` therefore needs a firmware rebuild + redeploy for hardware, and a re-stage of the TIDL
+tools directory for `c7x_host`.
 
 ```
 init_tidl_subgraph():
@@ -276,7 +297,7 @@ Tests at `tests/ti-dsp-runtime/tidl-tests/` and `unit-tests/`:
 | `test_tidl_subgraph_io.py` | 3 | Multi-output buffers, rank-3 concat of reshapes, small tensor live across a TIDL call | `.so`; the last one only bites on AM67A |
 | `unit-tests/test_tidl_large_weight_calib.py` | 2 | Calibration overflow isolation (large-weight conv) | `.so` only |
 
-Markers: `quick` (no hardware), `core` (+ c7x_host stub). Most `tidl-tests` need `tidl_model_import_relax.so` to partition (`conftest.py` skips them when it is not built); `C7X_MMA_TIDL_PATH` defaults to `~/ml/c7x-mma-tidl`.
+Markers: `quick` (no hardware), `core` (+ c7x_host stub). Most `tidl-tests` need `tidl_model_import_relax.so` to partition (`conftest.py` skips them when the TIDL tools directory is not staged).
 
 ```bash
 cd tests/ti-dsp-runtime
@@ -310,6 +331,8 @@ For general test debugging (DSP_KEEP_TEMP, failure modes), see `relax-c7x:testin
 | `python/tvm/contrib/c7x/io_meta.py` | `write_io_meta()`/`compute_io_meta()` — the `tvm_dsp_io_meta.bin` blob |
 | `src/runtime/ti_dsp/tidl/tidl_api.c` | IALG lifecycle on-device (built into the firmware) |
 | `python/tvm/relax/backend/tidl/io_buf_desc.py` | `params_1.bin` reader + layout-table writer |
+| `python/tvm/relax/backend/tidl/tools.py` | resolves the TIDL tools directory (config, else packaged, else error) |
+| `packaging/ti_dsp/stage_tidl_tools.sh` | stages the TIDL tools directory from c7x-mma-tidl + PSDK |
 | `src/runtime/ti_dsp/tidl/tidl_api_mem.c` | appMemAlloc/Free wrappers |
 | `tests/ti-dsp-runtime/tidl-tests/` | All TIDL tests |
 | `docs-c7x/contributor-guide/backend/tidl-integration.md` | Full design document |

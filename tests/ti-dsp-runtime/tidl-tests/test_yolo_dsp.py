@@ -53,6 +53,8 @@ from dsp_utils import (  # noqa: E402
     compile_and_run_dsp,
     get_current_board,
     get_target_string,
+    has_tidl_tools,
+    tidl_tools_config,
 )
 
 pytestmark = [pytest.mark.c7x_only]
@@ -63,19 +65,10 @@ logger = logging.getLogger(__name__)
 # TIDL paths and dependency helpers
 # -----------------------------------------------------------------------------
 
-C7X_MMA_TIDL_PATH = os.environ.get(
-    "C7X_MMA_TIDL_PATH",
-    os.path.expanduser("~/ml/c7x-mma-tidl"),
-)
-RELAX_SO_PATH = os.path.join(
-    C7X_MMA_TIDL_PATH,
-    "ti_dl/utils/tidlModelImport/out/tidl_model_import_relax.so",
-)
-TIDL_TOOLS_PATH = os.path.join(C7X_MMA_TIDL_PATH, "tidl_tools")
 
 
 def _has_import_so():
-    return os.path.isfile(RELAX_SO_PATH)
+    return has_tidl_tools()
 
 
 def _has_c7x_compiler():
@@ -381,7 +374,7 @@ class TestYOLOTIDL:
     _CALIB_INPUTS = _split_calib_frames(_CALIB_IMAGES)
 
     _COMPILER_CONFIG = {
-        "tidl_tools_path": TIDL_TOOLS_PATH,
+        **tidl_tools_config(),
         "num_calibration_frames": len(_CALIB_INPUTS) if _CALIB_INPUTS else 1,
         "calibration_inputs": _CALIB_INPUTS,  # real boundary activations per subgraph
         "skip_failing_subgraphs": True,
@@ -391,7 +384,7 @@ class TestYOLOTIDL:
     @pytest.fixture(autouse=True)
     def _check_deps(self):
         if not _has_import_so():
-            pytest.fail(f"tidl_model_import_relax.so not found at {RELAX_SO_PATH}")
+            pytest.fail("TIDL tools directory not staged")
         if not _has_c7x_compiler():
             pytest.fail("TI_CGT_C7000_PATH not set")
 
@@ -604,7 +597,7 @@ def main():
             config={
                 "board": get_current_board(),
                 "artifacts_dir": f"/tmp/tidl_viz_{model_name}",
-                "tidl_tools_path": TIDL_TOOLS_PATH,
+                **tidl_tools_config(),
                 "num_calibration_frames": 2,
             }
         )

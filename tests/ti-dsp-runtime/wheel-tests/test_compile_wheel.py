@@ -32,7 +32,6 @@ class TestCompileWheelContents:
     def test_tvm_imports(self):
         """Core TVM modules must be importable."""
         import tvm
-        from tvm import relax
         assert tvm.__version__
 
     def test_llvm_enabled(self):
@@ -72,54 +71,35 @@ class TestCompileWheelContents:
         assert (fw_dir / "libc7x_arm_runtime.so").exists()
 
     @_skip_source_tree
-    def test_tidl_so_bundled(self):
-        """TIDL import .so must be bundled."""
-        from tvm.data.ti_dsp.paths import find_tidl_relax_so
-        path = find_tidl_relax_so()
-        assert path is not None, "tidl_model_import_relax.so not found"
-
-    @_skip_source_tree
-    def test_tidl_tools_bundled(self):
-        """The tools the TIDL import .so runs must be bundled, and used when
-        neither tidl_tools_path nor C7X_MMA_TIDL_PATH is set."""
+    def test_tidl_tools_dir_bundled(self):
+        """The TIDL tools directory must be complete in the wheel: the import
+        library, the tools it runs, the IOBufDesc layout and the c7x_host
+        libraries, with no SDK on disk."""
         import os
         from pathlib import Path
-        from unittest import mock
-        from tvm.data.ti_dsp.paths import find_tidl_tools_dir
-        from tvm.relax.backend.tidl._gate import resolve_tools_path
-        tools = find_tidl_tools_dir()
-        assert tools is not None, "tidl_tools not bundled"
-        for name in ("PC_dsp_test_dl_algo.out", "ti_cnnperfsim.out"):
-            assert os.access(Path(tools) / name, os.X_OK), f"{name} missing or not executable"
-        env = {k: v for k, v in os.environ.items() if k != "C7X_MMA_TIDL_PATH"}
-        with mock.patch.dict(os.environ, env, clear=True):
-            assert resolve_tools_path({}) == tools
 
-    @_skip_source_tree
-    def test_tidl_iobufdesc_layout_bundled(self):
-        """The IOBufDesc layout table must be bundled and valid, so TIDL
-        output padding works without itidl_io.h."""
-        from tvm.data.ti_dsp.paths import find_tidl_iobufdesc_layout
+        from tvm.relax.backend.tidl import tools
         from tvm.relax.backend.tidl.io_buf_desc import load_layout
-        path = find_tidl_iobufdesc_layout()
-        assert path is not None, "sTIDL_IOBufDesc_t.layout.json not found"
-        layout, source = load_layout()
-        assert source == path
-        assert layout["size"] > 0 and "outBufSize" in layout["fields"]
-
-    @_skip_source_tree
-    def test_tidl_host_bundle(self):
-        """c7x_host TIDL must build from the wheel: the glue archive, the
-        TIDL/MMALIB x86 archives and the dsp-cpp harness are bundled."""
-        from tvm.data.ti_dsp.paths import find_host_harness_dir, get_ti_dsp_path
-        harness = find_host_harness_dir()
-        assert harness is not None, "c7x_host harness not bundled"
-        assert (harness / "main_dsp.cpp").exists()
-        host = get_ti_dsp_path() / "lib" / "host"
+        root = Path(tools.tidl_tools_dir())
+        for need in ("import", "layout", "host"):
+            tools.tidl_tools_dir(need=need)
+        for name in ("PC_dsp_test_dl_algo.out", "ti_cnnperfsim.out"):
+            assert os.access(root / "tidl_tools" / name, os.X_OK), f"{name} not executable"
         for name in ("tidl_api_host", "tidl_algo", "tidl_ref", "tidl_priv", "tidl_kernels",
                      "tidl_avx_kernels", "tidl_custom", "mmalib_x86_64", "mmalib_cn_x86_64",
                      "common_x86_64"):
-            assert (host / f"lib{name}.a").exists(), f"lib{name}.a not bundled"
+            assert (root / "host" / f"lib{name}.a").exists(), f"lib{name}.a not bundled"
+        layout, source = load_layout()
+        assert source == str(root / tools.LAYOUT_FILE)
+        assert layout["size"] > 0 and "outBufSize" in layout["fields"]
+
+    @_skip_source_tree
+    def test_host_harness_bundled(self):
+        """The c7x_host build harness (dsp-cpp) must be bundled."""
+        from tvm.data.ti_dsp.paths import find_host_harness_dir
+        harness = find_host_harness_dir()
+        assert harness is not None, "c7x_host harness not bundled"
+        assert (harness / "main_dsp.cpp").exists()
 
     @_skip_source_tree
     def test_dynmod_infra_bundled(self):
@@ -143,6 +123,7 @@ class TestCompileWheelFunctionality:
     def test_torch_to_relax(self):
         """PyTorch model export to Relax IR must work."""
         import torch
+
         from tvm.relax.frontend.torch import from_exported_program
 
         model = torch.nn.Linear(16, 4)
@@ -154,7 +135,6 @@ class TestCompileWheelFunctionality:
 
     def test_relax_build_llvm_reference(self):
         """relax.build with LLVM target must work for CPU reference."""
-        import numpy as np
         import torch
 
         import tvm

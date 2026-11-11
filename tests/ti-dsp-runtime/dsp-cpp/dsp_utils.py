@@ -128,6 +128,10 @@ _current_test_name: Optional[str] = None
 # actually need one (c7x_dload); c7x_host emulation never reads this.
 _current_board: Optional[str] = None
 
+# TIDL tools directory selected via --tidl-tools-dir (set by
+# tests/ti-dsp-runtime/conftest.py). None means the one in the tvm package.
+_tidl_tools_dir: Optional[str] = None
+
 # am67a is j722s-evm's default SSH hostname, not a distinct board.
 _BOARD_DEFAULT_HOSTNAME = {"j722s-evm": "am67a", "beagley-ai": "beagley-ai", "am62d": "am62d"}
 
@@ -151,6 +155,36 @@ def set_current_board(board: Optional[str]) -> None:
 def get_current_board() -> Optional[str]:
     """Get the target board selected via --board, or None if unspecified."""
     return _current_board
+
+
+def set_tidl_tools_dir(path: Optional[str]) -> None:
+    """Set the TIDL tools directory selected via --tidl-tools-dir (None: packaged)."""
+    global _tidl_tools_dir
+    _tidl_tools_dir = path
+
+
+def tidl_tools_config() -> dict:
+    """TIDLOffloadCompiler config entries that select the TIDL tools directory.
+
+    Empty unless --tidl-tools-dir was given, so the compiler uses the TIDL
+    tools in the tvm package. Merge into a test's config: ``{**tidl_tools_config(), ...}``.
+    """
+    return {"tidl_tools_dir": _tidl_tools_dir} if _tidl_tools_dir else {}
+
+
+def has_tidl_tools(need: str = "import") -> bool:
+    """True if the TIDL tools directory has what *need* uses.
+
+    *need* is as in ``tvm.relax.backend.tidl.tools.tidl_tools_dir``:
+    ``"import"`` (partition/import), ``"layout"`` or ``"host"`` (c7x_host link).
+    """
+    from tvm.relax.backend.tidl import tools  # noqa: PLC0415
+
+    try:
+        tools.tidl_tools_dir(tidl_tools_config(), need=need)
+    except FileNotFoundError:
+        return False
+    return True
 
 
 def get_current_device() -> Optional[str]:
@@ -778,6 +812,7 @@ def build_dsp_c7x_host(
     tidl_bridge: Optional[str] = None,
     use_tidl: bool = False,
     tidl_artifacts_dir: Optional[str] = None,
+    tidl_config: Optional[dict] = None,
 ) -> Path:
     """
     Build DSP executable for C7x host emulation using TI Host Emulation library.
@@ -799,6 +834,8 @@ def build_dsp_c7x_host(
         use_tidl: If True, pass -DUSE_TIDL=ON to cmake to link PC TIDL algo libs.
         tidl_artifacts_dir: Directory with TIDL artifacts (subgraph*_net.bin etc.).
                             Required when use_tidl=True.
+        tidl_config: TIDL compiler config; its ``tidl_tools_dir`` (if any) selects
+                     the TIDL tools directory whose host/ libraries are linked.
 
     Returns:
         Path to the cg_dsp executable
@@ -846,7 +883,10 @@ def build_dsp_c7x_host(
         else:
             cmake_cmd.append(f"-DTIDL_BRIDGE_SOURCES={tidl_bridge}")
     if use_tidl:
+        from tvm.relax.backend.tidl import tools as tidl_tools  # noqa: PLC0415
+
         cmake_cmd.append("-DUSE_TIDL=ON")
+        cmake_cmd.append(f"-DTIDL_HOST_LIB_DIR={tidl_tools.host_lib_dir(tidl_config)}")
     if tidl_artifacts_dir:
         cmake_cmd.append(f"-DTIDL_ARTIFACTS_DIR={tidl_artifacts_dir}")
     if get_current_device() == "am62d":
