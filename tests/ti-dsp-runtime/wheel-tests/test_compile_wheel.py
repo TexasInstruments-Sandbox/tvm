@@ -73,15 +73,14 @@ class TestCompileWheelContents:
     @_skip_source_tree
     def test_tidl_tools_dir_bundled(self):
         """The TIDL tools directory must be complete in the wheel: the import
-        library, the tools it runs, the IOBufDesc layout and the c7x_host
-        libraries, with no SDK on disk."""
+        library, the tools it runs and the c7x_host libraries, with no SDK on
+        disk."""
         import os
         from pathlib import Path
 
         from tvm.relax.backend.tidl import tools
-        from tvm.relax.backend.tidl.io_buf_desc import load_layout
         root = Path(tools.tidl_tools_dir())
-        for need in ("import", "layout", "host"):
+        for need in ("import", "host"):
             tools.tidl_tools_dir(need=need)
         for name in ("PC_dsp_test_dl_algo.out", "ti_cnnperfsim.out"):
             assert os.access(root / "tidl_tools" / name, os.X_OK), f"{name} not executable"
@@ -89,9 +88,8 @@ class TestCompileWheelContents:
                      "tidl_avx_kernels", "tidl_custom", "mmalib_x86_64", "mmalib_cn_x86_64",
                      "common_x86_64"):
             assert (root / "host" / f"lib{name}.a").exists(), f"lib{name}.a not bundled"
-        layout, source = load_layout()
-        assert source == str(root / tools.LAYOUT_FILE)
-        assert layout["size"] > 0 and "outBufSize" in layout["fields"]
+        # The import library reports output info itself (no layout table).
+        assert not (root / "sTIDL_IOBufDesc_t.layout.json").exists()
 
     @_skip_source_tree
     def test_host_harness_bundled(self):

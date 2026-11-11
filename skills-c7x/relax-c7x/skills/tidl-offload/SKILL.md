@@ -16,11 +16,12 @@ Use TIDL for standard CNN topologies where entire subgraphs can be offloaded for
 ```
 Relax IR
   → Partition (FuseOpsByPattern + MergeCompositeFunctions, Codegen="tidl")
-  → TIDL Import (tidl_import() via Relax FFI → net.bin + params_1.bin)
+  → TIDL Import (tidl_import() via Relax FFI → net.bin + params_1.bin, plus
+    per-output records from TIDL_relaxGetOutputInfo → artifacts[name]["outputs"])
   → Lower (LowerTIDLToTIR: replace TIDL funcs with call_extern stubs)
   → Output Dtype Fixup (_fix_output_dtype_mismatches(): compares each
-    subgraph's actual output element type/scale/zero-point, read from
-    params_1.bin, against what its TIR stub declares; inserts a dequant/
+    subgraph's actual output element type/scale/zero-point, from the
+    "outputs" records, against what its TIR stub declares; inserts a dequant/
     cast in @main at the call_tir site on mismatch — see README.md's
     "Pipeline" section for the exact formula and known pitfalls)
   → c_static_lib Codegen (emit lib0.c + weights.bin; sets `-tidl-runtime=1` target attr;
@@ -90,6 +91,11 @@ Consequences:
   per pattern-check call (`.verdict`, `.reason`, the synthesised `.composite`);
   `TIDL_relaxGetLastRejectReason` returns the last one, including
   `[constraint: <TIDL catalogue text>]` when TIDL's own constraint failed.
+- **`TIDL_relaxGetOutputInfo(artifacts_dir, sg_id)`** returns, as JSON, what TIDL writes per
+  output of an imported subgraph (element type, channels, `padCh`, `channelPitch`, batches/dims,
+  `bufSize`, scale, zero point, name) plus `compiled` (net.bin's `isGCInfoAvailable`). It reads
+  the `params_1.bin` the library wrote, with its own `itidl_io.h`, so the layout never drifts;
+  added on c7x-mma-tidl `tvm-relax-output-info`. Wrapped by `output_info.query()`.
 - **`TIDL_relaxDescribeNode(call)`** returns the parsed layer as JSON (metadata
   dims/dtypes, and layer params such as axis/stride/pad/slice points). Use it to
   test that an *accepted* op was parsed correctly: a wrong axis is accepted and
@@ -129,6 +135,8 @@ docs). Grouped by category:
 4. For each composite: lift constants, construct synthetic `relax.Call`, import node, link edges
 5. `TIDL_relaxOptimizeNet()` — run network compiler
 6. `TIDL_relaxPostProcessNet()` — write net.bin + params_1.bin
+7. `TIDL_relaxGetOutputInfo()` — per-output records, stored as `artifacts[name]["outputs"]`
+   (`output_info.query`); fails the compile on error or `compiled: false`
 
 Config: `artifacts_dir`, `tidl_tools_dir`, `num_calibration_frames`,
 `skip_failing_subgraphs`, `max_subgraphs`, and **`calibration_inputs`**
@@ -152,14 +160,17 @@ before the first inference request — needed for YOLO offloading). Each
 `tidl_bridge_cleanup()` frees all persistent TIDL handles via
 `free_tidl_subgraph()` at module teardown.
 
-Output sizing reads `params_1.bin` via `io_buf_desc.py`, using `sTIDL_IOBufDesc_t.layout.json`
-from the TIDL tools directory. Missing layout / descriptor or a size mismatch is a compile error
-(it used to warn and skip output padding).
+Output sizing (`PadTIDLOutputStorage`) and the dtype fix-up use the `"outputs"` records
+(`output_info.TIDLOutput`): `.storage_bytes()` is TI's harness formula `(C + padCh + 1) *
+pitch * esize * esize` (keep both `esize` factors), `.slot` comes from the output name
+`tidl_<sg>_o<slot>` (TIDL can reorder outputs). TVM has no struct parser or layout table. An
+error, `compiled: false` (network compiler did not run: padding unknown) or a `.so` without the
+function fails the compile; there is no fallback.
 
 ## TIDL Tools Directory
 
-Every prebuilt TIDL file the compile reads (import `.so`s, `tidl_tools/`, the layout JSON, and
-`host/` with `libtidl_api_host.a` + TIDL/MMALIB x86 libs for `c7x_host`) lives in one directory,
+Every prebuilt TIDL file the compile reads (import `.so`s, `tidl_tools/`, and `host/` with
+`libtidl_api_host.a` + TIDL/MMALIB x86 libs for `c7x_host`) lives in one directory,
 resolved only by `python/tvm/relax/backend/tidl/tools.py`:
 
 1. `config["tidl_tools_dir"]` if set; else 2. the packaged `tvm/data/ti_dsp/tidl`; else 3. error.
@@ -222,7 +233,9 @@ Device config: `DEVICE_NAME=4` = TIDL_AM62A (C7504 with MMA2, single-core).
 
 1. `appMemAlloc` must use `tvm_dsp_alloc` (128 MB DDR), not RTS heap (128 KB)
 2. `traceWriteLevel` must be 0 unless `TIDLWriteBinToFile` callback provided
-3. IOBufDesc uses `TIDL_IO_MAX_NUM_CORES=4` (from source header), not SOC-dependent value
+3. IOBufDesc uses `TIDL_IO_MAX_NUM_CORES=4` (from source header), not SOC-dependent value. TVM
+   no longer reads the struct itself (`TIDL_relaxGetOutputInfo` does), but `tidl_api.c` still
+   reads the embedded `params_1.bin` on the device with that layout
 4. DLOAD modules must call `appUdmaGetObj()`, never `getUDMADrvObjPtr()`
 5. Import `.so` resolves paths relative to CWD
 6. **`parse_conv2d_impl()` must set `actParams.actType` for relu/clip variants.**
@@ -330,7 +343,7 @@ For general test debugging (DSP_KEEP_TEMP, failure modes), see `relax-c7x:testin
 | `python/tvm/relax/backend/tidl/tidl.py` | TIDLOffloadCompiler: partition, import, lower, bridge, codegen_and_build |
 | `python/tvm/contrib/c7x/io_meta.py` | `write_io_meta()`/`compute_io_meta()` — the `tvm_dsp_io_meta.bin` blob |
 | `src/runtime/ti_dsp/tidl/tidl_api.c` | IALG lifecycle on-device (built into the firmware) |
-| `python/tvm/relax/backend/tidl/io_buf_desc.py` | `params_1.bin` reader + layout-table writer |
+| `python/tvm/relax/backend/tidl/output_info.py` | per-output records from `TIDL_relaxGetOutputInfo`; storage-size formula |
 | `python/tvm/relax/backend/tidl/tools.py` | resolves the TIDL tools directory (config, else packaged, else error) |
 | `packaging/ti_dsp/stage_tidl_tools.sh` | stages the TIDL tools directory from c7x-mma-tidl + PSDK |
 | `src/runtime/ti_dsp/tidl/tidl_api_mem.c` | appMemAlloc/Free wrappers |

@@ -42,7 +42,7 @@ from tvm.ir import IRModule
 from tvm.relax import transform
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
-from . import _gate
+from . import _gate, output_info
 from . import tools as tidl_tools
 from .constant_chains import fold_constant_only_chains
 from .patterns import get_tidl_patterns
@@ -919,11 +919,14 @@ class TIDLOffloadCompiler:
                 raise RuntimeError(_errmsg)
 
             # Record artifact paths; store sg_id directly so lower_tidl
-            # can recover it without parsing file names.
+            # can recover it without parsing file names. "outputs" is what
+            # TIDL writes per output, for output sizing and dtype fix-up; a
+            # failure here fails the compile (see output_info.query).
             artifacts[sg_name] = {
                 "net_bin": os.path.join(artifacts_dir, f"subgraph{sg_id}_net.bin"),
                 "io_bin": os.path.join(artifacts_dir, f"subgraph{sg_id}_params_1.bin"),
                 "sg_id": sg_id,
+                "outputs": output_info.query(artifacts_dir, sg_id),
             }
             logger.info("Subgraph %d (%s) imported successfully", sg_id, sg_name)
 
@@ -973,7 +976,6 @@ class TIDLOffloadCompiler:
             mod,
             failed_subgraphs=failed_subgraphs or set(),
             artifacts=artifacts,
-            config=self.config,
         )
 
     # ------------------------------------------------------------------
@@ -1084,16 +1086,15 @@ class TIDLOffloadCompiler:
     def _fix_output_dtype_mismatches(self, mod: IRModule, artifacts: Dict) -> IRModule:
         """Compare TIDL actual output dtypes vs Relax declared dtypes; insert casts if mismatch.
 
-        Reads each subgraph's params_1.bin via io_buf_desc, compares outElementType
-        against the TIR stub's declared output dtype (from lowering), and if mismatched:
-        inserts astype + dequant math in @main at the call site.
+        Compares each subgraph's TIDL output element types (the artifacts'
+        ``"outputs"``, from output_info.query) against the TIR stub's declared
+        output dtype (from lowering), and if mismatched: inserts astype + dequant
+        math in @main at the call site.
 
         Note: This runs AFTER lower_tidl, so TIDL functions are already TIR stubs.
         The subgraph return type rewriting is not needed since TIR stubs are created
         with the correct output types from the artifacts.
         """
-        from .io_buf_desc import load_layout, read_io_buf_desc
-
         # Find all TIDL subgraph TIR stubs in the module
         tidl_stubs = {}
         for gv, func in mod.functions_items():
@@ -1114,16 +1115,12 @@ class TIDLOffloadCompiler:
         # For each subgraph stub, compare dtypes
         mismatches = {}  # stub_name -> list of (output_idx, tvm_dtype, tidl_dtype, scale_inv, zp)
 
-        # A missing layout or descriptor is fatal: skipping it would ship the
-        # model with TVM's declared output dtypes instead of TIDL's.
-        layout, layout_src = load_layout(config=self.config)
+        # Missing output info is fatal: skipping it would ship the model with
+        # TVM's declared output dtypes instead of TIDL's.
         for stub_name, (gv, func, art, sg_id) in tidl_stubs.items():
-            io_bin = art.get("io_bin")
-            if not io_bin or not os.path.isfile(io_bin):
-                raise FileNotFoundError(
-                    f"TIDL output descriptor for {stub_name} not found (io_bin={io_bin!r})"
-                )
-            desc = read_io_buf_desc(io_bin, layout, layout_src)
+            outputs = art.get("outputs")
+            if outputs is None:
+                raise RuntimeError(f"No TIDL output info for {stub_name} (sg_id={sg_id})")
 
             # Get Relax declared output dtypes from the TIR stub's buffer parameters
             output_sinfos = []
@@ -1137,25 +1134,23 @@ class TIDLOffloadCompiler:
 
             tvm_dtypes = [str(dt) for dt in output_sinfos]
 
-            # Get TIDL actual output dtypes from descriptor
-            num_out = desc.scalar("numOutputBuf")
-            tidl_elem_types = desc.ints("outElementType", num_out)
-            tidl_scales = desc.floats("outTensorScale", num_out)
-            tidl_zps = desc.ints("outZeroPoint", num_out)
-            slot_map = desc.output_slot_map(num_out)
-
             # TIDL may reorder outputs during compilation (see
-            # io_buf_desc.TIDLIOBufDesc.output_slot_map); re-key every
-            # per-output field by TVM output slot before comparing against
-            # tvm_dtypes, which is already in TVM output-param order.
+            # output_info.TIDLOutput.slot); re-key every per-output field by
+            # TVM output slot before comparing against tvm_dtypes, which is
+            # already in TVM output-param order.
             by_slot: Dict[int, tuple] = {}
-            for i in range(num_out):
-                elem_type = tidl_elem_types[i]
-                tidl_dtype = _TIDL_ELEMENT_TYPE_TO_DTYPE.get(elem_type)
+            for i, out in enumerate(outputs):
+                tidl_dtype = _TIDL_ELEMENT_TYPE_TO_DTYPE.get(out.element_type)
                 if tidl_dtype is None:
-                    logger.warning(f"{stub_name} output {i}: unknown TIDL element type {elem_type}")
+                    logger.warning(
+                        f"{stub_name} output {i}: unknown TIDL element type {out.element_type}"
+                    )
                     continue
-                by_slot[slot_map[i]] = (tidl_dtype, tidl_scales[i], tidl_zps[i])
+                by_slot[output_info.slot_of(outputs, i)] = (
+                    tidl_dtype,
+                    out.tensor_scale,
+                    out.zero_point,
+                )
 
             # Compare per output
             for idx, tvm_dt in enumerate(tvm_dtypes):
@@ -2451,7 +2446,6 @@ def _lower_tidl_pass(
     mod: IRModule,
     failed_subgraphs=None,
     artifacts=None,
-    config: Optional[Dict[str, Any]] = None,
 ) -> IRModule:
     """Implementation of the LowerTIDLToTIR pass.
 
@@ -2467,9 +2461,6 @@ def _lower_tidl_pass(
         Artifact dict from tidl_import, keyed by subgraph function name.
         Each entry must contain an ``"sg_id"`` key so bridge symbol
         names stay consistent when subgraphs are skipped.
-    config : dict, optional
-        Compiler config; ``tidl_tools_dir`` selects the TIDL tools directory
-        whose layout table sizes the subgraph outputs.
     """
     if failed_subgraphs is None:
         failed_subgraphs = set()
@@ -2565,29 +2556,22 @@ def _lower_tidl_pass(
     # PadTIDLOutputStorage can grow the allocation after memory planning.
     # TIDL writes outPadCh padding channels plus a spare past the logical
     # tensor, and the planner only knows shape x dtype -- see
-    # io_buf_desc.py and output_storage.py.  Built here because it needs the
+    # output_info.py and output_storage.py.  Built here because it needs the
     # stub name (enumeration index) alongside the artifacts key and sg_id,
     # which only coexist in this scope.
-    # A missing layout, a missing descriptor or a size mismatch fails the
-    # compile: without the padding a repeated inference corrupts the output
-    # tail, which is far harder to diagnose than a compile error.
+    # Missing output info fails the compile: without the padding a repeated
+    # inference corrupts the output tail, which is far harder to diagnose
+    # than a compile error.
     storage_bytes = {}
-    layout = None
     for idx, name in enumerate(success_funcs):
         sg_name = f"tidl_subgraph_{idx}"
         art = (artifacts or {}).get(name)
         if art is None:
             continue
-        io_bin = art.get("io_bin")
-        if not io_bin or not os.path.isfile(io_bin):
-            raise FileNotFoundError(
-                f"TIDL output descriptor for {sg_name} not found (io_bin={io_bin!r})"
-            )
-        from .io_buf_desc import load_layout, read_io_buf_desc  # noqa: PLC0415
-
-        if layout is None:
-            layout = load_layout(config=config)
-        slots = read_io_buf_desc(io_bin, *layout).output_byte_sizes()
+        outputs = art.get("outputs")
+        if outputs is None:
+            raise RuntimeError(f"No TIDL output info for {sg_name} ({name})")
+        slots = output_info.output_byte_sizes(outputs)
         if slots:
             storage_bytes[sg_name] = [slots.get(s, 0) for s in range(max(slots) + 1)]
 

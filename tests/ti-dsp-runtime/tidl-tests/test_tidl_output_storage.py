@@ -165,53 +165,92 @@ class TestPadTIDLOutputStoragePass:
         assert mod["main"] is not None
 
 
+def _output(name="tidl_0_o0", **kw):
+    from tvm.relax.backend.tidl.output_info import TIDLOutput
+
+    fields = dict(
+        name=name, element_type=1, num_channels=8, pad_ch=0, channel_pitch=256,
+        num_batches=1, dim1=1, dim2=1, buf_size=8 * 256, tensor_scale=1.0, zero_point=0,
+    )
+    fields.update(kw)
+    return TIDLOutput(**fields)
+
+
 @pytest.mark.quick
 @pytest.mark.core
-class TestIOBufDescReader:
-    """The descriptor reader must validate its own layout assumptions."""
+class TestOutputInfo:
+    """What the import library reports about each output, and how TVM uses it."""
+
+    def test_storage_includes_pad_and_spare_channels(self):
+        # int8: (8 real + 2 pad + 1 spare) channels * 256 elements.
+        assert _output(pad_ch=2).storage_bytes() == (8 + 2 + 1) * 256
+
+    def test_storage_never_below_reported_buf_size(self):
+        assert _output(buf_size=100000).storage_bytes() == 100000
+
+    def test_storage_squares_element_size(self):
+        """TI's harness multiplies by the element size twice; keep it."""
+        out = _output(element_type=6, buf_size=0)  # float32
+        assert out.storage_bytes() == (8 + 0 + 1) * 256 * 4 * 4
+
+    def test_slot_follows_output_name(self):
+        from tvm.relax.backend.tidl import output_info
+
+        outs = [_output("tidl_0_o1"), _output("tidl_0_o0"), _output("unnamed")]
+        assert [output_info.slot_of(outs, i) for i in range(3)] == [1, 0, 2]
+        assert set(output_info.output_byte_sizes(outs)) == {0, 1, 2}
 
     @staticmethod
-    def _staged_layout():
-        from tvm.relax.backend.tidl import io_buf_desc
+    def _fake_ffi(monkeypatch, reply):
+        import tvm
+        from tvm.relax.backend.tidl import output_info
 
-        try:
-            return io_buf_desc.load_layout(config=tidl_tools_config())
-        except FileNotFoundError:
-            pytest.skip("TIDL tools directory not staged")
+        real = tvm.get_global_func
+        monkeypatch.setattr(
+            tvm,
+            "get_global_func",
+            lambda name, allow_missing=False: (
+                (lambda d, sg: reply) if name == output_info.FFI_NAME
+                else real(name, allow_missing=allow_missing)
+            ),
+        )
+        return output_info
 
-    def test_rejects_layout_mismatch(self, tmp_path):
-        """A short blob must raise, not silently read fields at wrong offsets.
+    def test_query_parses_records(self, monkeypatch):
+        reply = (
+            '{"numOutputBuf":1,"inferenceMode":0,"numCores":1,"compiled":true,"outputs":'
+            '[{"name":"tidl_3_o0","elementType":1,"numChannels":8,"padCh":2,'
+            '"channelPitch":256,"numBatches":1,"dim1":1,"dim2":1,"width":16,"height":16,'
+            '"padL":0,"padR":0,"padT":0,"padB":0,"bufSize":2560,"zeroPoint":0,'
+            '"tensorScale":0.5}]}'
+        )
+        (out,) = self._fake_ffi(monkeypatch, reply).query("/a", 3)
+        assert (out.slot, out.pad_ch, out.tensor_scale) == (0, 2, 0.5)
 
-        tidl_api.c documents how a TIDL_MAX_NUM_CORES mismatch shifts every
-        field in this struct; reading garbage offsets would produce a plausible
-        but wrong allocation size.
-        """
-        from tvm.relax.backend.tidl import io_buf_desc
+    def test_query_error_is_raised(self, monkeypatch):
+        oi = self._fake_ffi(monkeypatch, '{"error":"cannot open /a/subgraph3_params_1.bin"}')
+        with pytest.raises(RuntimeError, match="cannot open"):
+            oi.query("/a", 3)
 
-        layout, _ = self._staged_layout()
-        blob = tmp_path / "subgraph0_params_1.bin"
-        blob.write_bytes(b"\0" * layout["size"])
-        desc = io_buf_desc.read_io_buf_desc(str(blob), layout)
-        assert desc.scalar("numOutputBuf") == 0
-        blob.write_bytes(b"\0" * (layout["size"] - 4))
-        with pytest.raises(ValueError, match="layout mismatch"):
-            io_buf_desc.read_io_buf_desc(str(blob), layout)
+    def test_query_rejects_import_without_network_compiler(self, monkeypatch):
+        reply = '{"numOutputBuf":0,"inferenceMode":0,"numCores":1,"compiled":false,"outputs":[]}'
+        with pytest.raises(RuntimeError, match="network compiler"):
+            self._fake_ffi(monkeypatch, reply).query("/a", 3)
 
-    def test_staged_table_matches_parser(self, tmp_path):
-        """The staged table must round-trip through the writer used to make it."""
-        from tvm.relax.backend.tidl import io_buf_desc
+    def test_query_needs_a_new_enough_library(self, monkeypatch):
+        import tvm
+        from tvm.relax.backend.tidl import output_info
 
-        layout, source = self._staged_layout()
-        assert source.endswith(io_buf_desc.LAYOUT_FILE)
-        assert layout["size"] > 0 and "outBufSize" in layout["fields"]
-
-    def test_rejects_invalid_table(self, tmp_path):
-        from tvm.relax.backend.tidl import io_buf_desc
-
-        table = tmp_path / io_buf_desc.LAYOUT_FILE
-        table.write_text('{"struct": "something_else", "size": 4, "fields": {}}')
-        with pytest.raises(ValueError, match="not a valid"):
-            io_buf_desc._load_layout_json(str(table))
+        real = tvm.get_global_func
+        monkeypatch.setattr(
+            tvm,
+            "get_global_func",
+            lambda name, allow_missing=False: (
+                None if name == output_info.FFI_NAME else real(name, allow_missing=allow_missing)
+            ),
+        )
+        with pytest.raises(RuntimeError, match="predates"):
+            output_info.query("/a", 3)
 
 
 @pytest.mark.quick

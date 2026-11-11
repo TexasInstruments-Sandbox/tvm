@@ -145,7 +145,7 @@ build_x86() {
     if [ "$TIDL" = "ON" ]; then
         for f in tidl_model_import_relax.so tidl_model_custom_import.so \
                  tidl_tools/PC_dsp_test_dl_algo.out tidl_tools/ti_cnnperfsim.out \
-                 tidl_tools/device_config.cfg sTIDL_IOBufDesc_t.layout.json \
+                 tidl_tools/device_config.cfg \
                  host/libtidl_api_host.a; do
             check_file "$TIDL_TOOLS_SRC/$f" \
                 "Stage the TIDL tools: cd src/runtime/ti_dsp && bash build_runtime.sh tidl-tools (or pass --tidl OFF for a beagley-ai-style no-TIDL wheel)"

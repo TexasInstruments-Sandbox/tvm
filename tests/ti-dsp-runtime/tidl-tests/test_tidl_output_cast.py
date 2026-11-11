@@ -7,7 +7,7 @@ Or a quantized subgraph outputs int8 but the rest of the graph expects
 float32.
 
 ``TIDLOffloadCompiler._fix_output_dtype_mismatches`` reads each subgraph's
-``params_1.bin`` (via ``io_buf_desc``), compares TIDL's actual per-output
+TIDL output info (``output_info``), compares TIDL's actual per-output
 element type/scale/zero-point against the dtype the lowered TIR stub
 declares, and -- on mismatch -- inserts dequant/cast math in ``@main`` at the
 call site via ``_insert_output_casts_in_main``.
@@ -28,18 +28,16 @@ These tests pin down three bugs found by review of the first implementation:
    inversion).
 3. Per-output TIDL fields were compared against Relax output dtypes by raw
    descriptor position, ignoring that TIDL can reorder output slots
-   (``outDataName``, see ``io_buf_desc.TIDLIOBufDesc.output_slot_map``).
+   (``outDataName``, see ``output_info.TIDLOutput.slot``).
 """
 
-import struct
-import tempfile
-
 import pytest
+
 import tvm
 from tvm import relax
 from tvm.relax.analysis import post_order_visit
 from tvm.relax.backend.tidl import TIDLOffloadCompiler
-from tvm.relax.backend.tidl.io_buf_desc import TIDLIOBufDesc
+from tvm.relax.backend.tidl.output_info import TIDLOutput, slot_of
 from tvm.relax.backend.tidl.tidl import _collect_tidl_subgraph_info
 
 pytestmark = [pytest.mark.quick, pytest.mark.core]
@@ -132,12 +130,21 @@ def _const_value(expr):
 # ---------------------------------------------------------------------------
 
 
-def _patch_desc(monkeypatch, desc):
-    """Make _fix_output_dtype_mismatches read *desc* for every subgraph."""
-    monkeypatch.setattr(
-        "tvm.relax.backend.tidl.io_buf_desc.load_layout", lambda *a, **k: ({}, "fake")
+def _out(name, element_type, scale, zp):
+    """A TIDL output record as tidl_import stores it in the artifacts."""
+    return TIDLOutput(
+        name=name,
+        element_type=element_type,
+        num_channels=1,
+        pad_ch=0,
+        channel_pitch=1,
+        num_batches=1,
+        dim1=1,
+        dim2=1,
+        buf_size=1,
+        tensor_scale=scale,
+        zero_point=zp,
     )
-    monkeypatch.setattr("tvm.relax.backend.tidl.io_buf_desc.read_io_buf_desc", lambda *a, **k: desc)
 
 
 class TestOutputCastInsertion:
@@ -187,16 +194,9 @@ class TestOutputCastInsertion:
 
 class TestOutputSlotRemap:
     def test_output_slot_map_direct(self):
-        """TIDLIOBufDesc.output_slot_map must honor outDataName, not raw order."""
-        name0 = b"tidl_sg0_o1".ljust(16, b"\0")
-        name1 = b"tidl_sg0_o0".ljust(16, b"\0")
-        blob = struct.pack("<i", 2) + name0 + name1
-        fields = {
-            "numOutputBuf": (0, 1, 4, "int32_t", None),
-            "outDataName": (4, 2 * 16, 1, "int8_t", 16),
-        }
-        desc = TIDLIOBufDesc(fields, blob)
-        assert desc.output_slot_map(2) == [1, 0]
+        """The output slot must honor the output name, not raw order."""
+        outs = [_out("tidl_sg0_o1", 1, 1.0, 0), _out("tidl_sg0_o0", 1, 1.0, 0)]
+        assert [slot_of(outs, i) for i in range(2)] == [1, 0]
 
     def test_multi_output_mismatch_uses_remapped_slot(self, monkeypatch):
         """End-to-end: descriptor outputs are in reversed slot order; the
@@ -213,29 +213,10 @@ class TestOutputSlotRemap:
         silently miss both.
         """
 
-        class _FakeDesc:
-            def scalar(self, name):
-                assert name == "numOutputBuf"
-                return 2
-
-            def ints(self, name, count=None):
-                return {"outElementType": [6, 1], "outZeroPoint": [7, 10]}[name]
-
-            def floats(self, name, count=None):
-                assert name == "outTensorScale"
-                return [4.0, 3.0]
-
-            def output_slot_map(self, num_out=None):
-                return [1, 0]
-
-        _patch_desc(monkeypatch, _FakeDesc())
-
+        outputs = [_out("tidl_0_o1", 6, 4.0, 7), _out("tidl_0_o0", 1, 3.0, 10)]
         mod = _build_module("tidl_subgraph_0", ["float32", "int8"])
-
-        with tempfile.NamedTemporaryFile() as f:
-            artifacts = {"tidl_subgraph_0": {"sg_id": 0, "io_bin": f.name}}
-            compiler = TIDLOffloadCompiler()
-            new_mod = compiler._fix_output_dtype_mismatches(mod, artifacts)
+        artifacts = {"tidl_subgraph_0": {"sg_id": 0, "outputs": outputs}}
+        new_mod = TIDLOffloadCompiler()._fix_output_dtype_mismatches(mod, artifacts)
 
         new_main = new_mod["main"]
         bindings = _binding_map(new_main)
@@ -273,24 +254,9 @@ class TestNarrowIntegerOutput:
 
     @staticmethod
     def _fix(monkeypatch):
-        class _FakeDesc:
-            def scalar(self, name):
-                return 1
-
-            def ints(self, name, count=None):
-                return {"outElementType": [0], "outZeroPoint": [3]}[name]
-
-            def floats(self, name, count=None):
-                return [2.0]
-
-            def output_slot_map(self, num_out=None):
-                return [0]
-
-        _patch_desc(monkeypatch, _FakeDesc())
         mod = _build_module("tidl_subgraph_0", ["int32"])
-        with tempfile.NamedTemporaryFile() as f:
-            artifacts = {"tidl_subgraph_0": {"sg_id": 0, "io_bin": f.name}}
-            return TIDLOffloadCompiler()._fix_output_dtype_mismatches(mod, artifacts)
+        artifacts = {"tidl_subgraph_0": {"sg_id": 0, "outputs": [_out("tidl_0_o0", 0, 2.0, 3)]}}
+        return TIDLOffloadCompiler()._fix_output_dtype_mismatches(mod, artifacts)
 
     def test_stub_output_buffer_is_retyped(self, monkeypatch):
         new_mod = self._fix(monkeypatch)

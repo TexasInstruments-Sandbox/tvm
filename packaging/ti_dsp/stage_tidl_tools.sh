@@ -12,12 +12,11 @@
 #   tidl_model_import_relax.so, tidl_model_custom_import.so   import library
 #   tidl_tools/        PC_dsp_test_dl_algo.out, ti_cnnperfsim.out,
 #                      device_config.cfg (run by the import library)
-#   sTIDL_IOBufDesc_t.layout.json   params_1.bin layout (from itidl_io.h)
 #   host/              libtidl_api_host.a, TIDL and MMALIB x86 archives
 #                      (c7x_host link)
 #
 # Everything comes from one c7x-mma-tidl tree, so the import library, the
-# tools, the layout and the host algo libraries match.
+# tools and the host algo libraries match.
 #
 # Usage:
 #   stage_tidl_tools.sh --c7x-mma-tidl <tree> --psdk <psdk> [--mmalib <mmalib>] <dest>
@@ -66,7 +65,6 @@ IMPORT_SOS="tidl_model_import_relax.so tidl_model_custom_import.so"
 TOOLS="$C7X_TIDL/ti_dl/test/PC_dsp_test_dl_algo.out
 $C7X_TIDL/ti_dl/utils/perfsim/ti_cnnperfsim.out
 $C7X_TIDL/ti_dl/test/testvecs/config/import/device_config.cfg"
-ITIDL_IO_H="$C7X_TIDL/arm-tidl/rt/inc/itidl_io.h"
 TIDL_PC_LIB_DIR="$C7X_TIDL/ti_dl/lib/J722S/PC/algo/release"
 # Names and order match TIDL_PC_LIB_NAMES / MMALIB_HOST_LIB_NAMES in
 # tests/ti-dsp-runtime/dsp-cpp/CMakeLists.txt.
@@ -80,7 +78,6 @@ done
 for f in $TOOLS; do
     check_file "$f" "Build c7x-mma-tidl first (build_j722s.sh)"
 done
-check_file "$ITIDL_IO_H" "Not a c7x-mma-tidl tree: $C7X_TIDL"
 for l in $TIDL_PC_LIBS; do
     check_file "$TIDL_PC_LIB_DIR/lib$l.a" "Build the c7x-mma-tidl J722S PC libs (build_j722s.sh)"
 done
@@ -93,6 +90,7 @@ echo ">>> Staging TIDL tools into $DEST"
 # Remove only what this script writes: in a wheel, <dest> is also the DSP
 # runtime's tidl/ directory and holds tidl_api.h, which the bridge includes.
 mkdir -p "$DEST"
+# sTIDL_IOBufDesc_t.layout.json: written by earlier versions, no longer used.
 for f in $IMPORT_SOS sTIDL_IOBufDesc_t.layout.json; do
     rm -f "$DEST/$f"
 done
@@ -109,12 +107,6 @@ done
 for f in $TOOLS; do
     cp -L "$f" "$DEST/tidl_tools/"
 done
-
-# sTIDL_IOBufDesc_t layout, for reading params_1.bin without the header
-# (itidl_io.h is not redistributable). The module has no module-level tvm
-# imports, so it runs without loading libtvm.
-python3 "$TVM_HOME/python/tvm/relax/backend/tidl/io_buf_desc.py" \
-    --header "$ITIDL_IO_H" --out "$DEST/sTIDL_IOBufDesc_t.layout.json"
 
 # c7x_host glue: build tidl_api.c and friends with the harness's own
 # tidl_api_host target, so the flags are those of a c7x_host build, and

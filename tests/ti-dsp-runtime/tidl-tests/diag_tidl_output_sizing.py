@@ -86,26 +86,18 @@ def _build_mv2():
     return mod, param_dict, input_data, calib
 
 
-def _report_sizing(io_bin: str, logical_bytes: int) -> None:
-    """Print the descriptor fields and the required-vs-logical comparison."""
-    from tvm.relax.backend.tidl.io_buf_desc import parse_io_buf_desc
+def _report_sizing(outputs, logical_bytes: int) -> None:
+    """Print the TIDL output info and the required-vs-logical comparison."""
+    from tvm.relax.backend.tidl import output_info
 
     print("\n" + "=" * 72)
-    print(f"OUTPUT SIZING from {os.path.basename(io_bin)}")
+    print("OUTPUT SIZING (TIDL_relaxGetOutputInfo)")
     print("=" * 72)
-    desc = parse_io_buf_desc(io_bin)
-    num_out = desc.scalar("numOutputBuf")
-    fields = (
-        "outWidth", "outHeight", "outNumChannels", "outNumBatches",
-        "outDIM1", "outDIM2", "outPadCh", "outChannelPitch",
-        "outElementType", "outBufSize",
-    )
-    for name in fields:
-        print(f"  {name:18s} = {desc.ints(name, num_out)}")
-    print(f"  {'outDataName':18s} = "
-          f"{[desc.name_at('outDataName', i) for i in range(num_out)]}")
+    for field in ("num_channels", "num_batches", "dim1", "dim2", "pad_ch",
+                  "channel_pitch", "element_type", "buf_size", "name"):
+        print(f"  {field:18s} = {[getattr(o, field) for o in outputs]}")
 
-    required = desc.output_byte_sizes()
+    required = output_info.output_byte_sizes(outputs)
     print(f"\n  required per slot : {required}")
     print(f"  logical tensor    : {logical_bytes} bytes")
     for slot, need in sorted(required.items()):
@@ -164,9 +156,7 @@ def main() -> int:
     logical = single.size * single.dtype.itemsize
 
     for sg in result.artifacts.values():
-        io_bin = sg.get("io_bin")
-        if io_bin and os.path.isfile(io_bin):
-            _report_sizing(io_bin, logical)
+        _report_sizing(sg["outputs"], logical)
 
     print("\n" + "=" * 72)
     print(f"REPEAT CHECK ({single.size} elements = {logical} bytes)")

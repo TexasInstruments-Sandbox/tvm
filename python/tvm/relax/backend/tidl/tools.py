@@ -21,7 +21,6 @@ directory, laid out by ``packaging/ti_dsp/stage_tidl_tools.sh``::
 
     tidl_model_import_relax.so, tidl_model_custom_import.so   import library
     tidl_tools/                     tools the import library runs
-    sTIDL_IOBufDesc_t.layout.json   params_1.bin layout
     host/                           c7x_host link libraries
 
 The directory is ``config["tidl_tools_dir"]`` if given, otherwise the copy in
@@ -38,7 +37,6 @@ CONFIG_KEY = "tidl_tools_dir"
 
 RELAX_SO = "tidl_model_import_relax.so"
 TOOLS_SUBDIR = "tidl_tools"
-LAYOUT_FILE = "sTIDL_IOBufDesc_t.layout.json"
 HOST_SUBDIR = "host"
 
 # What each part of the flow needs, for checking a directory up front.
@@ -49,7 +47,6 @@ _IMPORT_FILES = (
     os.path.join(TOOLS_SUBDIR, "ti_cnnperfsim.out"),
     os.path.join(TOOLS_SUBDIR, "device_config.cfg"),
 )
-_LAYOUT_FILES = (LAYOUT_FILE,)
 _HOST_FILES = (os.path.join(HOST_SUBDIR, "libtidl_api_host.a"),)
 
 _STAGE_HINT = (
@@ -82,12 +79,12 @@ def tidl_tools_dir(config: Optional[Dict[str, Any]] = None, *, need: str = "impo
     """Return the TIDL tools directory, checked for what *need* uses.
 
     *need* is ``"import"`` (partition and import: the import library and its
-    tools), ``"layout"`` (output sizing) or ``"host"`` (c7x_host link).
+    tools) or ``"host"`` (c7x_host link).
     Raises FileNotFoundError naming the directory and the missing files.
     """
     config = config or {}
     _check_removed_keys(config)
-    files = {"import": _IMPORT_FILES, "layout": _LAYOUT_FILES, "host": _HOST_FILES}[need]
+    files = {"import": _IMPORT_FILES, "host": _HOST_FILES}[need]
     configured = config.get(CONFIG_KEY)
     if configured is not None:
         return _require(
@@ -107,10 +104,6 @@ def relax_so_path(config: Optional[Dict[str, Any]] = None) -> str:
 def import_tools_path(config: Optional[Dict[str, Any]] = None) -> str:
     """The ``tidl_tools`` subdirectory the import library is told to run from."""
     return os.path.join(tidl_tools_dir(config), TOOLS_SUBDIR)
-
-
-def layout_path(config: Optional[Dict[str, Any]] = None) -> str:
-    return os.path.join(tidl_tools_dir(config, need="layout"), LAYOUT_FILE)
 
 
 def host_lib_dir(config: Optional[Dict[str, Any]] = None) -> str:

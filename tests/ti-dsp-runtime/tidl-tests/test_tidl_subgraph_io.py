@@ -35,7 +35,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dsp_utils import get_current_board, tidl_tools_config  # noqa: E402
 
 from tvm.relax.backend.tidl import TIDLOffloadCompiler  # noqa: E402
-from tvm.relax.backend.tidl.io_buf_desc import parse_io_buf_desc  # noqa: E402
 
 pytestmark = [pytest.mark.needs_tidl_so]
 
@@ -137,9 +136,7 @@ def test_every_subgraph_output_is_a_tidl_output_buffer():
         assert artifacts, "nothing was imported"
         assert len(artifacts) == 1, f"expected one subgraph, got {sorted(artifacts)}"
         (art,) = artifacts.values()
-        desc = parse_io_buf_desc(art["io_bin"])
-        n_out = desc.scalar("numOutputBuf")
-        names = sorted(desc.name_at("outDataName", i) for i in range(n_out))
+        names = sorted(o.name for o in art["outputs"])
         sg_id = art["sg_id"]
         assert names == [f"tidl_{sg_id}_o{k}" for k in range(3)], names
 
