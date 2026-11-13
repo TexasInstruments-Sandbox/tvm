@@ -117,7 +117,7 @@ zero bias -- fixed via `_resolve_constant_tensor` in
 
 ## `test_quantized_torchvision.py` sweep status
 
-80 candidate TorchVision classification models. 14 are excluded outright
+80 candidate TorchVision classification models. 13 are excluded outright
 (never run) -- see the corresponding `_EXCLUDED_*` set in
 `test_quantized_torchvision.py` for the exact model list:
 
@@ -126,19 +126,18 @@ zero bias -- fixed via `_resolve_constant_tensor` in
 | Int8 weight size alone exceeds the 256 MiB DLOAD DDR heap | 4 | `_EXCLUDED_WEIGHT_SIZE` |
 | Runtime DDR pool exhaustion at a late layer (not weight size) | 8 | `_EXCLUDED_DDR_OOM` |
 | TVM pass bug hit after quantization, not root-caused | 1 | `_EXCLUDED_QUANT_BUG` |
-| Genuine MMALIB misclassification | 1 | `_EXCLUDED_MISCLASSIFY` |
 
-Of the remaining 66, all but the `_KNOWN_FAILURES` below pass on `c7x_dload`
+Of the remaining 67, all but the `_KNOWN_FAILURES` below pass on `c7x_dload`
 with MMALIB on BeagleY-AI (2026-11-13).
 
 Each model must give the reference's top-1 class and, with MMALIB, stay within
-`_MAX_ABS_DIFF` (8.5) of its logits; `_TOP1_MATCH_ONLY` models are checked on
-top-1 alone. The logits are compared as floats. The bound is set like the
-per-model tests' `_ATOL`: twice the largest difference of a passing model on
-`c7x_host` and BeagleY-AI, rounded up to a multiple of 0.25. It catches a
-miscompile that leaves top-1 intact; it doesn't measure precision. For that,
-each run adds or replaces the model's row in `results/sweep_metrics.csv` (under
-`$WORKSPACE`, default the working directory, beside `cycles.csv`):
+`_MAX_ABS_DIFF` (8.5) of its logits. The logits are compared as floats. The
+bound is set like the per-model tests' `_ATOL`: twice the largest difference of
+a passing model on `c7x_host` and BeagleY-AI, rounded up to a multiple of 0.25.
+It catches a miscompile that leaves top-1 intact; it doesn't measure precision.
+For that, each run adds or replaces the model's row in
+`results/sweep_metrics.csv` (under `$WORKSPACE`, default the working directory,
+beside `cycles.csv`):
 
 | Column | Meaning |
 |---|---|
@@ -163,14 +162,6 @@ once its model passes.
 
 ### Notes on specific cases
 
-- **`squeezenet1_1`** exceeds `max_diff<=25` (27) but still classifies
-  correctly, so it's checked via top-1 match instead (`_TOP1_MATCH_ONLY`
-  in `test_quantized_torchvision.py`) rather than loosening the bound
-  for the whole sweep. `squeezenet1_0` (excluded) is not benign -- it
-  misclassifies outright. Root cause for both: MMALIB's closed-source
-  requantization kernel has no rounding-mode field, and SqueezeNet is
-  the only model here with no BatchNorm to reset the resulting per-layer
-  bias each block -- not fixable in our own code.
 - **`_EXCLUDED_DDR_OOM` (8 models)** all fail identically
   (`c7x: INFER failed: status=-11` / `Function call failed`) -- despite
   looking segfault-like, this is genuine DDR pool (`DDR_C7X_1_LOCAL_HEAP`,

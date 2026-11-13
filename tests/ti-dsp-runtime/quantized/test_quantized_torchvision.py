@@ -24,12 +24,10 @@ cycles on hardware. A model in _KNOWN_FAILURES that fails in a listed mode is
 reported as xfail with the measured reason.
 
 4 models are excluded: their int8 weight size alone exceeds the 256 MiB
-AM67A DLOAD DDR heap (DDR_C7X_1_LOCAL_HEAP). 7 more are excluded for a
+AM67A DLOAD DDR heap (DDR_C7X_1_LOCAL_HEAP). 8 more are excluded for a
 different reason: runtime DDR pool exhaustion at inference time (not
 weight size). 1 more (maxvit_t) is excluded because it hits a TVM pass
-bug after quantization. 1 more (squeezenet1_0) is excluded because its
-MMALIB output genuinely misclassifies. See _EXCLUDED below and
-quantized/README.md.
+bug after quantization. See _EXCLUDED below and quantized/README.md.
 
 Usage:
     pytest test_quantized_torchvision.py -v --dsp-mode=c7x_host --mmalib
@@ -108,32 +106,7 @@ _EXCLUDED_DDR_OOM = {
 # ti_eliminate_qdq_transparent.py. Not root-caused yet. See README.md.
 _EXCLUDED_QUANT_BUG = {"maxvit_t"}
 
-# squeezenet1_0's MMALIB path picks the wrong top-1 class entirely (157
-# instead of the correct 258) on the standard test image -- a genuine
-# misclassification, not numeric noise. Excluded rather than loosening
-# the tolerance, which would hide it. See README.md.
-#
-# mnasnet1_0 is NOT excluded here despite having regressed after
-# e992d3e5b7 ("Resolve MMALIB conv bias through reshape") -- see
-# README.md's "mnasnet1_0" section. Root cause was a pre-existing latent
-# bug in mmalib_conv2d_i8 (conv2d_impl in mmalib_wrappers.cpp silently
-# no-op'd for C_out > 1024, a stale guard left over from when default
-# bias/scale/shift used fixed-size stack buffers), now fixed by tiling
-# C_out in conv2d_impl. Regression test: test_mmalib_conv2d_cout_
-# boundary_dsp.py.
-_EXCLUDED_MISCLASSIFY = {"squeezenet1_0"}
-
-_EXCLUDED = (
-    _EXCLUDED_WEIGHT_SIZE | _EXCLUDED_DDR_OOM | _EXCLUDED_QUANT_BUG | _EXCLUDED_MISCLASSIFY
-)
-
-# squeezenet1_1's MMALIB output exceeds the elementwise max_diff=25 bound
-# (max_diff=30) but the top-1 prediction is still correct on the standard
-# test image -- the divergence is benign int8 logit noise, not a
-# classification bug. Checked the same way the non-MMALIB path below
-# already is (top-1 match) instead of loosening max_diff for everyone.
-# See README.md.
-_TOP1_MATCH_ONLY = {"squeezenet1_1"}
+_EXCLUDED = _EXCLUDED_WEIGHT_SIZE | _EXCLUDED_DDR_OOM | _EXCLUDED_QUANT_BUG
 
 TORCHVISION_MODELS = sorted(
     name for name, _ in get_all_classification_models() if name not in _EXCLUDED
@@ -266,9 +239,8 @@ def _run_test(model_name: str, dsp_mode: str, mmalib: bool, record_cycles) -> No
             f"{model_name}: top-1 mismatch: DSP={m['dsp_top1']}, ref={m['ref_top1']} "
             f"(reference margin {m['ref_margin']:.3f})"
         )
-    # _TOP1_MATCH_ONLY models, and the generic path without MMALIB, are checked on
-    # top-1 alone.
-    elif mmalib and model_name not in _TOP1_MATCH_ONLY and m["max_abs_diff"] > _MAX_ABS_DIFF:
+    # The generic path without MMALIB is checked on top-1 alone.
+    elif mmalib and m["max_abs_diff"] > _MAX_ABS_DIFF:
         failure = f"{model_name}: max |DSP - reference| {m['max_abs_diff']:.3f} > {_MAX_ABS_DIFF}"
     if failure is None:
         return
