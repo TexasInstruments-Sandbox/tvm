@@ -90,8 +90,8 @@ def _create_qdq_grouped_conv2d_model(
             )
             biased = bb.emit(relax.op.add(conv, bias_const))
             result = bb.emit(relax.op.quantize(biased, o_scale_const, o_zp_const, out_dtype="int8"))
-            bb.emit_output(result)
-        bb.emit_func_output(result)
+            out = bb.emit_output(result)
+        bb.emit_func_output(out)
 
     mod = bb.finalize()
     return mod, input_data, kernel_data, d_scale, w_scale, o_scale, bias_data

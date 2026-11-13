@@ -154,7 +154,12 @@ def _check_conv2d_mmalib_constraints(
     MMALIB constraints:
       - dilation must be 1x1
       - groups must be 1, unless allow_groups=True (see below)
-      - strides must be symmetric (strideX == strideY)
+      - strides must be symmetric (strideX == strideY) and 1 or 2: with
+        the plain OIHW weights and row input mmalib_conv2d_i8/i16 pass,
+        MMALIB_CNN_convolveBias_row aborts at stride 3 and gives wrong
+        output at stride 4 and above, for every kernel size, including
+        the 4x4/stride-4 and 16x16/stride-16 patch convs of ConvNeXt,
+        Swin and ViT. The depthwise path has the same 1-2 limit.
       - N must be 1
       - all shapes must be static
       - row-kernel geometry: when stride>1, padding must be either zero or
@@ -179,6 +184,13 @@ def _check_conv2d_mmalib_constraints(
 
     strides = [int(s) for s in attrs.strides]
     if strides[0] != strides[1]:
+        return False
+    if strides[0] > 2:
+        logger.info(
+            "MMALIB conv2d decline: stride=%d (MMALIB conv supports 1 or 2) -- "
+            "falling back to scalar path",
+            strides[0],
+        )
         return False
 
     if data_sinfo.shape is None or kernel_sinfo.shape is None:

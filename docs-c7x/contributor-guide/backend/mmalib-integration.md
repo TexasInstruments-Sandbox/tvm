@@ -103,9 +103,9 @@ TVM compilation, nothing at inference time.
 | Op | Dtype | Path | Constraints |
 |----|-------|------|-------------|
 | matmul | int8, int16 | legalize | 2D, dims multiples of 64 (i8) or 32 (i16) |
-| conv2d | int16 | legalize | N=1, symmetric stride, dilation=1, groups=1, C_out%32==0 |
-| conv2d (QDQ fused) | int8 | QDQ | N=1, symmetric stride, dilation=1, groups=1, C_out%64==0 |
-| conv2d (QDQ fused) | int16 | QDQ | N=1, symmetric stride, dilation=1, groups=1, C_out%32==0 |
+| conv2d | int16 | legalize | N=1, symmetric stride 1-2, dilation=1, groups=1, C_out%32==0 |
+| conv2d (QDQ fused) | int8 | QDQ | N=1, symmetric stride 1-2, dilation=1, groups=1, C_out%64==0 |
+| conv2d (QDQ fused) | int16 | QDQ | N=1, symmetric stride 1-2, dilation=1, groups=1, C_out%32==0 |
 | depthwise conv2d (QDQ fused) | int8 | QDQ | N=1, groups=C_in, kernel 3x3/5x5/7x7, stride 1-2, dilation=1 |
 | depthwise conv2d (QDQ fused) | int16 | QDQ | N=1, groups=C_in, **3×3 only** (MMALIB-882), stride 1-2, dilation=1 |
 | matmul_bias (FC, QDQ fused) | int8 | QDQ | K%64==0, N%64==0, weight [N,K] transposed internally |

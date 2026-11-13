@@ -16,9 +16,16 @@ decline:
      one EfficientNet-b1/b3/b4/b5 layer lands on H_in=15, pad=2 (sum=19,
      odd).
 
+A fourth doesn't abort: regular conv2d at stride 3 aborts, but at stride 4
+and above it returns wrong values for every kernel size, so ConvNeXt's,
+Swin's and ViT's patch convs (4x4/stride 4, 16x16/stride 16) compute
+garbage that a loose output check can miss. Regular conv2d is limited to
+stride 1 or 2, as depthwise already is.
+
 The fusion passes must decline these geometries at compile time (fall
 back to the existing, already-proven scalar/non-MMALIB QDQ conv2d path)
-instead of emitting a call_extern that aborts the DSP at runtime.
+instead of emitting a call_extern that aborts the DSP at runtime or
+computes the wrong result.
 
 Pure Relax IR-level tests (no hardware / DSP build) -- see
 test_mmalib_qdq_bias_overflow.py for the same pattern.
@@ -90,13 +97,47 @@ def _build_qdq_dwconv2d_model(channels, h, w, kh, kw, stride, padding):
 
 class TestMMALIBConv2dGeometryDecline:
     def test_stride4_asymmetric_pad_declines(self):
-        """AlexNet conv1 shape: 11x11/stride4/pad=2 symmetric -- neither
-        padTop==0 nor padBottom in (0, (KH-1)//2=5) -- must decline."""
+        """AlexNet conv1 shape: 11x11/stride4/pad=2 symmetric -- stride 4,
+        and neither padTop==0 nor padBottom in (0, (KH-1)//2=5) -- must
+        decline."""
         mod = _build_qdq_conv2d_model(
             c_in=3, h=224, w=224, c_out=64, kh=11, kw=11, stride=4, padding=(2, 2, 2, 2)
         )
         out = FuseMMALIBQDQConv2d()(mod)
         assert "mmalib_conv2d_i8" not in out.script()
+
+    def test_stride2_padding_rule_declines(self):
+        """The padding rule at stride 2: 5x5 with pad=1 -- neither padTop==0
+        nor padBottom in (0, (KH-1)//2=2) -- must decline."""
+        mod = _build_qdq_conv2d_model(
+            c_in=3, h=32, w=32, c_out=16, kh=5, kw=5, stride=2, padding=(1, 1, 1, 1)
+        )
+        out = FuseMMALIBQDQConv2d()(mod)
+        assert "mmalib_conv2d_i8" not in out.script()
+
+    @pytest.mark.parametrize(
+        "kh,stride,h",
+        [(3, 3, 33), (4, 4, 64), (1, 4, 32), (16, 16, 224)],
+        ids=["3x3_s3", "4x4_s4_patch", "1x1_s4", "16x16_s16_patch"],
+    )
+    def test_stride_above_2_declines(self, kh, stride, h):
+        """Unpadded convs at stride 3+ pass the padding rules but MMALIB
+        aborts (stride 3) or computes the wrong output (stride 4+) -- must
+        decline."""
+        mod = _build_qdq_conv2d_model(
+            c_in=3, h=h, w=h, c_out=64, kh=kh, kw=kh, stride=stride, padding=(0, 0, 0, 0)
+        )
+        out = FuseMMALIBQDQConv2d()(mod)
+        assert "mmalib_conv2d_i8" not in out.script()
+
+    def test_2x2_stride2_patch_still_fuses(self):
+        """ConvNeXt's downsampling conv, 2x2/stride 2 unpadded -- MMALIB
+        computes it correctly, so it must still fuse."""
+        mod = _build_qdq_conv2d_model(
+            c_in=96, h=16, w=16, c_out=192, kh=2, kw=2, stride=2, padding=(0, 0, 0, 0)
+        )
+        out = FuseMMALIBQDQConv2d()(mod)
+        assert "mmalib_conv2d_i8" in out.script()
 
     def test_stride2_same_padding_still_fuses(self):
         """Ordinary stride-2 conv with exact SAME-derived padding
