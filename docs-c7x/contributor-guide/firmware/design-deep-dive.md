@@ -852,6 +852,15 @@ still performs explicit DMA_BUF_SYNC ioctls:
 - Before DSP reads: `DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE` (flush ARM cache)
 - Before host reads: `DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ` (invalidate ARM cache)
 
+On the DSP side, the C7x L1D runs write-through on every board. The SDK's
+`CacheP_Module_startup` leaves it write-back on J722S, so `main()` writes it back
+and switches it; on AM62D, `MmuP_setConfig` does the same and also turns off EL2
+snoop for a silicon bug. With a write-back L1D, data one kernel stores can stay in
+L1D while the next kernel reads the same buffer through the streaming engine,
+which reads from L2 and gets the old values. Host emulation has no such cache, so
+this shows up only on hardware, as output that varies from run to run. Write-through
+costs cycles, most in kernels that store a lot.
+
 ### MMU Configuration
 
 Defined in `dsp/configs/c75ss0.syscfg` (16 regions). Key MAIR attribute indices:

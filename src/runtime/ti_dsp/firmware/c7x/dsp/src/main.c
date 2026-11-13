@@ -10,11 +10,9 @@
 #include <kernel/dpl/ClockP.h>
 #include <kernel/dpl/HwiP.h>
 #include <kernel/dpl/MmuP_armv8.h>
-#if defined(TVM_DSP_DEVICE_AM62DX)
 #include <kernel/dpl/CacheP.h>
 #include <kernel/nortos/dpl/c75/CacheP_c75.h>
 #include <c7x.h>
-#endif
 #include <drivers/ipc_notify.h>
 #include <drivers/ipc_rpmsg.h>
 #include <FreeRTOS.h>
@@ -224,6 +222,17 @@ static StackType_t  gMainTaskStack[MAIN_TASK_STACK_SIZE] __attribute__((aligned(
 
 int main(void)
 {
+#if !defined(TVM_DSP_DEVICE_AM62DX)
+    /* L1D write-through. The SDK's CacheP_Module_startup leaves it write-back on
+     * J722S, and then a kernel's stores can sit in L1D where a later read
+     * through the streaming engine, which reads from L2, doesn't see them.
+     * Write back what L1D holds before switching. (AM62D does this in
+     * MmuP_setConfig below.) */
+    CacheP_wbInvAll(CacheP_TYPE_L1D);
+    __memory_fence(__MFENCE_ALL_COLORS);
+    CacheP_enableWT(CacheP_TYPE_L1D);
+#endif
+
     /* Initialize system (DPL, drivers, IPC) */
     System_init();
     Board_init();
@@ -251,7 +260,7 @@ int main(void)
  *
  * Matches appCacheInit() in the AM62A vision_apps reference firmware.  Without
  * this, a C7x silicon bug can cause a hang with the default write-back L1D and
- * snoop configuration.  AM62D only: the J722S firmware does not need it.
+ * snoop configuration.  J722S keeps snoop; main() sets its L1D write-through.
  * =============================================================================
  */
 
