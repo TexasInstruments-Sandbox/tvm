@@ -191,3 +191,26 @@ class TestConcat:
 
         new_mod = _run_pass(mod)
         assert _has_dequantize(new_mod)
+
+
+class TestPerChannel:
+    def test_per_channel_qdq_is_preserved(self):
+        """A per-channel q/dq (C7xMMAQuantizer's depthwise-block tensors) is left in
+        place, not taken for a scalar scale: a reshape or permute can move the
+        channel axis, so equal arrays wouldn't show the op is transparent."""
+        bb = relax.BlockBuilder()
+        x = relax.Var("x", TensorStructInfo((1, 4, 8, 8), "int8"))
+        s = ti_tensor_const(np.array([0.01, 0.02, 0.05, 0.3], dtype=np.float32))
+        z = ti_tensor_const(np.zeros(4, dtype=np.int8))
+
+        with bb.function("main", [x]):
+            with bb.dataflow():
+                dq = bb.emit(relax.op.dequantize(x, s, z, axis=1))
+                pool = bb.emit(relax.op.nn.max_pool2d(dq, pool_size=(2, 2), strides=(2, 2)))
+                result = bb.emit(relax.op.quantize(pool, s, z, axis=1, out_dtype="int8"))
+                bb.emit_output(result)
+            bb.emit_func_output(result)
+
+        new_mod = _run_pass(bb.finalize())
+        assert _has_dequantize(new_mod)
+        assert _has_quantize(new_mod)

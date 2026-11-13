@@ -107,6 +107,11 @@ def _check_scales_match(ctx) -> bool:
         return False
     if not isinstance(zp_in, tvm.ir.GenericConst) or not isinstance(zp_out, tvm.ir.GenericConst):
         return False
+    # Per tensor only: a reshape or permute can move a per-channel axis, so equal
+    # per-channel arrays wouldn't show the op is transparent. (FuseQDQToC7xRelu takes
+    # a per-channel ReLU.)
+    if any(a.value.numpy().size != 1 for a in (s_in, s_out, zp_in, zp_out)):
+        return False
 
     sv_in = float(s_in.value.numpy())
     sv_out = float(s_out.value.numpy())

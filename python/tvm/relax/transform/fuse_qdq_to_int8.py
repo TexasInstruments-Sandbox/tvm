@@ -90,6 +90,33 @@ def _broadcast_channel_scale(scale: Expr, data_layout: str, out_ndim: int = 4) -
     return relax.op.reshape(scale, new_shape)  # type: ignore[arg-type]
 
 
+def _scalar_zero_point(zp: Expr):
+    """A zero point as one value: a per-channel vector of equal values becomes a
+    scalar constant. None for a vector of differing values, which the requantize
+    below doesn't support; a non-constant zero point is returned unchanged."""
+    if not isinstance(zp, tvm.ir.GenericConst):
+        return zp
+    arr = zp.value.numpy()
+    if arr.ndim == 0:
+        return zp
+    flat = arr.reshape(-1)
+    if flat.size == 0 or not np.all(flat == flat[0]):
+        return None
+    return relax.const(flat[0].item(), str(arr.dtype))
+
+
+def _is_per_channel(scale: Expr) -> bool:
+    return isinstance(scale, tvm.ir.GenericConst) and scale.value.numpy().size > 1
+
+
+def _on_channel_axis(qdq_call: Expr, layout: str, ndim: int = 4) -> bool:
+    """Whether a quantize/dequantize call's axis is the conv's channel axis."""
+    if not isinstance(qdq_call, relax.Call) or not hasattr(qdq_call.attrs, "axis"):
+        return False
+    channel_axis = 1 if layout.startswith("NC") else ndim - 1
+    return int(qdq_call.attrs.axis) % ndim == channel_axis
+
+
 # ---------------------------------------------------------------------------
 # Pattern: dequant -> conv2d -> [add(wildcard)] -> [relu] -> quantize
 #
@@ -126,6 +153,7 @@ def _make_conv2d_add_relu_pattern():
 
     return pattern, {
         "data": data,
+        "data_dq": data_dq,
         "data_scale": data_scale,
         "data_zp": data_zp,
         "weight_dq": weight_dq,
@@ -158,6 +186,7 @@ def _make_conv2d_add_pattern():
 
     return pattern, {
         "data": data,
+        "data_dq": data_dq,
         "data_scale": data_scale,
         "data_zp": data_zp,
         "weight_dq": weight_dq,
@@ -188,6 +217,7 @@ def _make_conv2d_relu_pattern():
 
     return pattern, {
         "data": data,
+        "data_dq": data_dq,
         "data_scale": data_scale,
         "data_zp": data_zp,
         "weight_dq": weight_dq,
@@ -216,6 +246,7 @@ def _make_conv2d_pattern():
 
     return pattern, {
         "data": data,
+        "data_dq": data_dq,
         "data_scale": data_scale,
         "data_zp": data_zp,
         "weight_dq": weight_dq,
@@ -309,6 +340,31 @@ def _make_rewriter(annotations):
             # We cannot recover the int8 weight from just the float var.
             # Skip fusion for this instance.
             return expr
+
+        # Per-channel activation qparams (C7xMMAQuantizer gives a depthwise conv's
+        # input, and a conv output read by a depthwise block, one scale per
+        # channel). The requantize below takes one zero point per tensor. An
+        # output scale broadcasts over the output channels. An input scale folds
+        # into an output channel only when that channel reads one input channel:
+        # a depthwise conv with channel multiplier 1.
+        layout = str(attrs.data_layout)
+        d_zp, o_zp = _scalar_zero_point(d_zp), _scalar_zero_point(o_zp)
+        if d_zp is None or o_zp is None:
+            logger.debug("Skipping: per-channel zero points that differ")
+            return expr
+        if _is_per_channel(d_scale):
+            n = d_scale.value.numpy().size
+            w_shape = [int(v) for v in w_int8.ty.shape]
+            out_ch = w_shape[0] if str(attrs.kernel_layout).startswith("O") else w_shape[-1]
+            depthwise = int(attrs.groups) == n and out_ch == n
+            if not depthwise or not _on_channel_axis(matches[annotations["data_dq"]], layout):
+                logger.debug("Skipping: per-channel input scale on a non-depthwise conv")
+                return expr
+            d_scale = _broadcast_channel_scale(d_scale, layout)
+        if _is_per_channel(o_scale):
+            if not _on_channel_axis(expr, layout):
+                return expr
+            o_scale = _broadcast_channel_scale(o_scale, layout)
 
         # ------- Step 1: Shift data by zero point ------- #
         d_zp_val = _get_const_value(d_zp)

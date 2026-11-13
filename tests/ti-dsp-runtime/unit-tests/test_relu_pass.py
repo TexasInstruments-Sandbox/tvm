@@ -6,7 +6,8 @@ inspect mod.script()). No IR-level test file previously existed for this
 pass (only the heavier DSP-compile-and-run test_relu_kernel.py).
 
 Covers the pass's three patterns:
-  1. dq(x) -> relax.nn.relu -> q, transparent (d_zp == o_zp)  -> c7x_int8_relu
+  1. dq(x) -> relax.nn.relu -> q, transparent
+     (d_scale ~= o_scale, per tensor or per channel, AND d_zp == o_zp) -> c7x_int8_relu
   2. dq(x) -> relax.clip -> q, transparent
      (d_scale ~= o_scale AND d_zp == o_zp)                     -> c7x_int8_clamp
   3. dq(x) -> relax.clip -> q, non-transparent
@@ -28,6 +29,7 @@ so only a tensor-shaped Constant survives to reach FuseTIR.
 """
 
 import numpy as np
+import pytest
 
 import tvm
 from tvm import relax
@@ -53,22 +55,24 @@ def _assert_compiles(new_mod):
 # ---------------------------------------------------------------------------
 
 
+def _qparams(scale, zp):
+    """Scale and zero-point constants and the axis; a list scale is per channel on
+    axis 1."""
+    if isinstance(scale, list):
+        zp = zp if isinstance(zp, list) else [zp] * len(scale)
+        return relax.const(scale, "float32"), relax.const(zp, "int8"), 1
+    return relax.const(scale, "float32"), relax.const(zp, "int8"), -1
+
+
 def _build_relu_model(x, d_scale, d_zp, o_scale, o_zp, params=None, attrs=None):
     bb = relax.BlockBuilder()
     with bb.function("main", params or [], attrs=attrs or {"num_input": 0}):
         with bb.dataflow():
-            dq = bb.emit(
-                relax.op.dequantize(x, relax.const(d_scale, "float32"), relax.const(d_zp, "int8"))
-            )
+            ds, dz, d_axis = _qparams(d_scale, d_zp)
+            dq = bb.emit(relax.op.dequantize(x, ds, dz, d_axis))
             relu_out = bb.emit(relax.op.nn.relu(dq))
-            q = bb.emit(
-                relax.op.quantize(
-                    relu_out,
-                    relax.const(o_scale, "float32"),
-                    relax.const(o_zp, "int8"),
-                    out_dtype="int8",
-                )
-            )
+            os_, oz, o_axis = _qparams(o_scale, o_zp)
+            q = bb.emit(relax.op.quantize(relu_out, os_, oz, o_axis, out_dtype="int8"))
             out = bb.emit_output(q)
         bb.emit_func_output(out)
     return bb.finalize()
@@ -93,6 +97,37 @@ class TestRelu:
         assert "c7x_int8_relu" not in new_mod.script()
         _assert_compiles(new_mod)
 
+    def test_per_channel_scales_fuse(self):
+        """A ReLU between a conv and a depthwise conv quantized per channel: the
+        kernel copies codes, which is right when each channel keeps its scale."""
+        x = relax.Var("x", TensorStructInfo((1, 4, 2, 2), "int8"))
+        s = [0.01, 0.02, 0.05, 0.3]
+        mod = _build_relu_model(x, d_scale=s, d_zp=0, o_scale=list(s), o_zp=0, params=[x])
+        text = _run_pass(mod).script()
+        assert "c7x_int8_relu" in text
+        assert "R.nn.relu" not in text
+
+    @pytest.mark.parametrize(
+        "d_scale,o_scale",
+        [(0.03, 0.05), ([0.01, 0.02, 0.05, 0.3], [0.01, 0.02, 0.05, 0.2])],
+        ids=["per-tensor", "per-channel"],
+    )
+    def test_differing_scales_decline_and_compile(self, d_scale, o_scale):
+        """Copying codes would rescale the output. The ReLU's output can have an
+        observer of its own when its producer isn't annotated."""
+        x = relax.Var("x", TensorStructInfo((1, 4, 2, 2), "int8"))
+        mod = _build_relu_model(x, d_scale, d_zp=0, o_scale=o_scale, o_zp=0, params=[x])
+        new_mod = _run_pass(mod)
+        assert "c7x_int8_relu" not in new_mod.script()
+        _assert_compiles(new_mod)
+
+    def test_differing_per_channel_zero_points_decline(self):
+        x = relax.Var("x", TensorStructInfo((1, 4, 2, 2), "int8"))
+        s = [0.01, 0.02, 0.05, 0.3]
+        zps = [0, 1, 2, 3]
+        mod = _build_relu_model(x, s, d_zp=zps, o_scale=list(s), o_zp=list(zps), params=[x])
+        assert "c7x_int8_relu" not in _run_pass(mod).script()
+
 
 # ---------------------------------------------------------------------------
 # Pattern 2: transparent clamp
@@ -103,18 +138,11 @@ def _build_clamp_model(x, d_scale, d_zp, a_min, a_max, o_scale, o_zp, params=Non
     bb = relax.BlockBuilder()
     with bb.function("main", params or [], attrs=attrs or {"num_input": 0}):
         with bb.dataflow():
-            dq = bb.emit(
-                relax.op.dequantize(x, relax.const(d_scale, "float32"), relax.const(d_zp, "int8"))
-            )
+            ds, dz, d_axis = _qparams(d_scale, d_zp)
+            dq = bb.emit(relax.op.dequantize(x, ds, dz, d_axis))
             clipped = bb.emit(relax.op.clip(dq, a_min, a_max))
-            q = bb.emit(
-                relax.op.quantize(
-                    clipped,
-                    relax.const(o_scale, "float32"),
-                    relax.const(o_zp, "int8"),
-                    out_dtype="int8",
-                )
-            )
+            os_, oz, o_axis = _qparams(o_scale, o_zp)
+            q = bb.emit(relax.op.quantize(clipped, os_, oz, o_axis, out_dtype="int8"))
             out = bb.emit_output(q)
         bb.emit_func_output(out)
     return bb.finalize()
@@ -141,6 +169,18 @@ class TestClamp:
 
         new_mod = _run_pass(mod)
         assert "c7x_int8_clamp" not in new_mod.script()
+        _assert_compiles(new_mod)
+
+    @pytest.mark.parametrize("o_scale", [0.03, [0.03, 0.03, 0.05, 0.05]], ids=["same", "other"])
+    def test_per_channel_scales_decline_and_compile(self, o_scale):
+        """The clamp kernels take one scale; neither clamp pattern may take a
+        per-channel q/dq (the transparent one nor the requantizing one)."""
+        x = relax.Var("x", TensorStructInfo((1, 4, 2, 2), "int8"))
+        s = [0.03, 0.03, 0.05, 0.05]
+        o = list(s) if isinstance(o_scale, list) else o_scale
+        mod = _build_clamp_model(x, s, d_zp=0, a_min=0.0, a_max=6.0, o_scale=o, o_zp=0, params=[x])
+        new_mod = _run_pass(mod)
+        assert "c7x_int8_" not in new_mod.script()
         _assert_compiles(new_mod)
 
 

@@ -52,6 +52,7 @@ from tvm.relax.expr_functor import PyExprMutator, mutator
 from tvm.relax.transform.ti_c7x_composite_inline import inline_declined_composite
 from tvm.relax.transform.ti_c7x_const_reachability import ConstReachability
 from tvm.relax.transform.ti_c7x_span_utils import find_composite_span, propagate_span
+from tvm.relax.transform.ti_mmalib_legalize import _zero_point_value
 
 logger = logging.getLogger(__name__)
 
@@ -93,14 +94,21 @@ def _check_relu(ctx) -> bool:
     else:
         return False
 
-    for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
-            return False
+    names = ("d_scale", "d_zp", "o_scale", "o_zp")
+    if not all(isinstance(ctx.annotated_expr[n], tvm.ir.GenericConst) for n in names):
+        return False
 
-    # Transparent condition: zero-points must match (clip preserves scale).
-    d_zp = ctx.annotated_expr["d_zp"]
-    o_zp = ctx.annotated_expr["o_zp"]
-    if int(d_zp.value.numpy()) != int(o_zp.value.numpy()):
+    # Transparent condition: the kernel copies int8 codes, clamping at the zero
+    # point, so the input and output qparams must match: one zero point, equal on
+    # both sides, and equal scales, per tensor or channel by channel (a ReLU between
+    # a conv and a depthwise conv quantized per channel). They needn't: after an
+    # unannotated producer the output has an observer of its own.
+    d_zp = _zero_point_value(ctx.annotated_expr["d_zp"])
+    if d_zp is None or d_zp != _zero_point_value(ctx.annotated_expr["o_zp"]):
+        return False
+    d_scale = ctx.annotated_expr["d_scale"].value.numpy().reshape(-1)
+    o_scale = ctx.annotated_expr["o_scale"].value.numpy().reshape(-1)
+    if d_scale.shape != o_scale.shape or not np.allclose(d_scale, o_scale, rtol=1e-5, atol=0):
         return False
 
     return True
@@ -145,7 +153,8 @@ def _check_clamp(ctx) -> bool:
         return False
 
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
+        arg = ctx.annotated_expr[name]
+        if not isinstance(arg, tvm.ir.GenericConst) or arg.value.numpy().size != 1:
             return False
     # a_min/a_max may be Constant or primitive scalar
     if _get_scalar_float(ctx.annotated_expr["a_min"]) is None:
@@ -183,7 +192,8 @@ def _check_reqclamp(ctx) -> bool:
         return False
 
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
+        arg = ctx.annotated_expr[name]
+        if not isinstance(arg, tvm.ir.GenericConst) or arg.value.numpy().size != 1:
             return False
     if _get_scalar_float(ctx.annotated_expr["a_min"]) is None:
         return False
@@ -267,7 +277,7 @@ class _ReluLowerer(PyExprMutator):
                 x_param = val.args[0]
                 x_arg = param_to_arg.get(x_param, x_param)
                 z = param_to_arg.get(val.args[2], val.args[2])
-                d_zp_val = int(z.value.numpy())
+                d_zp_val = _zero_point_value(z)
                 if hasattr(binding.var, "ty"):
                     x_sinfo = binding.var.ty
 
@@ -346,7 +356,7 @@ class _ReluLowerer(PyExprMutator):
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
                 d_scale_val = float(s.value.numpy())
-                d_zp_val = int(z.value.numpy())
+                d_zp_val = _zero_point_value(z)
             elif "clip" in op_name:
                 lo = param_to_arg.get(val.args[1], val.args[1])
                 hi = param_to_arg.get(val.args[2], val.args[2])
