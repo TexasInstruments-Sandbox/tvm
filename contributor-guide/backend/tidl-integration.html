@@ -928,6 +928,39 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#firmware-side-wrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Firmware-side wrapper
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tidl-tools-directory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIDL tools directory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output-info-from-the-import-library" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output info from the import library
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1658,6 +1691,39 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#firmware-side-wrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Firmware-side wrapper
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tidl-tools-directory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIDL tools directory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output-info-from-the-import-library" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output info from the import library
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1701,14 +1767,16 @@ libraries and the C7504 MMALIB:</p>
 <li>Build the importer and TIDL libs with <code>c7x-mma-tidl/build_am62d.sh</code>
   (<code>TARGET_SOC=AM62A</code>), then build the firmware with
   <code>firmware/c7x/dsp/build.sh --board am62d</code> (<code>--tidl ON</code> is the default; it
-  needs <code>C7X_MMA_TIDL_PATH</code>).</li>
+  needs <code>C7X_MMA_TIDL_PATH</code>). The <a href="#tidl-tools-directory">TIDL tools directory</a>
+  is J722S-only so far, so AM62D compiles need a <code>tidl_tools_dir</code> staged from
+  an AM62A c7x-mma-tidl build.</li>
 <li><code>TIDLOffloadCompiler</code> takes the board from <code>config["board"]</code> (<code>j722s-evm</code>,
   <code>beagley-ai</code> or <code>am62d</code>; default <code>j722s-evm</code>) and maps it to a device
   (<code>j722s</code> or <code>am62d</code>). The <code>c_static_lib</code> target only knows the device: the
   default target gets <code>-device=&lt;device&gt;</code>, an explicit target's <code>-device=</code> wins,
   and <code>-device=am62d</code> defaults <code>l2-sram-size</code> to 240 KB. The AM62D toolchain
-  and PC libs follow from the device. The dynmod build takes the SDK root
-  (ivision headers) from <code>$PSDK_INSTALL_PATH</code>.</li>
+  and PC libs follow from the device. The dynmod build needs no SDK: the TIDL
+  wrapper is in the firmware (see <a href="#firmware-side-wrapper">Firmware-side wrapper</a>).</li>
 <li>TIDL's "L2" is the 240 KB L2 AUX bank and its "L3" the 1 MB L2 MAIN bank,
   the same assignment as on J722S (see <a href="#on-chip-memory">On-chip memory</a>).</li>
 <li>Verified on an AM62D EVM: MobileNetV2 (<code>test_tidl_mv2_e2e.py -k correctness
@@ -1745,7 +1813,11 @@ libraries and the C7504 MMALIB:</p>
 </tr>
 <tr>
 <td><code>src/runtime/ti_dsp/tidl/tidl_api.{c,h}</code></td>
-<td>DLOAD-module-side IALG lifecycle (<code>init/process/free_tidl_subgraph</code>)</td>
+<td>TIDL lifecycle (<code>init/process/free_tidl_subgraph</code>), compiled into the firmware and exported to DLOAD modules; compiled into the executable for <code>c7x_host</code></td>
+</tr>
+<tr>
+<td><code>python/tvm/relax/backend/tidl/output_info.py</code></td>
+<td>Asks the import library (<code>TIDL_relaxGetOutputInfo</code>) what TIDL writes per output, for output sizing and the dtype fix-up</td>
 </tr>
 <tr>
 <td><code>src/runtime/ti_dsp/tidl/tidl_api_mem.{c,h}</code></td>
@@ -1761,7 +1833,7 @@ libraries and the C7504 MMALIB:</p>
 </tr>
 <tr>
 <td><code>src/runtime/ti_dsp/tidl/README.md</code></td>
-<td>Runtime-side IALG lifecycle, UDMA sharing, memory pools, known issues</td>
+<td>Runtime-side TIDL lifecycle, UDMA sharing, memory pools, known issues</td>
 </tr>
 <tr>
 <td><code>tests/ti-dsp-runtime/tidl-tests/</code></td>
@@ -1799,7 +1871,8 @@ generate_bridge()   Generate tidl_bridge.c/h resolving the extern calls
     |               tensor padding channels (no-op for non-TIDL builds).
     v
 _build_dynmod()     TI C7x cross-compile; embeds TIDL artifacts as .rodata;
-    |               links tidl_api.c (IALG wrapper) + bridge
+    |               links the bridge, which imports init/process/
+    |               free_tidl_subgraph from the firmware
     v
 lib0.out  --DLOAD--&gt;  AM67A (J722S): TIDL int8 on MMA + TVM float32 on scalar C7x
 </code></pre></div>
@@ -1925,9 +1998,9 @@ needs to be excluded explicitly.</p>
 <td>Output directory for TIDL binaries; set it to keep them</td>
 </tr>
 <tr>
-<td><code>tidl_tools_path</code></td>
-<td>auto-detect from <code>C7X_MMA_TIDL_PATH</code> env</td>
-<td>Path to the TIDL import tool/config</td>
+<td><code>tidl_tools_dir</code></td>
+<td>the packaged one, <code>tvm/data/ti_dsp/tidl</code></td>
+<td><a href="#tidl-tools-directory">TIDL tools directory</a> to use instead of the packaged one. The old <code>tidl_tools_path</code> key is rejected</td>
 </tr>
 <tr>
 <td><code>calibration_inputs</code></td>
@@ -1964,12 +2037,12 @@ with the wrong distribution produces wrong int8 scales.</p>
 model module (same split as MMALIB's L2 DMA prefetch — see
 <a href="mmalib-integration.html">MMALIB Integration</a>). The firmware exports the
 shared resources a loaded module needs via the DLOAD symbol table
-(IALG function table, DDR heap allocation, the UDMA driver handle, L1/L2
+(TIDL function table, DDR heap allocation, the UDMA driver handle, L1/L2
 SRAM pools, cache writeback). TIDL and TVM's own DMA tiling share one
 UDMA driver instance, initialized once at firmware boot.</p>
 <h3 id="on-chip-memory">On-chip memory</h3>
 <p><code>tidl_support_init()</code> (<code>firmware/c7x/dsp/src/tidl_support.c</code>) hands TIDL's
-IALG allocator three regions, following the vision_apps layout
+allocator three regions, following the vision_apps layout
 (<code>app_cfg_c7x_1.h</code>) on both SoCs:</p>
 <table>
 <thead>
@@ -2011,7 +2084,7 @@ a module that exports <code>tidl_bridge_cleanup</code>, it calls
 <code>TVMDSPStorageSetFastPoolEnabled(0)</code> so all of that module's storage goes to
 DDR, and turns the fast pool back on at unload. Modules without TIDL keep
 using it.</p>
-<p>Each TIDL subgraph goes through the standard IALG lifecycle at runtime
+<p>Each TIDL subgraph goes through the standard lifecycle at runtime
 (alloc → init → activate → process → deactivate, freed at module unload)
 — see <code>src/runtime/ti_dsp/tidl/README.md</code> for the exact call sequence.
 <code>tidl_bridge_cleanup()</code> releases every TIDL instance's handle, DMA
@@ -2105,6 +2178,128 @@ list and per-file requirements.</p>
 <li><a href="../firmware/design-deep-dive.html">Firmware Design Deep-Dive</a> — DLOAD
   module unload ordering, symbol export table</li>
 </ul>
+<h2 id="firmware-side-wrapper">Firmware-side wrapper</h2>
+<p>The TIDL wrapper <code>src/runtime/ti_dsp/tidl/tidl_api.c</code> (with <code>tidl_api_mem.c</code>
+and <code>ti_mem_manager.c</code>) is compiled into the <code>c7x_compute</code> firmware when it is
+built <code>--tidl ON</code>, and exported through the DLOAD symbol table as
+<code>init_tidl_subgraph</code>, <code>process_tidl_subgraph</code> and <code>free_tidl_subgraph</code>. A
+TIDL <code>lib0.out</code> holds only the generated bridge, the embedded <code>tidl_net_N</code> /
+<code>tidl_io_N</code> blobs and <code>tidl_bridge_cleanup</code>, so building it needs neither
+<code>itidl_ti.h</code> (c7x-mma-tidl) nor <code>ivision.h</code> (PSDK).</p>
+<p>Consequences:</p>
+<ul>
+<li>TIDL modules need firmware service version 4.2.0 or later. On older
+  firmware DLOAD fails to resolve <code>init_tidl_subgraph</code>.</li>
+<li>The module-to-firmware contract is the three signatures in <code>tidl_api.h</code> plus
+  the <code>tvm_tidl_rt_info</code> layout.</li>
+<li>Changing <code>tidl_api.c</code> (tracing, <code>flowCtrl</code>, <code>TIDL_COPY_NETWORK_BUF</code>) on
+  hardware needs a firmware rebuild, <code>deploy-c7x.sh</code> and a reboot, not a model
+  recompile. For <code>c7x_host</code>, re-stage the
+  <a href="#tidl-tools-directory">TIDL tools directory</a>, whose <code>host/</code> holds the
+  compiled glue.</li>
+<li>The firmware compiles the three files with the old module flags (<code>--c99</code>,
+  <code>-O3 --auto_inline=500</code>) and with <code>printf</code> mapped to <code>shm_printf</code>, which is
+  what DLOAD bound a module's <code>printf</code> to. With the firmware's own <code>-O2</code> and
+  RTS <code>printf</code> (which the per-layer cycle table printed after every inference
+  goes through), TIDL inference is slower.</li>
+<li>The wrapper's pool state (<code>init_mem_regions</code>, scratch pointers) lives for the
+  firmware's lifetime, shared by every loaded module, as the physical L1/L2/L3
+  regions already were.</li>
+</ul>
+<h2 id="tidl-tools-directory">TIDL tools directory</h2>
+<p>Compiling a TIDL-offloaded model reads prebuilt TIDL files: the import library
+that partitions and imports, the tools it runs, and, for <code>c7x_host</code>, the TIDL
+and MMALIB x86 libraries. They all
+live in one directory with a fixed layout:</p>
+<div class="highlight"><pre><span></span><code>tvm/data/ti_dsp/tidl/
+  tidl_model_import_relax.so      partition gate + import (TIDL_relax* FFI)
+  tidl_model_custom_import.so     loaded by the above (RUNPATH $ORIGIN)
+  tidl_tools/
+    PC_dsp_test_dl_algo.out       calibration, run by the import library
+    ti_cnnperfsim.out             network compiler, run by the import library
+    device_config.cfg             L2/MSMC sizes, read at TIDL_relaxInit
+  host/                           c7x_host link
+    libtidl_api_host.a            tidl_api.c and helpers, -DHOST_EMULATION
+    libtidl_{algo,ref,priv,kernels,avx_kernels,custom}.a
+    libmmalib_x86_64.a, libmmalib_cn_x86_64.a, libcommon_x86_64.a
+</code></pre></div>
+<p><code>tidl_api.h</code> in the same directory is a TVM source file, not part of the
+staged contents.</p>
+<p><strong>Lookup.</strong> <code>python/tvm/relax/backend/tidl/tools.py</code> is the only code that
+finds the directory, and every consumer goes through it (<code>_gate.py</code> for the
+import library and tools, <code>_build_c7x_host</code> for <code>host/</code>):</p>
+<ol>
+<li><code>config["tidl_tools_dir"]</code>, if set;</li>
+<li>otherwise the copy in the package, <code>tvm/data/ti_dsp/tidl</code>;</li>
+<li>otherwise an error that names the directory and the missing files.</li>
+</ol>
+<p>A configured directory that is missing or incomplete is an error; it never
+falls back to the packaged copy. No environment variable is read: a stale one
+would silently mix files from different TIDL builds, and the import library,
+tools and host libraries must all come from one build. The import
+library can be loaded once per process, so asking for a second, different
+directory in the same process is an error too.</p>
+<p><strong>Staging.</strong> Nothing in a c7x-mma-tidl build has this layout (the files come
+from five places in it, plus <code>ivision.h</code> and MMALIB from the Processor SDK), so
+<code>packaging/ti_dsp/stage_tidl_tools.sh</code> assembles it:</p>
+<div class="highlight"><pre><span></span><code>packaging/ti_dsp/stage_tidl_tools.sh<span class="w"> </span>--c7x-mma-tidl<span class="w"> </span>&lt;built<span class="w"> </span>tree&gt;<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--psdk<span class="w"> </span>&lt;PSDK<span class="w"> </span>RTOS<span class="w"> </span>J722S&gt;<span class="w"> </span><span class="o">[</span>--mmalib<span class="w"> </span>&lt;MMALIB<span class="w"> </span>root&gt;<span class="o">]</span><span class="w"> </span>&lt;dest&gt;
+</code></pre></div>
+<p>It copies the import library and tools, and builds <code>libtidl_api_host.a</code> with the dsp-cpp harness's
+own <code>tidl_api_host</code> target (<code>-DTIDL_GLUE_ONLY=ON</code>) against the same tree's
+<code>itidl_ti.h</code> as the <code>libtidl_*.a</code> it copies. A glue library built against a
+different <code>itidl_ti.h</code> would shift struct layouts without any error.</p>
+<p>There are two callers, so a source tree and a wheel get identical files:</p>
+<ul>
+<li><strong>Source tree:</strong> <code>src/runtime/ti_dsp/build_runtime.sh tidl-tools</code> stages into
+  <code>python/tvm/data/ti_dsp/tidl</code> (git-ignored), reading <code>C7X_MMA_TIDL_PATH</code>,
+  <code>PSDK_INSTALL_PATH</code> and optionally <code>MMALIB_PATH</code>. <code>build_all.sh</code> runs it for
+  <code>j722s-evm</code>, and so does the Jenkins <code>TIDL Tools Directory</code> stage. These SDK
+  variables are read only here, when the directory is built; compiling a
+  model never reads them.</li>
+<li><strong>Wheel:</strong> <code>build_wheel.sh --tidl ON</code> packages <code>python/tvm</code> as-is, so it
+  carries the directory staged in the source tree, and checks that it is
+  complete. <code>--tidl OFF</code> (BeagleY-AI) removes it from the wheel.</li>
+</ul>
+<p>Re-stage after rebuilding c7x-mma-tidl, and after editing <code>tidl_api.c</code>,
+<code>tidl_api_mem.c</code>, <code>ti_mem_manager.c</code> or <code>tidl_host_stubs.c</code> if you run
+<code>c7x_host</code>: the harness links <code>host/libtidl_api_host.a</code> rather than compiling
+them. (On <code>c7x_dload</code> the firmware compiles them, see
+<a href="#firmware-side-wrapper">Firmware-side wrapper</a>.)</p>
+<p><strong>Testing another TIDL build.</strong> Stage it to a scratch directory and point the
+compiler at it, or pass it to the test suite:</p>
+<div class="highlight"><pre><span></span><code>packaging/ti_dsp/stage_tidl_tools.sh<span class="w"> </span>--c7x-mma-tidl<span class="w"> </span>~/c7x-mma-tidl-new<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--psdk<span class="w"> </span><span class="nv">$PSDK_INSTALL_PATH</span><span class="w"> </span>/tmp/tidl-new
+pytest<span class="w"> </span>--rootdir<span class="o">=</span>tests/ti-dsp-runtime<span class="w"> </span>tests/ti-dsp-runtime/tidl-tests/<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>--tidl-tools-dir<span class="o">=</span>/tmp/tidl-new
+</code></pre></div>
+<h2 id="output-info-from-the-import-library">Output info from the import library</h2>
+<p>TVM needs, for each output of an imported subgraph, what TIDL writes: the
+element type, channels, padding channels and channel pitch, batches and dims,
+buffer size, scale, zero point and output name. It uses them to grow the
+output storage (TIDL writes padding channels plus one spare past the logical
+tensor; see <code>PadTIDLOutputStorage</code>) and to cast outputs whose type differs
+from the one TVM declared (<code>_fix_output_dtype_mismatches</code>).</p>
+<p>After <code>TIDL_relaxPostProcessNet</code> for each subgraph, <code>tidl_import</code> calls
+<code>TIDL_relaxGetOutputInfo(artifacts_dir, sg_id)</code> in the import library
+(<code>output_info.query</code>) and keeps the records in the artifacts under
+<code>"outputs"</code>. The library reads the <code>sTIDL_IOBufDesc_t</code> it wrote to
+<code>subgraph&lt;N&gt;_params_1.bin</code> with the header it was built against, so TVM never
+parses that struct and ships no copy of its layout. <code>params_1.bin</code> is still
+embedded in the module: the firmware's <code>tidl_api.c</code> reads it on the device.</p>
+<p>The compile fails, rather than warning, when:</p>
+<ul>
+<li>the library reports an error (a missing or wrong-size descriptor);</li>
+<li>the subgraph was imported without the network compiler (<code>compiled</code> is
+  false: a missing <code>ti_cnnperfsim.out</code>, or a float or 32-bit import), because
+  the padding TIDL writes is then unknown;</li>
+<li>the library predates <code>TIDL_relaxGetOutputInfo</code>: rebuild c7x-mma-tidl and
+  re-stage the TIDL tools directory. There is no fallback to parsing the file
+  in Python.</li>
+</ul>
+<p>Earlier versions parsed <code>params_1.bin</code> in Python from a layout table generated
+from <code>itidl_io.h</code>, and before that only logged a warning when they could not,
+which shipped the model without the output padding.</p>
 
 
 

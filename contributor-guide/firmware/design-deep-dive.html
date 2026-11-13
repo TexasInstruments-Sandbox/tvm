@@ -3182,7 +3182,7 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
 <li>
 <p><strong>Protocol version handshake</strong> via a PING round-trip, comparing the
    firmware's major version against <code>C7X_SERVICE_VERSION</code> (currently
-   v3.0.0, the per-buffer dmabuf protocol). A major mismatch aborts
+   v4.2.0; see the version table in the firmware skill). A major mismatch aborts
    <code>open()</code> with an explicit message instead of failing later, deeper,
    with something that reads like an unrelated bug.</p>
 </li>
@@ -3943,6 +3943,11 @@ TI CGT C7000 compiler for position-dependent code with external symbol reference
 <li><strong>VM builtins (direct C++ API)</strong>: <code>tvm_dsp_*</code> direct-call variants for the
   C7x C++ API backend</li>
 <li><strong>Math</strong>: <code>expf</code>, <code>logf</code>, <code>sqrtf</code>, <code>powf</code>, <code>floorf</code>, <code>fmaxf</code>, etc.</li>
+<li><strong>TIDL</strong> (<code>--tidl ON</code>): the TIDL algo function table, memory pool globals,
+  cache/interrupt helpers, and the IALG wrapper <code>init_tidl_subgraph</code> /
+  <code>process_tidl_subgraph</code> / <code>free_tidl_subgraph</code> (<code>tidl/tidl_api.c</code>, compiled
+  into the firmware since service version 4.2.0, so TIDL modules carry only
+  the generated bridge and network blobs).</li>
 </ul>
 <h3 id="module-unload-lifecycle">Module Unload Lifecycle</h3>
 <p>When the host sends DYN_UNLOAD, <code>handle_dyn_unload()</code> must clean up TVM runtime

@@ -488,6 +488,34 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#tidl-offloading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIDL Offloading
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="TIDL Offloading">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tidl-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIDL tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1500,6 +1528,34 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#tidl-offloading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIDL Offloading
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="TIDL Offloading">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tidl-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TIDL tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1653,6 +1709,44 @@ pytest<span class="w"> </span>--rootdir<span class="o">=</span>tests/ti-dsp-runt
 for the full QDQ fusion pipeline, supported-op constraints, per-model
 performance, and the firmware/codegen build flags that scope
 BeagleY-AI to MMALIB alone.</p>
+<h2 id="tidl-offloading">TIDL Offloading</h2>
+<p>On AM67A (<code>j722s-evm</code>), <code>TIDLOffloadCompiler</code> hands supported subgraphs of a
+float32 model to TIDL, which quantizes them to int8 with your calibration
+data and runs them on the MMA. The rest of the model stays in TVM. BeagleY-AI
+firmware is built without TIDL, so this path does not apply there.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">tvm.relax.backend.tidl</span><span class="w"> </span><span class="kn">import</span> <span class="n">TIDLOffloadCompiler</span>
+
+<span class="n">compiler</span> <span class="o">=</span> <span class="n">TIDLOffloadCompiler</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="p">{</span>
+    <span class="s2">"board"</span><span class="p">:</span> <span class="s2">"j722s-evm"</span><span class="p">,</span>
+    <span class="s2">"calibration_inputs"</span><span class="p">:</span> <span class="n">calib_frames</span><span class="p">,</span>   <span class="c1"># list of (1, C, H, W) arrays</span>
+    <span class="s2">"num_calibration_frames"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">calib_frames</span><span class="p">),</span>
+<span class="p">})</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">compiler</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">exec_mode</span><span class="o">=</span><span class="s2">"c7x_dload"</span><span class="p">)</span>
+<span class="c1"># result.module_path -&gt; lib0.out, loaded on the board like any other module</span>
+</code></pre></div>
+<p><code>exec_mode="c7x_host"</code> builds an x86 host-emulation executable instead, with no
+board needed.</p>
+<h3 id="tidl-tools">TIDL tools</h3>
+<p>Compiling needs TI's prebuilt TIDL tools: the TIDL import library, the tools
+it runs, and the TIDL and MMALIB libraries for host emulation. The
+<code>tvm-ti-c7x-compile</code> wheel includes them in <code>tvm/data/ti_dsp/tidl</code>, and
+<code>TIDLOffloadCompiler</code> uses that copy by default, so a wheel install needs no
+TI SDK and no environment variables.</p>
+<p>To use a different set of TIDL tools, pass the directory that holds them:</p>
+<div class="highlight"><pre><span></span><code><span class="n">TIDLOffloadCompiler</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="p">{</span><span class="s2">"tidl_tools_dir"</span><span class="p">:</span> <span class="s2">"/path/to/tidl"</span><span class="p">,</span> <span class="o">...</span><span class="p">})</span>
+</code></pre></div>
+<p>It must have the same layout as <code>tvm/data/ti_dsp/tidl</code> (see
+<a href="../contributor-guide/backend/tidl-integration.html#tidl-tools-directory">TIDL tools directory</a>).
+If it is missing or incomplete, compilation fails with an error that names the
+missing files; it does not fall back to the packaged copy. No environment
+variable selects the TIDL tools. The <code>tidl_tools_path</code> config key from earlier
+releases is no longer accepted.</p>
+<p><strong>Firmware.</strong> A TIDL <code>lib0.out</code> calls into the TIDL runtime built into the
+<code>c7x_compute</code> firmware, so the board needs firmware service version 4.2.0 or
+later (<code>c7x_compute status</code> prints the version). Install the firmware from the
+same release as the wheel; see <a href="deploying-firmware.html">Deploying Firmware</a>.</p>
+<p>See <a href="../contributor-guide/backend/tidl-integration.html">TIDL Integration</a> for
+the supported ops, the full configuration, and how the tools directory is built.</p>
 
 
 
