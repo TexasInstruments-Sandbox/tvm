@@ -135,8 +135,8 @@ def test_depthwise_folds_per_channel_scales(which):
     np.testing.assert_array_equal(got[1], want[1])
 
 
-def test_activation_fusion_declines_per_channel_scales():
-    """The int8 activation kernels take one scale each; per-channel stays in float."""
+def _per_channel_activation(act):
+    """dq(x, per-channel) -> act -> q(per-channel), act "silu" or "gelu"."""
     s = _const(_RNG.uniform(0.02, 0.2, C), "float32")
     z = _const(np.zeros(C), "int8")
     bb = relax.BlockBuilder()
@@ -144,11 +144,37 @@ def test_activation_fusion_declines_per_channel_scales():
     with bb.function("main", [x], attrs={"num_input": 1}):
         with bb.dataflow():
             d = bb.emit(relax.op.dequantize(x, s, z, axis=1))
-            act = bb.emit(relax.op.multiply(d, bb.emit(relax.op.sigmoid(d))))
-            out = bb.emit_output(bb.emit(relax.op.quantize(act, s, z, axis=1, out_dtype="int8")))
+            if act == "silu":
+                a = bb.emit(relax.op.multiply(d, bb.emit(relax.op.sigmoid(d))))
+            else:
+                a = bb.emit(relax.op.nn.gelu(d))
+            out = bb.emit_output(bb.emit(relax.op.quantize(a, s, z, axis=1, out_dtype="int8")))
         bb.emit_func_output(out)
-    text = tvm.relax.transform.FuseQDQToC7xActivation()(bb.finalize()).script()
-    assert "c7x_int8_silu" not in text and "R.sigmoid" in text
+    return bb.finalize(), s.value.numpy()
+
+
+def test_silu_quantized_per_channel_lowers_to_its_kernel():
+    mod, scales = _per_channel_activation("silu")
+    out = tvm.relax.transform.FuseQDQToC7xActivation()(mod)
+    text = out.script()
+    assert "c7x_int8_silu_per_channel" in text and "R.sigmoid" not in text
+    consts = []
+    relax.analysis.post_order_visit(
+        out["main"],
+        lambda e: (
+            consts.append(e.value.numpy())
+            if isinstance(e, tvm.ir.GenericConst) and e.value.numpy().shape == (C,)
+            else None
+        ),
+    )
+    assert len(consts) == 2 and all(np.allclose(c, scales) for c in consts)
+
+
+def test_activation_without_a_per_channel_kernel_stays_in_float():
+    """gelu has no per-channel kernel; its per-channel scales leave it in float."""
+    mod, _ = _per_channel_activation("gelu")
+    text = tvm.relax.transform.FuseQDQToC7xActivation()(mod).script()
+    assert "c7x_int8_gelu" not in text and "R.nn.gelu" in text
 
 
 class _StemBlock(nn.Module):

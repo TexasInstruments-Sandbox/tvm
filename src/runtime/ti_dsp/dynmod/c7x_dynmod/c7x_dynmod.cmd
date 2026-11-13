@@ -163,6 +163,8 @@ SECTIONS
 --import=c7x_int8_channel_scale_multiply
 --import=c7x_int8_silu_gate_multiply
 --import=c7x_int8_hardswish_gate_multiply
+--import=c7x_int8_silu_per_channel
+--import=c7x_int8_hardswish_per_channel
 --import=c7x_int8_global_avg_pool
 --import=c7x_int8_avg_pool
 --import=c7x_int8_max_pool

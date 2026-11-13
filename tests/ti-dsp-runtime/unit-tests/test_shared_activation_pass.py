@@ -220,3 +220,40 @@ def test_non_constant_scale_declines():
 
     calls, _ = _calls(_module([x, s, g], body))
     assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# two quantize readers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("per_channel", [False, True], ids=["per-tensor", "per-channel"])
+def test_second_quantize_reader_gets_its_own_activation(per_channel):
+    """Two quantizes at different scales (a depthwise conv's per-channel input and a
+    residual add's per-tensor one): each computes the activation from the int8 input
+    at its own scale, rather than one requantizing the other's result."""
+    x = relax.Var("x", T((1, 8, 4, 4), "int8"))
+
+    def body(bb):
+        if per_channel:
+            s = _c([0.05 + 0.01 * i for i in range(8)], "float32")
+            dq = bb.emit(relax.op.dequantize(x, s, _c([0] * 8, "int8"), axis=1))
+        else:
+            dq = _dq(bb, x, 0.05)
+        act = bb.emit(relax.op.multiply(dq, bb.emit(relax.op.sigmoid(dq))))
+        if per_channel:
+            s_out = _c([0.02 + 0.005 * i for i in range(8)], "float32")
+            first = bb.emit(
+                relax.op.quantize(act, s_out, _c([0] * 8, "int8"), axis=1, out_dtype="int8")
+            )
+        else:
+            first = _q(bb, act, 0.01)
+        return relax.Tuple([first, _q(bb, act, 0.03)])
+
+    mod = tvm.relax.transform.FuseQDQToC7xActivation()(_module([x], body))
+    main = mod["main"].script(show_meta=False)
+    kernel = "c7x_int8_silu_per_channel" if per_channel else "c7x_int8_silu"
+    # Count the calls in main: the per-channel kernel takes its scales as tensors, so
+    # both calls share one PrimFunc.
+    assert len(re.findall(rf"R\.call_tir\({kernel}\d*,", main)) == 2
+    assert "R.sigmoid" not in mod.script()

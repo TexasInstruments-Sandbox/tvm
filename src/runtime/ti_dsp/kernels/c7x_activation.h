@@ -100,6 +100,16 @@ int32_t c7x_int8_hardswish_gate_multiply(
     int32_t C, int32_t H_W,
     int32_t zx, float sx, int32_t zy, float sy);
 
+/* The activation of an int8 tensor quantized per channel: channel c of in/out
+ * ([C, H_W], NCHW, N = 1) uses scales sx[c] and sy[c] (float32 [C]). */
+int32_t c7x_int8_silu_per_channel(
+    const void* in, const void* sx, const void* sy, void* out,
+    int32_t C, int32_t H_W, int32_t zx, int32_t zy);
+
+int32_t c7x_int8_hardswish_per_channel(
+    const void* in, const void* sx, const void* sy, void* out,
+    int32_t C, int32_t H_W, int32_t zx, int32_t zy);
+
 #ifdef __cplusplus
 }
 #endif

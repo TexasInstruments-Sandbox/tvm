@@ -54,6 +54,10 @@
  *   per-channel SE loop as channel_scale_multiply_vec, with silu_vec's or
  *   hardswish_vec's float math inside it.
  *
+ * c7x_int8_silu_per_channel / c7x_int8_hardswish_per_channel: the same
+ *   activations on a tensor quantized per channel (one input and output scale
+ *   per channel); c7x_int8_silu / c7x_int8_hardswish run on each channel.
+ *
  * gelu, hardsigmoid: scalar float only (applied to tiny tensors ≤C
  *   elements from global avg pool — not on the hot path).
  *
@@ -729,5 +733,42 @@ int32_t c7x_int8_hardswish_gate_multiply(
     gate_multiply_scalar(_hardswish, (const int8_t*)in, (const float*)gate, (int8_t*)out,
                          C, H_W, zx, sx, zy, sy);
 #endif
+    return 0;
+}
+
+/* =========================================================================
+ * c7x_int8_silu_per_channel / c7x_int8_hardswish_per_channel
+ *
+ * The activation of an int8 tensor quantized per channel, as a depthwise block's
+ * activations are when their channels' ranges differ too much for one scale:
+ *
+ *   out[c*H_W + j] = quantize(act(dequantize(in[c*H_W + j], zx, sx[c])), zy, sy[c])
+ *
+ * in and out are [C, H_W] (NCHW, N = 1); sx and sy are float32 [C].  Each channel
+ * is the per-tensor kernel on that channel's H*W values with its own scales, so the
+ * results match c7x_int8_silu / c7x_int8_hardswish channel by channel.
+ * ========================================================================= */
+
+extern "C"
+int32_t c7x_int8_silu_per_channel(
+        const void* in, const void* sx, const void* sy, void* out,
+        int32_t C, int32_t H_W, int32_t zx, int32_t zy) {
+    const int8_t* p = (const int8_t*)in;
+    int8_t* q = (int8_t*)out;
+    for (int32_t c = 0; c < C; c++)
+        c7x_int8_silu(p + c * H_W, q + c * H_W, H_W, zx, ((const float*)sx)[c], zy,
+                      ((const float*)sy)[c]);
+    return 0;
+}
+
+extern "C"
+int32_t c7x_int8_hardswish_per_channel(
+        const void* in, const void* sx, const void* sy, void* out,
+        int32_t C, int32_t H_W, int32_t zx, int32_t zy) {
+    const int8_t* p = (const int8_t*)in;
+    int8_t* q = (int8_t*)out;
+    for (int32_t c = 0; c < C; c++)
+        c7x_int8_hardswish(p + c * H_W, q + c * H_W, H_W, zx, ((const float*)sx)[c], zy,
+                           ((const float*)sy)[c]);
     return 0;
 }

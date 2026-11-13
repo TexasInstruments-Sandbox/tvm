@@ -48,6 +48,8 @@ Kernels: src/runtime/ti_dsp/kernels/c7x_activation.c
 
 import logging
 
+import numpy as np
+
 import tvm
 from tvm import relax, te, tirx
 from tvm.ir.module import IRModule
@@ -56,7 +58,7 @@ from tvm.relax.dpl.pattern import CallPattern, is_op, wildcard
 from tvm.relax.expr_functor import PyExprMutator, mutator
 
 from .ti_c7x_span_utils import find_composite_span, propagate_span
-from .ti_mmalib_legalize import _call_extern_checked
+from .ti_mmalib_legalize import _call_extern_checked, _scale_value, _zero_point_value
 
 logger = logging.getLogger(__name__)
 
@@ -343,6 +345,30 @@ def _check_activation(ctx) -> bool:
     return True
 
 
+# Activations with a kernel for a tensor quantized per channel (c7x_int8_<act>_per_channel).
+_PER_CHANNEL_COMPOSITES = frozenset(
+    {"tidl_act.silu", "tidl_act.hardswish", "tidl_act.hardswish_commuted"}
+)
+
+
+def _check_activation_per_channel(ctx) -> bool:
+    """_check_activation, or the same with per-channel scales: one per channel of a
+    [1, C, H, W] input, and one zero point for all channels."""
+    if _check_activation(ctx):
+        return True
+    x = ctx.annotated_expr["x"]
+    ty = getattr(x, "ty", None)
+    if not isinstance(ty, relax.TensorType) or str(ty.dtype) != "int8" or ty.ndim != 4:
+        return False
+    shape = list(ty.shape) if ty.shape is not None else []
+    if len(shape) != 4 or not all(isinstance(s, tirx.IntImm) for s in shape) or int(shape[0]) != 1:
+        return False
+    n_ch = int(shape[1])
+    scales = [_scale_value(ctx.annotated_expr[k], n_ch) for k in ("d_scale", "o_scale")]
+    zps = [_zero_point_value(ctx.annotated_expr[k]) for k in ("d_zp", "o_zp")]
+    return all(s is not None for s in scales) and all(z is not None for z in zps)
+
+
 def _check_silu_f32out(ctx) -> bool:
     """Same as _check_activation, minus the o_scale/o_zp check -- this
     pattern has no trailing quantize, so there is no output scale/zp to
@@ -548,6 +574,44 @@ class _ActivationLowerer(PyExprMutator):
         )
         return propagate_span(result, find_composite_span(func))
 
+    def _lower_per_channel(self, call, x_arg, composite_name, d_scale, d_zp, o_scale, o_zp, span):
+        """Lower a silu/hardswish composite quantized per channel to
+        c7x_int8_<act>_per_channel, with the scales as float32 [C] tensors."""
+        if not isinstance(call.ty, relax.TensorType) or not call.ty.shape:
+            return super().visit_call_(call)
+        output_shape = [int(s) for s in call.ty.shape]
+        if len(output_shape) != 4 or output_shape[0] != 1:
+            return super().visit_call_(call)
+        n_ch, hw = output_shape[1], output_shape[2] * output_shape[3]
+        act_suffix = composite_name[len(_COMPOSITE_PREFIX) :].removesuffix("_commuted")
+        extern_name = f"c7x_int8_{act_suffix}_per_channel"
+        sx = relax.const(np.broadcast_to(np.float32(d_scale), (n_ch,)).astype(np.float32))
+        sy = relax.const(np.broadcast_to(np.float32(o_scale), (n_ch,)).astype(np.float32))
+
+        def te_activation(x_t, sx_t, sy_t):
+            def fcompute(ins, outs):
+                return tirx.call_extern(
+                    "int32",
+                    extern_name,
+                    ins[0].data,
+                    ins[1].data,
+                    ins[2].data,
+                    outs[0].data,
+                    tirx.IntImm("int32", n_ch),
+                    tirx.IntImm("int32", hw),
+                    tirx.IntImm("int32", d_zp),
+                    tirx.IntImm("int32", o_zp),
+                )
+
+            return te.extern(
+                output_shape, [x_t, sx_t, sy_t], fcompute, name="tidl_act_out", dtype="int8"
+            )
+
+        result = self.builder_.call_te(te_activation, x_arg, sx, sy, primfunc_name_hint=extern_name)
+        self.count += 1
+        logger.debug("Fused %s: C=%d HW=%d", extern_name, n_ch, hw)
+        return propagate_span(result, span)
+
     def _lower_silu_f32out(self, call, call_sinfo, x_arg, d_scale_val, d_zp_val, span):
         """Lower a silu_f32out composite to c7x_int8_silu_f32out.
 
@@ -604,6 +668,8 @@ class _ActivationLowerer(PyExprMutator):
 
         x_arg = None
         d_scale_val = d_zp_val = o_scale_val = o_zp_val = None
+        axes = []  # (scale, axis) of the dequantize and quantize
+        n_ch = None  # the input's channel count, for per-channel scales
 
         for binding in func.body.blocks[0].bindings:
             val = binding.value
@@ -615,23 +681,43 @@ class _ActivationLowerer(PyExprMutator):
             if "dequantize" in op_name:
                 x_param = val.args[0]
                 x_arg = param_to_arg.get(x_param, x_param)
+                x_ty = getattr(x_arg, "ty", None)
+                if isinstance(x_ty, relax.TensorType) and x_ty.ndim == 4 and x_ty.shape is not None:
+                    n_ch = int(list(x_ty.shape)[1])
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                d_scale_val = float(s.value.numpy())
-                d_zp_val = int(z.value.numpy())
+                d_scale_val, d_zp_val = _scale_value(s, n_ch), _zero_point_value(z)
+                axes.append((d_scale_val, int(getattr(val.attrs, "axis", -1))))
             elif "quantize" in op_name and x_arg is not None:
                 s = param_to_arg.get(val.args[1], val.args[1])
                 z = param_to_arg.get(val.args[2], val.args[2])
-                o_scale_val = float(s.value.numpy())
-                o_zp_val = int(z.value.numpy())
+                o_scale_val, o_zp_val = _scale_value(s, n_ch), _zero_point_value(z)
+                axes.append((o_scale_val, int(getattr(val.attrs, "axis", -1))))
 
-        if x_arg is None or d_scale_val is None:
+        if x_arg is None or d_scale_val is None or d_zp_val is None:
             return super().visit_call_(call)
-        if not is_f32out and o_scale_val is None:
+        if not is_f32out and (o_scale_val is None or o_zp_val is None):
             return super().visit_call_(call)
 
         call_sinfo = call.ty
         composite_span = find_composite_span(func)
+
+        if any(isinstance(s, np.ndarray) for s, _ in axes):
+            # Per-channel scales: only on the channel axis of a [1, C, H, W] tensor.
+            if is_f32out or composite_name not in _PER_CHANNEL_COMPOSITES:
+                return super().visit_call_(call)
+            if any(isinstance(s, np.ndarray) and a not in (1, -3) for s, a in axes):
+                return super().visit_call_(call)
+            return self._lower_per_channel(
+                call,
+                x_arg,
+                composite_name,
+                d_scale_val,
+                d_zp_val,
+                o_scale_val,
+                o_zp_val,
+                composite_span,
+            )
 
         if is_f32out:
             return self._lower_silu_f32out(
@@ -970,6 +1056,8 @@ def _plan_unsharing(func: relax.Function) -> dict:
       concat whose only user is a per-tensor quantize -> (that quantize, every such
           activation it reads)
       multiply by a [1,C,1,1] gate whose only user is a quantize -> (None, [the activation])
+      a second quantize (another scale: a depthwise conv's per-channel input and a
+          residual add's per-tensor one) -> (None, [the activation])
     Other readers keep the tuple-output path and are logged.
     """
     bindings = [b for block in func.body.blocks for b in block.bindings]
@@ -999,9 +1087,12 @@ def _plan_unsharing(func: relax.Function) -> dict:
         chain = _match_activation_chain(b.value, values)
         if chain is None:
             continue
+        own = next(r for r in readers if _is_op(values[r], "relax.quantize"))
         for r in dict.fromkeys(readers):  # a concat can read the activation twice
             rv = values[r]
             if _is_op(rv, "relax.quantize"):
+                if r is not own:
+                    plan[r] = (None, [(b.var, chain)])
                 continue
             q = only_quantize_reader(r)
             if _is_op(rv, "relax.concat") and q is not None:
@@ -1306,11 +1397,12 @@ class FuseQDQToC7xActivation:
                 check = _check_channel_scale_multiply
                 round2.append((composite_name, pat, annotations, check))
             else:
-                check = (
-                    _check_gate_multiply
-                    if composite_name in _GATE_MULTIPLY_ACT
-                    else _check_activation
-                )
+                if composite_name in _GATE_MULTIPLY_ACT:
+                    check = _check_gate_multiply
+                elif composite_name in _PER_CHANNEL_COMPOSITES:
+                    check = _check_activation_per_channel
+                else:
+                    check = _check_activation
                 round1.append((composite_name, pat, annotations, check))
 
         # Give each float reader of a shared activation output its own copy of the
