@@ -60,7 +60,7 @@ DSP on `tests/cstatic/test_images/dog.jpg`, which is not in that set; both
 go through the weights' own preprocessing. `test_quantized_torchvision.py`
 instead cross-imports `tests/cstatic/cl_torchvision.py` (model loading +
 correct per-model preprocessing) and `pt2e-tests/pt2e_utils.py`
-(`e2e_quantize_and_import` / `run_and_check`) directly, so it covers
+(`e2e_quantize_and_import`) directly, so it covers
 whatever TorchVision model `cl_torchvision.py` can load without needing a
 dedicated function per model.
 
@@ -128,9 +128,36 @@ zero bias -- fixed via `_resolve_constant_tensor` in
 | TVM pass bug hit after quantization, not root-caused | 1 | `_EXCLUDED_QUANT_BUG` |
 | Genuine MMALIB misclassification | 1 | `_EXCLUDED_MISCLASSIFY` |
 
-Of the remaining 66, all pass via `c7x_dload --mmalib`: 65 on the
-elementwise `max_diff<=25` bound, 1 (`squeezenet1_1`) via a top-1
-classification match instead (see below).
+Of the remaining 66, all but the `_KNOWN_FAILURES` below pass on `c7x_dload`
+with MMALIB on BeagleY-AI (2026-11-13).
+
+Each model must give the reference's top-1 class and, with MMALIB, stay within
+`_MAX_ABS_DIFF` (25) of its logits; `_TOP1_MATCH_ONLY` models are checked on
+top-1 alone. The logits are compared as floats. The bound catches a miscompile
+that leaves top-1 intact; it doesn't measure precision. For that, each run adds
+or replaces the model's row in `results/sweep_metrics.csv` (under `$WORKSPACE`,
+default the working directory, beside `cycles.csv`):
+
+| Column | Meaning |
+|---|---|
+| `top1_match`, `ref_top1`, `dsp_top1` | Top-1 class of the reference and the DSP |
+| `ref_margin` | The reference's top-1 logit minus its second: a small margin marks a near-tie |
+| `max_abs_diff`, `cosine` | Of the DSP and reference logits |
+| `cycles` | DSP cycles, on hardware only |
+
+### Known failures
+
+`_KNOWN_FAILURES` lists the models that fail the check, the modes they fail in, and
+what was measured. In those modes a failure is reported as xfail with that reason;
+the model still runs and records its metrics, and a pass is a pass. Remove an entry
+once its model passes.
+
+| Model | Modes | Measured (dog.jpg) | Cause |
+|---|---|---|---|
+| `alexnet` | `c7x_dload` | Top-1 331 vs 258, cosine 0.75; `c7x_host` matches (0.9996) | Board-only, not root-caused |
+| `convnext_small` | both | Top-1 258 vs 259; the reference leads by 0.52, less than the DSP's largest logit error (1.36); cosine 0.91 | Near-tie: the DSP-vs-reference gap is larger than the margin |
+| `vit_b_32` | both | Top-1 258 vs 257; the reference leads by 0.15; cosine 0.66-0.68 | Near-tie |
+| `swin_t`, `swin_s` | both | DSP logits unrelated to the reference (cosine under 0.1) | Not root-caused; somewhere in the transformer path |
 
 ### Notes on specific cases
 
@@ -153,15 +180,18 @@ classification match instead (see below).
   `swin_v2_*` additionally needs `ConstReachability`
   (`ti_c7x_const_reachability.py`) for an unrelated compile-time
   segfault in constant-folding, already fixed but worth knowing about.
-- **MMALIB conv2d/depthwise geometry limits**: three real MMALIB
+- **MMALIB conv2d/depthwise geometry limits**: four real MMALIB
   hardware kernel limits (asymmetric stride+padding, unpadded "VALID"
-  stride-1 convs, and an MMA-panel-width/odd-feature-map limit on
-  depthwise convs) are caught at compile time and declined to the
-  scalar codegen path instead of aborting the DSP -- see
-  `_check_conv2d_row_kernel_geometry` (`ti_mmalib_legalize.py`) and
-  `_check_dwconv2d_geometry` (`ti_mmalib_qdq_dwconv.py`) for the exact
-  rules, and `unit-tests/test_mmalib_qdq_geometry_decline.py` for
-  regression coverage.
+  stride-1 convs, regular convs at stride above 2, and an
+  MMA-panel-width/odd-feature-map limit on depthwise convs) are caught
+  at compile time and declined to the scalar codegen path instead of
+  aborting the DSP or, at stride 4 and above, computing wrong values
+  for ConvNeXt's, Swin's and ViT's patch convs -- see
+  `_check_conv2d_mmalib_constraints` and `_check_conv2d_row_kernel_geometry`
+  (`ti_mmalib_legalize.py`) and `_check_dwconv2d_geometry`
+  (`ti_mmalib_qdq_dwconv.py`) for the exact rules, and
+  `unit-tests/test_mmalib_qdq_geometry_decline.py` and
+  `mmalib-tests/test_mmalib_conv2d_stride_dsp.py` for regression coverage.
 - **Native cl7x compile time** for `swin_s`/`swin_t`/`vit_b_16`/
   `vit_b_32` is slow -- up to ~12 min for `vit_b_16`, genuine `cg7x`
   codegen compute (not a hang) -- give these extra timeout headroom
@@ -175,13 +205,7 @@ classification match instead (see below).
 | `_pt2e_quantize` | `model_utils.py` | Export → calibrate with a `QuantRecipe` → import into TVM; used by the 7 per-model files and the YOLO test |
 | `_quantize_classifier` | `model_utils.py` | Calibrates a TorchVision classifier on `calib_images/` and returns the held-out `dog.jpg` as its input; used by the 7 per-model files |
 | `load_model_with_preprocessing`, `load_image`, `get_all_classification_models` | `tests/cstatic/cl_torchvision.py` | Dynamic model loading with correct per-model preprocessing; cross-imported by `test_quantized_torchvision.py` |
-| `e2e_quantize_and_import`, `run_and_check` | `tests/ti-dsp-runtime/pt2e-tests/pt2e_utils.py` | Full quantize→import pipeline and MMALIB compile+run+assert; cross-imported by `test_quantized_torchvision.py` |
-
-`run_and_check`'s default tolerance (`max_diff=2`, ±1 LSB) is calibrated
-for single-op unit tests (see [PT2E Quantizer Suite](pt2e-suite.md)) —
-whole models compound int8 rounding error across many layers, so
-`test_quantized_torchvision.py` passes `max_diff=25` explicitly instead
-of relying on the default.
+| `e2e_quantize_and_import` | `tests/ti-dsp-runtime/pt2e-tests/pt2e_utils.py` | Full quantize→import pipeline; cross-imported by `test_quantized_torchvision.py` |
 
 ## Measuring accuracy
 

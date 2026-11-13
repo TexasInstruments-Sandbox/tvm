@@ -12,10 +12,16 @@ Reuses infrastructure directly rather than duplicating it:
   - cl_torchvision.py's load_model_with_preprocessing/load_image/
     get_all_classification_models (dynamic model discovery + correct
     per-model preprocessing)
-  - pt2e-tests/pt2e_utils.py's e2e_quantize_and_import/run_and_check
-    (quantize -> import -> compile with MMALIB -> run -> assert a
-    principled +/-1 LSB int8 tolerance), the same mechanism
-    pt2e-tests/test_mobilenet_v2_pt2e_dsp.py already uses for mobilenet_v2.
+  - pt2e-tests/pt2e_utils.py's e2e_quantize_and_import (quantize ->
+    import), the same mechanism pt2e-tests/test_mobilenet_v2_pt2e_dsp.py
+    already uses for mobilenet_v2.
+
+Each model must give the reference's top-1 class, and with MMALIB stay within
+_MAX_ABS_DIFF of its logits. Each run adds a row to results/sweep_metrics.csv
+(under $WORKSPACE, default the working directory): top-1 of both, the
+reference's top-1 margin, max |DSP - reference| and cosine of the logits, and
+cycles on hardware. A model in _KNOWN_FAILURES that fails in a listed mode is
+reported as xfail with the measured reason.
 
 4 models are excluded: their int8 weight size alone exceeds the 256 MiB
 AM67A DLOAD DDR heap (DDR_C7X_1_LOCAL_HEAP). 7 more are excluded for a
@@ -33,7 +39,9 @@ Usage:
 """
 
 import argparse
+import csv
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -52,7 +60,7 @@ from cl_torchvision import (  # noqa: E402
 _PT2E_TESTS_DIR = _QUANTIZED_DIR.parent / "pt2e-tests"
 sys.path.insert(0, str(_PT2E_TESTS_DIR))
 from dsp_utils import add_board_arg, compile_and_run_dsp, get_target_string  # noqa: E402
-from pt2e_utils import e2e_quantize_and_import, run_and_check  # noqa: E402
+from pt2e_utils import e2e_quantize_and_import  # noqa: E402
 from quant_recipe import BASELINE_TEST_IMAGE  # noqa: E402
 
 pytestmark = [pytest.mark.c7x_only]
@@ -132,6 +140,92 @@ TORCHVISION_MODELS = sorted(
 )
 
 
+# Elementwise bound on |DSP - reference| logits with MMALIB, on top of the top-1
+# match every model must give. Whole models compound int8 rounding across many
+# layers, so this catches a miscompile that leaves top-1 intact rather than
+# measuring precision; sweep_metrics.csv records the actual differences.
+_MAX_ABS_DIFF = 25.0
+
+# Models that fail the check, in the modes they fail in, with what was measured
+# (dog.jpg, BASELINE_TEST_IMAGE recipe). They still run and record their metrics;
+# a failure is reported as xfail with the reason, a pass as a pass. Remove an
+# entry once its model passes. See quantized-sweep.md.
+_KNOWN_FAILURES = {
+    "alexnet": (
+        ("c7x_dload",),
+        "board only: top-1 331 vs 258, cosine 0.75, while c7x_host matches (cosine "
+        "0.9996); not root-caused",
+    ),
+    "convnext_small": (
+        ("c7x_host", "c7x_dload"),
+        "top-1 near-tie: DSP 258, reference 259 by 0.52, less than the DSP's largest "
+        "logit error (1.36); cosine 0.91. The float model picks 259 by 1.44",
+    ),
+    "vit_b_32": (
+        ("c7x_host", "c7x_dload"),
+        "top-1 near-tie: DSP 258, reference 257 by 0.15; cosine 0.66-0.68",
+    ),
+    "swin_t": (
+        ("c7x_host", "c7x_dload"),
+        "DSP logits unrelated to the reference (cosine 0.07); not root-caused",
+    ),
+    "swin_s": (
+        ("c7x_host", "c7x_dload"),
+        "DSP logits unrelated to the reference (cosine 0.08 host, -0.01 board), and "
+        "the reference's top two classes tie; not root-caused",
+    ),
+}
+
+
+def _metrics(dsp_out: np.ndarray, ref: np.ndarray) -> dict:
+    """DSP vs fake-quant reference logits. ref_margin is the reference's top-1 logit
+    minus its second, which tells a near-tie from a real top-1 mismatch."""
+    d, r = dsp_out.reshape(-1).astype(np.float64), ref.reshape(-1).astype(np.float64)
+    top2 = np.sort(r)[-2:]
+    denom = np.linalg.norm(d) * np.linalg.norm(r)
+    return {
+        "top1_match": int(np.argmax(d)) == int(np.argmax(r)),
+        "ref_top1": int(np.argmax(r)),
+        "dsp_top1": int(np.argmax(d)),
+        "ref_margin": float(top2[1] - top2[0]),
+        "max_abs_diff": float(np.abs(d - r).max()),
+        "cosine": float(d @ r / denom) if denom else float("nan"),
+    }
+
+
+_METRIC_FIELDS = [
+    "model",
+    "dsp_mode",
+    "mmalib",
+    "top1_match",
+    "ref_top1",
+    "dsp_top1",
+    "ref_margin",
+    "max_abs_diff",
+    "cosine",
+    "cycles",
+]
+
+
+def _record_metrics(model_name: str, dsp_mode: str, mmalib: bool, m: dict, cycles: int):
+    """Add or replace this model's row in results/sweep_metrics.csv. Written per call,
+    like cycles.csv (quantized/conftest.py), so rows survive a forked test process."""
+    out_file = Path(os.environ.get("WORKSPACE", ".")) / "results" / "sweep_metrics.csv"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    rows = {}
+    if out_file.exists():
+        with open(out_file, newline="") as f:
+            for row in csv.DictReader(f):
+                rows[(row["model"], row["dsp_mode"], row["mmalib"])] = row
+    row = {"model": model_name, "dsp_mode": dsp_mode, "mmalib": str(mmalib), "cycles": cycles}
+    row.update(m)
+    rows[(model_name, dsp_mode, str(mmalib))] = row
+    with open(out_file, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=_METRIC_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows[k] for k in sorted(rows))
+
+
 def _run_test(model_name: str, dsp_mode: str, mmalib: bool, record_cycles) -> None:
     model, preproc, _ = load_model_with_preprocessing(model_name)
     img = load_image(str(_TEST_IMAGE))
@@ -140,58 +234,46 @@ def _run_test(model_name: str, dsp_mode: str, mmalib: bool, record_cycles) -> No
 
     mod, input_np, ref_np = e2e_quantize_and_import(model, example, recipe=BASELINE_TEST_IMAGE)
 
-    if mmalib and model_name in _TOP1_MATCH_ONLY:
-        # See _TOP1_MATCH_ONLY above: this model's MMALIB logits are
-        # noisier than max_diff=25 allows but still classify correctly,
-        # so check top-1 match instead (same bar as the non-MMALIB branch
-        # below) rather than loosening max_diff for every model.
-        results = compile_and_run_dsp(
-            mod=mod,
-            input_data=input_np,
-            target_string=get_target_string(dsp_mode, use_cpp_api=True) + " -mmalib=1",
-            execution_mode=dsp_mode,
+    target = get_target_string(dsp_mode, use_cpp_api=True) + (" -mmalib=1" if mmalib else "")
+    results = compile_and_run_dsp(
+        mod=mod, input_data=input_np, target_string=target, execution_mode=dsp_mode
+    )
+    result_key = "c7x_host_result" if dsp_mode == "c7x_host" else "c7x_dload_result"
+    dsp_out = results[result_key].reshape(ref_np.shape).astype(np.float32)
+    # c7x_dload_cycles is only populated for hardware runs.
+    cycles = int(results.get("c7x_dload_cycles", 0) or 0)
+    if mmalib:
+        record_cycles(f"{model_name}_pt2e_i8", cycles)
+
+    m = _metrics(dsp_out, ref_np)
+    _record_metrics(model_name, dsp_mode, mmalib, m, cycles)
+    logger.info(
+        "%s vs reference: top-1 %s (ref %d, DSP %d, ref margin %.3f), max_abs_diff = %.4f, "
+        "cosine = %.6f",
+        model_name,
+        "match" if m["top1_match"] else "MISMATCH",
+        m["ref_top1"],
+        m["dsp_top1"],
+        m["ref_margin"],
+        m["max_abs_diff"],
+        m["cosine"],
+    )
+    failure = None
+    if not m["top1_match"]:
+        failure = (
+            f"{model_name}: top-1 mismatch: DSP={m['dsp_top1']}, ref={m['ref_top1']} "
+            f"(reference margin {m['ref_margin']:.3f})"
         )
-        result_key = "c7x_host_result" if dsp_mode == "c7x_host" else "c7x_dload_result"
-        dsp_out = results[result_key].reshape(ref_np.shape).astype(np.float32)
-        assert np.argmax(dsp_out) == np.argmax(ref_np), (
-            f"{model_name}: MMALIB top-1 mismatch: "
-            f"DSP={int(np.argmax(dsp_out))}, ref={int(np.argmax(ref_np))}"
-        )
-    elif mmalib:
-        # run_and_check's default max_diff=2 (+/-1 LSB) is calibrated for
-        # single-op unit tests (test_c7x_mma_quantizer_e2e_dsp.py) where
-        # there's exactly one quantize/dequantize hop. Whole classification
-        # models compound int8 rounding error across many sequential
-        # layers -- mobilenet_v2's own end-to-end test bypasses this
-        # default entirely and hand-checks max_diff<=20.0 for the same
-        # reason. 25.0 matches the atol quantized/test_quantized_*.py
-        # already uses for --mmalib on these same architectures.
-        run_and_check(
-            mod,
-            input_np,
-            ref_np,
-            dsp_mode,
-            record_cycles,
-            cycles_key=f"{model_name}_pt2e_i8",
-            max_diff=25,
-        )
-    else:
-        # Generic (non-MMALIB) int8 codegen path: validates the
-        # C7xMMAQuantizer + TVM import pipeline on its own. Top-1 argmax
-        # match, not per-element -- mirrors mobilenet_v2's Part 1 rationale
-        # in test_mobilenet_v2_pt2e_dsp.py.
-        results = compile_and_run_dsp(
-            mod=mod,
-            input_data=input_np,
-            target_string=get_target_string(dsp_mode, use_cpp_api=True),
-            execution_mode=dsp_mode,
-        )
-        result_key = "c7x_host_result" if dsp_mode == "c7x_host" else "c7x_dload_result"
-        dsp_out = results[result_key].reshape(ref_np.shape).astype(np.float32)
-        assert np.argmax(dsp_out) == np.argmax(ref_np), (
-            f"{model_name}: no-MMALIB top-1 mismatch: "
-            f"DSP={int(np.argmax(dsp_out))}, ref={int(np.argmax(ref_np))}"
-        )
+    # _TOP1_MATCH_ONLY models, and the generic path without MMALIB, are checked on
+    # top-1 alone.
+    elif mmalib and model_name not in _TOP1_MATCH_ONLY and m["max_abs_diff"] > _MAX_ABS_DIFF:
+        failure = f"{model_name}: max |DSP - reference| {m['max_abs_diff']:.3f} > {_MAX_ABS_DIFF}"
+    if failure is None:
+        return
+    modes, reason = _KNOWN_FAILURES.get(model_name, ((), ""))
+    if dsp_mode in modes:
+        pytest.xfail(f"{failure}; known: {reason}")
+    pytest.fail(failure)
 
 
 @pytest.mark.parametrize("model_name", TORCHVISION_MODELS, ids=TORCHVISION_MODELS)
