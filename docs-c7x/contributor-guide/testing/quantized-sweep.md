@@ -132,11 +132,13 @@ Of the remaining 66, all but the `_KNOWN_FAILURES` below pass on `c7x_dload`
 with MMALIB on BeagleY-AI (2026-11-13).
 
 Each model must give the reference's top-1 class and, with MMALIB, stay within
-`_MAX_ABS_DIFF` (25) of its logits; `_TOP1_MATCH_ONLY` models are checked on
-top-1 alone. The logits are compared as floats. The bound catches a miscompile
-that leaves top-1 intact; it doesn't measure precision. For that, each run adds
-or replaces the model's row in `results/sweep_metrics.csv` (under `$WORKSPACE`,
-default the working directory, beside `cycles.csv`):
+`_MAX_ABS_DIFF` (8.5) of its logits; `_TOP1_MATCH_ONLY` models are checked on
+top-1 alone. The logits are compared as floats. The bound is set like the
+per-model tests' `_ATOL`: twice the largest difference of a passing model on
+`c7x_host` and BeagleY-AI, rounded up to a multiple of 0.25. It catches a
+miscompile that leaves top-1 intact; it doesn't measure precision. For that,
+each run adds or replaces the model's row in `results/sweep_metrics.csv` (under
+`$WORKSPACE`, default the working directory, beside `cycles.csv`):
 
 | Column | Meaning |
 |---|---|

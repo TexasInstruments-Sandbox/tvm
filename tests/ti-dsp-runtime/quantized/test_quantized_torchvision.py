@@ -141,10 +141,12 @@ TORCHVISION_MODELS = sorted(
 
 
 # Elementwise bound on |DSP - reference| logits with MMALIB, on top of the top-1
-# match every model must give. Whole models compound int8 rounding across many
-# layers, so this catches a miscompile that leaves top-1 intact rather than
-# measuring precision; sweep_metrics.csv records the actual differences.
-_MAX_ABS_DIFF = 25.0
+# match every model must give: twice the largest difference of a passing model,
+# measured on c7x_host and BeagleY-AI, rounded up to a multiple of 0.25, as _ATOL
+# is in the per-model tests. It catches a miscompile that leaves top-1 intact;
+# sweep_metrics.csv records each model's actual difference. Re-measure when a
+# change legitimately moves the numbers (calibration, quantizer, kernel rounding).
+_MAX_ABS_DIFF = 8.5
 
 # Models that fail the check, in the modes they fail in, with what was measured
 # (dog.jpg, BASELINE_TEST_IMAGE recipe). They still run and record their metrics;
