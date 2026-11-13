@@ -259,6 +259,122 @@ def test_invalid_depthwise_block_percentile_is_rejected():
         C7xMMAQuantizer("int8", depthwise_block_percentile=50)
 
 
+@pytest.mark.quick
+def test_invalid_depthwise_input_headroom_is_rejected():
+    with pytest.raises(ValueError, match="depthwise_input_headroom"):
+        C7xMMAQuantizer("int8", depthwise_input_headroom=0.5)
+
+
+class StemIntoDepthwise(nn.Module):
+    """conv -> activation -> depthwise -> project, the stem's 16 channels 100x apart.
+
+    second_reader: the conv output also feeds an add, so the chain isn't the conv's
+    only use.
+    """
+
+    def __init__(self, act, second_reader=False):
+        super().__init__()
+        self.stem = nn.Conv2d(3, 16, 3, padding=1)
+        with torch.no_grad():
+            self.stem.weight[:8] *= 0.01  # half the channels 100x smaller
+            self.stem.bias.zero_()
+        self.act = act
+        self.dw = nn.Conv2d(16, 16, 3, padding=1, groups=16)
+        self.project = nn.Conv2d(16, 8, 1)
+        self.second_reader = second_reader
+
+    def forward(self, x):
+        y = self.stem(x)
+        out = self.project(self.dw(self.act(y)))
+        return out + y[:, :8] if self.second_reader else out
+
+
+def _activation_quantizes(model, quantizer):
+    """(per-channel quantize nodes' scale tensors, per-tensor scales) after convert."""
+    torch.manual_seed(0)
+    q = quantize_pt2e(model, (torch.randn(1, 3, 16, 16),), quantizer)
+    per_channel, per_tensor = [], []
+    for n in q.graph.nodes:
+        target = str(n.target)
+        if n.op != "call_function" or "dequantize" in target:
+            continue
+        if "quantize_per_channel" in target:
+            per_channel.append(getattr(q, n.args[1].target))
+        elif "quantize_per_tensor" in target:
+            per_tensor.append(float(n.args[1]))
+    return per_channel, per_tensor
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(
+    "act",
+    [nn.Hardswish(inplace=True), nn.Hardswish(), nn.SiLU(inplace=True), nn.ReLU()],
+    ids=["hardswish_", "hardswish", "silu_", "relu"],
+)
+def test_depthwise_input_chain_gets_per_channel_scales(act):
+    per_channel, _ = _activation_quantizes(StemIntoDepthwise(act), C7xMMAQuantizer("int8"))
+    # The conv output and the depthwise input (for ReLU, the same tensor on both sides).
+    assert len(per_channel) == 2
+    _, plain = _activation_quantizes(
+        StemIntoDepthwise(act), C7xMMAQuantizer("int8", depthwise_input_headroom=None)
+    )
+    cap = max(plain)
+    for scales in per_channel:
+        assert scales.numel() == 16
+        assert float(scales.max()) <= cap * (1 + 1e-6), "never coarser than per tensor"
+        assert float(scales.max() / scales.min()) > 10, "the small channels get a finer grid"
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(
+    ("model", "quantizer"),
+    [
+        (ConvReLUModel(), C7xMMAQuantizer("int8")),
+        (StemIntoDepthwise(nn.ReLU6()), C7xMMAQuantizer("int8")),
+        (StemIntoDepthwise(nn.Hardswish()), C7xMMAQuantizer("int16")),
+        (StemIntoDepthwise(nn.Hardswish()), C7xMMAQuantizer("int8", symmetric_activations=False)),
+        (StemIntoDepthwise(nn.Hardswish()), C7xMMAQuantizer("int8", depthwise_input_headroom=None)),
+    ],
+    ids=["no-depthwise", "relu6", "int16", "asymmetric", "off"],
+)
+def test_depthwise_input_per_channel_left_out(model, quantizer):
+    per_channel, _ = _activation_quantizes(model, quantizer)
+    assert per_channel == []
+
+
+class ResidualStem(nn.Module):
+    """MobileNetV3-Large's stem: conv -> hardswish, read by a depthwise block and by the
+    block's residual add."""
+
+    def __init__(self, inplace):
+        super().__init__()
+        self.stem = nn.Conv2d(3, 16, 3, padding=1)
+        with torch.no_grad():
+            self.stem.weight[:8] *= 0.01
+        self.act = nn.Hardswish(inplace=inplace)
+        self.dw = nn.Conv2d(16, 16, 3, padding=1, groups=16)
+        self.project = nn.Conv2d(16, 16, 1)
+
+    def forward(self, x):
+        y = self.act(self.stem(x))
+        return self.project(self.dw(y)) + y
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize("inplace", [True, False], ids=["hardswish_", "hardswish"])
+def test_other_readers_of_a_chain_keep_per_tensor_scales(inplace):
+    """The depthwise conv reads the activation per channel; the add, per tensor."""
+    torch.manual_seed(0)
+    q = quantize_pt2e(ResidualStem(inplace), (torch.randn(1, 3, 16, 16),), C7xMMAQuantizer("int8"))
+    nodes = list(q.graph.nodes)
+    dw = next(
+        n for n in nodes
+        if n.target == torch.ops.aten.conv2d.default and len(n.args) > 6 and n.args[6] == 16
+    )
+    add = next(n for n in nodes if "add" in str(n.target))
+    assert "dequantize_per_channel" in str(dw.args[0].target)
+    assert all("dequantize_per_tensor" in str(a.target) for a in add.args[:2])
+
 class DepthwiseReLUBlock(nn.Module):
     """MobileNetV3's ReLU block: expand -> ReLU -> depthwise -> ReLU -> project."""
 

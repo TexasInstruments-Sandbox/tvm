@@ -75,11 +75,10 @@ NCHW data.
 
 ## How Activation Ranges Are Chosen
 
-Each activation tensor gets one scale (per tensor, not per channel). How
-calibration turns the values it sees into that range is the main accuracy lever,
-and you don't have to choose it per model: the quantizer recognises a few kinds of
-tensor from the graph's structure and ranges them differently. Everything else uses
-the observer.
+Most activation tensors get one scale (per tensor). How calibration turns the values
+it sees into that range is the main accuracy lever, and you don't have to choose it
+per model: the quantizer recognises a few kinds of tensor from the graph's structure
+and ranges them differently. Everything else uses the observer.
 
 `C7xMMAQuantizer(activation_observer=...)` picks the observer:
 
@@ -98,10 +97,14 @@ values set their range and leave the rest few codes:
 | A conv or linear output read only by ReLU6 (or another `hardtanh`) | the clamp's range: the clamp discards anything beyond it | (symmetric activations only; always on) |
 | The inputs and outputs of SiLU, hardswish and hardsigmoid, and a sigmoid's input | 0.1% of values clipped from each tail | `smooth_activation_percentile=None` |
 | In depthwise (inverted-residual) blocks: a conv output read only by ReLUs next to a depthwise conv, and a squeeze-excite output (a SiLU or hardswish output times its gate) | 0.01% clipped from each tail | `depthwise_block_percentile=None` |
+| A depthwise conv's input and, when it comes through a SiLU, hardswish or ReLU, the conv output before it | one scale per channel: the channel's calibrated peak times 2, never coarser than the per-tensor scale; any other reader (a residual add) still reads it per tensor | `depthwise_input_headroom=None` |
 
 A network with none of these tensors, such as a ResNet, quantizes with the observer
 alone. The rules are kept to these tensors on purpose: clipping a ResNet's ReLU
-tensors the same way costs it accuracy.
+tensors the same way costs it accuracy. Per-channel scales work on a depthwise
+conv's input because it keeps its channels apart, so each channel's scale folds into
+its own requantize; a depthwise block's input channels can differ by over 100x, more
+than one scale can serve.
 
 Measured effect, quantized minus float top-1 in points (calibrated on the repo's 12
 images, 5,000 ImageNetV2 images):
@@ -111,9 +114,10 @@ images, 5,000 ImageNetV2 images):
 | ResNet-18 | -0.2 | -0.2 |
 | MobileNetV2 (ReLU6) | -1.1 | -1.1 |
 | ShuffleNetV2 x0.5 | -1.6 | -1.2 |
-| MNASNet 0.5 | -8.5 | -4.0 |
-| MobileNetV3-Large | -12.7 | -4.0 |
-| EfficientNet-B0 | -41.7 | -7.9 |
+| MNASNet 0.5 | -8.5 | -1.9 |
+| MobileNetV3-Large | -12.7 | -3.8 |
+| EfficientNet-B0 | -41.7 | -3.4 |
+| MobileNetV3-Small | -52.9 | -6.0 |
 
 MobileNetV2's clamp rule is on in both columns.
 
@@ -166,18 +170,13 @@ In order:
    tensors the rules don't cover.
 3. If your model isn't one of the families above, measure with each range rule
    turned off as well (`smooth_activation_percentile=None`,
-   `depthwise_block_percentile=None`). The rules were measured on those families.
+   `depthwise_block_percentile=None`, `depthwise_input_headroom=None`). The rules
+   were measured on those families.
 4. Use `dtype="int16"`. It costs speed and narrows MMALIB coverage (see the
    table above), and is the fallback when int8 can't represent the model.
 
 There's no per-layer report yet that names the tensors costing the most, and no way
 to put only some layers in int16.
-
-Known gap: MobileNetV3-Small loses about 46 points of top-1 in int8. Its stem's output
-has channels whose values differ by over 100x, feeding a depthwise conv that weights
-the small channels most, and no single per-tensor range serves them all. With
-`dtype="int16"` it comes within half a point of float in PyTorch; expect it to run
-slower, since int16 covers fewer ops (see the table above).
 
 ## Confirming It Actually Offloaded
 

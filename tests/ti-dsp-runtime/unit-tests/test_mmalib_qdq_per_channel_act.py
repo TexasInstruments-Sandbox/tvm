@@ -178,11 +178,14 @@ def test_activation_without_a_per_channel_kernel_stays_in_float():
 
 
 class _StemBlock(nn.Module):
-    """MobileNetV3-Small's stem: conv -> hardswish -> depthwise -> project."""
+    """MobileNetV3-Small's stem: conv -> hardswish -> depthwise -> project, with the
+    stem's channels 100x apart so the default quantizer gives them per-channel scales."""
 
     def __init__(self):
         super().__init__()
         self.stem = nn.Conv2d(3, 16, 3, padding=1)
+        with torch.no_grad():
+            self.stem.weight[:8] *= 0.01
         self.dw = nn.Conv2d(16, 16, 3, padding=1, groups=16)
         self.project = nn.Conv2d(16, 32, 1)
 
@@ -191,43 +194,15 @@ class _StemBlock(nn.Module):
 
 
 def _quantize_stem_per_channel():
-    """PT2E with the stem conv output and hardswish output quantized per channel."""
-    from torchao.quantization.pt2e import PerChannelMinMaxObserver
+    """PT2E with the default C7xMMAQuantizer (depthwise_input_headroom=2.0)."""
     from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
-    from torchao.quantization.pt2e.quantizer import QuantizationSpec
 
     from tvm.relax.frontend.torch import C7xMMAQuantizer
-
-    pc = QuantizationSpec(
-        dtype=torch.int8,
-        quant_min=-128,
-        quant_max=127,
-        qscheme=torch.per_channel_symmetric,
-        ch_axis=1,
-        observer_or_fake_quant_ctr=PerChannelMinMaxObserver.with_args(ch_axis=1),
-    )
-
-    class PerChannelStem(C7xMMAQuantizer):
-        def annotate(self, model):
-            super().annotate(model)
-            for n in model.graph.nodes:
-                ann = n.meta.get("quantization_annotation")
-                if ann is None:
-                    continue
-                if n.target == torch.ops.aten.hardswish.default:
-                    ann.input_qspec_map = {k: pc for k in ann.input_qspec_map}
-                    ann.output_qspec = pc
-                elif n.target == torch.ops.aten.conv2d.default:
-                    if any(u.target == torch.ops.aten.hardswish.default for u in n.users):
-                        ann.output_qspec = pc
-                    if n.args[0].target == torch.ops.aten.hardswish.default:
-                        ann.input_qspec_map[n.args[0]] = pc
-            return model
 
     torch.manual_seed(0)
     x = torch.randn(1, 3, 16, 16)
     prepared = prepare_pt2e(
-        torch.export.export(_StemBlock().eval(), (x,)).module(), PerChannelStem()
+        torch.export.export(_StemBlock().eval(), (x,)).module(), C7xMMAQuantizer()
     )
     for _ in range(4):
         prepared(torch.randn(1, 3, 16, 16) * 2)
@@ -275,3 +250,55 @@ def test_per_channel_stem_on_dsp_matches_pytorch(dsp_mode):
     # MMALIB's 8-bit scale/shift requantize is within a code or two of the
     # reference's float requantize, as on the per-tensor path.
     assert np.abs(dsp - ref).max() <= 3 * step
+
+
+class _ResidualStem(nn.Module):
+    """MobileNetV3-Large's stem: conv -> in-place hardswish, read by the depthwise
+    block and by its residual add (which reads it per tensor)."""
+
+    def __init__(self):
+        super().__init__()
+        self.stem = nn.Conv2d(3, 16, 3, padding=1)
+        with torch.no_grad():
+            self.stem.weight[:8] *= 0.01
+        self.act = nn.Hardswish(inplace=True)
+        self.dw = nn.Conv2d(16, 16, 3, padding=1, groups=16)
+        self.project = nn.Conv2d(16, 16, 1)
+
+    def forward(self, x):
+        y = self.act(self.stem(x))
+        return self.project(torch.relu(self.dw(y))) + y
+
+
+def test_residual_stem_on_dsp_matches_pytorch(dsp_mode):
+    if dsp_mode not in ("c7x_host", "c7x_dload"):
+        pytest.skip("requires c7x_host or c7x_dload")
+    from dsp_utils import compile_and_run_dsp, get_target_string
+    from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+
+    from tvm.relax.frontend.torch import C7xMMAQuantizer
+
+    torch.manual_seed(0)
+    x = torch.randn(1, 3, 16, 16)
+    prepared = prepare_pt2e(
+        torch.export.export(_ResidualStem().eval(), (x,)).module(), C7xMMAQuantizer()
+    )
+    for _ in range(4):
+        prepared(torch.randn(1, 3, 16, 16) * 2)
+    q = convert_pt2e(prepared)
+    with torch.no_grad():
+        ref = q(x).numpy()
+    mod = _import(q, x)
+    results = compile_and_run_dsp(
+        mod=mod,
+        input_data=[x.numpy()],
+        target_string=get_target_string(dsp_mode, use_cpp_api=True) + " -mmalib=1",
+        execution_mode=dsp_mode,
+    )
+    dsp = results[f"{dsp_mode}_result"].reshape(ref.shape)
+    out_q = [
+        n
+        for n in q.graph.nodes
+        if "quantize_per_tensor" in str(n.target) and "dequantize" not in str(n.target)
+    ][-1]
+    assert np.abs(dsp - ref).max() <= 3 * float(out_q.args[1])

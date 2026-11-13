@@ -78,6 +78,16 @@ Observers used:
   time `annotate` runs), and a squeeze-excite output, a SiLU or hardswish
   output times a sigmoid or hardsigmoid gate. No op annotates the multiply, so
   its percentile goes on the edges that read it.
+- Depthwise inputs, per channel (`depthwise_input_headroom`, default 2.0):
+  `_depthwise_input_chains` finds conv -> SiLU/hardswish/ReLU -> depthwise conv,
+  and the conv output and the activation output (for ReLU, the one tensor they
+  share) get `per_channel_symmetric` on axis 1 with `_CappedPerChannelObserver`:
+  each channel's peak times the headroom, capped at the scale the tensor's
+  per-tensor spec would give. Only the readers `_reads_per_channel` names (the
+  chain's activation, the depthwise conv) share that spec; any other reader, such
+  as a residual add, keeps the per-tensor spec, so PT2E gives it its own observer.
+  The backend folds the scales into the MMALIB conv's and depthwise conv's
+  per-channel requantize and runs `c7x_int8_{silu,hardswish}_per_channel` between.
 - Weights: `torchao.quantization.pt2e.PerChannelMinMaxObserver`
 
 **Note:** The `torch.ao` observer hierarchy is incompatible — `convert_pt2e` would

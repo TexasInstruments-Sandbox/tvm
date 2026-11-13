@@ -283,6 +283,59 @@ def _in_depthwise_block(node: Node) -> bool:
     )
 
 
+# Activations between a conv and a depthwise conv that a per-channel scale can pass
+# through: c7x_int8_{silu,hardswish}_per_channel, and a ReLU fused into the conv.
+_PER_CHANNEL_ACTIVATIONS = frozenset(
+    [
+        torch.ops.aten.silu.default,
+        torch.ops.aten.silu_.default,
+        torch.ops.aten.hardswish.default,
+        torch.ops.aten.hardswish_.default,
+    ]
+)
+
+
+def _depthwise_input_chains(model: GraphModule) -> list[tuple[Node, Node]]:
+    """(conv, activation) pairs whose tensors depthwise_input_headroom makes per channel.
+
+    A depthwise conv reads the activation, which reads the conv. A depthwise conv
+    keeps its channels apart, so a per-channel input scale folds into its
+    per-channel requantize; the conv's own per-channel requantize produces the
+    scales; and the activation runs per channel. Other readers of either tensor
+    (a residual add reading a block's input) keep a per-tensor spec.
+    """
+    pairs = []
+    for dw in model.graph.nodes:
+        if not _is_depthwise_conv(dw):
+            continue
+        act = dw.args[0]
+        if not (
+            isinstance(act, Node)
+            and act.op == "call_function"
+            and act.target in (_PER_CHANNEL_ACTIVATIONS | _RELUS)
+        ):
+            continue
+        conv = act.args[0] if act.args else None
+        pair = (conv, act)
+        if (
+            isinstance(conv, Node)
+            and conv.op == "call_function"
+            and conv.target == torch.ops.aten.conv2d.default
+            and pair not in pairs
+        ):
+            pairs.append(pair)
+    return pairs
+
+
+def _reads_per_channel(reader: Node, tensor: Node) -> bool:
+    """True if reader can take tensor quantized per channel along its channel axis: a
+    depthwise conv's data input, or the activation (a per-channel kernel, or a ReLU
+    fused into the conv) of a _depthwise_input_chains pair."""
+    if reader.op != "call_function" or not reader.args or reader.args[0] is not tensor:
+        return False
+    return _is_depthwise_conv(reader) or reader.target in (_PER_CHANNEL_ACTIVATIONS | _RELUS)
+
+
 class _PercentileObserver(HistogramObserver):
     """Range between the p-th and (100 - p)-th percentiles of the values seen.
 
@@ -310,6 +363,37 @@ class _PercentileObserver(HistogramObserver):
         new_min = self.min_val + width * start
         new_max = torch.minimum(self.min_val + width * (end + 1), self.max_val)
         return new_min, new_max
+
+
+class _CappedPerChannelObserver(PerChannelMinMaxObserver):
+    """Per-channel symmetric scales, each channel's peak times headroom, capped at
+    the scale per_tensor would give the whole tensor.
+
+    So no channel gets a coarser grid than one scale for the tensor would give it,
+    and small channels get a finer one. The headroom covers peaks the calibration
+    data didn't show, which a small calibration set understates channel by channel.
+    """
+
+    def __init__(self, *args, headroom: float = 2.0, per_tensor=MinMaxObserver, **kwargs):
+        kwargs.update(ch_axis=1, qscheme=torch.per_channel_symmetric)
+        super().__init__(*args, **kwargs)
+        self.headroom = headroom
+        self.per_tensor = per_tensor(
+            dtype=self.dtype,
+            quant_min=self.quant_min,
+            quant_max=self.quant_max,
+            qscheme=torch.per_tensor_symmetric,
+        )
+
+    def forward(self, x_orig):
+        self.per_tensor(x_orig)
+        return super().forward(x_orig)
+
+    @torch.jit.export
+    def calculate_qparams(self):
+        scale, zero_point = super().calculate_qparams()
+        tensor_scale, _ = self.per_tensor.calculate_qparams()
+        return torch.minimum(scale * self.headroom, tensor_scale.reshape(-1)[:1]), zero_point
 
 
 class C7xMMAQuantizer(Quantizer):
@@ -360,6 +444,16 @@ class C7xMMAQuantizer(Quantizer):
             gate). None leaves them to activation_observer. int8 only. Networks
             without depthwise convs or such squeeze-excite blocks are
             unaffected; clipping the ReLU tensors of a ResNet instead costs it.
+        depthwise_input_headroom: Quantize a depthwise conv's input per channel,
+            with the conv output feeding it through a SiLU, hardswish or ReLU: one
+            scale per channel, its calibrated peak times this headroom, never coarser
+            than the per-tensor scale the tensor would otherwise get. A depthwise
+            conv keeps its channels apart, so the scales fold into its per-channel
+            requantize, and the producing conv's requantize makes them. Its
+            channels' ranges can differ by over 100x (MobileNetV3-Small's stem), more
+            than one scale can serve. Any other reader of these tensors (a residual
+            add) keeps reading them per tensor. None keeps them per tensor. int8 and
+            symmetric activations only.
 
     A conv or linear whose only consumer is a hardtanh, such as ReLU6, gets the
     clamp's range for its output instead of a calibrated one (symmetric
@@ -375,6 +469,7 @@ class C7xMMAQuantizer(Quantizer):
         activation_observer: str = "minmax",
         smooth_activation_percentile: float | None = 0.1,
         depthwise_block_percentile: float | None = 0.01,
+        depthwise_input_headroom: float | None = 2.0,
     ):
         super().__init__()
         if dtype not in ("int8", "int16"):
@@ -390,6 +485,11 @@ class C7xMMAQuantizer(Quantizer):
         ):
             if value is not None and not 0 < value < 50:
                 raise ValueError(f"{name} must be in (0, 50) or None, got {value!r}")
+        if depthwise_input_headroom is not None and not depthwise_input_headroom >= 1:
+            raise ValueError(
+                f"depthwise_input_headroom must be >= 1 or None, got {depthwise_input_headroom!r}"
+            )
+        self.depthwise_input_headroom = depthwise_input_headroom
         self.dtype = dtype
         self.activation_observer = activation_observer
         self.smooth_activation_percentile = smooth_activation_percentile
@@ -582,7 +682,65 @@ class C7xMMAQuantizer(Quantizer):
 
         if self.dtype == "int8":
             self._clip_ranges(annotated, act_spec)
+            if self.depthwise_input_headroom is not None and self.symmetric_activations:
+                self._per_channel_depthwise_inputs(model)
         return model
+
+    def _per_channel_depthwise_inputs(self, model: GraphModule) -> None:
+        """Quantize each _depthwise_input_chains tensor per channel.
+
+        Its output spec and the edges of the readers that can take per-channel scales
+        (_reads_per_channel) get one spec, capped at the per-tensor spec it had. Any
+        other reader keeps that per-tensor spec, so PT2E gives it a second observer
+        and a requantize: a residual add reads the block's input per tensor, as
+        before. A ReLU's output shares its conv's spec, so the depthwise convs
+        reading the ReLU take the conv's.
+        """
+
+        def readers(node, per_channel_only=True):
+            for user in node.users:
+                annotation = user.meta.get("quantization_annotation")
+                if annotation is None or node not in annotation.input_qspec_map:
+                    continue
+                if not per_channel_only or _reads_per_channel(user, node):
+                    yield annotation
+
+        def per_channel(node) -> QuantizationSpec | None:
+            annotation = node.meta.get("quantization_annotation")
+            own = annotation.output_qspec if annotation is not None else None
+            edges = list(readers(node))
+            base = own if isinstance(own, QuantizationSpec) else None
+            if base is None:
+                every = list(readers(node, per_channel_only=False))
+                base = every[0].input_qspec_map[node] if every else None
+            if not isinstance(base, QuantizationSpec) or base.qscheme != torch.per_tensor_symmetric:
+                return None
+            spec = QuantizationSpec(
+                dtype=base.dtype,
+                quant_min=base.quant_min,
+                quant_max=base.quant_max,
+                qscheme=torch.per_channel_symmetric,
+                ch_axis=1,
+                observer_or_fake_quant_ctr=_CappedPerChannelObserver.with_args(
+                    headroom=self.depthwise_input_headroom,
+                    per_tensor=base.observer_or_fake_quant_ctr,
+                ),
+            )
+            if isinstance(own, QuantizationSpec):
+                annotation.output_qspec = spec  # type: ignore[union-attr]
+            for edge in edges:
+                edge.input_qspec_map[node] = spec
+            return spec
+
+        for conv, act in _depthwise_input_chains(model):
+            spec = per_channel(conv)
+            if spec is None:
+                continue
+            if act.target in _RELUS:
+                for edge in readers(act):
+                    edge.input_qspec_map[act] = spec
+            else:
+                per_channel(act)
 
     def _percentile_for(self, node: Node) -> float | None:
         """Percent clipped from each tail of node's output, or None for act_spec's range."""
