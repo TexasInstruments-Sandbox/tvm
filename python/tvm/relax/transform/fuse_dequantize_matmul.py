@@ -289,9 +289,10 @@ class _DequantizeMatmulFuser(PyExprMutator):
                 primfunc_name_hint="dequantize_matmul",
             )
 
-        if has_bias and "bias" in roles and roles["bias"] in param_to_arg:
-            bias = param_to_arg[roles["bias"]]
-            result = relax.op.add(result, bias)
+        if has_bias:
+            if roles.get("bias") not in param_to_arg:
+                raise ValueError("FuseDequantizeMatmul: the fused add's bias is not a parameter")
+            result = relax.op.add(result, param_to_arg[roles["bias"]])
 
         logger.info(
             "Fused dequantize_matmul #%d%s%s",
@@ -360,6 +361,7 @@ class _DequantizeMatmulFuser(PyExprMutator):
     def _extract_roles(func, has_bias):
         """Walk composite function body to map params to roles."""
         roles = {}
+        mm_out = None
         for block in func.body.blocks:
             for binding in block.bindings:
                 if not isinstance(binding, relax.VarBinding):
@@ -376,8 +378,13 @@ class _DequantizeMatmulFuser(PyExprMutator):
                     roles["w_scale"] = val.args[1]
                 elif op_name == "relax.matmul":
                     roles["act"] = val.args[0]
+                    mm_out = binding.var
                 elif has_bias and op_name == "relax.add":
-                    roles["bias"] = val.args[1]
+                    # The pattern matches add in either operand order, and the
+                    # frontend's addmm (what torch.export makes of a linear)
+                    # puts the bias first.
+                    lhs, rhs = val.args
+                    roles["bias"] = lhs if rhs.same_as(mm_out) else rhs
         return roles
 
 
