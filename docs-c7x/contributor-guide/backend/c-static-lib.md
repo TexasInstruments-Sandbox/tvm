@@ -590,6 +590,9 @@ removed, destroying the pattern the MMALIB passes need to match.
 
 ```
 1.  [MMALIB] get_mmalib_qdq_passes()      ← MUST RUN FIRST; sees intact QDQ
+1a. DropSafeSoftmaxGuard                  ← drop torch SDPA's where(all(s == -inf), 0,
+                                             softmax(s)) guard when s is an unmasked
+                                             Q K^T matmul (it can't fire there)
 2.  CanonicalizeBindings + DCE            ← collapse PT2E tuple artifacts
 3.  EliminateQDQTransparent               ← remove dequant/quant around no-op ops
                                              (max_pool2d, reshape, permute, flatten, cat)

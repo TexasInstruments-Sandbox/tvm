@@ -109,6 +109,7 @@ from .optimize_layout_transform import OptimizeLayoutTransform
 from .remove_redundant_reshape import RemoveRedundantReshape
 from .rewrite_dequantize import RewriteDequantize
 from .schedule_c7x_dma import ScheduleC7xDMATiling
+from .ti_drop_safe_softmax_guard import DropSafeSoftmaxGuard
 from .ti_eliminate_qdq_transparent import EliminateQDQTransparent
 from .ti_fuse_qdq_c7x_concat import FuseQDQToC7xConcat
 from .ti_fuse_qdq_c7x_activation import FuseQDQToC7xActivation, FuseQDQToC7xSiluF32Out

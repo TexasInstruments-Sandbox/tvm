@@ -116,6 +116,11 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
 
         passes.extend(get_mmalib_qdq_passes())
 
+    # Drop the safe-softmax guard (where(all(s == -inf), 0, softmax(s))) that
+    # torch's SDPA decomposition puts around an unmasked attention softmax: it
+    # can't fire there and costs two TIR functions per attention block.
+    passes.append(tvm.relax.transform.DropSafeSoftmaxGuard())
+
     # Simplify tuple indices (e.g., TupleGetItem(Tuple(a,b),0) → a)
     # before QDQ elimination — PyTorch export artifacts like pool indices
     # create dead tuple patterns that block pattern matching.
