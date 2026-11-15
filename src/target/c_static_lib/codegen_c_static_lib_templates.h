@@ -96,6 +96,17 @@ using std::fmax;
 using std::fmin;
 using std::fabs;
 
+// Integer max/min, printed by the code generator instead of std::max/min.
+// std::max returns a reference to one argument, so a reduction
+// red[i] = max(red[i], x) becomes a load through (cond ? &x : &red[i]).
+// With red restrict-qualified, cl7x 5.0.1.LTS at -O2/-O3 moves the stores to
+// red[i] below that load and returns the value red[i] held before. Passing
+// and returning by value leaves no pointer to select.
+template <typename T>
+static inline T tvm_max(T a, T b) { return a < b ? b : a; }
+template <typename T>
+static inline T tvm_min(T a, T b) { return b < a ? b : a; }
+
 // TVM Backend API declarations
 extern "C" void* TVMBackendAllocWorkspace(int device_type, int device_id, uint64_t nbytes,
                                           int dtype_code_hint, int dtype_bits_hint);
@@ -407,6 +418,13 @@ using std::min;
 using std::fmax;
 using std::fmin;
 using std::fabs;
+
+// Integer max/min by value, printed instead of std::max/min (see the DSP
+// headers for why).
+template <typename T>
+static inline T tvm_max(T a, T b) { return a < b ? b : a; }
+template <typename T>
+static inline T tvm_min(T a, T b) { return b < a ? b : a; }
 
 extern std::vector<tvm::ffi::Any> TVMGetConstants();
 

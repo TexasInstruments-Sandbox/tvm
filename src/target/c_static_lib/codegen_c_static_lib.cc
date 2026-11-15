@@ -359,6 +359,14 @@ bool IsScalarFloat(const Type& ty) {
   auto prim = ty.as<PrimType>();
   return prim && prim.value().MatchesCode(DLDataTypeCode::kDLFloat) && prim.value().lanes() == 1;
 }
+
+bool IsScalarInt(const Type& ty) {
+  auto prim = ty.as<PrimType>();
+  return prim &&
+         prim.value().MatchesCode(DLDataTypeCode::kDLInt, DLDataTypeCode::kDLUInt,
+                                  DLDataTypeCode::kDLBool) &&
+         prim.value().lanes() == 1;
+}
 }  // namespace
 
 // Simplified broadcast handling - relies on C++ compiler vector extensions
@@ -458,9 +466,18 @@ void CodeGenCStaticLib::Dispatch_(const prim::MaxNode* op, std::ostream& os) {  
     os << "))";
     return;
   }
-  // Use fmax for float types (C99 standard), fall back to base for integer
+  // Use fmax for float types (C99 standard). Scalar integers go through the
+  // by-value tvm_max helper, not std::max: see its definition in the headers.
   if (IsScalarFloat(op->ty)) {
     os << "fmax(";
+    PrintExpr(op->a, os);
+    os << ", ";
+    PrintExpr(op->b, os);
+    os << ")";
+  } else if (IsScalarInt(op->ty)) {
+    os << "tvm_max<";
+    PrintType(op->ty.as_or_throw<PrimType>(), os);
+    os << ">(";
     PrintExpr(op->a, os);
     os << ", ";
     PrintExpr(op->b, os);
@@ -480,9 +497,18 @@ void CodeGenCStaticLib::Dispatch_(const prim::MinNode* op, std::ostream& os) {  
     os << "))";
     return;
   }
-  // Use fmin for float types (C99 standard), fall back to base for integer
+  // Use fmin for float types (C99 standard). Scalar integers go through the
+  // by-value tvm_min helper, not std::min: see its definition in the headers.
   if (IsScalarFloat(op->ty)) {
     os << "fmin(";
+    PrintExpr(op->a, os);
+    os << ", ";
+    PrintExpr(op->b, os);
+    os << ")";
+  } else if (IsScalarInt(op->ty)) {
+    os << "tvm_min<";
+    PrintType(op->ty.as_or_throw<PrimType>(), os);
+    os << ">(";
     PrintExpr(op->a, os);
     os << ", ";
     PrintExpr(op->b, os);

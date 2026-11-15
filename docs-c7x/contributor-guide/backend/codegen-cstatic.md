@@ -103,6 +103,19 @@ Via `kDSPHeaders` in `codegen_c_static_lib_templates.h`:
 - `dma/tvm_dsp_dma.h` — DMA API (for DMA tiling)
 - `mmalib_wrappers.h` — MMALIB wrapper prototypes (via `--preinclude`)
 
+### Max and Min
+
+Scalar float `Max`/`Min` print as the C7x intrinsics `__max`/`__min`
+(`fmax`/`fmin` on other targets). Scalar integer `Max`/`Min` print as
+`tvm_max<T>(a, b)`/`tvm_min<T>(a, b)`, by-value helpers defined in the
+generated headers, never as `std::max`/`std::min`. Those return a reference
+to an argument, so a reduction `red[i] = max(red[i], x)` becomes a load
+through `cond ? &x : &red[i]`. With `red` restrict-qualified, cl7x 5.0.1.LTS
+at `-O2`/`-O3` moves the stores to `red[i]` below that load. The reduction then
+returns whatever `red[i]` held before the call. Host emulation (g++) doesn't
+show it. `unit-tests/test_int_minmax_reduce.py` checks both the printed form
+and the result on hardware.
+
 ### Profiling Infrastructure
 
 When `-profile-layers=1`:
