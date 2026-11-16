@@ -127,13 +127,14 @@ zero bias -- fixed via `_resolve_constant_tensor` in
 | Runtime DDR pool exhaustion at a late layer (not weight size) | 8 | `_EXCLUDED_DDR_OOM` |
 | TVM pass bug hit after quantization, not root-caused | 1 | `_EXCLUDED_QUANT_BUG` |
 
-Of the remaining 67, all but the `_KNOWN_FAILURES` below pass on `c7x_dload`
-with MMALIB on BeagleY-AI (2026-11-13).
+Of the remaining 67, all but `alexnet` and `swin_t` pass on `c7x_dload` with
+MMALIB on BeagleY-AI (2026-11-15).
 
 Each model must give the reference's top-1 class and, with MMALIB, stay within
 `_MAX_ABS_DIFF` (8.5) of its logits. The logits are compared as floats. The
 bound is set like the per-model tests' `_ATOL`: twice the largest difference of
-a passing model on `c7x_host` and BeagleY-AI, rounded up to a multiple of 0.25.
+a passing model outside `_KNOWN_FAILURES` on `c7x_host` and BeagleY-AI, rounded
+up to a multiple of 0.25.
 It catches a miscompile that leaves top-1 intact; it doesn't measure precision.
 For that, each run adds or replaces the model's row in
 `results/sweep_metrics.csv` (under `$WORKSPACE`, default the working directory,
@@ -148,17 +149,17 @@ beside `cycles.csv`):
 
 ### Known failures
 
-`_KNOWN_FAILURES` lists the models that fail the check, the modes they fail in, and
-what was measured. In those modes a failure is reported as xfail with that reason;
-the model still runs and records its metrics, and a pass is a pass. Remove an entry
-once its model passes.
+`_KNOWN_FAILURES` lists the models that fail the check, or pass it only because
+the reference's top-1 margin exceeds a known DSP error, the modes they do so in,
+and what was measured. In those modes a failure is reported as xfail with that
+reason; the model still runs and records its metrics, and a pass is a pass. Remove
+an entry once its model's logits match the reference.
 
 | Model | Modes | Measured (dog.jpg) | Cause |
 |---|---|---|---|
 | `alexnet` | `c7x_dload` | Top-1 331 vs 258, cosine 0.75; `c7x_host` matches (0.9996) | Board-only, not root-caused |
-| `convnext_small` | both | Top-1 258 vs 259; the reference leads by 0.52, less than the DSP's largest logit error (1.36); cosine 0.91 | Near-tie: the DSP-vs-reference gap is larger than the margin |
-| `vit_b_32` | both | Top-1 258 vs 257; the reference leads by 0.15; cosine 0.66-0.68 | Near-tie |
-| `swin_t`, `swin_s` | both | DSP logits unrelated to the reference (cosine under 0.1) | Not root-caused; somewhere in the transformer path |
+| `swin_t` | both | Top-1 258 vs 259; the reference leads by 0.72; cosine 0.69 | Not root-caused; somewhere in the transformer path |
+| `swin_s` | both | Top-1 passes by the reference's 1.31 margin; cosine 0.59 host, 0.56 board; max diff 5.1 | The same gap as `swin_t` |
 
 ### Notes on specific cases
 

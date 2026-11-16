@@ -114,40 +114,34 @@ TORCHVISION_MODELS = sorted(
 
 
 # Elementwise bound on |DSP - reference| logits with MMALIB, on top of the top-1
-# match every model must give: twice the largest difference of a passing model,
-# measured on c7x_host and BeagleY-AI, rounded up to a multiple of 0.25, as _ATOL
-# is in the per-model tests. It catches a miscompile that leaves top-1 intact;
-# sweep_metrics.csv records each model's actual difference. Re-measure when a
-# change legitimately moves the numbers (calibration, quantizer, kernel rounding).
+# match every model must give: twice the largest difference of a passing model
+# outside _KNOWN_FAILURES, measured on c7x_host and BeagleY-AI, rounded up to a
+# multiple of 0.25, as _ATOL is in the per-model tests. It catches a miscompile
+# that leaves top-1 intact; sweep_metrics.csv records each model's actual
+# difference. Re-measure when a change legitimately moves the numbers
+# (calibration, quantizer, kernel rounding).
 _MAX_ABS_DIFF = 8.5
 
-# Models that fail the check, in the modes they fail in, with what was measured
+# Models that fail the check, or pass it only because the reference's top-1 margin
+# exceeds a known DSP error, in the modes they do so, with what was measured
 # (dog.jpg, BASELINE_TEST_IMAGE recipe). They still run and record their metrics;
 # a failure is reported as xfail with the reason, a pass as a pass. Remove an
-# entry once its model passes. See quantized-sweep.md.
+# entry once its model's logits match the reference. See quantized-sweep.md.
 _KNOWN_FAILURES = {
     "alexnet": (
         ("c7x_dload",),
         "board only: top-1 331 vs 258, cosine 0.75, while c7x_host matches (cosine "
         "0.9996); not root-caused",
     ),
-    "convnext_small": (
-        ("c7x_host", "c7x_dload"),
-        "top-1 near-tie: DSP 258, reference 259 by 0.52, less than the DSP's largest "
-        "logit error (1.36); cosine 0.91. The float model picks 259 by 1.44",
-    ),
-    "vit_b_32": (
-        ("c7x_host", "c7x_dload"),
-        "top-1 near-tie: DSP 258, reference 257 by 0.15; cosine 0.66-0.68",
-    ),
     "swin_t": (
         ("c7x_host", "c7x_dload"),
-        "DSP logits unrelated to the reference (cosine 0.07); not root-caused",
+        "top-1 258 vs 259, the reference leading by 0.72; cosine 0.69; not "
+        "root-caused",
     ),
     "swin_s": (
         ("c7x_host", "c7x_dload"),
-        "DSP logits unrelated to the reference (cosine 0.08 host, -0.01 board), and "
-        "the reference's top two classes tie; not root-caused",
+        "top-1 passes by the reference's 1.31 margin, but cosine 0.59 host, 0.56 "
+        "board, max diff 5.1; the same gap as swin_t, not root-caused",
     ),
 }
 
