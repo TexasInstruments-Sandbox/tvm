@@ -327,7 +327,11 @@ Because TVM's pattern matcher isn't commutative
 (`add(a, b)` doesn't match `add(b, a)`), there are 4 pattern variants per
 dtype — {relu, no-relu} × {operand order `add(x, skip)`, order
 `add(skip, x)`} — 8 total across int8 and int16. Int16 additionally
-requires every zero-point involved to be 0. This eliminates float32
+requires every zero-point involved to be 0. Both operands must have the
+same static shape: the kernel reads each over the output's element count,
+so an add that broadcasts one operand, such as Swin's relative position
+bias or shift mask added to the attention scores, stays on the generic
+path. This eliminates float32
 intermediate computation and cuts per-layer cost from roughly 5–11M cycles
 down to 100–500K cycles.
 

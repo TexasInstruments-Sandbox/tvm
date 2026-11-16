@@ -228,6 +228,18 @@ def _residual_add_pattern_swapped():
 # =========================================================================
 
 
+def _static_shape(tensor):
+    """The tensor's shape as a tuple of ints, or None if it isn't static."""
+    if isinstance(tensor, tvm.ir.GenericConst):
+        return tuple(int(d) for d in tensor.value.shape)
+    shape = getattr(getattr(tensor, "ty", None), "shape", None)
+    if shape is None or not hasattr(shape, "values"):
+        return None
+    if not all(isinstance(d, tirx.IntImm) for d in shape.values):
+        return None
+    return tuple(int(d) for d in shape.values)
+
+
 def _check_dtype(ctx, expected_dtype: str) -> bool:
     """Shared eligibility check for a given element dtype."""
     x = ctx.annotated_expr["x"]
@@ -242,6 +254,15 @@ def _check_dtype(ctx, expected_dtype: str) -> bool:
                 return False
         else:
             return False
+
+    # The kernel reads both operands over the output's element count, so an
+    # operand that broadcasts would be read past its end. Swin's relative
+    # position bias ([1, heads, N, N]) and shift mask ([1, windows, 1, N, N])
+    # are added to the attention scores that way. Leave such adds to the generic
+    # path, which broadcasts.
+    x_shape = _static_shape(x)
+    if x_shape is None or x_shape != _static_shape(skip):
+        return False
 
     # Scales and zero-points must be compile-time constants
     for name in ("x_scale", "skip_scale", "o_scale", "x_zp", "skip_zp", "o_zp"):
