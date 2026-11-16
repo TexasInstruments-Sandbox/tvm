@@ -133,16 +133,6 @@ _KNOWN_FAILURES = {
         "board only: top-1 331 vs 258, cosine 0.75, while c7x_host matches (cosine "
         "0.9996); not root-caused",
     ),
-    "swin_t": (
-        ("c7x_host", "c7x_dload"),
-        "top-1 258 vs 259, the reference leading by 0.72; cosine 0.69; not "
-        "root-caused",
-    ),
-    "swin_s": (
-        ("c7x_host", "c7x_dload"),
-        "top-1 passes by the reference's 1.31 margin, but cosine 0.59 host, 0.56 "
-        "board, max diff 5.1; the same gap as swin_t, not root-caused",
-    ),
 }
 
 

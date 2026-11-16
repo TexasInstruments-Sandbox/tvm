@@ -127,8 +127,9 @@ zero bias -- fixed via `_resolve_constant_tensor` in
 | Runtime DDR pool exhaustion at a late layer (not weight size) | 8 | `_EXCLUDED_DDR_OOM` |
 | TVM pass bug hit after quantization, not root-caused | 1 | `_EXCLUDED_QUANT_BUG` |
 
-Of the remaining 67, all but `alexnet` and `swin_t` pass on `c7x_dload` with
-MMALIB on BeagleY-AI (2026-11-15).
+Of the remaining 67, all but `alexnet` pass on `c7x_dload` with MMALIB on
+BeagleY-AI (full sweep 2026-11-15; `swin_t` and `swin_s` re-run 2026-11-16
+after the int8 residual-add fusion stopped taking broadcasting adds).
 
 Each model must give the reference's top-1 class and, with MMALIB, stay within
 `_MAX_ABS_DIFF` (8.5) of its logits. The logits are compared as floats. The
@@ -158,8 +159,6 @@ an entry once its model's logits match the reference.
 | Model | Modes | Measured (dog.jpg) | Cause |
 |---|---|---|---|
 | `alexnet` | `c7x_dload` | Top-1 331 vs 258, cosine 0.75; `c7x_host` matches (0.9996) | Board-only, not root-caused |
-| `swin_t` | both | Top-1 258 vs 259; the reference leads by 0.72; cosine 0.69 | Not root-caused; somewhere in the transformer path |
-| `swin_s` | both | Top-1 passes by the reference's 1.31 margin; cosine 0.59 host, 0.56 board; max diff 5.1 | The same gap as `swin_t` |
 
 ### Notes on specific cases
 
