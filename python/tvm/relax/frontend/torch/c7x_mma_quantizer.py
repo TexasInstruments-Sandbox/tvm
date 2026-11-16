@@ -336,6 +336,92 @@ def _reads_per_channel(reader: Node, tensor: Node) -> bool:
     return _is_depthwise_conv(reader) or reader.target in (_PER_CHANNEL_ACTIVATIONS | _RELUS)
 
 
+_ADDS = frozenset([torch.ops.aten.add.Tensor, torch.ops.aten.add_.Tensor])
+
+# Ops that pass a tensor's values on unchanged: a tensor read through them keeps the
+# reader that matters (a layer_norm, a residual add) in view.
+_PASS_THROUGH_OPS = frozenset(
+    [
+        torch.ops.aten.dropout.default,
+        torch.ops.aten.clone.default,
+        torch.ops.aten.contiguous.default,
+        torch.ops.aten.alias.default,
+        torch.ops.aten.view.default,
+        torch.ops.aten.reshape.default,
+        torch.ops.aten.permute.default,
+        torch.ops.aten.transpose.int,
+        torch.ops.aten.flatten.using_ints,
+        torch.ops.aten.unsqueeze.default,
+        torch.ops.aten.squeeze.dim,
+    ]
+)
+
+
+def _through_pass_through(node: Node) -> Node:
+    """The tensor node's values come from, past any pass-through ops."""
+    while (
+        node.op == "call_function"
+        and node.target in _PASS_THROUGH_OPS
+        and isinstance(node.args[0], Node)
+    ):
+        node = node.args[0]
+    return node
+
+
+def _is_layernorm_residual_add(node: Node) -> bool:
+    """True for add(skip, branch) where the branch normalizes skip with a layer_norm.
+
+    That is the residual add of a pre-norm transformer block (attention or MLP) or of
+    a ConvNeXt block: the branch is computed from skip, and a layer_norm lies on the
+    way. An add inside the branch, such as Swin's attention bias, doesn't qualify:
+    its other operand is not where the branch starts.
+    """
+    if node.op != "call_function" or node.target not in _ADDS:
+        return False
+    operands = [a for a in node.args[:2] if isinstance(a, Node)]
+    if len(operands) != 2:
+        return False
+    for skip, branch in (operands, operands[::-1]):
+        start = _through_pass_through(skip)
+        # What the branch is computed from, back to skip.
+        cone: set[Node] = set()
+        reached_skip = False
+        frontier = [branch]
+        while frontier:
+            m = frontier.pop()
+            if m is start:
+                reached_skip = True
+            elif m not in cone:
+                cone.add(m)
+                frontier.extend(m.all_input_nodes)
+        if not reached_skip:
+            continue
+        # The part of it computed from skip: a layer_norm there normalizes skip.
+        seen: set[Node] = set()
+        frontier = list(start.users)
+        while frontier:
+            m = frontier.pop()
+            if m in seen or m not in cone:
+                continue
+            seen.add(m)
+            if m.op == "call_function" and m.target in _NORM_OPS:
+                return True
+            frontier.extend(m.users)
+    return False
+
+
+def _readers(node: Node):
+    """The nodes reading node's values, past pass-through ops, with the node each
+    reads them from (node itself or a pass-through op after it)."""
+    frontier = [node]
+    while frontier:
+        source = frontier.pop()
+        for user in source.users:
+            if user.op == "call_function" and user.target in _PASS_THROUGH_OPS:
+                frontier.append(user)
+            yield user, source
+
+
 class _PercentileObserver(HistogramObserver):
     """Range between the p-th and (100 - p)-th percentiles of the values seen.
 
@@ -454,6 +540,17 @@ class C7xMMAQuantizer(Quantizer):
             than one scale can serve. Any other reader of these tensors (a residual
             add) keeps reading them per tensor. None keeps them per tensor. int8 and
             symmetric activations only.
+        float_layernorm_residuals: Leave the residual stream of LayerNorm blocks in
+            float: the residual add of a block whose branch normalizes its input
+            with a layer_norm (a transformer's attention and MLP blocks, ConvNeXt's
+            blocks), and any add that a layer_norm or such a residual add reads (a
+            ViT's position embedding add). A layer_norm or residual add reads it as
+            float; any other reader, such as a conv, still reads it in int8. A
+            layer_norm normalizes each token by its own statistics, so it turns a
+            token's rounding into the token's whole content wherever the token is
+            small next to the tensor's range: ViT-B/32's class token got about 4
+            int8 codes after the position embedding add. False quantizes these adds
+            like any other. int8 only. Networks without layer_norm are unaffected.
 
     A conv or linear whose only consumer is a hardtanh, such as ReLU6, gets the
     clamp's range for its output instead of a calibrated one (symmetric
@@ -470,6 +567,7 @@ class C7xMMAQuantizer(Quantizer):
         smooth_activation_percentile: float | None = 0.1,
         depthwise_block_percentile: float | None = 0.01,
         depthwise_input_headroom: float | None = 2.0,
+        float_layernorm_residuals: bool = True,
     ):
         super().__init__()
         if dtype not in ("int8", "int16"):
@@ -490,6 +588,7 @@ class C7xMMAQuantizer(Quantizer):
                 f"depthwise_input_headroom must be >= 1 or None, got {depthwise_input_headroom!r}"
             )
         self.depthwise_input_headroom = depthwise_input_headroom
+        self.float_layernorm_residuals = float_layernorm_residuals
         self.dtype = dtype
         self.activation_observer = activation_observer
         self.smooth_activation_percentile = smooth_activation_percentile
@@ -684,7 +783,50 @@ class C7xMMAQuantizer(Quantizer):
             self._clip_ranges(annotated, act_spec)
             if self.depthwise_input_headroom is not None and self.symmetric_activations:
                 self._per_channel_depthwise_inputs(model)
+            if self.float_layernorm_residuals:
+                self._float_layernorm_residuals(annotated)
         return model
+
+    def _float_layernorm_residuals(self, annotated: list[Node]) -> None:
+        """Drop the annotations that quantize the residual stream of LayerNorm blocks.
+
+        The stream's adds lose theirs, and so do the edges a layer_norm or another of
+        these adds reads them on, and any annotated pass-through op (view, permute) in
+        between, whose output spec would share the add's. Every other reader keeps its
+        input spec, so PT2E quantizes the stream for it alone.
+        """
+        if not any(n.target in _NORM_OPS for n in annotated):
+            return
+        residual = {n for n in annotated if _is_layernorm_residual_add(n)}
+        stream = residual | {
+            n
+            for n in annotated
+            if n.target in _ADDS
+            and any(
+                reader.target in _NORM_OPS or reader in residual
+                for reader, _ in _readers(n)
+                if reader.op == "call_function"
+            )
+        }
+        for node in stream:
+            node.meta.pop("quantization_annotation", None)
+        for node in stream:
+            for reader, source in _readers(node):
+                annotation = reader.meta.get("quantization_annotation")
+                if annotation is None:
+                    continue
+                if reader.target in _PASS_THROUGH_OPS:
+                    reader.meta.pop("quantization_annotation")
+                elif reader.target in _NORM_OPS:
+                    annotation.input_qspec_map.pop(source, None)
+                elif (
+                    isinstance(annotation.output_qspec, SharedQuantizationSpec)
+                    and annotation.output_qspec.edge_or_node is source
+                    and source in annotation.input_qspec_map
+                ):
+                    # A transparent op (relu, max_pool2d) shared the add's output
+                    # spec; share the edge it still quantizes on instead.
+                    annotation.output_qspec = SharedQuantizationSpec((source, reader))
 
     def _per_channel_depthwise_inputs(self, model: GraphModule) -> None:
         """Quantize each _depthwise_input_chains tensor per channel.

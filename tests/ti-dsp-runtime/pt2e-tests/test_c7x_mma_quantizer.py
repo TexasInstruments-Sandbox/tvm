@@ -459,6 +459,135 @@ def test_depthwise_block_rule_leaves_other_tensors_alone(model, dtype):
     assert changed == []
 
 
+class TinyViT(nn.Module):
+    """A class token and position embedding, two pre-norm blocks, a LayerNorm head.
+
+    attention_bias: the first block's branch adds a learned bias inside itself, as
+    Swin's attention does.
+    """
+
+    def __init__(self, attention_bias=False):
+        super().__init__()
+        self.embed = nn.Linear(8, 16)
+        self.cls = nn.Parameter(torch.randn(1, 1, 16) * 0.01)
+        self.pos = nn.Parameter(torch.randn(1, 5, 16) * 0.02)
+        self.ln1, self.fc1 = nn.LayerNorm(16), nn.Linear(16, 16)
+        self.bias = nn.Parameter(torch.randn(5, 16)) if attention_bias else None
+        self.out1 = nn.Linear(16, 16)
+        self.ln2, self.fc2 = nn.LayerNorm(16), nn.Linear(16, 16)
+        self.norm, self.head = nn.LayerNorm(16), nn.Linear(16, 4)
+
+    def forward(self, x):
+        t = torch.cat([self.cls.expand(x.shape[0], -1, -1), self.embed(x)], dim=1) + self.pos
+        y = self.fc1(self.ln1(t))
+        if self.bias is not None:
+            y = y + self.bias
+        t = t + self.out1(y)
+        t = t + self.fc2(self.ln2(t))
+        return self.head(self.norm(t)[:, 0])
+
+
+class TinyConvNeXt(nn.Module):
+    """Two ConvNeXt blocks: depthwise conv -> LayerNorm -> linear, plus the input."""
+
+    def __init__(self):
+        super().__init__()
+        self.stem = nn.Conv2d(3, 8, 1)
+        self.dw = nn.ModuleList(nn.Conv2d(8, 8, 3, padding=1, groups=8) for _ in range(2))
+        self.ln = nn.ModuleList(nn.LayerNorm(8) for _ in range(2))
+        self.fc = nn.ModuleList(nn.Linear(8, 8) for _ in range(2))
+
+    def forward(self, x):
+        x = self.stem(x)
+        for dw, ln, fc in zip(self.dw, self.ln, self.fc):
+            x = x + fc(ln(dw(x).permute(0, 2, 3, 1))).permute(0, 3, 1, 2)
+        return x
+
+
+def _quantized(model, example, quantizer):
+    torch.manual_seed(0)
+    return quantize_pt2e(model, example, quantizer)
+
+
+def _nodes(gm, target):
+    return [n for n in gm.graph.nodes if n.op == "call_function" and n.target == target]
+
+
+def _is_dq(node) -> bool:
+    return "dequantize" in str(getattr(node, "target", ""))
+
+
+def _requantized(node) -> bool:
+    return any("quantize_per_tensor" in str(u.target) and not _is_dq(u) for u in node.users)
+
+
+_ADD = torch.ops.aten.add.Tensor
+_LAYER_NORM = torch.ops.aten.layer_norm.default
+_VIT_INPUT = (torch.randn(1, 4, 8),)
+
+
+@pytest.mark.quick
+def test_layernorm_residual_stream_stays_float():
+    q = _quantized(TinyViT(), _VIT_INPUT, C7xMMAQuantizer("int8"))
+    adds = _nodes(q, _ADD)
+    # The position embedding add and the two residual adds.
+    assert len(adds) == 3
+    assert not any(_requantized(a) for a in adds)
+    assert not any(_is_dq(ln.args[0]) for ln in _nodes(q, _LAYER_NORM))
+    # The adds read the stream as float, and the linears still read int8.
+    assert not _is_dq(adds[1].args[0]) and not _is_dq(adds[2].args[0])
+    assert all(_is_dq(fc.args[0]) for fc in _nodes(q, torch.ops.aten.linear.default))
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(
+    "quantizer",
+    [C7xMMAQuantizer("int8", float_layernorm_residuals=False), C7xMMAQuantizer("int16")],
+    ids=["off", "int16"],
+)
+def test_layernorm_residual_stream_quantized(quantizer):
+    q = _quantized(TinyViT(), _VIT_INPUT, quantizer)
+    assert all(_requantized(a) for a in _nodes(q, _ADD))
+    assert all(_is_dq(ln.args[0]) for ln in _nodes(q, _LAYER_NORM))
+
+
+@pytest.mark.quick
+def test_add_inside_a_layernorm_branch_stays_quantized():
+    q = _quantized(TinyViT(attention_bias=True), _VIT_INPUT, C7xMMAQuantizer("int8"))
+    embed, bias, first, second = _nodes(q, _ADD)
+    assert _requantized(bias), "the bias add isn't a residual add"
+    assert not any(_requantized(a) for a in (embed, first, second))
+
+
+@pytest.mark.quick
+def test_conv_reading_a_layernorm_residual_stream_reads_int8():
+    q = _quantized(TinyConvNeXt(), (torch.randn(1, 3, 8, 8),), C7xMMAQuantizer("int8"))
+    first, second = _nodes(q, _ADD)
+    convs = _nodes(q, torch.ops.aten.conv2d.default)
+    dws = [n for n in convs if len(n.args) > 6 and n.args[6] == 8]
+    assert len(dws) == 2
+    assert _is_dq(dws[1].args[0]), "the second block's depthwise conv reads an int8 copy"
+    assert first in second.args, "the second residual add reads the stream as float"
+    assert not _requantized(second)
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(
+    ("make_model", "example"),
+    [
+        (lambda: ResidualModel(), (torch.randn(1, 8, 8, 8),)),
+        (lambda: SqueezeExciteBlock(), (torch.randn(1, 3, 16, 16),)),
+    ],
+    ids=["resnet-add", "no-layernorm"],
+)
+def test_layernorm_residual_rule_leaves_other_adds_alone(make_model, example):
+    on = _quantized(make_model(), example, C7xMMAQuantizer("int8"))
+    off = _quantized(
+        make_model(), example, C7xMMAQuantizer("int8", float_layernorm_residuals=False)
+    )
+    assert _call_function_targets(on) == _call_function_targets(off)
+
+
 @pytest.mark.quick
 def test_unknown_activation_observer_is_rejected():
     with pytest.raises(ValueError, match="activation_observer"):

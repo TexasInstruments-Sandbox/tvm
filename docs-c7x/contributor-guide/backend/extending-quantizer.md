@@ -88,6 +88,20 @@ Observers used:
   as a residual add, keeps the per-tensor spec, so PT2E gives it its own observer.
   The backend folds the scales into the MMALIB conv's and depthwise conv's
   per-channel requantize and runs `c7x_int8_{silu,hardswish}_per_channel` between.
+- LayerNorm residual streams stay float (`float_layernorm_residuals`, default on,
+  int8 only): `_is_layernorm_residual_add` finds add(skip, branch) where the branch
+  is computed from skip through a `layer_norm` (pre-norm transformer blocks,
+  ConvNeXt blocks); an add inside the branch, such as Swin's attention bias,
+  doesn't qualify. Those adds and any add a `layer_norm` or such an add reads (a
+  ViT's position embedding add) lose their annotations, and so do the edges a
+  `layer_norm` or another of these adds reads them on, looking through dropout,
+  view, permute and the like. Any other reader keeps its input spec, so PT2E
+  quantizes the stream for it alone: a ConvNeXt depthwise conv still reads int8.
+  A `layer_norm` normalizes each token by its own statistics, so a per-tensor
+  scale on its input turns a small token's rounding into the token's whole
+  content; ViT-B/32's class token got about 4 codes and the model collapsed. The
+  adds then run as generic float code, outside `FuseInt8ResidualAdd`, and the
+  `layer_norm` reads float, outside `FuseQDQToC7xLayerNorm`.
 - Weights: `torchao.quantization.pt2e.PerChannelMinMaxObserver`
 
 **Note:** The `torch.ao` observer hierarchy is incompatible — `convert_pt2e` would
@@ -135,6 +149,8 @@ Bias (`args[0]` of `addmm`) stays float32.
 | `aten.add.Tensor` | `args[0]`, `args[1]` | `FuseInt8ResidualAdd` | `FuseInt16ResidualAdd` |
 
 - `add.Tensor` only annotated when both arguments are tensors (scalar args skipped).
+- With int8, the residual adds of LayerNorm blocks are left float; see
+  `float_layernorm_residuals` under Quantization Constraints.
 - int16 activations always symmetric; `UserWarning` emitted if `symmetric_activations=False`.
 
 ### Group 3 — C7x Activation Ops (`_TIDL_ACT_OPS`)
