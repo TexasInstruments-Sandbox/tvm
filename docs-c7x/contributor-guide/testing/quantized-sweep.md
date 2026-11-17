@@ -158,7 +158,7 @@ an entry once its model's logits match the reference.
 
 | Model | Modes | Measured (dog.jpg) | Cause |
 |---|---|---|---|
-| `alexnet` | `c7x_dload` | Top-1 331 vs 258, cosine 0.75; `c7x_host` matches (0.9996) | Board-only, not root-caused |
+| `alexnet` | `c7x_dload` | Top-1 331 vs 258, cosine 0.75; `c7x_host` matches (0.9996) | Board-only: MMALIB's `matrixMatrixMultiplyBias` (FC1, 9216x4096) returns mostly zeros unless another `matmulBias` call ran just before it |
 
 ### Notes on specific cases
 

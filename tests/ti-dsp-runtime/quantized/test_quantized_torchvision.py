@@ -131,7 +131,8 @@ _KNOWN_FAILURES = {
     "alexnet": (
         ("c7x_dload",),
         "board only: top-1 331 vs 258, cosine 0.75, while c7x_host matches (cosine "
-        "0.9996); not root-caused",
+        "0.9996); MMALIB's matmulBias returns mostly zeros for FC1 (9216x4096) "
+        "unless another matmulBias call ran just before it",
     ),
 }
 
