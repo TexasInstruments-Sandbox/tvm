@@ -98,6 +98,7 @@ int16 has the resolution to spare:
 | A conv or linear output read only by ReLU6 (or another `hardtanh`) | the clamp's range: the clamp discards anything beyond it | (symmetric activations only; always on) |
 | The inputs and outputs of SiLU, hardswish and hardsigmoid, and a sigmoid's input | 0.1% of values clipped from each tail | `smooth_activation_percentile=None` |
 | In depthwise (inverted-residual) blocks: a conv output read only by ReLUs next to a depthwise conv, and a squeeze-excite output (a SiLU or hardswish output times its gate) | 0.01% clipped from each tail | `depthwise_block_percentile=None` |
+| A tensor a concat reads where a BatchNorm reads the concat, through ReLU or max pool if any (DenseNet: the stem output, each dense layer's new features, each transition's output) | 0.1% clipped from each tail | `concat_batch_norm_percentile=None` |
 | A depthwise conv's input and, when it comes through a SiLU, hardswish or ReLU, the conv output before it | one scale per channel: the channel's calibrated peak times 2, never coarser than the per-tensor scale; any other reader (a residual add) still reads it per tensor | `depthwise_input_headroom=None` (symmetric activations only) |
 | The residual stream of LayerNorm blocks (ViT, Swin, ConvNeXt): the residual adds, and an add a LayerNorm reads, such as a ViT's position embedding add | not quantized: the adds run in float and the LayerNorms read float; any other reader (a conv) still reads it in int8 | `float_layernorm_residuals=False` |
 
@@ -109,7 +110,11 @@ its own requantize; a depthwise block's input channels can differ by over 100x, 
 than one scale can serve. A LayerNorm normalizes each token by its own statistics, so
 it turns the rounding of a token that is small next to the tensor's range into the
 token's whole content: ViT-B/32's class token got about 4 int8 codes after the
-position embedding add, and the classifier reads only that token.
+position embedding add, and the classifier reads only that token. A BatchNorm after
+a concat can't fold into a conv, so it divides each channel by that channel's own
+spread and scales up the rounding of a channel that is narrow next to the tensor's
+range. DenseNet's stem output has channels 19 times apart in range, and a few peaks
+set its min/max.
 
 Measured effect, quantized minus float top-1 in points (calibrated on the repo's 12
 images, 5,000 ImageNetV2 images):
@@ -123,6 +128,7 @@ images, 5,000 ImageNetV2 images):
 | Swin-T | -4.3 | -2.2 |
 | MNASNet 0.5 | -8.5 | -1.9 |
 | MobileNetV3-Large | -12.7 | -3.9 |
+| DenseNet-201 | -15.4 | -1.5 |
 | EfficientNet-B0 | -41.7 | -3.4 |
 | MobileNetV3-Small | -52.9 | -6.0 |
 | ViT-B/32 | -56.8 | -0.6 |
@@ -178,8 +184,9 @@ In order:
    tensors the rules don't cover.
 3. If your model isn't one of the families above, measure with each range rule
    turned off as well (`smooth_activation_percentile=None`,
-   `depthwise_block_percentile=None`, `depthwise_input_headroom=None`,
-   `float_layernorm_residuals=False`). The rules were measured on those families.
+   `depthwise_block_percentile=None`, `concat_batch_norm_percentile=None`,
+   `depthwise_input_headroom=None`, `float_layernorm_residuals=False`). The rules
+   were measured on those families.
 4. Use `dtype="int16"`. It costs speed and narrows MMALIB coverage (see the
    table above), and is the fallback when int8 can't represent the model.
 

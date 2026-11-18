@@ -5,6 +5,7 @@ Run with: pytest tests/ti-dsp-runtime/pt2e-tests/ -m quick -v
 """
 
 import warnings
+from typing import Any
 
 import pytest
 import torch
@@ -420,10 +421,11 @@ def _scales_with_outlier(model, quantizer) -> list[float]:
     ]
 
 
-def _changed(model, dtype="int8"):
-    """Positions whose scale the depthwise-block rule changes, and whether all shrank."""
+def _changed(model, dtype="int8", option="depthwise_block_percentile"):
+    """Positions whose scale the rule `option` turns off changes, and whether all shrank."""
+    off: dict[str, Any] = {option: None}
     clip = _scales_with_outlier(model, C7xMMAQuantizer(dtype))
-    plain = _scales_with_outlier(model, C7xMMAQuantizer(dtype, depthwise_block_percentile=None))
+    plain = _scales_with_outlier(model, C7xMMAQuantizer(dtype, **off))
     assert len(clip) == len(plain)
     changed = [i for i, (a, b) in enumerate(zip(clip, plain)) if a != b]
     return changed, all(clip[i] < plain[i] for i in changed), len(clip)
@@ -457,6 +459,55 @@ def test_squeeze_excite_output_after_silu_gets_percentile_range():
 def test_depthwise_block_rule_leaves_other_tensors_alone(model, dtype):
     changed, _, _ = _changed(model, dtype)
     assert changed == []
+
+
+class DenseLayers(nn.Module):
+    """DenseNet's stem and two dense layers, each a BatchNorm over a concat.
+
+    concat_conv: the concat is read by a conv (with a BatchNorm after it, which
+    folds), as in Inception, instead.
+    """
+
+    def __init__(self, concat_conv=False):
+        super().__init__()
+        self.stem = nn.Conv2d(3, 8, 3, padding=1)
+        self.norm1, self.conv1 = nn.BatchNorm2d(8), nn.Conv2d(8, 4, 3, padding=1)
+        self.norm2, self.conv2 = nn.BatchNorm2d(12), nn.Conv2d(12, 4, 3, padding=1)
+        self.conv_norm = nn.BatchNorm2d(4)
+        self.concat_conv = concat_conv
+
+    def forward(self, x):
+        x = torch.max_pool2d(torch.relu(self.stem(x)), 2)
+        if self.concat_conv:
+            return self.conv_norm(self.conv2(torch.cat([x, self.conv1(x)], 1)))
+        new = self.conv1(torch.relu(self.norm1(torch.cat([x], 1))))
+        return self.conv2(torch.relu(self.norm2(torch.cat([x, new], 1))))
+
+
+@pytest.mark.quick
+def test_concat_inputs_before_batch_norm_get_percentile_range():
+    changed, shrank, _ = _changed(DenseLayers(), option="concat_batch_norm_percentile")
+    # Quantize nodes in graph order: input; stem conv, its ReLU and max pool (one
+    # shared scale); BatchNorm, ReLU; the first layer's new features; BatchNorm, ReLU;
+    # output. The stem and the new features clip, nothing else.
+    assert changed == [1, 2, 3, 6] and shrank
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(
+    ("model", "dtype"),
+    [(DenseLayers(concat_conv=True), "int8"), (DenseLayers(), "int16")],
+    ids=["concat-into-conv", "int16"],
+)
+def test_concat_batch_norm_rule_leaves_other_tensors_alone(model, dtype):
+    changed, _, _ = _changed(model, dtype, option="concat_batch_norm_percentile")
+    assert changed == []
+
+
+@pytest.mark.quick
+def test_invalid_concat_batch_norm_percentile_is_rejected():
+    with pytest.raises(ValueError, match="concat_batch_norm_percentile"):
+        C7xMMAQuantizer("int8", concat_batch_norm_percentile=0)
 
 
 class TinyViT(nn.Module):

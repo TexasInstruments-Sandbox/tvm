@@ -283,6 +283,32 @@ def _in_depthwise_block(node: Node) -> bool:
     )
 
 
+def _feeds_normalized_concat(node: Node) -> bool:
+    """True if node's values reach a cat that a batch_norm reads, past transparent ops.
+
+    DenseNet's dense layers: each one's input is a BatchNorm over the concat of the
+    stem's output and every earlier layer's. A BatchNorm after a conv is folded into
+    it by the time annotate runs, so the ones left read something else.
+    """
+    if node.op != "call_function":
+        return False
+    seen: set[Node] = set()
+    frontier = list(node.users)
+    while frontier:
+        user = frontier.pop()
+        if user in seen or user.op != "call_function":
+            continue
+        seen.add(user)
+        if user.target in _TRANSPARENT_OPS:
+            frontier.extend(user.users)
+        elif user.target == torch.ops.aten.cat.default and any(
+            u.op == "call_function" and u.target == torch.ops.aten.batch_norm.default
+            for u in user.users
+        ):
+            return True
+    return False
+
+
 # Activations between a conv and a depthwise conv that a per-channel scale can pass
 # through: c7x_int8_{silu,hardswish}_per_channel, and a ReLU fused into the conv.
 _PER_CHANNEL_ACTIVATIONS = frozenset(
@@ -530,6 +556,15 @@ class C7xMMAQuantizer(Quantizer):
             gate). None leaves them to activation_observer. int8 only. Networks
             without depthwise convs or such squeeze-excite blocks are
             unaffected; clipping the ReLU tensors of a ResNet instead costs it.
+        concat_batch_norm_percentile: The same, for a tensor that a concat
+            reads where a batch_norm reads the concat, through ReLU or max pool
+            if any: DenseNet's stem output, each dense layer's new features and
+            each transition's output. The BatchNorm divides each channel by its
+            own spread, so it scales up the rounding of a channel that is narrow
+            next to the tensor's range. DenseNet's stem output has channels 19
+            times apart in range, and a few peaks set it. None leaves these
+            tensors to activation_observer. int8 only. Networks without a
+            BatchNorm after a concat are unaffected.
         depthwise_input_headroom: Quantize a depthwise conv's input per channel,
             with the conv output feeding it through a SiLU, hardswish or ReLU: one
             scale per channel, its calibrated peak times this headroom, never coarser
@@ -566,6 +601,7 @@ class C7xMMAQuantizer(Quantizer):
         activation_observer: str = "minmax",
         smooth_activation_percentile: float | None = 0.1,
         depthwise_block_percentile: float | None = 0.01,
+        concat_batch_norm_percentile: float | None = 0.1,
         depthwise_input_headroom: float | None = 2.0,
         float_layernorm_residuals: bool = True,
     ):
@@ -580,6 +616,7 @@ class C7xMMAQuantizer(Quantizer):
         for name, value in (
             ("smooth_activation_percentile", smooth_activation_percentile),
             ("depthwise_block_percentile", depthwise_block_percentile),
+            ("concat_batch_norm_percentile", concat_batch_norm_percentile),
         ):
             if value is not None and not 0 < value < 50:
                 raise ValueError(f"{name} must be in (0, 50) or None, got {value!r}")
@@ -593,6 +630,7 @@ class C7xMMAQuantizer(Quantizer):
         self.activation_observer = activation_observer
         self.smooth_activation_percentile = smooth_activation_percentile
         self.depthwise_block_percentile = depthwise_block_percentile
+        self.concat_batch_norm_percentile = concat_batch_norm_percentile
         if dtype == "int16" and not symmetric_activations:
             warnings.warn(
                 "int16 activations require symmetric quantization; "
@@ -890,6 +928,8 @@ class C7xMMAQuantizer(Quantizer):
             return self.smooth_activation_percentile
         if self.depthwise_block_percentile is not None and _in_depthwise_block(node):
             return self.depthwise_block_percentile
+        if self.concat_batch_norm_percentile is not None and _feeds_normalized_concat(node):
+            return self.concat_batch_norm_percentile
         return None
 
     def _clip_ranges(self, annotated: list[Node], act_spec) -> None:

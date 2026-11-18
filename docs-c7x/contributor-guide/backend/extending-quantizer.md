@@ -77,7 +77,13 @@ Observers used:
   only by ReLUs next to a depthwise conv (BN is folded into the conv by the
   time `annotate` runs), and a squeeze-excite output, a SiLU or hardswish
   output times a sigmoid or hardsigmoid gate. No op annotates the multiply, so
-  its percentile goes on the edges that read it.
+  its percentile goes on the edges that read it. A tensor a `cat` reads where a
+  `batch_norm` reads the `cat` gets it at `concat_batch_norm_percentile`
+  (default 0.1): `_feeds_normalized_concat` follows readers through the
+  transparent ops, so a conv, its ReLU and its max pool, which share one
+  observer, all qualify together, as DenseNet's stem does. Neither op is
+  annotated. Of the torchvision sweep's models, only the four DenseNets have a
+  `batch_norm` reading a `cat`.
 - Depthwise inputs, per channel (`depthwise_input_headroom`, default 2.0):
   `_depthwise_input_chains` finds conv -> SiLU/hardswish/ReLU -> depthwise conv,
   and the conv output and the activation output (for ReLU, the one tensor they
