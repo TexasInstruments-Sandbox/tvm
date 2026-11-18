@@ -155,6 +155,20 @@ instead of II 2. A loop whose divisor doesn't change inside it keeps its II,
 as the reciprocal is hoisted out: BatchNorm's per-channel loop stays at II 11.
 `unit-tests/test_float_division.py` checks the printed form and the result.
 
+### Rounding
+
+On C7x, `nearbyintf(x)` (what TIR's `round` lowers to, so every quantize and
+requantize in generated code) prints as `tvm_c7x_nearbyint((x))`, which
+converts with `__float_to_int` (VSPINT) when `|x| < 2^23` and returns `x`
+otherwise. VSPINT rounds to nearest with ties to even, as `nearbyintf` does in
+the default rounding mode; larger floats are already integers, inf or NaN.
+The only difference is the sign of a zero result: values in (-0.5, -0] give
++0. cl7x compiles `nearbyintf` to an out-of-line call, about 140 cycles a value,
+and the call keeps the loop from software pipelining. QuartzNet int8 on the
+board went from 4.06 G to 1.86 G cycles with bit-identical output, most of it
+in the requantize epilogue of its 77 generic int8 depthwise convs.
+`unit-tests/test_float_round.py` checks the printed form and exact results.
+
 ### Profiling Infrastructure
 
 When `-profile-layers=1`:

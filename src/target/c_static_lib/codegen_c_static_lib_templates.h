@@ -166,10 +166,10 @@ static inline void tvm_l2_reset(void) {
 )";
 
 /*!
- * \brief C7x float reciprocal and reciprocal square root
+ * \brief C7x float reciprocal, reciprocal square root and rounding
  *
- * The code generator prints scalar float division and sqrtf through these
- * on C7x targets.
+ * The code generator prints scalar float division, sqrtf and nearbyintf
+ * through these on C7x targets.
  */
 constexpr const char* kC7xFloatMathHelpers = R"(
 // __recip (VRCPSP) and __recip_sqrt (VRSQRSP) are estimates good to about 8
@@ -190,6 +190,16 @@ static inline float tvm_c7x_rsqrt(float x) {
   float y2 = y * (1.5f - 0.5f * x * y * y);
   y2 = y2 * (1.5f - 0.5f * x * y2 * y2);
   return __abs(x * y * y - 1.0f) < 0.5f ? y2 : y;
+}
+
+// nearbyintf: cl7x compiles it to an out-of-line call (about 140 cycles a
+// value), which also keeps the loop from software pipelining. __float_to_int
+// (VSPINT) rounds to nearest, ties to even, as nearbyintf does in the default
+// rounding mode. A float of magnitude 2^23 or more is already an integer (or
+// inf or NaN) and out of VSPINT's range, so it passes through. One difference:
+// values in (-0.5, -0] round to +0, not -0.
+static inline float tvm_c7x_nearbyint(float x) {
+  return __abs(x) < 8388608.0f ? (float)__float_to_int(x) : x;
 }
 )";
 

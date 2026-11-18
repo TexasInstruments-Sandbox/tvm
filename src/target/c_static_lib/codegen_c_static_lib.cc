@@ -1057,6 +1057,13 @@ void CodeGenCStaticLib::Dispatch_(const CallNode* op, std::ostream& os) {  // NO
           os << "))";
           return;
         }
+        // nearbyintf(x) → tvm_c7x_nearbyint((x)): cl7x calls nearbyintf out of line
+        if (func_name->value == "nearbyintf" && op->args.size() >= 2) {
+          os << "tvm_c7x_nearbyint((";
+          PrintExpr(op->args[1], os);
+          os << "))";
+          return;
+        }
       }
     }
     CodeGenC::Dispatch_(op, os);
