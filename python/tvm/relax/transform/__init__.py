@@ -115,6 +115,7 @@ from .ti_fuse_qdq_c7x_concat import FuseQDQToC7xConcat
 from .ti_fuse_qdq_c7x_activation import FuseQDQToC7xActivation, FuseQDQToC7xSiluF32Out
 from .ti_fuse_qdq_c7x_movement import FuseQDQToC7xMovement
 from .ti_fuse_qdq_c7x_avgpool import FuseQDQToC7xAvgPool
+from .ti_fuse_qdq_c7x_dwconv1d import FuseQDQToC7xDwConv1d
 from .ti_fuse_qdq_c7x_layernorm import FuseQDQToC7xLayerNorm
 from .ti_fuse_qdq_tidl_maxpool import FuseQDQToTIDLMaxPool
 from .ti_fuse_qdq_c7x_relu import FuseQDQToC7xRelu

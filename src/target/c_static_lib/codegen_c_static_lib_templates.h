@@ -73,6 +73,7 @@ constexpr const char* kDSPHeaders = R"(
 #include "kernels/c7x_residual_add.h"
 #include "kernels/c7x_activation.h"
 #include "kernels/c7x_avgpool.h"
+#include "kernels/c7x_dwconv1d.h"
 #include "kernels/c7x_norm.h"
 #include "kernels/c7x_concat.h"
 #include "kernels/c7x_rescale.h"

@@ -177,6 +177,10 @@ extern int32_t c7x_int8_avg_pool(const void *, void *,
                                  int32_t, int32_t, int32_t, int32_t,
                                  int32_t, int32_t, int32_t, int32_t,
                                  int32_t, float, int32_t, float);
+/* int8 depthwise 1-D conv with per-channel requantize */
+extern int32_t c7x_int8_dwconv1d(const void *, const void *, const void *, void *,
+                                 int32_t, int32_t, int32_t, int32_t,
+                                 int32_t, int32_t, int32_t);
 /* C7x-native max-pool and relu — transparent ops, no float conversion at runtime */
 extern int32_t c7x_int8_max_pool(const void *, void *,
                                  int32_t, int32_t, int32_t, int32_t,
@@ -440,6 +444,8 @@ static const DspSymEntry dsp_syms[] = {
     /* C7x-native average-pool kernels (no TIDL library calls) */
     SYM(c7x_int8_global_avg_pool),
     SYM(c7x_int8_avg_pool),
+    /* int8 depthwise 1-D conv with per-channel requantize */
+    SYM(c7x_int8_dwconv1d),
     /* C7x-native max-pool and relu — transparent ops, no float conversion at runtime */
     SYM(c7x_int8_max_pool),
 #ifdef USE_TIDL_RUNTIME

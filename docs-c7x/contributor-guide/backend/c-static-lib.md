@@ -601,6 +601,8 @@ removed, destroying the pattern the MMALIB passes need to match.
 3b. FuseQDQToC7xAvgPool                   ← global/spatial avg_pool2d → c7x_int8_*_avg_pool
 3c. FuseQDQToC7xLayerNorm                ← layer_norm → c7x_int8_layer_norm
 4.  FuseQDQToInt8Conv2D                   ← generic int8 conv for non-MMALIB ops
+4a. FuseQDQToC7xDwConv1d                  ← its int8 1xK depthwise convs on [1, C, 1, T]
+                                             (stride 1-2) → c7x_int8_dwconv1d
 5.  EliminateQDQRoundTrip                 ← remove float round-trip between layers
 6.  RewriteDequantize                     ← normalize weight-only quant pattern
 7.  DCE

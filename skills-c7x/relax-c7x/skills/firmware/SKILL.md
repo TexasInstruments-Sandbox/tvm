@@ -154,6 +154,7 @@ visible in `c7x_compute status`. Bump the major for any incompatible wire or exp
 | 4.1.0 | TVM 0.27 | TIDL modules keep storage out of the L2 fast pool; J722S TIDL uses the vision_apps L2/L3 layout (see Memory Layout) |
 | 4.2.0 | TVM 0.27 | `--tidl ON` firmware compiles `tidl/tidl_api.c` and exports `init_tidl_subgraph`/`process_tidl_subgraph`/`free_tidl_subgraph`; TIDL modules built from this tree no longer carry the wrapper and fail to load on older firmware |
 | 5.0.0 | TVM 0.27 | Built with cl7x 6.2.1.LTS instead of 5.0.1.LTS. No wire change: the major bump keeps this tree's client off firmware built with the old compiler, so firmware and DLOAD modules come from one compiler |
+| 5.1.0 | TVM 0.27 | Exports `c7x_int8_dwconv1d`; modules with an int8 1xK depthwise conv (QuartzNet) import it and fail to load on older firmware |
 
 A board flashed from the 0.23 tree reports 3.x; rebuild **and** redeploy firmware and client from
 the same tree, then reboot.

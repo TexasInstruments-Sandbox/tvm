@@ -180,6 +180,9 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     # QDQ passes handle remaining (non-MMALIB) quantized conv2d ops
     passes += [
         tvm.relax.transform.FuseQDQToInt8Conv2D(),
+        # Lowers FuseQDQToInt8Conv2D's int8 1xK depthwise convs on a [1, C, 1, T]
+        # tensor to c7x_int8_dwconv1d, so must run right after it.
+        tvm.relax.transform.FuseQDQToC7xDwConv1d(),
         tvm.relax.transform.EliminateQDQRoundTrip(),
         # RewriteDequantize: converts manual weight-only INT8 pattern
         # (astype(Constant(int8), "float32") * Constant(scale)) into
