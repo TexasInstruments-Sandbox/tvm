@@ -127,14 +127,7 @@ _MAX_ABS_DIFF = 8.5
 # (dog.jpg, BASELINE_TEST_IMAGE recipe). They still run and record their metrics;
 # a failure is reported as xfail with the reason, a pass as a pass. Remove an
 # entry once its model's logits match the reference. See quantized-sweep.md.
-_KNOWN_FAILURES = {
-    "alexnet": (
-        ("c7x_dload",),
-        "board only: top-1 331 vs 258, cosine 0.75, while c7x_host matches (cosine "
-        "0.9996); MMALIB's matmulBias returns mostly zeros for FC1 (9216x4096) "
-        "unless another matmulBias call ran just before it",
-    ),
-}
+_KNOWN_FAILURES: dict[str, tuple[tuple[str, ...], str]] = {}
 
 
 def _metrics(dsp_out: np.ndarray, ref: np.ndarray) -> dict:

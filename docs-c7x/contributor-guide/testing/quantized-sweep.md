@@ -127,9 +127,8 @@ zero bias -- fixed via `_resolve_constant_tensor` in
 | Runtime DDR pool exhaustion at a late layer (not weight size) | 8 | `_EXCLUDED_DDR_OOM` |
 | TVM pass bug hit after quantization, not root-caused | 1 | `_EXCLUDED_QUANT_BUG` |
 
-Of the remaining 67, all but `alexnet` pass on `c7x_dload` with MMALIB on
-BeagleY-AI (full sweep 2026-11-15; `swin_t` and `swin_s` re-run 2026-11-16
-after the int8 residual-add fusion stopped taking broadcasting adds).
+All of the remaining 67 pass on `c7x_dload` with MMALIB on BeagleY-AI (full
+sweep 2026-11-18, firmware and modules built with cl7x 6.2.1.LTS).
 
 Each model must give the reference's top-1 class and, with MMALIB, stay within
 `_MAX_ABS_DIFF` (8.5) of its logits. The logits are compared as floats. The
@@ -156,9 +155,12 @@ and what was measured. In those modes a failure is reported as xfail with that
 reason; the model still runs and records its metrics, and a pass is a pass. Remove
 an entry once its model's logits match the reference.
 
-| Model | Modes | Measured (dog.jpg) | Cause |
-|---|---|---|---|
-| `alexnet` | `c7x_dload` | Top-1 331 vs 258, cosine 0.75; `c7x_host` matches (0.9996) | Board-only: MMALIB's `matrixMatrixMultiplyBias` (FC1, 9216x4096) returns mostly zeros unless another `matmulBias` call ran just before it |
+There are none at present. `alexnet` was listed until 2026-11-18: on firmware
+built with cl7x 5.0.1, MMALIB's `matrixMatrixMultiplyBias` returned mostly
+zeros for FC1 (9216x4096) unless another `matmulBias` call ran just before it
+(top-1 331 vs 258, cosine 0.75; `c7x_host` matched). It doesn't reproduce on
+firmware built with 6.2.1.LTS, which doesn't show that the cause is gone; if
+`alexnet` fails on the board again, check FC1 first.
 
 ### Notes on specific cases
 
