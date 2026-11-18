@@ -1,4 +1,4 @@
-"""Pytest configuration for audio (GTCRN) DSP tests."""
+"""Pytest configuration for the audio (GTCRN, QuartzNet) DSP tests."""
 
 import os
 import sys

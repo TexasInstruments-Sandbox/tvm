@@ -67,6 +67,9 @@ uv pip install "torchao==0.16.0" --extra-index-url https://download.pytorch.org/
 # lower for yolov8n/yolov8s/yolo26n (and a bare Relax.Constant-in-primfunc
 # for yolov5n) -- 8.4.14 doesn't hit either. Re-verify before bumping.
 uv pip install "ultralytics==8.4.14"
+# audio/quartznet_c7x.py reads LibriSpeech's parquet file and decodes its
+# FLAC audio (soundfile's wheel bundles libsndfile).
+uv pip install pyarrow soundfile
 # 3rdparty/tvm-ffi carries a local device-mapping patch (adds
 # c_static_lib -> kDLCPU in device.pxi). build_all.sh applies it via
 # patches/apply.sh, but this script is also run standalone, so apply it
