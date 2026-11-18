@@ -29,6 +29,7 @@
 
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <algorithm>
 
@@ -126,6 +127,7 @@ class CodeGenCStaticLib final : public CodeGenC {
   void Dispatch_(const FloatImmNode* op, std::ostream& os) override;  // NOLINT(*)
   void Dispatch_(const prim::MaxNode* op, std::ostream& os) override;       // NOLINT(*)
   void Dispatch_(const prim::MinNode* op, std::ostream& os) override;       // NOLINT(*)
+  std::string GetBufferRef(const PrimType& t, const VarNode* buffer, PrimExpr index) override;
 
 
   // statment vistors
@@ -294,6 +296,10 @@ class CodeGenCStaticLib final : public CodeGenC {
   // Track whether AnyArray wrapper declarations have been emitted for current function
   // Reset in InitFuncState(), set when first clean VM builtin call is emitted
   bool anyarray_decls_emitted_{false};
+
+  // One-element "local" buffers of the current function that are printed as scalars.
+  // Set in InitFuncState(); see ScalarLocalBufferFinder.
+  std::unordered_set<const VarNode*> scalar_local_buffers_;
 
   // Argument tracking for direct VM calls (legacy, used by pending_packed_args_)
   std::vector<PackedArgInfo> pending_packed_args_;

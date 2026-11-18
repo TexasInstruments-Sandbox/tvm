@@ -116,6 +116,23 @@ returns whatever `red[i]` held before the call. Host emulation (g++) doesn't
 show it. `unit-tests/test_int_minmax_reduce.py` checks both the printed form
 and the result on hardware.
 
+### Reduction Accumulators
+
+`tirx.PromoteReductionAccumulator` rewrites `out[i] = out[i] + x` over a
+reduction loop so that the loop accumulates in a one-element `local` buffer
+and stores to `out[i]` once. The code generator prints that buffer as a
+scalar (`float out_acc_0;`) when every use reads or writes element 0 at the
+buffer's own type; a buffer whose address is taken, or that is used any
+other way, stays an array. cl7x 6.2.1.LTS keeps a one-element array
+(`float out_acc_0[1];`) in memory, so the loop-carried dependency goes
+through a store and a load, and the loop's initiation interval rises
+several-fold. With the dynamic modules' `--fp_mode=relaxed`, a scalar
+accumulator also lets the compiler split a float reduction into partial
+sums, so float results can differ from the array form's in the last bits;
+integer reductions are exact in any order.
+`unit-tests/test_reduction_accumulator.py` checks the printed form and the
+result.
+
 ### Profiling Infrastructure
 
 When `-profile-layers=1`:

@@ -246,11 +246,104 @@ void CodeGenCStaticLib::AddFunction(const GlobalVar& gvar, const PrimFunc& func,
   }
 }
 
+namespace {
+
+/*!
+ * \brief Finds the one-element "local" buffers that are only read and written as x[0].
+ *
+ * PromoteReductionAccumulator holds a reduction's running value in such a buffer so
+ * that the C compiler can keep it in a register. Printed as an array (float x[1]),
+ * cl7x 6.2.1 leaves it in memory, and the loop-carried dependency through it
+ * multiplies the loop's initiation interval. The codegen prints the buffers found
+ * here as scalars instead. A buffer used any other way (its address taken, a
+ * vector or reinterpreting access, the bare pointer) stays an array.
+ */
+class ScalarLocalBufferFinder : public tirx::StmtExprVisitor {
+ public:
+  using tirx::StmtExprVisitor::Visit;
+  using tirx::StmtExprVisitor::Visit_;
+
+  static std::unordered_set<const VarNode*> Find(const Stmt& body) {
+    auto finder = ffi::make_object<ScalarLocalBufferFinder>();
+    finder->Visit(body);
+    std::unordered_set<const VarNode*> found;
+    for (const VarNode* buffer : finder->candidates_) {
+      if (!finder->other_uses_.count(buffer)) found.insert(buffer);
+    }
+    return found;
+  }
+
+  ffi::Optional<VisitInterrupt> Visit_(const AllocBufferNode* op) final {
+    // The allocation defines the buffer variable; it isn't a use of it.
+    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(VisitBufferMetadata(op->buffer));
+    const auto& shape = op->buffer->shape;
+    bool one_element = std::all_of(shape.begin(), shape.end(),
+                                   [](const PrimExpr& dim) { return prim::is_const_int(dim, 1); });
+    // Sub-byte types keep CodeGenC's packed-storage handling.
+    const PrimType& dtype = op->buffer->dtype;
+    if (one_element && op->buffer.scope() == "local" && dtype.lanes() == 1 && dtype.bits() >= 8 &&
+        !op->annotations.count(tirx::attr::kVolatile)) {
+      candidates_.insert(op->buffer.get());
+    }
+    return std::nullopt;
+  }
+
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+    auto buffer = op->source.as<tirx::BufferVar>();
+    if (buffer && IsScalarAccess(buffer.value(), op->ty.as_or_throw<PrimType>(), op->indices)) {
+      return std::nullopt;
+    }
+    return tirx::StmtExprVisitor::Visit_(op);
+  }
+
+  ffi::Optional<VisitInterrupt> Visit_(const BufferStoreNode* op) final {
+    if (IsScalarAccess(op->buffer, op->value.ty(), op->indices)) {
+      return Visit(op->value);
+    }
+    return tirx::StmtExprVisitor::Visit_(op);
+  }
+
+  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
+    if (op->op.same_as(tirx::builtin::address_of()) && op->args.size() == 1) {
+      if (const auto* load = op->args[0].as<TensorLoadNode>()) {
+        if (const auto* buffer = load->source.as<VarNode>()) other_uses_.insert(buffer);
+      }
+    }
+    return tirx::StmtExprVisitor::Visit_(op);
+  }
+
+  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
+    other_uses_.insert(op);
+    return std::nullopt;
+  }
+
+ private:
+  static bool IsScalarAccess(const tirx::BufferVar& buffer, const PrimType& ty,
+                             const ffi::Array<PrimExpr>& indices) {
+    return indices.size() == 1 && prim::is_zero(indices[0]) && ty == buffer->dtype;
+  }
+
+  std::unordered_set<const VarNode*> candidates_;
+  std::unordered_set<const VarNode*> other_uses_;
+};
+
+}  // namespace
+
 void CodeGenCStaticLib::InitFuncState(const PrimFunc& f) {
   CodeGenC::InitFuncState(f);
   this->stack_name_.clear();
   this->stack_size_ = 0;
   this->anyarray_decls_emitted_ = false;
+  this->scalar_local_buffers_ = ScalarLocalBufferFinder::Find(f->body);
+}
+
+std::string CodeGenCStaticLib::GetBufferRef(const PrimType& t, const VarNode* buffer,
+                                            PrimExpr index) {
+  if (scalar_local_buffers_.count(buffer)) {
+    TVM_FFI_ICHECK(prim::is_zero(index)) << "Scalar local buffer accessed at " << index;
+    return GetVarID(buffer);
+  }
+  return CodeGenC::GetBufferRef(t, buffer, std::move(index));
 }
 
 // Override to add DSP-specific cycle counter initialization for profiling
@@ -1059,11 +1152,20 @@ void CodeGenCStaticLib::Dispatch_(const BindNode* op) {
   CodeGenC::Dispatch_(op);
 }
 
-// Delegate to base class for standard allocation.
+// Delegate to base class for standard allocation, except that a one-element local
+// buffer only used as x[0] is declared as a scalar (see ScalarLocalBufferFinder).
 // Note: global.l2sram buffers from DMA tiling are lowered by LowerL2SramAlloc
 // into DeclBuffer(call_extern("tvm_l2_alloc")); the rest are standard allocations.
 void CodeGenCStaticLib::Dispatch_(const AllocBufferNode* op) {
-  CodeGenC::Dispatch_(op);
+  if (!scalar_local_buffers_.count(op->buffer.get())) {
+    CodeGenC::Dispatch_(op);
+    return;
+  }
+  std::string vid = AllocVarID(op->buffer.get(), op->buffer.name());
+  alloc_storage_scope_[op->buffer.get()] = op->buffer.scope();
+  this->PrintIndent();
+  PrintType(op->buffer->dtype, stream);
+  stream << ' ' << vid << ";\n";
 }
 
 // A DeclBuffer that introduces a new data pointer (as opposed to aliasing an existing variable)
