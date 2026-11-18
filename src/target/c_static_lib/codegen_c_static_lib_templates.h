@@ -166,6 +166,34 @@ static inline void tvm_l2_reset(void) {
 )";
 
 /*!
+ * \brief C7x float reciprocal and reciprocal square root
+ *
+ * The code generator prints scalar float division and sqrtf through these
+ * on C7x targets.
+ */
+constexpr const char* kC7xFloatMathHelpers = R"(
+// __recip (VRCPSP) and __recip_sqrt (VRSQRSP) are estimates good to about 8
+// bits (relative error up to 0.46% and 0.33%). Two Newton-Raphson steps each
+// bring them to float32 precision, as vec_recip in kernels/c7x_qdq_common.h
+// does for vectors. Plain division compiles to a call to __c7xabi_divf.
+// For 0, +-inf and NaN a step would compute 0 * inf, so these return the
+// estimate itself: inf, 0 or NaN.
+static inline float tvm_c7x_recip(float b) {
+  float r = __recip(b);
+  float r2 = r * (2.0f - b * r);
+  r2 = r2 * (2.0f - b * r2);
+  return __abs(b * r - 1.0f) < 0.5f ? r2 : r;
+}
+
+static inline float tvm_c7x_rsqrt(float x) {
+  float y = __recip_sqrt(x);
+  float y2 = y * (1.5f - 0.5f * x * y * y);
+  y2 = y2 * (1.5f - 0.5f * x * y2 * y2);
+  return __abs(x * y * y - 1.0f) < 0.5f ? y2 : y;
+}
+)";
+
+/*!
  * \brief DSP helper functions for FFI value manipulation
  *
  * These inline functions provide a clean interface for setting

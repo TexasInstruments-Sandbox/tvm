@@ -133,6 +133,28 @@ integer reductions are exact in any order.
 `unit-tests/test_reduction_accumulator.py` checks the printed form and the
 result.
 
+### Division and Square Root
+
+On C7x, scalar float `a / b` prints as `(a) * tvm_c7x_recip((b))`,
+`1.0f / sqrtf(x)` as `tvm_c7x_rsqrt((x))`, and `sqrtf(x)` as
+`x * tvm_c7x_rsqrt(x)` (0 when `x` is 0). The helpers, defined in the
+generated headers (`kC7xFloatMathHelpers`), start from the `__recip`
+(VRCPSP) and `__recip_sqrt` (VRSQRSP) estimates and take two Newton-Raphson
+steps, which brings them within 2 ulp of the float32 result. The estimates
+alone are good to about 8 bits (relative error up to 0.46% and 0.33%), which
+showed up wherever generated code divides: each runtime BatchNorm channel's
+scale, every float quantize (`x * recip(scale)`), softmax and mean
+normalization. A QuartzNet with 93 BatchNorms drifted by up to 12 in its
+log-probabilities. For 0, ±inf and NaN the helpers return the estimate
+unchanged, since a step would multiply 0 by inf.
+
+Plain `/` is not an option: cl7x compiles it to a call to `__c7xabi_divf`,
+which stops the loop from software pipelining. The refinement keeps the loop
+pipelined: an elementwise `a[i] / b[i]` loop (8x unrolled) runs at II 5
+instead of II 2. A loop whose divisor doesn't change inside it keeps its II,
+as the reciprocal is hoisted out: BatchNorm's per-channel loop stays at II 11.
+`unit-tests/test_float_division.py` checks the printed form and the result.
+
 ### Profiling Infrastructure
 
 When `-profile-layers=1`:

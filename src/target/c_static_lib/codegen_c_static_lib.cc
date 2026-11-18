@@ -129,6 +129,9 @@ void CodeGenCStaticLib::Init(bool output_ssa, bool emit_asserts, bool emit_fwd_f
     // TI DSP target: Use DSPCodeGenExtension for headers
     DSPCodeGenExtension::EmitHeaders(use_cpp_api_, dsp_.profile_layers, dsp_.debug_alloc,
                                      decl_stream);
+    if (IsC7xTarget()) {
+      decl_stream << templates::kC7xFloatMathHelpers;
+    }
   } else {
     // Standard TVM target: Use full TVM runtime headers
     decl_stream << templates::kStandardTVMHeaders;
@@ -472,10 +475,11 @@ void CodeGenCStaticLib::Dispatch_(const prim::BroadcastNode* op, std::ostream& o
   os << "))";
 }
 
-// C7x intrinsic: float division → __recip, with rsqrt pattern detection
+// C7x float division → tvm_c7x_recip, with rsqrt pattern detection (see
+// kC7xFloatMathHelpers)
 void CodeGenCStaticLib::Dispatch_(const prim::DivNode* op, std::ostream& os) {  // NOLINT(*)
   if (IsC7xTarget() && IsScalarFloat(op->ty)) {
-    // Detect 1.0f / sqrtf(x) pattern → __recip_sqrt(x)
+    // Detect 1.0f / sqrtf(x) pattern → tvm_c7x_rsqrt(x)
     auto* float_imm = op->a.as<FloatImmNode>();
     if (float_imm && float_imm->value == 1.0) {
       auto* call = op->b.as<CallNode>();
@@ -483,17 +487,17 @@ void CodeGenCStaticLib::Dispatch_(const prim::DivNode* op, std::ostream& os) {  
                    call->op.same_as(builtin_call_extern_))) {
         auto* func_name = call->args[0].as<StringImmNode>();
         if (func_name && func_name->value == "sqrtf" && call->args.size() >= 2) {
-          os << "__recip_sqrt((";
+          os << "tvm_c7x_rsqrt((";
           PrintExpr(call->args[1], os);
           os << "))";
           return;
         }
       }
     }
-    // General float division: (a) * __recip((b))
+    // General float division: (a) * tvm_c7x_recip((b))
     os << "(";
     PrintExpr(op->a, os);
-    os << ") * __recip((";
+    os << ") * tvm_c7x_recip((";
     PrintExpr(op->b, os);
     os << "))";
     return;
@@ -1037,13 +1041,13 @@ void CodeGenCStaticLib::Dispatch_(const CallNode* op, std::ostream& os) {  // NO
         (op->op.same_as(builtin_call_pure_extern_) || op->op.same_as(builtin_call_extern_))) {
       auto* func_name = op->args[0].as<StringImmNode>();
       if (func_name) {
-        // sqrtf(x) → ((x) != 0.0f ? (x) * __recip_sqrt((x)) : 0.0f)
-        // Zero guard: __recip_sqrt(0) is undefined (inf), and 0 * inf = NaN
+        // sqrtf(x) → ((x) != 0.0f ? (x) * tvm_c7x_rsqrt((x)) : 0.0f)
+        // Zero guard: rsqrt(0) is inf, and 0 * inf = NaN
         if (func_name->value == "sqrtf" && op->args.size() >= 2) {
           std::ostringstream temp_x;
           Dispatch(op->args[1], temp_x);
           std::string x = SSAGetID(temp_x.str(), op->args[1]->ty);
-          os << "((" << x << ") != 0.0f ? (" << x << ") * __recip_sqrt((" << x << ")) : 0.0f)";
+          os << "((" << x << ") != 0.0f ? (" << x << ") * tvm_c7x_rsqrt((" << x << ")) : 0.0f)";
           return;
         }
         // fabsf(x) → __abs((x))
