@@ -296,7 +296,7 @@ pytest tidl-tests/test_tidl_declines_hw.py --dsp-mode=c7x_dload --board j722s-ev
 pytest tidl-tests/test_tidl_relax_import.py -v
 
 # Per-layer hardware tests on AM67A (all supported layer types)
-TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS \
+TI_CGT_C7000_PATH=<path to TI C7000 CGT> \
   pytest tidl-tests/test_tidl_layer_offload.py -k TestLayerHardware -v
 
 # Full model hardware tests

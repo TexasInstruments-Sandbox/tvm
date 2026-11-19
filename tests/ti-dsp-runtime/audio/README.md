@@ -76,7 +76,7 @@ frames, the required chunk length is `(T-1)*hop = 15872` samples
 ## Quick start
 
 ```bash
-export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+export TI_CGT_C7000_PATH=<path to TI C7000 CGT>
 
 # c7x_host (fast, no hardware) -- ~15 s
 pytest test_gtcrn_e2e.py --dsp-mode=c7x_host -v -s

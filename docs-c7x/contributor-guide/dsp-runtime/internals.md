@@ -68,8 +68,10 @@ ti_dsp/
 
 ## Building
 
-Use `build_runtime.sh` to build any runtime variant. The script
-auto-detects TI compiler installations.
+Use `build_runtime.sh` to build any runtime variant. It requires
+`TI_CGT_C7000_PATH` to point at a TI C7000 CGT installation (version in
+[Getting Started](../../user-guide/getting-started.md#dependencies)) for
+the C7x targets and does not search for one.
 
 ```bash
 cd src/runtime/ti_dsp
@@ -93,11 +95,11 @@ bash build_runtime.sh clean       # Remove all build directories
 - MMWAVE-L-SDK-6 v6.1.0.05 (auto-detected or set `MMWAVE_SDK_PATH`)
 
 **`c7x_host`** (C7x host emulation on PC):
-- TI C7000 Compiler v5.0.1+ (`ti-cgt-c7000`) — set `TI_CGT_C7000_PATH`
+- TI C7000 Compiler (`ti-cgt-c7000`; see [Getting Started](../../user-guide/getting-started.md#dependencies) for the version) — set `TI_CGT_C7000_PATH`
   (provides the Host Emulation library; system GCC is used to compile)
 
 **`c7x`** (C7x cross-compilation for J722S/AM67A):
-- TI C7000 Compiler v5.0.1+ (`ti-cgt-c7000`) — set `TI_CGT_C7000_PATH`
+- TI C7000 Compiler (`ti-cgt-c7000`; see [Getting Started](../../user-guide/getting-started.md#dependencies) for the version) — set `TI_CGT_C7000_PATH`
 - MCU+ SDK for J722S (auto-detected or set `MCU_PLUS_SDK_PATH`)
 
 ### Build Outputs

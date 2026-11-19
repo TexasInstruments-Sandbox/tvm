@@ -25,7 +25,7 @@ Pipeline (all numbered steps below happen on the dev host except step 6):
 Usage (run from tests/ti-dsp-runtime/ -- yolo26n.pt is cached there):
 
     cd tests/ti-dsp-runtime
-    export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+    export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
     python examples/run_yolo26_detection.py
     python examples/run_yolo26_detection.py --image beagle.jpg --conf-threshold 0.1
     python examples/run_yolo26_detection.py --board j722s-evm

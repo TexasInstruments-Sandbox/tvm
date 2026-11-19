@@ -33,7 +33,8 @@ if(DEFINED ENV{TI_CGT_C7000_PATH})
 elseif(DEFINED ENV{TI_CGT_ROOT})
     set(TI_CGT_ROOT "$ENV{TI_CGT_ROOT}")
 else()
-    set(TI_CGT_ROOT "$ENV{HOME}/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
+    message(FATAL_ERROR "TI_CGT_C7000_PATH is not set.  Set it to a TI C7000 CGT "
+                        "6.2.1.LTS installation, e.g. /opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS")
 endif()
 
 # Resolved by boards.cmake from TVM_BOARD/TVM_DDR (env override still wins).

@@ -21,7 +21,7 @@ which fits on hardware (`c7x_dload`) and is the mode used below.
 ## Quick Start
 
 ```bash
-export TI_CGT_C7000_PATH=~/ti/ccs2041/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS
+export TI_CGT_C7000_PATH=<path to TI C7000 CGT>
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 
 # Download weights once (if not already present in model/)

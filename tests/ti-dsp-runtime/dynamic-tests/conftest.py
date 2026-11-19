@@ -13,7 +13,7 @@ Usage:
 
 Run from the repo root with PYTHONPATH set:
     export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
-    export TI_CGT_C7000_PATH=~/ti/ccs2041/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS
+    export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
 """
 
 import sys

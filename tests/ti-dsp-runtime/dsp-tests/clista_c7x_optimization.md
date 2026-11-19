@@ -440,7 +440,7 @@ suggests minimal gains. Focus on operator fusion (#5) instead.
 
 Compile lib0.c with pipelining debug output:
 ```bash
-TI_CGT=$HOME/ti/ccs2041/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS
+TI_CGT=<path to TI C7000 CGT>
 $TI_CGT/bin/cl7x \
   -mv7524 --abi=eabi --endian=little \
   --fp_mode=relaxed -DNULL=0 -DSOC_J722S \

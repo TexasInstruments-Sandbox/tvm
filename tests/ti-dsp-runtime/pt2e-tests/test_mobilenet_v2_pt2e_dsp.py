@@ -17,7 +17,7 @@ Two assertions on a real image (tests/cstatic/test_images/dog.jpg):
 
 Usage:
     cd tests/ti-dsp-runtime
-    export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+    export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
     pytest --rootdir=. pt2e-tests/test_mobilenet_v2_pt2e_dsp.py --dsp-mode=c7x_host -v
     pytest --rootdir=. pt2e-tests/test_mobilenet_v2_pt2e_dsp.py --dsp-mode=c7x_dload -v
 """

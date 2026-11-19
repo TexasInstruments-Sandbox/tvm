@@ -43,28 +43,23 @@ else()
 endif()
 set(TVM_DSP_DEVICE "${TVM_DSP_DEVICE}" CACHE STRING "Device variant" FORCE)
 
-# TI C7000 compiler path - check environment or use default
+# TI C7000 compiler path - required, taken from the environment
 set(TI_CGT_C7000_PATH "$ENV{TI_CGT_C7000_PATH}")
 # Expand ~ to $HOME (CMake doesn't do shell-style tilde expansion)
 if(TI_CGT_C7000_PATH MATCHES "^~")
     string(REGEX REPLACE "^~" "$ENV{HOME}" TI_CGT_C7000_PATH "${TI_CGT_C7000_PATH}")
 endif()
 if(NOT TI_CGT_C7000_PATH)
-    # Try common installation paths
-    if(EXISTS "$ENV{HOME}/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
-        set(TI_CGT_C7000_PATH "$ENV{HOME}/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
-    elseif(EXISTS "$ENV{HOME}/ti/ccs2041/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
-        set(TI_CGT_C7000_PATH "$ENV{HOME}/ti/ccs2041/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
-    elseif(EXISTS "$ENV{HOME}/ti/ti-cgt-c7000_5.0.1.LTS")
-        set(TI_CGT_C7000_PATH "$ENV{HOME}/ti/ti-cgt-c7000_5.0.1.LTS")
-    endif()
+    message(FATAL_ERROR "TI_CGT_C7000_PATH is not set.\n"
+                        "Set it to a TI C7000 CGT 6.2.1.LTS installation, e.g. "
+                        "/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS")
 endif()
 
 # Verify compiler exists
 if(NOT EXISTS "${TI_CGT_C7000_PATH}/bin/cl7x")
     message(FATAL_ERROR "TI C7000 compiler not found at ${TI_CGT_C7000_PATH}/bin/cl7x\n"
-                        "Set TI_CGT_C7000_PATH environment variable or edit toolchain file.\n"
-                        "Expected: ~/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS")
+                        "Set TI_CGT_C7000_PATH to a TI C7000 CGT 6.2.1.LTS installation, e.g. "
+                        "/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS")
 endif()
 
 # SDK path (MCU+ SDK on j722s, FreeRTOS SDK on am62d) is resolved by cmake/boards.cmake (included before project()

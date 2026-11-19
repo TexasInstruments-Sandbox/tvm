@@ -77,7 +77,7 @@ Outside Docker (e.g. a host without Docker at all), set
 
 ```bash
 cd tests/ti-dsp-runtime
-export TI_CGT_C7000_PATH=<path to>/ti-cgt-c7000_5.0.1.LTS
+export TI_CGT_C7000_PATH=<path to TI C7000 CGT>
 python examples/run_yolo26_detection.py --board beagley-ai
 ```
 
@@ -178,7 +178,7 @@ source tree:
 
 ```bash
 cd tests/ti-dsp-runtime
-export TI_CGT_C7000_PATH=<path to>/ti-cgt-c7000_5.0.1.LTS
+export TI_CGT_C7000_PATH=<path to TI C7000 CGT>
 python examples/run_resnet18_classification.py --board beagley-ai
 ```
 

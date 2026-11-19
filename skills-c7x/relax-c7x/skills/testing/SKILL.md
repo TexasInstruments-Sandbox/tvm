@@ -119,7 +119,7 @@ un-skips the `test_c7x_vm_dsp` SSH integration tests.
 
 ```bash
 cd tests/ti-dsp-runtime
-export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
 
 # Quick regression
 pytest --rootdir=. dsp-tests/ -m quick --dsp-mode=c7x_host -v                     # ~20s

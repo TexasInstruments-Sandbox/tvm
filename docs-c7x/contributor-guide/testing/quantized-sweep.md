@@ -9,7 +9,7 @@ Located at `tests/ti-dsp-runtime/quantized/`.
 
 ```bash
 cd tests/ti-dsp-runtime
-export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+export TI_CGT_C7000_PATH=<path to TI C7000 CGT>
 
 # One model, host emulation
 pytest --rootdir=. quantized/test_quantized_resnet.py -v --dsp-mode=c7x_host --mmalib

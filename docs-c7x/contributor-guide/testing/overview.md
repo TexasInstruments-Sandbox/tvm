@@ -41,7 +41,7 @@ per-file timing.
 ```bash
 export TVM_HOME=$(pwd)          # or wherever the tvm repo is
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
-export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+export TI_CGT_C7000_PATH=<path to TI C7000 CGT>
 ```
 
 `TI_CGT_C7000_PATH` is required for all DSP e2e tests.

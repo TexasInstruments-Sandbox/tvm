@@ -37,7 +37,7 @@ Pipeline (all steps happen on the dev host except step 5):
 Usage (run from tests/ti-dsp-runtime/):
 
     cd tests/ti-dsp-runtime
-    export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+    export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
     python examples/run_resnet18_classification.py
     python examples/run_resnet18_classification.py --image dog.jpg
     python examples/run_resnet18_classification.py --board j722s-evm

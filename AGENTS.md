@@ -91,7 +91,7 @@ Required env vars (all paths absolute):
 ```bash
 export TVM_HOME=$(pwd)                      # repo root
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
-export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS   # required for c7x
+export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS   # required for c7x
 export MCU_PLUS_SDK_PATH=...                # required for c7x cross-compile
 # Or export PSDK_INSTALL_PATH=... and let MCU_PLUS_SDK_PATH/MMALIB_PATH derive
 # from it (see src/runtime/ti_dsp/cmake/boards.cmake). Neither has a default —
@@ -162,7 +162,7 @@ AM62D build (PSDK_INSTALL_PATH holds `freertos_sdk_am62dx_12_02_00_00/`):
 
 ```bash
 export PSDK_INSTALL_PATH=/opt/ti/am62d TI_SYSCONFIG_ROOT=/opt/ti/sysconfig
-export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.0.LTS
+export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
 cd src/runtime/ti_dsp
 bash build_runtime.sh c7x --board am62d
 # TIDL + MMALIB (links c7x-mma-tidl's ti_dl/lib/AM62A and MMALIB C7504):

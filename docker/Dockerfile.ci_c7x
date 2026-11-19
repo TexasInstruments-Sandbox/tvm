@@ -133,11 +133,11 @@ RUN uv venv /opt/venv-build && VIRTUAL_ENV=/opt/venv-build uv pip install build 
 # for both am67a/j722s-evm and beagley-ai (see CLAUDE.md).
 RUN mkdir -p /opt/ti/c7x && \
     wget -q -O /tmp/ti_cgt_c7000_installer.bin \
-        https://dr-download.ti.com/software-development/ide-configuration-compiler-or-debugger/MD-707zYe3Rik/5.0.1.LTS/ti_cgt_c7000_5.0.1.LTS_linux-x64_installer.bin && \
+        https://dr-download.ti.com/software-development/ide-configuration-compiler-or-debugger/MD-707zYe3Rik/6.2.1.LTS/ti_cgt_c7000_6.2.1.LTS_linux-x64_installer.bin && \
     chmod +x /tmp/ti_cgt_c7000_installer.bin && \
     /tmp/ti_cgt_c7000_installer.bin --mode unattended --prefix /opt/ti/c7x --unattendedmodeui minimal && \
     rm -f /tmp/ti_cgt_c7000_installer.bin
-ENV TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+ENV TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
 
 # TI SysConfig CLI (sysconfig_cli.sh), used by firmware/c7x/dsp/build.sh to
 # generate driver config from c75ss0.syscfg. The beagley-ai/11.02 MCU+ SDK

@@ -1146,7 +1146,7 @@ all memory sections including the DLOAD code/data placement.
 
 SDK Dependencies:
 - TI MCU+ SDK 11_00_00_06
-- TI CGT C7000 5.0.1 LTS
+- TI CGT C7000 (see Getting Started for the supported version)
 - TI SysConfig 1.26.0
 
 Output: `dsp/build/c7x_compute.out` (~6.9 MB)

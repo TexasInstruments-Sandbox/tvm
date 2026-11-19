@@ -404,7 +404,7 @@ call it. Missing any one causes an unresolved symbol linker error on `c7x_dload`
 - Add the declaration to the corresponding header (e.g., `kernels/tvm_int8_residual_add.h`, `mmalib/mmalib_wrappers.h`).
 - Rebuild the DSP runtime library **for the c7x target** (needed for firmware linking):
   ```bash
-  export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+  export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
   export MCU_PLUS_SDK_PATH=/opt/ti/am67a/.../mcu_plus_sdk_j722s_11_00_00_12
   cd src/runtime/ti_dsp && bash build_runtime.sh c7x
   ```

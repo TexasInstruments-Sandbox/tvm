@@ -46,7 +46,7 @@ pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_declines_hw.py \
 pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_relax_import.py -v
 
 # Per-layer hardware tests on AM67A (~10min, all layer types):
-TI_CGT_C7000_PATH=~/ti/.../ti-cgt-c7000_5.0.1.LTS \
+TI_CGT_C7000_PATH=<path to TI C7000 CGT> \
   pytest tests/ti-dsp-runtime/tidl-tests/test_tidl_layer_offload.py \
          -k TestLayerHardware -v
 
@@ -217,7 +217,7 @@ on AM67A hardware.  It provides multiple diagnostic levels:
 | `3` | Full `process_tidl_subgraph` (real int8 inference on MMA) |
 
 ```bash
-export TI_CGT_C7000_PATH=~/ti/.../ti-cgt-c7000_5.0.1.LTS
+export TI_CGT_C7000_PATH=<path to TI C7000 CGT>
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 
 # Start with level 0 and work up
@@ -242,7 +242,7 @@ pipeline runs (see `Jenkinsfile`, stage "TIDL Build (c7x-mma-tidl)").
 
 ```bash
 export PSDK_INSTALL_PATH=/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06
-export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS   # optional, see below
+export TI_CGT_C7000_PATH=<path to TI C7000 CGT>   # required
 export C7X_MMA_TIDL_PATH=~/ml/c7x-mma-tidl                    # where to clone it
 export TVM_HOME=~/ml/tvm                                      # this checkout
 ```

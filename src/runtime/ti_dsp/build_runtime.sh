@@ -81,19 +81,6 @@ if [ -z "${TI_CGT_C6000_PATH:-}" ]; then
     done
 fi
 
-# --- Auto-detect TI C7000 compiler ---
-if [ -z "${TI_CGT_C7000_PATH:-}" ]; then
-    for p in \
-        "$HOME/ti/ccs2041/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS" \
-        "$HOME/ti/ccs2040/ccs/tools/compiler/ti-cgt-c7000_5.0.1.LTS" \
-        "$HOME/ti/ti-cgt-c7000_5.0.1.LTS"; do
-        if [ -x "$p/bin/cl7x" ]; then
-            export TI_CGT_C7000_PATH="$p"
-            break
-        fi
-    done
-fi
-
 # --- Validate required compilers for chosen target ---
 if [[ "$TARGET" == "c66x" || "$TARGET" == "all" ]]; then
     if [ -z "${TI_CGT_C6000_PATH:-}" ]; then
@@ -106,8 +93,9 @@ fi
 
 if [[ "$TARGET" == "c7x" || "$TARGET" == "c7x_host" || "$TARGET" == "all" ]]; then
     if [ -z "${TI_CGT_C7000_PATH:-}" ]; then
-        echo "ERROR: TI_CGT_C7000_PATH not set and compiler not found"
-        echo "  Set TI_CGT_C7000_PATH to the TI C7000 CGT installation path"
+        echo "ERROR: TI_CGT_C7000_PATH is not set"
+        echo "  Set TI_CGT_C7000_PATH to a TI C7000 CGT 6.2.1.LTS installation,"
+        echo "  e.g. /opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS"
         exit 1
     fi
     echo "TI C7000 compiler: $TI_CGT_C7000_PATH"

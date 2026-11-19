@@ -45,6 +45,70 @@ pair you didn't build locally -- e.g. downloaded from the
 deployed and validated against real hardware without a local
 `build_all.sh` run first.
 
+## Dependencies
+
+The Docker image below installs all of these. If you build outside it,
+`TI_CGT_C7000_PATH` must point at the compiler installation; the build
+scripts and CMake files stop with an error when it is unset and do not
+search for one.
+
+| Dependency | Version | Where to get it |
+|------------|---------|-----------------|
+| TI C7000 code generation tools (`cl7x`) | 6.2.1.LTS | <https://www.ti.com/tool/C7000-CGT> |
+| TI SysConfig | 1.28 (the 11.02 MCU+ SDK needs at least 1.26.2) | pinned in `docker/Dockerfile.ci_c7x` |
+| TI Processor SDK RTOS (J722S) | 11.02.01.03 for BeagleY-AI, 11.00.00.06 for `j722s-evm` | pinned in `docker/Dockerfile.ci_c7x` and `tests/ti-dsp-runtime/Jenkinsfile` |
+
+### Installing without Docker
+
+The Docker image is the tested path. To set up a host directly, install
+the following; `docker/Dockerfile.ci_c7x` is the source of truth for the
+system packages and `tests/ti-dsp-runtime/setup_test_env.sh` for the Python
+environment, so check them if this list and a build disagree. The image is
+based on Ubuntu 24.04; other distributions have not been tried.
+
+System packages (Ubuntu 24.04 names):
+
+```bash
+sudo apt-get install -y --no-install-recommends \
+    adduser apt-transport-https ca-certificates ccache cmake curl g++ gdb git \
+    graphviz libcurl4-openssl-dev libgl1 libglib2.0-0 libopenblas-dev \
+    libssl-dev libtinfo-dev libz-dev llvm-18-dev make ninja-build \
+    openssh-client parallel pkg-config python3-dev sudo unzip wget \
+    g++-aarch64-linux-gnu gcc-aarch64-linux-gnu
+```
+
+`g++-aarch64-linux-gnu` and `gcc-aarch64-linux-gnu` cross-compile the Arm
+client that runs on the board. `libgl1` and `libglib2.0-0` are needed by
+OpenCV, which the YOLO tests import. `openssh-client` is used to deploy to
+and run on the board.
+
+Tools and SDKs from TI, installed to a location of your choice and exported
+as environment variables:
+
+```bash
+export TI_CGT_C7000_PATH=<path to TI C7000 CGT>
+export TI_SYSCONFIG_ROOT=<path to SysConfig>
+export PSDK_INSTALL_PATH=<path to TI Processor SDK RTOS for J722S>
+# MCU_PLUS_SDK_PATH and MMALIB_PATH are derived from PSDK_INSTALL_PATH
+# unless set explicitly.
+```
+
+Python: install [`uv`](https://docs.astral.sh/uv/), then from the repository
+root run the script that creates `.venv` and installs the pinned packages
+(numpy, pytest, torch, torchvision, torchao, transformers, ultralytics and the
+patched `tvm-ffi`):
+
+```bash
+source tests/ti-dsp-runtime/setup_test_env.sh
+```
+
+It also needs the torchvision model weights cached under
+`$TORCH_HOME/hub/checkpoints` (default `~/.cache/torch`); the script stops
+with the command to populate them if they are missing.
+
+This path has not been built end to end from a clean host as part of this
+change.
+
 ## Docker (recommended self-contained build environment)
 
 `docker/Dockerfile.ci_c7x` bakes in everything needed to build for

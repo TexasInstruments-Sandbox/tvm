@@ -172,7 +172,7 @@ pipeline {
         http_proxy                     = 'http://webproxy.ext.ti.com:80'
         https_proxy                    = 'http://webproxy.ext.ti.com:80'
         no_proxy                       = 'ti.com,.ti.com,localhost,127.0.0.1'
-        TI_CGT_C7000_PATH             = '/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS'
+        TI_CGT_C7000_PATH             = '/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS'
         TI_SYSCONFIG_ROOT              = '/opt/ti/sysconfig'
         PSDK_INSTALL_PATH              = '/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06'
         MCU_PLUS_SDK_PATH              = '/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06/mcu_plus_sdk_j722s_11_00_00_12'
@@ -237,39 +237,12 @@ pipeline {
 
                 stage('Python Setup') {
                     steps {
-                        sh '''
-                            if [ ! -d "${TORCH_HOME}/hub/checkpoints" ]; then
-                                echo "ERROR: Torchvision model cache not found at ${TORCH_HOME}/hub/checkpoints"
-                                echo ""
-                                echo "DSP tests require pre-cached pretrained model weights because the"
-                                echo "Jenkins node cannot download them from download.pytorch.org."
-                                echo ""
-                                echo "Fix: on a machine with internet access, run:"
-                                echo "  python -c \\"from torchvision import models; [getattr(models, m)(weights='DEFAULT') for m in ['squeezenet1_1','shufflenet_v2_x1_0','mobilenet_v2','mobilenet_v3_small','mobilenet_v3_large','efficientnet_b0','densenet121','resnet34','resnet18']]\\""
-                                echo "  scp -r ~/.cache/torch ${USER}@$(hostname):${TORCH_HOME}"
-                                exit 1
-                            fi
-                            test -d .venv || uv venv .venv
-                            # Pinned: transformers 5.18.0 records tensor.to(device) as aten.to.device in
-                            # exported graphs (handled by the PyTorch frontend); pinning keeps the exported
-                            # graph from changing between builds. Re-verify SmolLM export before bumping.
-                            # pytest/pytest-isolate pinned together: pytest 9.2.0 removed
-                            # _pytest.warnings.apply_warning_filters, which pytest-isolate
-                            # (through 0.0.17) still calls, so every --isolate test errors.
-                            uv pip install "numpy==2.5.1" "pytest==9.1.1" "pytest-isolate==0.0.17" scipy psutil ml_dtypes build pandas tqdm seaborn "transformers==5.18.0"
-                            uv pip install "torch>=2.5,<2.11" "torchvision>=0.20,<0.26" --extra-index-url https://download.pytorch.org/whl/cpu
-                            uv pip install "torchao==0.16.0" --extra-index-url https://download.pytorch.org/whl/cpu
-                            # Pinned: see setup_test_env.sh -- 8.4.115's export path
-                            # breaks yolov5n/yolov8n/yolov8s/yolo26n codegen; 8.4.14 doesn't.
-                            uv pip install "ultralytics==8.4.14"
-                            # tvm-ffi's checkout tracks public apache/tvm-ffi, which lacks
-                            # the c_static_lib device mapping -- apply the vendored patch
-                            # (patches/tvm-ffi-c_static_lib-device.patch, run via
-                            # patches/apply.sh) before installing it, or c_static_lib targets
-                            # fail at tvm.device("c_static_lib") with an unrecognized device.
-                            bash patches/apply.sh
-                            uv pip install -e 3rdparty/tvm-ffi
-                        '''
+                        // Venv creation, the pinned test dependencies and the
+                        // tvm-ffi patch/install live in setup_test_env.sh, shared
+                        // with the docker validate flow so the two cannot drift.
+                        // TORCH_HOME (pre-cached model weights) comes from the
+                        // environment block above; the script reports it if missing.
+                        sh 'bash tests/ti-dsp-runtime/setup_test_env.sh'
                     }
                 }
 
