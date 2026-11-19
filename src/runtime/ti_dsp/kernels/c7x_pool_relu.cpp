@@ -22,14 +22,14 @@
  * @brief C7x-native int8 max-pooling, relu, clamp, and requantize kernels.
  *
  * c7x_int8_requantize_clamp, c7x_int8_relu, and c7x_int8_clamp all have SE
- * + integer fixed-point vectorized paths gated on #ifdef __C7524__: __int8
- * is an 8×int32 = 256-bit container specific to this variant; wider-vector
- * C7x parts would silently produce wrong results without the guard.  The
- * scalar fallback in the #else branch is the safe path for non-C7524
- * targets.
+ * + integer fixed-point vectorized paths gated on __C7524__ || __C7504__:
+ * __int8 is an 8×int32 = 256-bit container specific to these variants
+ * (both have 256-bit vectors and the same SE features); wider-vector C7x
+ * parts would silently produce wrong results without the guard.  The
+ * scalar fallback in the #else branch is the safe path for other targets.
  *
  * c7x_int8_max_pool has its own SE + PROMOTE_4X_SIGNEXT vectorized interior
- * fast path (max_pool_interior_fast, #ifdef __C7524__) for the 3x3 and 2x2
+ * fast path (max_pool_interior_fast, same guard) for the 3x3 and 2x2
  * shapes in its eligibility table; max_pool_scalar_rect is both the border
  * handler for that fast path and the full fallback for every other shape.
  */
@@ -51,7 +51,7 @@
 
 /* =========================================================================
  * Scalar spatial max pool — reference implementation, also used as:
- *   - the correctness fallback for non-C7524 targets and unsupported
+ *   - the correctness fallback for other targets and unsupported
  *     kernel/stride/pad combinations
  *   - the border handler for the fast path below (ph_lo/ph_hi/pw_lo/pw_hi
  *     restrict which output rectangle gets (re)computed)
@@ -92,7 +92,7 @@ static void max_pool_scalar_rect(
     }
 }
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 /* Compile-time cap on the fast-path interior width: max_pool_interior_fast's
  * row_scratch buffer below is fixed-size, sized to this capacity. Covers the
@@ -506,7 +506,7 @@ static void apply_trailing_row_fallback(
         pw_lo + num_blocks_single * kFastpathEleCount, pw_hi);
 }
 
-#endif  /* __C7524__ */
+#endif  /* __C7524__ || __C7504__ */
 
 extern "C"
 int32_t c7x_int8_max_pool(
@@ -518,7 +518,7 @@ int32_t c7x_int8_max_pool(
     const int8_t* p = (const int8_t*)in;
     int8_t* q = (int8_t*)out;
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     const bool shape_3x3_s1 =
         kH == 3 && kW == 3 && sH == 1 && sW == 1 && pH == 1 && pW == 1;
     const bool shape_3x3_s2 =
@@ -669,7 +669,7 @@ int32_t c7x_int8_max_pool(
  * combined_scale = d_scale / o_scale is precomputed by the compiler pass
  * (ti_fuse_qdq_c7x_relu.py) and passed as float32 at compile time.
  *
- * Vectorized implementation (C7524 only):
+ * Vectorized implementation (C7524 and C7504):
  *   - Q13 fixed-point: scale_q = round(combined_scale * 8192)
  *     Safe for combined_scale up to 255: max product = 127×8192×255 = 265M
  *     which fits in int32 (< INT32_MAX ≈ 2147M).
@@ -679,7 +679,7 @@ int32_t c7x_int8_max_pool(
  *   - __vstore_pack_byte packs int32×8 → int8×8 in one D-unit cycle
  * ========================================================================= */
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 static void requantize_clamp_vec(
         const int8_t* __restrict__ in,
@@ -691,8 +691,15 @@ static void requantize_clamp_vec(
      * to nearest without needing <math.h> roundf(). */
     const int32_t SHIFT   = 13;
     const int32_t scale_q = (int32_t)(combined_scale * (float)(1 << SHIFT) + 0.5f);
-    /* Added before each shift so it rounds half up instead of flooring. */
-    const int32_t half    = 1 << (SHIFT - 1);
+    /* Added before each shift so it rounds half up instead of flooring.
+     *
+     * Read through a volatile: cl7x 6.2.1.LTS (-mv7504 and -mv7524) folds a
+     * constant here into a VADDW immediate (0x1000) in the software-pipelined
+     * cleanup loop, and the assembler rejects it ("E0800 Constant extension
+     * value mismatch").  Workaround for that compiler version; revisit when
+     * moving to a compiler that assembles the constant form. */
+    volatile int32_t half_rt = 1 << (SHIFT - 1);
+    const int32_t half    = half_rt;
 
     const __int8 scale_v = (__int8)scale_q;
     const __int8 half_v  = (__int8)half;
@@ -877,20 +884,20 @@ static void clamp_vec(
     }
 }
 
-#endif  /* __C7524__ */
+#endif  /* __C7524__ || __C7504__ */
 
 extern "C"
 int32_t c7x_int8_requantize_clamp(
         const void* in, void* out,
         int32_t n, float combined_scale,
         int32_t clip_lo, int32_t clip_hi) {
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     requantize_clamp_vec(
         (const int8_t*)in, (int8_t*)out,
         n, combined_scale, clip_lo, clip_hi);
     return 0;
 #else
-    /* Scalar fallback for non-C7524 C7x variants. */
+    /* Scalar fallback for other C7x variants. */
     const int8_t* __restrict__ p = (const int8_t*)in;
     int8_t*       __restrict__ q = (int8_t*)out;
     for (int32_t i = 0; i < n; i++) {
@@ -906,11 +913,11 @@ extern "C"
 int32_t c7x_int8_clamp(
         const void* in, void* out,
         int32_t n, int32_t clip_lo, int32_t clip_hi) {
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     clamp_vec((const int8_t*)in, (int8_t*)out, n, clip_lo, clip_hi);
     return 0;
 #else
-    /* Scalar fallback for non-C7524 C7x variants. Handles ReLU6 (lo=0,
+    /* Scalar fallback for other C7x variants. Handles ReLU6 (lo=0,
      * hi=round(6/scale)) and any general clip. */
     const int8_t* p = (const int8_t*)in;
     int8_t* q = (int8_t*)out;
@@ -928,11 +935,11 @@ extern "C"
 int32_t c7x_int8_relu(
         const void* in, void* out,
         int32_t n, int32_t clip_lo) {
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     relu_vec((const int8_t*)in, (int8_t*)out, n, clip_lo);
     return 0;
 #else
-    /* Scalar fallback for non-C7524 C7x variants. */
+    /* Scalar fallback for other C7x variants. */
     const int8_t* p = (const int8_t*)in;
     int8_t* q = (int8_t*)out;
     int8_t lo = (int8_t)clip_lo;

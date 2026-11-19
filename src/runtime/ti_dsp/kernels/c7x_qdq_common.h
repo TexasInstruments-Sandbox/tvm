@@ -28,8 +28,9 @@
  * convention those files already used for their own local statics, just
  * de-duplicated across files instead of copy-pasted.
  *
- * #ifdef __C7524__ guard convention: __int8/__float8/__char8/__SE_TEMPLATE_v1
- * etc. are 256-bit-container vector types specific to the C7524 core variant.
+ * __C7524__ || __C7504__ guard convention: __int8/__float8/__char8/
+ * __SE_TEMPLATE_v1 etc. are 256-bit-container vector types specific to the
+ * C7524 and C7504 core variants.
  * Any function using them must be compiled out on other targets, hence the
  * guard around the whole vector-intrinsics section below. The scalar helpers
  * (dq_f/rq_f/rq_i) have no such dependency and are always available.
@@ -105,7 +106,7 @@ static inline int8_t rq_i(int32_t x, int32_t scale_q, int32_t bias_q) {
     return (int8_t)v;
 }
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 /* =========================================================================
  * SE setup: int8 stream sign-extended to int32, VECLEN=8, PROMOTE=4X.
@@ -323,6 +324,6 @@ static inline void dequant_sigmoid_vec(
         out[j] = sigmoid_f(dq_f(in[j], zx, sx));
 }
 
-#endif  /* __C7524__ */
+#endif  /* __C7524__ || __C7504__ */
 
 #endif  /* TVM_C7X_QDQ_COMMON_H_ */

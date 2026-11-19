@@ -21,9 +21,10 @@
  * @file c7x_activation.cpp
  * @brief Element-wise quantized activation kernels.
  *
- * c7x_int8_hardswish: SE + float vectorized on C7524 (#ifdef __C7524__);
- *   scalar float fallback for other targets.  SE eliminates DDR scalar-read
- *   latency (~100 cycles/elem → ~2–4 cycles/elem on C7524).
+ * c7x_int8_hardswish: SE + float vectorized on C7524 and C7504
+ *   (#if defined(__C7524__) || defined(__C7504__)); scalar float fallback
+ *   for other targets.  SE eliminates DDR scalar-read latency
+ *   (~100 cycles/elem → ~2–4 cycles/elem on C7524).
  *
  * c7x_int8_silu: SE + float vectorized on C7524, same shape as hardswish
  *   but with a real sigmoid gate instead of a piecewise-linear one.  C7x has
@@ -50,9 +51,10 @@
  * gelu, hardsigmoid: scalar float only (applied to tiny tensors ≤C
  *   elements from global avg pool — not on the hot path).
  *
- * The #ifdef __C7524__ guard is required: __int8/__float8 = 256-bit containers
- * specific to the C7524 variant; wider-vector C7x parts would produce wrong
- * results without the guard.
+ * The __C7524__ || __C7504__ guard is required: __int8/__float8 = 256-bit
+ * containers specific to these variants (both have 256-bit vectors and the
+ * same SE features); wider-vector C7x parts would produce wrong results
+ * without the guard.
  */
 
 #include "c7x_activation.h"
@@ -131,7 +133,7 @@ int32_t c7x_int8_hardsigmoid(
  * from c7x_residual_add.cpp.
  * ========================================================================= */
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 static void hardswish_vec(
         const int8_t* __restrict__ in,
@@ -209,13 +211,13 @@ static void hardswish_vec(
         out[j] = rq_f(_hardswish(dq_f(in[j], zx, sx)), zy, sy);
 }
 
-#endif  /* __C7524__ */
+#endif  /* __C7524__ || __C7504__ */
 
 extern "C"
 int32_t c7x_int8_hardswish(
         const void* in, void* out, int32_t n,
         int32_t zx, float sx, int32_t zy, float sy) {
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     hardswish_vec((const int8_t*)in, (int8_t*)out, n, zx, sx, zy, sy);
     return 0;
 #else
@@ -252,7 +254,7 @@ int32_t c7x_int8_hardswish(
  * yolov8s model: zero requantized-output error in every case.
  * ========================================================================= */
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 /* exp_taylor / vec_recip come from c7x_qdq_common.h. */
 
@@ -329,13 +331,13 @@ static void silu_vec(
         out[j] = rq_f(_silu(dq_f(in[j], zx, sx)), zy, sy);
 }
 
-#endif  /* __C7524__ */
+#endif  /* __C7524__ || __C7504__ */
 
 extern "C"
 int32_t c7x_int8_silu(
         const void* in, void* out, int32_t n,
         int32_t zx, float sx, int32_t zy, float sy) {
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     silu_vec((const int8_t*)in, (int8_t*)out, n, zx, sx, zy, sy);
     return 0;
 #else
@@ -360,7 +362,7 @@ int32_t c7x_int8_silu(
  * store differs (direct float8 write instead of pack-to-int8).
  * ========================================================================= */
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 static void silu_f32out_vec(
         const int8_t* __restrict__ in,
@@ -419,13 +421,13 @@ static void silu_f32out_vec(
         out[j] = _silu(dq_f(in[j], zx, sx));
 }
 
-#endif  /* __C7524__ */
+#endif  /* __C7524__ || __C7504__ */
 
 extern "C"
 int32_t c7x_int8_silu_f32out(
         const void* in, void* out, int32_t n,
         int32_t zx, float sx) {
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     silu_f32out_vec((const int8_t*)in, (float*)out, n, zx, sx);
     return 0;
 #else
@@ -460,7 +462,7 @@ int32_t c7x_int8_silu_f32out(
  * max product = 127 × 8192 = 1,040,384 < INT32_MAX ✓.
  * ========================================================================= */
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 static void channel_scale_multiply_vec(
         const int8_t* excitation,
@@ -535,7 +537,7 @@ static void channel_scale_multiply_vec(
     }
 }
 
-#endif  /* __C7524__ */
+#endif  /* __C7524__ || __C7504__ */
 
 extern "C"
 int32_t c7x_int8_channel_scale_multiply(
@@ -544,13 +546,13 @@ int32_t c7x_int8_channel_scale_multiply(
         float s_exc,  int32_t z_exc,
         float s_feat, int32_t z_feat,
         float s_out,  int32_t z_out) {
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     channel_scale_multiply_vec(
         (const int8_t*)excitation, (const int8_t*)feature_map, (int8_t*)out,
         C, H_W, s_exc, z_exc, s_feat, z_feat, s_out, z_out);
     return 0;
 #else
-    /* Scalar fallback for non-C7524 targets. */
+    /* Scalar fallback for other targets. */
     const int8_t* exc = (const int8_t*)excitation;
     const int8_t* fm  = (const int8_t*)feature_map;
     int8_t* dst       = (int8_t*)out;

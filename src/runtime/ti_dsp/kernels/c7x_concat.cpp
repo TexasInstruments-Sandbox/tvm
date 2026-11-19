@@ -35,8 +35,9 @@
  * multi-scale class-score glue (see ti_fuse_qdq_c7x_concat.py's
  * _make_concat_sigmoid_pattern). Slots with n_i == 0 are skipped entirely.
  *
- * The #ifdef __C7524__ guard is required: __int8/__float8 = 256-bit containers
- * specific to the C7524 variant; wider-vector parts would produce wrong results.
+ * The __C7524__ || __C7504__ guard is required: __int8/__float8 = 256-bit
+ * containers specific to these variants; wider-vector parts would produce
+ * wrong results.
  */
 
 #include "c7x_concat.h"
@@ -78,7 +79,7 @@ static void process_slot(
     int32_t scale_q = (int32_t)(s_in / s_out * (float)(1 << SHIFT) + 0.5f);
     int32_t bias_q  = q13_bias(z_in, z_out, scale_q);
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     rescale_i8_q13_vec(src, dst, n_elem, scale_q, bias_q);
 #else
     for (int32_t j = 0; j < n_elem; ++j)
@@ -145,7 +146,7 @@ static void process_branch_sigmoid(
     for (int32_t c = 0; c < C; ++c) {
         const int8_t* row_src = src + (int64_t)c * n_elem;
         float* row_dst = dst_base + (int64_t)c * n_total;
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
         dequant_sigmoid_vec(row_src, row_dst, n_elem, z_in, s_in);
 #else
         for (int32_t j = 0; j < n_elem; ++j)

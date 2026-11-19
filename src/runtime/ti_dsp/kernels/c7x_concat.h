@@ -27,7 +27,7 @@
  *
  * Fixed 4-slot signature; set C_i=0 for unused slots (kernel skips them).
  * Transparent fast path: if s_i == s_out && z_i == z_out, uses memcpy.
- * Vectorized path: SE streaming + Q13 integer fixed-point, #ifdef __C7524__.
+ * Vectorized path: SE streaming + Q13 integer fixed-point, on __C7524__ || __C7504__.
  *
  * c7x_int8_concat_sigmoid handles the YOLO multi-scale class-score glue:
  *   dq(reshape(x1),s1,z1) | dq(reshape(x2),s2,z2) | ... → concat(axis=-1)

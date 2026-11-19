@@ -86,7 +86,7 @@ int32_t c7x_int8_global_avg_pool(
 
 /* =========================================================================
  * Scalar spatial avg pool — reference implementation, also used as:
- *   - the correctness fallback for non-C7524 targets and unsupported
+ *   - the correctness fallback for other targets and unsupported
  *     kernel/stride/width combinations
  *   - the border handler for the fast path below (ph_lo/ph_hi/pw_lo/pw_hi
  *     restrict which output rectangle gets (re)computed)
@@ -118,7 +118,7 @@ static void avg_pool_scalar_rect(
     }
 }
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 /* Compile-time cap on the fast-path spatial size: avg_pool_interior_fast's
  * row_scratch buffer below is fixed-size, sized to this capacity.
@@ -269,7 +269,7 @@ static void avg_pool_interior_fast(
     }
 }
 
-#endif  /* __C7524__ */
+#endif  /* __C7524__ || __C7504__ */
 
 extern "C"
 int32_t c7x_int8_avg_pool(
@@ -282,7 +282,7 @@ int32_t c7x_int8_avg_pool(
     int8_t* out_p = (int8_t*)out;
     float inv_k = sx / (float)(kH * kW);  /* fuse dequant + 1/(kH*kW) */
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     const bool fastpath =
         kH == 3 && kW == 3 && sH == 1 && sW == 1 && pH == 1 && pW == 1 &&
         H_in == H_out && W_in == W_out && H_out >= 3 && W_out >= 3 &&
@@ -309,7 +309,7 @@ int32_t c7x_int8_avg_pool(
             const int8_t* in_bc  = in_p  + (b * C + c) * H_in  * W_in;
             int8_t*       out_bc = out_p + (b * C + c) * H_out * W_out;
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
             if (fastpath) {
                 avg_pool_interior_fast(in_bc, out_bc, H_out, W_out,
                                        zx, scale_q, zy);

@@ -55,7 +55,7 @@ int32_t c7x_int8_rescale(
     int32_t scale_q = (int32_t)(sx / sy * (float)(1 << SHIFT) + 0.5f);
     int32_t bias_q  = q13_bias(zx, zy, scale_q);
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     rescale_i8_q13_vec(src, dst, n, scale_q, bias_q);
 #else
     for (int32_t j = 0; j < n; ++j)

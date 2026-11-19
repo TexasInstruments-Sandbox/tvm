@@ -71,7 +71,7 @@
  * c7x_avgpool.cpp / c7x_pool_relu.cpp for the same fix. */
 #include <c7x.h>
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 #define FLOAT_SIMD 8
 
@@ -150,7 +150,7 @@ int32_t c7x_int8_quantize(
     return 0;
 }
 
-#else  /* scalar fallback for non-C7524 builds */
+#else  /* scalar fallback for other builds */
 
 static void quantize_1plane(
         const float* in, int8_t* out, int32_t n, float inv_scale, float offset) {
@@ -169,10 +169,10 @@ int32_t c7x_int8_quantize(
     return 0;
 }
 
-#endif  /* __C7524__ */
+#endif  /* __C7524__ || __C7504__ */
 
 /* quantize_1plane above resolves to whichever single-plane helper the
- * active #ifdef __C7524__ branch defined (each branch's own static
+ * active __C7524__ || __C7504__ branch defined (each branch's own static
  * quantize_1plane, with internal linkage -- not a shared symbol). */
 extern "C"
 int32_t c7x_int8_quantize_rgb(
