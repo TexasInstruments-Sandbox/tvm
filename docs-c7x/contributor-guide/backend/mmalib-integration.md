@@ -190,9 +190,15 @@ follows the same rule in `FuseQDQToInt8Conv2D`'s scalar int8 path, and
 `EliminateQDQTransparent` leaves per-channel Q/DQ around a transparent op in place.
 
 `best_uint8_approx` (`_float_to_scale_shift` in `ti_mmalib_legalize.py`)
-finds integers `s ∈ [0,255]`, `sh ∈ [0,31]` such that `s × 2^(-sh) ≈
+finds integers `s ∈ [1, max_scale]`, `sh ∈ [0,31]` such that `s × 2^(-sh) ≈
 combined_rescale[ch]` — this `(scale, shift)` pair is the fixed-point
-requantization format MMALIB expects natively. Precision degrades with
+requantization format MMALIB expects natively. `max_scale` follows the
+data type each wrapper passes the scale as: 255 for the conv and depthwise
+conv wrappers (`MMALIB_UINT8`, `_MMALIB_CONV_MAX_SCALE`), 127 for
+matmulBias / FC (`MMALIB_INT8`). The multiplier's worst-case relative error
+is about 1/(2·max_scale): 0.2% at 255, 0.4% at 127. In QuartzNet 15x5 int8
+the 255 limit halved the board transcripts' character error rate against
+float32's, from 0.48% to 0.24% over 50 LibriSpeech utterances. Precision degrades with
 larger reduction dimension K (error scales roughly as `√K`); this is why
 int16's accumulator is widened to `int64`.
 

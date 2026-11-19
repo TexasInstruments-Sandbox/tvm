@@ -119,7 +119,21 @@ def _run_grouped_conv(
     return results[f"{dsp_mode}_result"].reshape(1, C_out, H_out, W_out)
 
 
-def _check_grouped_conv(dsp_mode, C_in, H_in, W_in, C_out, KH, KW, stride, pad, groups, seed):
+def _check_grouped_conv(
+    dsp_mode,
+    C_in,
+    H_in,
+    W_in,
+    C_out,
+    KH,
+    KW,
+    stride,
+    pad,
+    groups,
+    seed,
+    scale_range=(1, 4),
+    shift_range=(0, 4),
+):
     if dsp_mode not in ("c7x_host", "c7x_dload"):
         pytest.skip("requires c7x_host or c7x_dload")
 
@@ -127,8 +141,8 @@ def _check_grouped_conv(dsp_mode, C_in, H_in, W_in, C_out, KH, KW, stride, pad, 
     input_np = rng.integers(-16, 16, (1, C_in, H_in, W_in), dtype=np.int8)
     kernel_np = rng.integers(-8, 8, (C_out, C_in // groups, KH, KW), dtype=np.int8)
     bias_np = rng.integers(-200, 200, C_out, dtype=np.int32)
-    scale_np = rng.integers(1, 4, C_out, dtype=np.uint8)
-    shift_np = rng.integers(0, 4, C_out, dtype=np.uint8)
+    scale_np = rng.integers(*scale_range, C_out, dtype=np.uint8)
+    shift_np = rng.integers(*shift_range, C_out, dtype=np.uint8)
 
     ref = _numpy_grouped_conv2d_i8(
         input_np,
@@ -222,3 +236,50 @@ def test_grouped_conv_loop_layer4_stride2(dsp_mode):
     combination was where the abandoned native numGroupsPerKernel path
     silently corrupted data on real hardware)."""
     _check_grouped_conv(dsp_mode, 2048, 14, 14, 2048, 3, 3, 2, 1, 32, seed=6)
+
+
+# The conv wrappers pass the per-channel scale as MMALIB_UINT8, so the MMALIB
+# QDQ passes use multipliers up to 255 (_MMALIB_CONV_MAX_SCALE). A wrapper or
+# kernel that read them as signed would turn 128-255 into negative scales.
+
+
+@pytest.mark.quick
+def test_conv_scale_above_127_1x1(dsp_mode):
+    """A 1x1 conv on a [1, C, 1, T] tensor (QuartzNet's pointwise shape) with
+    scales 128-255. groups=2: the grouped-loop wrapper declines groups=1, which
+    goes to mmalib_conv2d_i8; each group runs the same dense conv2d_impl."""
+    _check_grouped_conv(
+        dsp_mode,
+        256,
+        1,
+        64,
+        256,
+        1,
+        1,
+        1,
+        0,
+        2,
+        seed=7,
+        scale_range=(128, 256),
+        shift_range=(8, 12),
+    )
+
+
+@pytest.mark.quick
+def test_conv_scale_above_127_grouped(dsp_mode):
+    """A grouped 3x3 conv with scales 128-255."""
+    _check_grouped_conv(
+        dsp_mode,
+        256,
+        14,
+        14,
+        256,
+        3,
+        3,
+        1,
+        1,
+        32,
+        seed=8,
+        scale_range=(128, 256),
+        shift_range=(8, 12),
+    )

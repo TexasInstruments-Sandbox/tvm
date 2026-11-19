@@ -424,22 +424,31 @@ def _mmalib_conv2d_legalize(bb: relax.BlockBuilder, call: relax.Call) -> relax.E
 # =======================================================================
 
 
-def _float_to_scale_shift(rescale: np.ndarray):
-    """Convert per-channel float rescale to (int8 scale, uint8 shift).
+# Largest requantize multiplier the MMALIB conv and depthwise conv wrappers take:
+# they pass the per-channel scale as MMALIB_UINT8 (mmalib_wrappers.cpp).
+_MMALIB_CONV_MAX_SCALE = 255
+
+
+def _float_to_scale_shift(rescale: np.ndarray, max_scale: int = 127):
+    """Convert per-channel float rescale to (scale, shift), both uint8 arrays.
 
     Finds (s, sh) per channel such that s * 2^(-sh) ≈ rescale[ch],
-    where s is in [1, 127] (signed int8 positive range) and sh is in [0, 31].
+    where s is in [1, max_scale] and sh is in [0, 31].
 
-    MMALIB's matrixMatrixMultiplyBias expects signed int8 scale values
-    (confirmed by MMALIB test case 8 which declares scale as int8_t).
+    max_scale is 127 for kernels that read the scale as int8: MMALIB's
+    matrixMatrixMultiplyBias (MMALIB test case 8 declares it int8_t, and
+    mmalib_matmul_bias_i8/i16 pass it as MMALIB_INT8). The conv and depthwise
+    conv wrappers pass it as MMALIB_UINT8 and take 255, which halves the
+    worst-case relative error of the multiplier (about 0.4% for 127, 0.2%
+    for 255).
 
     Raises ValueError if any channel's rescale is outside the representable
-    range [2^-31, 127].  The previous behavior silently emitted scale=0/
+    range [2^-31, max_scale].  The previous behavior silently emitted scale=0/
     shift=0 for non-positive values (all-zero output) or scale=1/shift=0 for
     tiny values (~1.0 rescale), yielding silently wrong results.
     """
     min_rescale = 2.0**-31
-    max_rescale = 127.0
+    max_rescale = float(max_scale)
 
     n_channels = rescale.shape[0]
     scale_out = np.zeros(n_channels, dtype=np.uint8)
@@ -460,7 +469,7 @@ def _float_to_scale_shift(rescale: np.ndarray):
             s_int = int(round(s_float))
             if s_int < 1:
                 continue
-            if s_int > 127:
+            if s_int > max_scale:
                 break
             actual = s_int / (1 << sh)
             err = abs(actual - r) / r
@@ -475,10 +484,10 @@ def _float_to_scale_shift(rescale: np.ndarray):
     return scale_out, shift_out
 
 
-def _scale_shift_or_none(rescale: np.ndarray):
+def _scale_shift_or_none(rescale: np.ndarray, max_scale: int = 127):
     """Like _float_to_scale_shift, but returns (None, None) instead of raising."""
     try:
-        return _float_to_scale_shift(rescale)
+        return _float_to_scale_shift(rescale, max_scale)
     except ValueError:
         return None, None
 
@@ -519,6 +528,7 @@ def _validate_and_fold_bias(
     o_zp_val: int = 0,
     bias_dtype: type = np.int32,
     op_name: str = "MMALIB op",
+    max_scale: int = 127,
 ):
     """Validate the weight-scale size and rescale range, then fold the
     float bias into accumulator scale.
@@ -543,7 +553,7 @@ def _validate_and_fold_bias(
         return None
     dw_scale = d_scale_val * w_scale_np[:n_channels]
     combined_rescale = dw_scale / o_scale_val
-    scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale)
+    scale_u8, shift_u8 = _scale_shift_or_none(combined_rescale, max_scale)
     if scale_u8 is None:
         logger.warning("Rescale out of range for %s; declining", op_name)
         return None

@@ -49,6 +49,7 @@ from .ti_c7x_span_utils import propagate_span
 from .ti_mmalib_legalize import (
     _call_extern_checked,
     _resolve_constant_tensor,
+    _MMALIB_CONV_MAX_SCALE,
     _validate_and_fold_bias,
 )
 from .ti_mmalib_qdq_dwconv import (
@@ -281,6 +282,7 @@ class _MMALIBQDQDwConvI16Lowerer(PyExprMutator):
             o_scale_val,
             bias_dtype=np.int64,
             op_name="MMALIB int16 dwconv2d",
+            max_scale=_MMALIB_CONV_MAX_SCALE,
         )
         if folded is None:
             return super().visit_call_(call)

@@ -88,3 +88,32 @@ class TestScaleShiftValidation:
         )
         new_mod = tvm.relax.transform.FuseMMALIBQDQConv2dI16()(mod)
         assert "mmalib_conv2d_i16" not in new_mod.script()
+
+
+def test_float_to_scale_shift_max_scale():
+    """max_scale bounds the multiplier and 255 roughly halves the worst error."""
+    from tvm.relax.transform.ti_mmalib_legalize import (
+        _MMALIB_CONV_MAX_SCALE,
+        _float_to_scale_shift,
+    )
+
+    rng = np.random.default_rng(0)
+    rescale = np.exp(rng.uniform(np.log(1e-6), np.log(1.0), 4096))
+    errors = {}
+    for max_scale in (127, _MMALIB_CONV_MAX_SCALE):
+        scale, shift = _float_to_scale_shift(rescale, max_scale)
+        assert scale.dtype == np.uint8 and shift.dtype == np.uint8
+        assert scale.min() >= 1 and scale.max() <= max_scale
+        got = scale.astype(np.float64) / np.exp2(shift.astype(np.float64))
+        errors[max_scale] = np.max(np.abs(got - rescale) / rescale)
+    assert errors[127] < 1 / 128
+    assert errors[_MMALIB_CONV_MAX_SCALE] < 1 / 256
+    assert errors[_MMALIB_CONV_MAX_SCALE] < 0.6 * errors[127]
+
+
+def test_float_to_scale_shift_default_stays_int8():
+    """The default (used for MMALIB FC, whose scale is MMALIB_INT8) stays <= 127."""
+    from tvm.relax.transform.ti_mmalib_legalize import _float_to_scale_shift
+
+    scale, _ = _float_to_scale_shift(np.array([0.999, 0.5, 0.0123, 3.7e-5]))
+    assert scale.max() <= 127

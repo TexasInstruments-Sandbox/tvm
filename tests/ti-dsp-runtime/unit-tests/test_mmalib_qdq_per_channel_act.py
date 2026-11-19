@@ -24,7 +24,7 @@ from tvm import relax
 from tvm.relax import TensorType as TensorStructInfo
 from tvm.relax.transform import FuseMMALIBQDQConv2d, FuseMMALIBQDQDwConv2d
 from tvm.relax.transform.ti_const_utils import ti_tensor_const
-from tvm.relax.transform.ti_mmalib_legalize import _scale_shift_or_none
+from tvm.relax.transform.ti_mmalib_legalize import _MMALIB_CONV_MAX_SCALE, _scale_shift_or_none
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "dsp-cpp"))
 
@@ -105,7 +105,8 @@ def test_conv_folds_a_per_channel_output_scale(per_channel):
     )
     assert got is not None
     want = _scale_shift_or_none(
-        np.float32(0.05) * _W_SCALE.astype(np.float64) / o_scale.astype(np.float64)
+        np.float32(0.05) * _W_SCALE.astype(np.float64) / o_scale.astype(np.float64),
+        _MMALIB_CONV_MAX_SCALE,
     )
     np.testing.assert_array_equal(got[0], want[0])
     np.testing.assert_array_equal(got[1], want[1])
@@ -129,7 +130,8 @@ def test_depthwise_folds_per_channel_scales(which):
     got = _mmalib_scale_shift(FuseMMALIBQDQDwConv2d()(_conv_model(C, d, o)), "mmalib_dwconv2d")
     assert got is not None
     want = _scale_shift_or_none(
-        np.asarray(d, np.float64) * _W_SCALE.astype(np.float64) / np.asarray(o, np.float64)
+        np.asarray(d, np.float64) * _W_SCALE.astype(np.float64) / np.asarray(o, np.float64),
+        _MMALIB_CONV_MAX_SCALE,
     )
     np.testing.assert_array_equal(got[0], want[0])
     np.testing.assert_array_equal(got[1], want[1])

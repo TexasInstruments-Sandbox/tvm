@@ -58,6 +58,7 @@ from .ti_mmalib_legalize import (
     _call_extern_checked,
     _check_conv2d_mmalib_constraints,
     _resolve_constant_tensor,
+    _MMALIB_CONV_MAX_SCALE,
     _validate_and_fold_bias,
 )
 from .ti_mmalib_qdq_fusion import _MMALIBQDQLowerer as _I8Lowerer
@@ -421,6 +422,7 @@ class _MMALIB_QDQI16Conv2dLowerer(PyExprMutator):
             o_scale_val,
             bias_dtype=np.int64,
             op_name="MMALIB int16 conv2d",
+            max_scale=_MMALIB_CONV_MAX_SCALE,
         )
         if folded is None:
             return super().visit_call_(call)

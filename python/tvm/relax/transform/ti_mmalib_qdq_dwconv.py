@@ -50,6 +50,7 @@ from .ti_mmalib_legalize import (
     _call_extern_checked,
     _resolve_constant_tensor,
     _scale_value,
+    _MMALIB_CONV_MAX_SCALE,
     _validate_and_fold_bias,
     _zero_point_value,
 )
@@ -476,6 +477,7 @@ class _MMALIBQDQDwConvLowerer(PyExprMutator):
             zp_correction=zp_correction,
             o_zp_val=o_zp_val,
             op_name="MMALIB dwconv2d",
+            max_scale=_MMALIB_CONV_MAX_SCALE,
         )
         if folded is None:
             return super().visit_call_(call)
