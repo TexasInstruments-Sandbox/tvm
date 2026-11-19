@@ -402,6 +402,13 @@ def quantize(
 ) -> tuple[tvm.IRModule, torch.fx.GraphModule]:
     """PT2E-quantize with C7xMMAQuantizer, calibrated on calib.
 
+    Activation ranges come from the histogram observer. With min/max ranges a
+    few extreme activations set the scales: at T=1024, 16 calibration
+    utterances gave 16% WER on 50 evaluation utterances against 3.8% for
+    float32, more calibration data made it worse, and the result moved by a
+    point with float rounding alone (thread count). With the histogram
+    observer the same set scores 3.5-3.8%.
+
     Returns (the Relax module with parameters bound, the Q/DQ GraphModule
     that serves as the PyTorch reference).
     """
@@ -410,7 +417,9 @@ def quantize(
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="torchao")
         quantized_gm = calibrate_and_convert(
-            export_module(model, example), C7xMMAQuantizer(dtype), samples
+            export_module(model, example),
+            C7xMMAQuantizer(dtype, activation_observer="histogram"),
+            samples,
         )
     with torch.no_grad():
         exported_program = export(quantized_gm, example)

@@ -10,10 +10,14 @@ PyTorch's: the float model for float32, the Q/DQ graph (fake quant) for int8.
 float32 is held to the PyTorch output closely, and must produce the same
 transcript. int8 can't be: the DSP's integer kernels don't requantize
 exactly as the Q/DQ graph's float scales do (MMALIB, for one, takes a
-per-channel 7-bit multiplier and a shift), and through 94 MMALIB convs and
-77 depthwise convs the differences change the most likely character on a
-few percent of frames. Its gates are that frame-level agreement and the
-character error rate between the DSP's and the reference's transcripts.
+per-channel 8-bit multiplier and a shift), so the two are separate
+approximations of float32, and each changes the most likely class on a few
+percent of frames. Nearly all of those are frames where one side emits a
+character and the other the CTC blank: where a character is emitted shifts
+by a frame, and the transcript doesn't change. int8 is therefore gated on
+the transcript, its character error rate against the reference's; frame
+agreement is reported. The kernels' arithmetic is checked bit for bit by
+their unit tests.
 
 Usage:
     pytest test_quartznet_e2e.py --dsp-mode=c7x_host -v -s
@@ -51,11 +55,9 @@ from quartznet_c7x import (  # noqa: E402
 logger = logging.getLogger(__name__)
 
 # Measured, identical on c7x_host and BeagleY-AI: float32 log-probs within 1.7e-4
-# of PyTorch's; int8 matches the Q/DQ graph's most likely character on 95.1% of
-# frames, with the same transcript. The frame gate allows twice the measured
-# disagreement; the transcript gate, about 3 characters of this utterance's 150.
+# of PyTorch's; int8 transcript one character (CER 0.0068) from the Q/DQ graph's.
+# The int8 gate allows about 3 characters of this utterance's 150.
 _FLOAT_ATOL = 0.01
-_INT8_MIN_FRAME_AGREEMENT = 0.90
 _INT8_MAX_CER_VS_REF = 0.02
 
 # The float32 model takes about 140 s on the board.
@@ -127,10 +129,6 @@ def _assert_passed(results: dict, dsp_mode: str, dtype: str) -> None:
         )
         assert results["text"]["dsp"] == results["text"]["ref"], "transcripts differ"
     else:
-        assert results["frame_agreement"] >= _INT8_MIN_FRAME_AGREEMENT, (
-            f"{dsp_mode} matches the Q/DQ reference's most likely character on "
-            f"{results['frame_agreement']:.4f} of frames < {_INT8_MIN_FRAME_AGREEMENT}"
-        )
         assert results["cer_vs_ref"] <= _INT8_MAX_CER_VS_REF, (
             f"{dsp_mode} transcript CER against the Q/DQ reference's "
             f"{results['cer_vs_ref']:.4f} > {_INT8_MAX_CER_VS_REF}"

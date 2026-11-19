@@ -161,9 +161,9 @@ the reference is PyTorch float32 for float32 and the Q/DQ graph for int8.
 | Mode | dtype | Max \|log-prob diff\| | Frame argmax agreement | Transcript CER vs reference | Run time |
 |------|-------|----------------------|-----------------------|-----------------------------|----------|
 | `c7x_host` | float32 | 1.7e-4 | 1.0000 | 0 | ~20 s emulated |
-| `c7x_host` | int8 | 11.5 | 0.9512 | 0 | ~5 min emulated |
+| `c7x_host` | int8 | 9.5 | 0.9863 | 0.0068 | ~5 min emulated |
 | `c7x_dload` (BeagleY-AI) | float32 | 8.7e-5 | 1.0000 | 0 | 140,707,178,327 cycles (≈141 s @ 1 GHz) |
-| `c7x_dload` (BeagleY-AI) | int8 | 11.5 | 0.9512 | 0 | 312,711,208 cycles (≈0.31 s @ 1 GHz) |
+| `c7x_dload` (BeagleY-AI) | int8 | 9.5 | 0.9863 | 0.0068 | 312,298,643 cycles (≈0.31 s @ 1 GHz) |
 
 int8 runs at a real-time factor of about 0.03 on the board (DSP compute
 only, at 1 GHz); float32 at about 13.8, so float32 is a correctness check,
@@ -215,16 +215,19 @@ isn't needed for greedy decoding; together they are 7% of the run.
 Transcripts of 100 utterances of the evaluation speakers (every n-th by id
 among those up to 20.47 s, whole, at `T=2048`: 31 speakers, 747 s, 2002
 words) from PyTorch: the float32 model and the Q/DQ graphs `C7xMMAQuantizer`
-produces, calibrated as below.
+produces, calibrated as `quantize` does (below).
 
 | Model | WER | CER | CER vs float32 transcript |
 |-------|-----|-----|---------------------------|
 | float32 | 4.00% | 1.18% | — |
-| int8 (`C7xMMAQuantizer("int8")`) | 5.00% | 1.59% | 0.62% |
-| int16 (`C7xMMAQuantizer("int16")`) | 4.00% | 1.17% | 0.03% |
+| int8 | 4.55% | 1.34% | 0.30% |
+| int16 | 4.05% | 1.17% | 0.05% |
 
-int8 costs 1.0 point of WER and 0.4 of CER; int16 is indistinguishable from
-float32.
+On the board, over 50 evaluation utterances that fit `T=1024` whole (629
+words), int8 on the DSP scores WER 3.50% and CER 1.12% against float32's
+3.82% and 1.24% in PyTorch, and its transcripts differ from float32's by
+0.24% CER. Most likely class per frame agrees with float32's on 98.4% of
+frames, and with the Q/DQ graph's on 98.7%.
 
 On the DSP, for the test utterance (truth: *the free state men clung to their
 prairie towns and prairie ravines with all the obstinacy and courage of true
@@ -233,10 +236,39 @@ defenders of their homes and firesides*):
 | | Transcript | CER | WER |
 |-|------------|-----|-----|
 | float32, DSP and PyTorch | the free state men clung to their prairie towns and prairie avins with all the obstinacy and courage of true defenders of their homes and firesides | 0.013 | 0.038 |
-| int8, DSP and Q/DQ graph | the tfree state men clung to their prairie towns and prairie avins with all the obstinacy and courage of true defenders of their homes and firesides | 0.020 | 0.077 |
+| int8, DSP | the free state men clung to their prairie towns and prairie avins with all the obstinacy and courage of true defenders of their homes and firesides | 0.013 | 0.038 |
+| int8, Q/DQ graph | the free state men clung to their prairie towns and prairie avines with all the obstinacy and courage of true defenders of their homes and firesides | 0.007 | 0.038 |
 
-The DSP's int8 transcript matches the Q/DQ graph's exactly and differs from
-float32's by one character.
+### int8 quantization recipe
+
+`quantize` calibrates `C7xMMAQuantizer("int8", activation_observer="histogram")`
+on 16 utterances. The quantizer's default min/max observer doesn't work for
+this model: a few extreme activations set the ranges, so more calibration
+data makes it worse, and its results move with float rounding alone.
+PyTorch, Q/DQ graph:
+
+| Calibration | WER, 300 utterances at `T=2048` (float32 4.28%) | WER, 50 utterances at `T=1024`, 12 / 1 threads (float32 3.82%) |
+|-------------|------------------------------------------|-------------------------------------------------|
+| 16 utterances, min/max | 5.10% | 16.38% / 15.42% |
+| 64 utterances, min/max | 12.34% | |
+| 256 utterances, min/max | 59.73% | |
+| 515 utterances, min/max | 18.38% | |
+| **16 utterances, histogram** | **4.47%** | **3.50% / 3.66%** |
+| 64 utterances, histogram | 4.56% | 3.82% / 3.50% |
+
+With min/max ranges, turning off `depthwise_block_percentile` or
+per-channel depthwise inputs (`depthwise_input_headroom=None`) didn't fix it
+(5.55% and 9.69% at 64 utterances, 300-utterance set).
+
+MMALIB requantizes each conv's output channel with an integer multiplier and
+a shift. The conv and depthwise conv wrappers take multipliers up to 255
+(`_MMALIB_CONV_MAX_SCALE`, half the worst-case rounding error of the 127
+limit MMALIB's FC kernel needs). On the board, 50 utterances at `T=1024`:
+
+| MMALIB conv multiplier | DSP WER | DSP CER | DSP transcript CER vs float32 |
+|------------------------|---------|---------|-------------------------------|
+| up to 127 | 3.97% | 1.15% | 0.48% |
+| up to 255 | 3.50% | 1.12% | 0.24% |
 
 ### Model source (downloaded, not vendored)
 
@@ -284,7 +316,8 @@ utterances) is for calibration and the other 32 (2105 utterances) for
 evaluation, so no evaluation clip, or voice, is calibrated on.
 
 - Calibration: 16 utterances of the calibration speakers, every n-th by id so
-  they spread over the speakers, each cut or zero-padded to T frames.
+  they spread over the speakers, each cut or zero-padded to T frames (see
+  [int8 quantization recipe](#int8-quantization-recipe)).
 - Evaluation: the longest utterance of the evaluation speakers that fits in T
   frames whole, `7729-102255-0024` (10.23 s, all 1024 frames).
 
@@ -314,15 +347,30 @@ python test_quartznet_e2e.py --dsp-mode c7x_host --dtype int8
 
 - **float32**: log-probs within 0.01 of PyTorch's, and the same transcript.
 - **int8**: compared with the Q/DQ graph `convert_pt2e` returns (fake quant),
-  the same reference the quantized classifier tests use. The DSP's integer
-  kernels don't requantize exactly as the graph's float scales do (MMALIB, for
-  one, takes a per-channel 7-bit multiplier and a shift), and through 94 MMALIB
-  convs and 77 depthwise convs the log-probs drift by several units. The gates
-  are the share of frames whose most likely character matches (at least 0.90,
-  twice the measured disagreement) and the character error rate between the
-  DSP's transcript and the reference's (at most 0.02, about 3 characters; the
-  measured transcripts are identical). The measurements are identical on
-  `c7x_host` and the board.
+  the same reference the quantized classifier tests use, and gated on the
+  transcript: its character error rate against the reference's at most 0.02
+  (about 3 characters of the utterance's 150; measured 0.0068, one
+  character). Frame agreement is reported, not gated.
+
+  The DSP's integer kernels don't requantize exactly as the graph's float
+  scales do (MMALIB, for one, takes a per-channel 8-bit multiplier and a
+  shift), so the DSP and the graph are separate approximations of float32.
+  On the test utterance (512 output frames, on the board):
+
+  | Most likely class agrees | Frames |
+  |--------------------------|--------|
+  | DSP int8 vs Q/DQ int8 | 98.6% |
+  | DSP int8 vs float32 | 97.5% |
+  | Q/DQ int8 vs float32 | 97.7% |
+
+  All 7 frames where the DSP and the graph differ are frames where one emits a
+  character and the other the CTC blank: where the character is emitted moves
+  by a frame. On the 236 frames where both emit a character, they agree.
+  Per-frame cosine similarity of the log-probs doesn't separate this from
+  noise, and the mean total-variation distance of the frame distributions only
+  counts the same flipped frames, so neither makes a better gate. The
+  arithmetic itself is checked bit for bit by the kernels' unit tests, and the
+  int8 output is identical on `c7x_host` and the board.
 
 ### Known limitations
 
