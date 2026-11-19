@@ -78,6 +78,16 @@ void TVMDSPStorageDeleter(TVMFFIObject* obj) {
  * turns the fast pool off while a TIDL module is loaded. */
 static int g_storage_fast_pool_enabled = 1;
 
+/* On AM62D the fast pool is the L2 AUX bank, which is also the base of the
+ * L2 scratch that generated code hands out to DMA-tiled kernels
+ * (tvm_dsp_get_l2_base()).  A tensor placed there is overwritten by the
+ * tiling scratch, so AM62D keeps all storage in DDR. */
+#if defined(TVM_DSP_DEVICE_AM62DX)
+static const bool kStorageFastPoolAllowed = false;
+#else
+static const bool kStorageFastPoolAllowed = true;
+#endif
+
 void TVMDSPStorageSetFastPoolEnabled(int enabled) {
   g_storage_fast_pool_enabled = enabled;
 }
@@ -120,7 +130,8 @@ TVMDSPStorage* TVMDSPStorageAlloc(size_t size, DLDevice device,
   void* data_ptr = nullptr;
   TVMDSPMemoryPool pool;
 
-  if (g_storage_fast_pool_enabled && size <= TVM_DSP_L2_ALLOC_THRESHOLD) {
+  if (kStorageFastPoolAllowed && g_storage_fast_pool_enabled &&
+      size <= TVM_DSP_L2_ALLOC_THRESHOLD) {
     pool = TVM_DSP_MEM_FAST;
     data_ptr = tvm_dsp_alloc(size, TVM_DSP_CACHE_LINE_SIZE, pool);
     if (data_ptr == nullptr) {
