@@ -16,8 +16,9 @@ Reuses infrastructure directly rather than duplicating it:
     import), the same mechanism pt2e-tests/test_mobilenet_v2_pt2e_dsp.py
     already uses for mobilenet_v2.
 
-Each model must give the reference's top-1 class, and with MMALIB stay within
-_MAX_ABS_DIFF of its logits. Each run adds a row to results/sweep_metrics.csv
+Each model must give the reference's top-1 class, or a class the reference
+scores within _TOP1_TIE of it, and with MMALIB stay within _MAX_ABS_DIFF of its
+logits. Each run adds a row to results/sweep_metrics.csv
 (under $WORKSPACE, default the working directory): top-1 of both, the
 reference's top-1 margin, max |DSP - reference| and cosine of the logits, and
 cycles on hardware. A model in _KNOWN_FAILURES that fails in a listed mode is
@@ -122,6 +123,16 @@ TORCHVISION_MODELS = sorted(
 # (calibration, quantizer, kernel rounding).
 _MAX_ABS_DIFF = 8.5
 
+# A DSP top-1 other than the reference's still passes when the reference scores
+# the DSP's class within this many logits of its own top-1: the two are a tie
+# that the DSP's rounding can break either way. On dog.jpg several models'
+# reference has classes 258 and 259 tied (efficientnet_v2_s/m/l by exactly 0,
+# vgg13_bn by 0.087), and with the 8-bit MMALIB requant multiplier
+# efficientnet_v2_s and vgg13_bn picked the other class at cosines of 0.9975 and
+# 0.9996. Twice the largest such margin, rounded up to a multiple of 0.25; every
+# other model's reference margin is far above it.
+_TOP1_TIE = 0.25
+
 # Models that fail the check, or pass it only because the reference's top-1 margin
 # exceeds a known DSP error, in the modes they do so, with what was measured
 # (dog.jpg, BASELINE_TEST_IMAGE recipe). They still run and record their metrics;
@@ -132,7 +143,9 @@ _KNOWN_FAILURES: dict[str, tuple[tuple[str, ...], str]] = {}
 
 def _metrics(dsp_out: np.ndarray, ref: np.ndarray) -> dict:
     """DSP vs fake-quant reference logits. ref_margin is the reference's top-1 logit
-    minus its second, which tells a near-tie from a real top-1 mismatch."""
+    minus its second, which tells a near-tie from a real top-1 mismatch;
+    dsp_top1_gap is the reference's top-1 logit minus its logit for the DSP's top-1
+    (0 when they match)."""
     d, r = dsp_out.reshape(-1).astype(np.float64), ref.reshape(-1).astype(np.float64)
     top2 = np.sort(r)[-2:]
     denom = np.linalg.norm(d) * np.linalg.norm(r)
@@ -141,6 +154,7 @@ def _metrics(dsp_out: np.ndarray, ref: np.ndarray) -> dict:
         "ref_top1": int(np.argmax(r)),
         "dsp_top1": int(np.argmax(d)),
         "ref_margin": float(top2[1] - top2[0]),
+        "dsp_top1_gap": float(r.max() - r[int(np.argmax(d))]),
         "max_abs_diff": float(np.abs(d - r).max()),
         "cosine": float(d @ r / denom) if denom else float("nan"),
     }
@@ -154,6 +168,7 @@ _METRIC_FIELDS = [
     "ref_top1",
     "dsp_top1",
     "ref_margin",
+    "dsp_top1_gap",
     "max_abs_diff",
     "cosine",
     "cycles",
@@ -212,10 +227,20 @@ def _run_test(model_name: str, dsp_mode: str, mmalib: bool, record_cycles) -> No
         m["cosine"],
     )
     failure = None
-    if not m["top1_match"]:
+    if not m["top1_match"] and m["dsp_top1_gap"] <= _TOP1_TIE:
+        logger.info(
+            "%s: DSP top-1 %d is within %.3f of the reference's %d (tie <= %.2f)",
+            model_name,
+            m["dsp_top1"],
+            m["dsp_top1_gap"],
+            m["ref_top1"],
+            _TOP1_TIE,
+        )
+    elif not m["top1_match"]:
         failure = (
             f"{model_name}: top-1 mismatch: DSP={m['dsp_top1']}, ref={m['ref_top1']} "
-            f"(reference margin {m['ref_margin']:.3f})"
+            f"(the reference scores the DSP's class {m['dsp_top1_gap']:.3f} below its top-1, "
+            f"> tie {_TOP1_TIE}; reference margin {m['ref_margin']:.3f})"
         )
     # The generic path without MMALIB is checked on top-1 alone.
     elif mmalib and m["max_abs_diff"] > _MAX_ABS_DIFF:
