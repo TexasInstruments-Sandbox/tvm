@@ -73,6 +73,26 @@ def test_division_uses_refined_helpers():
 
 
 @pytest.mark.quick
+def test_float64_division_keeps_c_division():
+    """The helpers take float, so a double division isn't routed through them."""
+    bb = relax.BlockBuilder()
+    a = relax.Var("a", relax.TensorType([_N], "float64"))
+    b = relax.Var("b", relax.TensorType([_N], "float64"))
+    with bb.function("main", [a, b], attrs={"num_input": 2}):
+        with bb.dataflow():
+            out = bb.emit_output(relax.op.divide(a, b))
+        bb.emit_func_output(out)
+    with tempfile.TemporaryDirectory() as tmp:
+        gen = compile_for_dsp(
+            bb.finalize(), "c_static_lib -mcpu=c7x -use-cpp-api=1", output_dir=Path(tmp)
+        )
+        src = "\n".join(p.read_text() for p in sorted(gen.glob("lib*.c")))
+    body = re.sub(r"static inline float tvm_c7x_r\w+\(float \w\) \{.*?\n\}", "", src, flags=re.S)
+    assert "tvm_c7x_recip((" not in body
+    assert re.search(r"\) / \(", body) or re.search(r"\] / ", body), "no C division found"
+
+
+@pytest.mark.quick
 def test_division_precision(dsp_mode):
     """a / b, rsqrt(c) and sqrt(c) within a few ulp of float32 numpy."""
     if dsp_mode not in ("c7x_host", "c7x_dload"):

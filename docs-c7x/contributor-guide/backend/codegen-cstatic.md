@@ -135,7 +135,7 @@ result.
 
 ### Division and Square Root
 
-On C7x, scalar float `a / b` prints as `(a) * tvm_c7x_recip((b))`,
+On C7x, scalar float32 `a / b` prints as `(a) * tvm_c7x_recip((b))`,
 `1.0f / sqrtf(x)` as `tvm_c7x_rsqrt((x))`, and `sqrtf(x)` as
 `x * tvm_c7x_rsqrt(x)` (0 when `x` is 0). The helpers, defined in the
 generated headers (`kC7xFloatMathHelpers`), start from the `__recip`
@@ -146,7 +146,8 @@ showed up wherever generated code divides: each runtime BatchNorm channel's
 scale, every float quantize (`x * recip(scale)`), softmax and mean
 normalization. A QuartzNet with 93 BatchNorms drifted by up to 12 in its
 log-probabilities. For 0, ±inf and NaN the helpers return the estimate
-unchanged, since a step would multiply 0 by inf.
+unchanged, since a step would multiply 0 by inf. The helpers take float,
+so other float widths keep the C division.
 
 Plain `/` is not an option: cl7x compiles it to a call to `__c7xabi_divf`,
 which stops the loop from software pipelining. The refinement keeps the loop

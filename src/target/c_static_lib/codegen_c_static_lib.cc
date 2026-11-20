@@ -456,6 +456,11 @@ bool IsScalarFloat(const Type& ty) {
   return prim && prim.value().MatchesCode(DLDataTypeCode::kDLFloat) && prim.value().lanes() == 1;
 }
 
+// tvm_c7x_recip and tvm_c7x_rsqrt (kC7xFloatMathHelpers) take float.
+bool IsScalarFloat32(const Type& ty) {
+  return IsScalarFloat(ty) && ty.as<PrimType>().value().bits() == 32;
+}
+
 bool IsScalarInt(const Type& ty) {
   auto prim = ty.as<PrimType>();
   return prim &&
@@ -478,7 +483,7 @@ void CodeGenCStaticLib::Dispatch_(const prim::BroadcastNode* op, std::ostream& o
 // C7x float division → tvm_c7x_recip, with rsqrt pattern detection (see
 // kC7xFloatMathHelpers)
 void CodeGenCStaticLib::Dispatch_(const prim::DivNode* op, std::ostream& os) {  // NOLINT(*)
-  if (IsC7xTarget() && IsScalarFloat(op->ty)) {
+  if (IsC7xTarget() && IsScalarFloat32(op->ty)) {
     // Detect 1.0f / sqrtf(x) pattern → tvm_c7x_rsqrt(x)
     auto* float_imm = op->a.as<FloatImmNode>();
     if (float_imm && float_imm->value == 1.0) {
