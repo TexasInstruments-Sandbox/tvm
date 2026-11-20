@@ -21,7 +21,7 @@
  * \file c7x_dwconv1d.cpp
  * \brief int8 depthwise 1-D convolution with per-channel requantize.
  *
- * C7524 path. Each channel's input is copied once into a zero-padded line
+ * C7524 and C7504 path. Each channel's input is copied once into a zero-padded line
  * buffer (for stride 2, as its even and odd samples, one after the other, so
  * every tap reads consecutive bytes); c7x_int8_dwconv1d_relu applies a ReLU
  * during that copy. Outputs are computed 128 at a time in sixteen __int8
@@ -85,7 +85,7 @@ static inline int8_t relu_if(int8_t v, int32_t relu) { return relu && v < 0 ? (i
 /* dst[0:n] = relu(src[0:n]), with wide stores (see the file comment). */
 static void copy_relu(int8_t* dst, const int8_t* src, int32_t n) {
   int32_t i = 0;
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
   for (; i + 32 <= n; i += 32) {
     *(__char32*)(dst + i) = __max(*(const __char32*)(src + i), (__char32)0);
   }
@@ -131,7 +131,7 @@ static int32_t check_params(int32_t stride, int32_t dilation, int32_t K, int32_t
   return 0;
 }
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 static inline __int8 requantize(__int8 a, __float8 vs) {
   __float8 f = __int_to_float(a) * vs;
@@ -237,7 +237,7 @@ static int32_t dwconv1d(const void* x_ptr, const void* w_ptr, const void* scale_
   return 0;
 }
 
-#else /* scalar fallback for non-C7524 builds */
+#else /* scalar fallback for other targets */
 
 static int32_t dwconv1d(const void* x_ptr, const void* w_ptr, const void* scale_ptr, void* y_ptr,
                         int32_t C, int32_t T_in, int32_t T_out, int32_t K, int32_t stride,
@@ -265,7 +265,7 @@ static int32_t dwconv1d(const void* x_ptr, const void* w_ptr, const void* scale_
   return 0;
 }
 
-#endif /* __C7524__ */
+#endif /* __C7524__ || __C7504__ */
 
 extern "C" int32_t c7x_int8_dwconv1d(const void* x, const void* w, const void* scale, void* y,
                                      int32_t C, int32_t T_in, int32_t T_out, int32_t K,

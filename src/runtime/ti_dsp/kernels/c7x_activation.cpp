@@ -603,7 +603,7 @@ int32_t c7x_int8_channel_scale_multiply(
  * the reference's order.  Per-channel SE loop as channel_scale_multiply_vec.
  * ========================================================================= */
 
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
 
 struct SiluVec {
     static inline __float8 apply(__float8 x) {
@@ -691,10 +691,10 @@ static void gate_multiply_vec(
     }
 }
 
-#endif  /* __C7524__ */
+#endif  /* __C7524__ || __C7504__ */
 
-#ifndef __C7524__
-/* Scalar form for non-C7524 targets. */
+#if !defined(__C7524__) && !defined(__C7504__)
+/* Scalar form for other targets. */
 static void gate_multiply_scalar(
         float (*act)(float),
         const int8_t* in, const float* gate, int8_t* out,
@@ -711,7 +711,7 @@ int32_t c7x_int8_silu_gate_multiply(
         const void* in, const void* gate, void* out,
         int32_t C, int32_t H_W,
         int32_t zx, float sx, int32_t zy, float sy) {
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     gate_multiply_vec<SiluVec>((const int8_t*)in, (const float*)gate, (int8_t*)out,
                                C, H_W, zx, sx, zy, sy);
 #else
@@ -726,7 +726,7 @@ int32_t c7x_int8_hardswish_gate_multiply(
         const void* in, const void* gate, void* out,
         int32_t C, int32_t H_W,
         int32_t zx, float sx, int32_t zy, float sy) {
-#ifdef __C7524__
+#if defined(__C7524__) || defined(__C7504__)
     gate_multiply_vec<HardswishVec>((const int8_t*)in, (const float*)gate, (int8_t*)out,
                                     C, H_W, zx, sx, zy, sy);
 #else
