@@ -96,8 +96,11 @@ def _check_maxpool(ctx) -> bool:
     else:
         return False
 
+    # Per-tensor constants only: the kernels take no scale, and per-channel qparams
+    # would need comparing channel by channel.
     for name in ("d_scale", "d_zp", "o_scale", "o_zp"):
-        if not isinstance(ctx.annotated_expr[name], tvm.ir.GenericConst):
+        arg = ctx.annotated_expr[name]
+        if not isinstance(arg, tvm.ir.GenericConst) or arg.value.numpy().size != 1:
             return False
 
     # Transparent condition: input and output qparams must match.
