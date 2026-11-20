@@ -252,7 +252,7 @@ See `../dsp-tests/test_clista_dsp.py` for a complete example.
 - TVM DSP runtime library (`libtvm_dsp_runtime_c66x.a`)
 
 **For C7x Hardware:**
-- TI C7000 Compiler v5.0.0+ (part of CCS)
+- TI C7000 Compiler (see [Getting Started](../../user-guide/getting-started.md#dependencies) for the version)
 - J722S evaluation board with XDS110 debug probe
 - Code Composer Studio 12.0+
 - TVM DSP runtime library (`libtvm_dsp_runtime_c7x.a`)

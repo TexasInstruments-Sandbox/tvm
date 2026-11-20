@@ -92,7 +92,7 @@ call to a symbol that doesn't exist there — this fails only at DLOAD load
 time on the board, not at compile time. Verify what a given binary actually
 exports with:
 ```bash
-/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS/bin/nm7x c7x_compute.out | grep max_pool
+/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS/bin/nm7x c7x_compute.out | grep max_pool
 # --tidl OFF build: only c7x_int8_max_pool
 # --tidl ON  build: both c7x_int8_max_pool and c7x_int8_max_pool_tidl
 ```
@@ -104,7 +104,7 @@ for the codegen side of `tidl-kernels`.
 
 | Component | Path / Version |
 |-----------|---------------|
-| TI C7000 compiler | `TI_CGT_C7000_PATH` (ti-cgt-c7000 v5.0.1+ LTS; board-independent) |
+| TI C7000 compiler | `TI_CGT_C7000_PATH` (ti-cgt-c7000 6.2.1.LTS; board-independent) |
 | TI SysConfig | `TI_SYSCONFIG_ROOT` (default `/opt/ti/sysconfig-1.28`; **1.26.0 is too old** — the beagley-ai/11.02 SDK sysconfig run fails outright below 1.26.2) |
 | TI MCU+ SDK | `MCU_PLUS_SDK_PATH` — derived from `PSDK_INSTALL_PATH` + per-board subdir: j722s-evm→`mcu_plus_sdk_j722s_11_00_00_12`, beagley-ai→`mcu_plus_sdk_j722s_11_02_01_05` |
 | TI Processor SDK RTOS | `PSDK_INSTALL_PATH` — **no default, must always be exported** (see CLAUDE.md); on this dev machine: j722s-evm→`/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06`, beagley-ai→`/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_02_01_03` |
@@ -284,7 +284,7 @@ cd src/runtime/ti_dsp
 bash build_runtime.sh c66x_host
 
 # C7x host emulation (x86 + TI Host Emu headers)
-export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
 bash build_runtime.sh c7x_host
 
 # C7x cross-compilation (TI CGT + MCU+ SDK; am67a/j722s-evm). --board is
@@ -411,7 +411,7 @@ no-op'd leaves the old object files untouched.
 Built automatically by pytest via `dsp_utils.build_dsp_dynmod()`. Manual build:
 
 ```bash
-export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
 
 # From a workspace with lib0.c + weights.bin:
 cd /tmp/dsp_test_*/
@@ -472,7 +472,7 @@ Steps 3-7 only needed when runtime/firmware code changes. For pure Python/codege
 export TVM_HOME=/path/to/tvm
 export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
 export TVM_LIBRARY_PATH=$TVM_HOME/build
-export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS  # board-independent
+export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS  # board-independent
 
 # PSDK_INSTALL_PATH has NO default for either board -- always required via
 # env/-D for build_runtime.sh c7x and firmware/c7x/dsp/build.sh. --board only
