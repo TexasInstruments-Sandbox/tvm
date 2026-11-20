@@ -130,7 +130,7 @@ RUN apt-get install -y --no-install-recommends llvm-18-dev
 RUN uv venv /opt/venv-build && VIRTUAL_ENV=/opt/venv-build uv pip install build "setuptools>=61.0"
 
 # TI C7000 code generation tools (cl7x et al.). Board-independent -- used
-# for both am67a/j722s-evm and beagley-ai (see CLAUDE.md).
+# for both am67a/j722s-evm and beagley-ai.
 RUN mkdir -p /opt/ti/c7x && \
     wget -q -O /tmp/ti_cgt_c7000_installer.bin \
         https://dr-download.ti.com/software-development/ide-configuration-compiler-or-debugger/MD-707zYe3Rik/6.2.1.LTS/ti_cgt_c7000_6.2.1.LTS_linux-x64_installer.bin && \
@@ -152,7 +152,7 @@ ENV TI_SYSCONFIG_ROOT=/opt/ti/sysconfig-1.28
 
 # TI Processor SDK RTOS for J722S (BeagleY-AI board, 4gb DDR variant). This
 # tarball unpacks with MCU+ SDK and MMALIB already laid out as subdirectories
-# underneath it -- see tvm-relax-c7x:build skill "Two boards" section.
+# underneath it -- see the relax-c7x:build skill's "Boards" section.
 RUN mkdir -p /opt/ti/am67a && \
     wget -q -O /tmp/psdk-rtos.tar.gz \
         https://dr-download.ti.com/software-development/software-development-kit-sdk/MD-1bSfTnVt5d/11.02.01.03/ti-processor-sdk-rtos-j722s-evm-11_02_01_03.tar.gz && \

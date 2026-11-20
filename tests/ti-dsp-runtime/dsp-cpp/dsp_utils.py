@@ -283,7 +283,7 @@ def get_target_string(
         target += f" -device={get_current_device()}"
         if board == "beagley-ai":
             # BeagleY-AI firmware is built --tidl OFF (no TIDL algo libs linked --
-            # see tvm-relax-c7x:build / firmware/c7x/dsp/build.sh). The default
+            # see relax-c7x:build / firmware/c7x/dsp/build.sh). The default
             # tidl-kernels=1 lowers max_pool2d to c7x_int8_max_pool_tidl, which
             # isn't exported there and fails to resolve at DLOAD load time on
             # the board (not at compile time). c7x_host emulation is unaffected

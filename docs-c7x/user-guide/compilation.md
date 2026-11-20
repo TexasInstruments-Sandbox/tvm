@@ -88,7 +88,7 @@ relax_pipeline = get_default_pipeline(target)
 `target` -- MMALIB QDQ fusion, layout conversion, DMA tiling, and so on,
 depending on the target attributes above. Treat it as a black box here:
 see [MMALIB Integration](../contributor-guide/backend/mmalib-integration.md)
-and the `tvm-relax-c7x:relax-passes` skill for what runs inside it. You
+and the `relax-c7x:relax-passes` skill for what runs inside it. You
 rarely call this yourself -- `compile_for_dsp` (below) already does.
 
 ### Building
@@ -218,7 +218,7 @@ result = run_dsp_host(host_exe)
 No `build_dsp_dynmod`, no board, no `weights_file` argument -- weights
 are picked up straight from `generated_dir` by the CMake build. See
 [DSP Suite](../contributor-guide/testing/dsp-suite.md) and the
-`tvm-relax-c7x:testing` skill for running this mode under pytest.
+`relax-c7x:testing` skill for running this mode under pytest.
 
 ## See Also
 

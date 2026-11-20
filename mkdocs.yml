@@ -41,6 +41,7 @@ nav:
     - Python / C++ API Reference: user-guide/python-api.md
   - Contributor Guide:
     - Architecture Overview: contributor-guide/architecture-overview.md
+    - Agentic Development: contributor-guide/agentic-development.md
     - Backend:
       - C Static Lib Backend: contributor-guide/backend/c-static-lib.md
       - MMALIB Integration: contributor-guide/backend/mmalib-integration.md

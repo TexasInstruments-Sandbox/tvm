@@ -5,38 +5,39 @@ description: "Building TVM and all C7x targets end-to-end. Use when: building TV
 
 # Building TVM for C7x
 
-End-to-end build covering all targets from TVM core through firmware deployment. This skill overlaps with project CLAUDE.md build instructions; it adds troubleshooting, build order dependencies, and per-target detail not in CLAUDE.md.
+End-to-end build covering all targets from TVM core through firmware deployment. This skill overlaps with the Build section of the repo's AGENTS.md; it adds troubleshooting, build order dependencies, and per-target detail not in AGENTS.md.
 
-## Two boards: `--board`/`--ddr`
+## Boards: `--board`/`--ddr`
 
 `build_runtime.sh`, `firmware/c7x/dsp/build.sh`, and `firmware/c7x/arm/build.sh` all accept:
 
 | Flag | Values | Drives |
 |---|---|---|
-| `--board` | **required**: `j722s-evm` or `beagley-ai` | SDK root paths/versions, default `--ddr` |
-| `--ddr` | `8gb`, `4gb` (per-board default) | shared-DMA carveout physical base |
+| `--board` | **required**: `j722s-evm`, `beagley-ai` or `am62d` | SDK root paths/versions, default `--ddr`, SoC (`TVM_SOC`: `j722s` or `am62dx`) |
+| `--ddr` | `8gb`, `4gb` (per-board default; j722s boards only) | shared-DMA carveout physical base |
 
 **`--board` is a required flag, not a defaulted one, on every script that
 takes it** (`build_runtime.sh`, both firmware `build.sh` scripts,
 `arm/build.sh`, `deploy-c7x.sh`). `j722s-evm` being the *value* most other
 defaults key off (SDK paths, `--ddr`) does not mean it's implied when the
 flag itself is omitted — a bare invocation exits 1 with `Error: --board
-<j722s-evm|beagley-ai> is required` instead of silently assuming
+<j722s-evm|beagley-ai|am62d> is required` instead of silently assuming
 `j722s-evm`. This changed at some point after this skill was first written;
 older commands copied from memory or old scrollback that omit `--board`
 will fail this way. Never assume older documentation, memory, or habit is
 still accurate here — check the script's own `--help`/usage error if unsure.
 
 Everything — SDK paths, MMALIB version, the shared-carveout physical base
-(`0x900000000` for 8gb, `0x8a0000000` for 4gb) — is resolved by one CMake
+(`0x900000000` for 8gb, `0x8a0000000` for 4gb, `0xA3000000` identity-mapped on am62d) — is resolved by one CMake
 module, `src/runtime/ti_dsp/cmake/boards.cmake`, `include()`d by all three
 CMake projects. **`PSDK_INSTALL_PATH` has no default in `boards.cmake` —
-it must always be set via env or `-D`, for either board.** `--board` only
+it must always be set via env or `-D`, for every board.** `--board` only
 selects which SDK-version subdirectory gets appended to it when deriving
 `MCU_PLUS_SDK_PATH`/`MMALIB_PATH` (`mcu_plus_sdk_j722s_11_02_01_05` +
 `mmalib_11_02_00_11` for beagley-ai vs `mcu_plus_sdk_j722s_11_00_00_12` +
-`mmalib_11_02_00_06` for j722s-evm) — set those two env vars directly
-instead if your SDK layout doesn't nest both board versions under one
+`mmalib_11_02_00_06` for j722s-evm, `freertos_sdk_am62dx_12_02_00_00` +
+`mmalib_12_01_00_09` for am62d) — set those two env vars directly
+instead if your SDK layout doesn't nest the board versions under one
 `PSDK_INSTALL_PATH` root. An explicit `MCU_PLUS_SDK_PATH`/`MMALIB_PATH`
 always wins over the derived path. On this dev machine both board versions
 happen to live side by side under the same root:
@@ -45,7 +46,8 @@ happen to live side by side under the same root:
 despite the `am67a` dirname) — `find /opt/ti/am67a -maxdepth 1 -iname
 '*11_02*'` if that's moved.
 
-Build dirs are keyed on board+ddr (e.g. `build-c7x-beagley-ai-4gb`), so
+Build dirs are keyed on board+ddr (e.g. `build-c7x-beagley-ai-4gb`; am62d,
+which has no `--ddr` axis, uses `-am62d`), so
 switching `--ddr` never reuses a stale build; omitting both flags is
 byte-identical to the old am67a-only behavior (`build-c7x`, no suffix).
 
@@ -65,7 +67,9 @@ Linux-side DTB overlay requirement (separate from anything CMake controls).
 
 **Project convention: BeagleY-AI firmware must be built `--tidl OFF
 --mmalib ON`.** beagley-ai runs the MMALIB-direct-offload path only, never
-TIDL subgraph offload; am67a/j722s-evm is the only board that links TIDL.
+TIDL subgraph offload. am67a/j722s-evm and am62d link TIDL by default;
+am62d also needs `C7X_MMA_TIDL_PATH` pointing at a c7x-mma-tidl checkout
+with the AM62A libs from `build_am62d.sh` (see AGENTS.md).
 
 ```bash
 cd src/runtime/ti_dsp/firmware/c7x/dsp
@@ -106,9 +110,9 @@ for the codegen side of `tidl-kernels`.
 |-----------|---------------|
 | TI C7000 compiler | `TI_CGT_C7000_PATH` (ti-cgt-c7000 6.2.1.LTS; board-independent) |
 | TI SysConfig | `TI_SYSCONFIG_ROOT` (default `/opt/ti/sysconfig-1.28`; **1.26.0 is too old** — the beagley-ai/11.02 SDK sysconfig run fails outright below 1.26.2) |
-| TI MCU+ SDK | `MCU_PLUS_SDK_PATH` — derived from `PSDK_INSTALL_PATH` + per-board subdir: j722s-evm→`mcu_plus_sdk_j722s_11_00_00_12`, beagley-ai→`mcu_plus_sdk_j722s_11_02_01_05` |
-| TI Processor SDK RTOS | `PSDK_INSTALL_PATH` — **no default, must always be exported** (see CLAUDE.md); on this dev machine: j722s-evm→`/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06`, beagley-ai→`/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_02_01_03` |
-| MMALIB | `MMALIB_PATH` — derived from `PSDK_INSTALL_PATH` + per-board subdir: j722s-evm→`mmalib_11_02_00_06`, beagley-ai→`mmalib_11_02_00_11` |
+| TI MCU+ SDK | `MCU_PLUS_SDK_PATH` — derived from `PSDK_INSTALL_PATH` + per-board subdir: j722s-evm→`mcu_plus_sdk_j722s_11_00_00_12`, beagley-ai→`mcu_plus_sdk_j722s_11_02_01_05`, am62d→`freertos_sdk_am62dx_12_02_00_00` (the FreeRTOS SDK, same layout) |
+| TI Processor SDK RTOS | `PSDK_INSTALL_PATH` — **no default, must always be exported** (see AGENTS.md); on this dev machine: j722s-evm→`/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06`, beagley-ai→`/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_02_01_03` |
+| MMALIB | `MMALIB_PATH` — derived from `PSDK_INSTALL_PATH` + per-board subdir: j722s-evm→`mmalib_11_02_00_06`, beagley-ai→`mmalib_11_02_00_11`, am62d→`mmalib_12_01_00_09` (C7504) |
 | c7x-mma-tidl | `C7X_MMA_TIDL_PATH` (not board-keyed). Read only at build time: `--tidl ON` firmware, and `build_runtime.sh tidl-tools`, which stages the TIDL tools directory (`python/tvm/data/ti_dsp/tidl`) that TIDL compiles read. Compiling a model never reads it |
 | CMake | 3.16+ |
 | Ninja | any |
@@ -288,7 +292,7 @@ export TI_CGT_C7000_PATH=/opt/ti/c7x/ti-cgt-c7000_6.2.1.LTS
 bash build_runtime.sh c7x_host
 
 # C7x cross-compilation (TI CGT + MCU+ SDK; am67a/j722s-evm). --board is
-# required even for this default board -- see "Two boards" above.
+# required even for this default board -- see "Boards" above.
 export PSDK_INSTALL_PATH=/opt/ti/am67a/ti-processor-sdk-rtos-j722s-evm-11_00_00_06
 bash build_runtime.sh c7x --board j722s-evm
 

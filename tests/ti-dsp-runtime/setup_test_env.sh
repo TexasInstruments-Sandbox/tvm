@@ -4,8 +4,7 @@
 # docker-based validate flow (src/runtime/ti_dsp/validate_all.sh) and that
 # native stage install the exact same pinned versions -- this project has
 # already been bitten once by numpy version drift between two
-# separately-maintained install paths (see the tvm-relax-c7x:jenkins-debug
-# skill's "100% reproducible on Jenkins but 0% locally" section).
+# separately-maintained install paths.
 #
 # Meant to be `source`d (it needs to leave VIRTUAL_ENV/PATH set in the
 # calling shell for a subsequent pytest invocation), but running it

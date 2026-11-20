@@ -20,13 +20,6 @@ describe the fork rebased on TVM 0.27.
 | `relax-c7x:relax-passes` | Writing Relax/TIR passes: DFPattern, PyExprMutator, call_extern, pipeline wiring |
 | `relax-c7x:tvm-027-api` | TVM 0.23 -> 0.27 API changes: Relax/TIR Python, target strings, CodeGenC/C++ |
 
-## Relationship to c7x-optimizer
-
-The `c7x-optimizer` plugin covers low-level kernel micro-optimization
-(ISA intrinsics, streaming engine, software pipelining, compiler
-tuning). These skills sit one layer above -- system integration,
-compilation pipeline, deployment, and offload strategies.
-
 ## Directory Structure
 
 ```
@@ -55,9 +48,12 @@ skills-c7x/                          <- marketplace root
 
 ## Install
 
+`skills-c7x/` is a directory of the TVM repository, so a checkout of the
+repo already contains it.
+
 ```bash
 # Register this directory as a plugin marketplace
-claude plugin marketplace add /path/to/skills-c7x
+claude plugin marketplace add /path/to/tvm/skills-c7x
 
 # Install the plugin
 claude plugin install relax-c7x@skills-c7x
@@ -80,19 +76,16 @@ explicitly:
 
 ## Updating
 
-Pull the latest changes from the repository and reload:
+The skills change with the code, so they update when your TVM checkout
+does (`git pull`, a rebase or a branch switch). Reload them in Claude Code:
 
-```bash
-cd /path/to/skills-c7x
-git pull
-
-# In Claude Code:
+```
 /reload-plugins
 ```
 
 No reinstall needed — the plugin is installed from a local directory,
-so `git pull` + `/reload-plugins` picks up all changes (new skills,
-edits, removals) in the current session.
+so `/reload-plugins` picks up all changes (new skills, edits, removals)
+in the current session.
 
 If the plugin was renamed or `plugin.json` changed structurally,
 reinstall:

@@ -5,10 +5,13 @@ description: "C7x firmware (c7x_compute) for AM67A/J722S and BeagleY-AI (also J7
 
 # C7x Firmware (c7x_compute)
 
-FreeRTOS-based firmware running on the C7x DSP core of the J722S SoC.
-Provides a host-DSP compute service for ML inference offload from ARM A53
-Linux. Two boards share this firmware: **am67a** (J722S EVM, 8gb DDR,
-default) and **beagley-ai** (BeagleY-AI, 4gb DDR) — selected via `--board`.
+FreeRTOS-based firmware running on the C7x DSP core of the J722S or AM62D
+SoC. Provides a host-DSP compute service for ML inference offload from Arm
+Linux. Three boards share this firmware, selected via the required
+`--board`: **am67a** (`j722s-evm`, J722S EVM, 8gb DDR), **beagley-ai**
+(BeagleY-AI, J722S, 4gb DDR) and **am62d** (AM62D EVM, C7504 core, a
+different SoC with its own linker command file and syscfg; see Board
+Selection below).
 
 ## Location
 
@@ -44,7 +47,7 @@ cd arm && ./build.sh && ./build.sh deploy
 
 ## Board Selection (`--board`/`--ddr`)
 
-`--board <j722s-evm|beagley-ai|am62d>` (default `j722s-evm`) and
+`--board <j722s-evm|beagley-ai|am62d>` (required, no default) and
 `--ddr <8gb|4gb>` (per-board default) resolve SDK paths and the shared-DMA
 carveout physical base via `src/runtime/ti_dsp/cmake/boards.cmake` — see
 `relax-c7x:build` for the full mechanism. Between the two **j722s** boards

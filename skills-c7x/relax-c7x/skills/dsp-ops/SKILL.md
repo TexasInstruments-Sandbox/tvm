@@ -122,4 +122,3 @@ Single conv2d (int8, 64ch 56x56, 3x3, stride=1):
 - `relax-c7x:cstatic` — Full pipeline pass order, target options
 - `relax-c7x:mmalib-offload` — MMALIB wrapper functions and L2 prefetch injection
 - `relax-c7x:firmware` — Adding new exports to firmware symbol table
-- `c7x-optimizer:c7x-patterns` — Low-level vector kernel patterns (atomic ops, data-flow)

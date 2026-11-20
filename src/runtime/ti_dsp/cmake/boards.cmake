@@ -88,7 +88,7 @@ if(DEFINED ENV{PSDK_INSTALL_PATH} AND NOT "$ENV{PSDK_INSTALL_PATH}" STREQUAL "")
     set(PSDK_INSTALL_PATH "$ENV{PSDK_INSTALL_PATH}")
 endif()
 
-# MCU_PLUS_SDK_PATH: env / -D wins (the workflow documented in CLAUDE.md
+# MCU_PLUS_SDK_PATH: env / -D wins (the workflow documented in AGENTS.md
 # exports this directly); else derive from PSDK_INSTALL_PATH.
 if(DEFINED ENV{MCU_PLUS_SDK_PATH} AND NOT "$ENV{MCU_PLUS_SDK_PATH}" STREQUAL "")
     set(MCU_PLUS_SDK_PATH "$ENV{MCU_PLUS_SDK_PATH}")

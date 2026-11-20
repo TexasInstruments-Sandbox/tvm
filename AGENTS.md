@@ -40,6 +40,8 @@ in that area (they add pass-level and runtime-level detail beyond this file):
 - `testing` — pytest fixtures, profiling, debugging references
 - `model-workflow` — export → quantize → offload → compile → verify
 - `relax-passes` — writing Relax/TIR passes (DFPattern, mutators, call_extern)
+- `tvm-027-api` — TVM 0.23 → 0.27 API changes (Relax/TIR Python, target
+  strings, CodeGenC/C++), for porting or reading pre-0.27 code
 
 ## Repository map (C7x-specific)
 

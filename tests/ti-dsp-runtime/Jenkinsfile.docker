@@ -105,7 +105,7 @@ pipeline {
                 // Invoke `docker build` directly, not docker/build.sh --
                 // that wrapper has no --build-arg passthrough, and this
                 // Dockerfile needs the proxy args to reach the internet at
-                // all from the TI network (see tvm-relax-c7x:build skill).
+                // all from the TI network (see relax-c7x:build skill).
                 sh '''
                     docker build -t ${DOCKER_IMAGE} \
                         --build-arg http_proxy=${http_proxy} \

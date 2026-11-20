@@ -161,7 +161,7 @@ pipeline {
     environment {
         TVM_HOME                       = "${WORKSPACE}"
         // Pre-cached model weights at ~/.cache/torch/hub/checkpoints/
-        // avoid network downloads during tests (see CLAUDE.md setup).
+        // avoid network downloads during tests.
         TORCH_HOME                     = "${HOME}/.cache/torch"
         // Disable upstream TVM CI request hook (conftest.py loads it
         // when CI=true).  Our DSP tests are not upstream CI and the
@@ -315,9 +315,9 @@ pipeline {
                 stage('C7x Firmware') {
                     steps {
                         script {
-                            // beagley-ai has no TIDL algo libs linked -- see CLAUDE.md
-                            // Build / tvm-relax-c7x:build. j722s-evm uses build.sh's
-                            // own default (--tidl ON, forces --mmalib ON).
+                            // beagley-ai has no TIDL algo libs linked -- see AGENTS.md's
+                            // board convention and relax-c7x:build. j722s-evm uses
+                            // build.sh's own default (--tidl ON, forces --mmalib ON).
                             env.FW_TIDL_ARGS = (params.BOARD == 'beagley-ai') ? '--tidl OFF --mmalib ON' : ''
                         }
                         sh '''
