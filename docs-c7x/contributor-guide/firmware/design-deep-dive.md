@@ -293,7 +293,7 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.
 
 2. **Protocol version handshake** via a PING round-trip, comparing the
    firmware's major version against `C7X_SERVICE_VERSION` (currently
-   v5.1.0; see the version table in the firmware skill). A major mismatch aborts
+   v5.2.0; see the version table in the firmware skill). A major mismatch aborts
    `open()` with an explicit message instead of failing later, deeper,
    with something that reads like an unrelated bug.
 

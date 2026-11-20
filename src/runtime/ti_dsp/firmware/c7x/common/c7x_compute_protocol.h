@@ -538,7 +538,7 @@ union c7x_msg {
  * c7x_msg_infer_resp all grew, and SET_PRINTF_BUF became mandatory at open.
  * A mismatched pair otherwise fails deep inside open or infer with an error
  * that reads as a bug rather than as a stale firmware image. */
-#define C7X_SERVICE_VERSION     0x050100  /* v5.1.0: exports c7x_int8_dwconv1d */
+#define C7X_SERVICE_VERSION     0x050200  /* v5.2.0: exports c7x_int8_dwconv1d_relu */
 
 /* Extract version components */
 #define C7X_VERSION_MAJOR(v) (((v) >> 16) & 0xFF)

@@ -163,52 +163,57 @@ the reference is PyTorch float32 for float32 and the Q/DQ graph for int8.
 | `c7x_host` | float32 | 1.7e-4 | 1.0000 | 0 | ~20 s emulated |
 | `c7x_host` | int8 | 9.5 | 0.9863 | 0.0068 | ~5 min emulated |
 | `c7x_dload` (BeagleY-AI) | float32 | 8.7e-5 | 1.0000 | 0 | 140,707,178,327 cycles (≈141 s @ 1 GHz) |
-| `c7x_dload` (BeagleY-AI) | int8 | 9.5 | 0.9863 | 0.0068 | 312,298,643 cycles (≈0.31 s @ 1 GHz) |
+| `c7x_dload` (BeagleY-AI) | int8 | 9.5 | 0.9863 | 0.0068 | 192,416,180 cycles (≈0.19 s @ 1 GHz) |
 
-int8 runs at a real-time factor of about 0.03 on the board (DSP compute
+int8 runs at a real-time factor of about 0.019 on the board (DSP compute
 only, at 1 GHz); float32 at about 13.8, so float32 is a correctness check,
 not a deployment option. Each test (one variant) takes about 3 minutes on the
 board, most of it compile time and the float32 run. int8 needs firmware
-service version 5.1.0 or later, which exports `c7x_int8_dwconv1d`.
+service version 5.2.0 or later, which exports `c7x_int8_dwconv1d` and
+`c7x_int8_dwconv1d_relu`.
 
 ### int8 layer breakdown on the board
 
 One steady-state inference (`--profile`, second of two runs) on BeagleY-AI,
-312 M cycles over 268 layers:
+191 M cycles over 207 layers:
 
 | Kernel | Layers | Cycles | Share |
 |--------|--------|--------|-------|
-| Depthwise conv (`c7x_int8_dwconv1d`) | 77 | 246,620,751 | **79.6%** |
-| Pointwise conv and CTC head (MMALIB) | 94 | 29,668,099 | 9.6% |
-| ReLU (`c7x_int8_relu`) | 78 | 17,657,659 | 5.7% |
-| log_softmax | 1 | 4,826,645 | 1.6% |
-| Residual add | 15 | 4,180,962 | 1.3% |
-| Requantize | 1 | 3,951,415 | 1.3% |
-| Input quantize | 1 | 2,700,241 | 0.9% |
-| Output dequantize | 1 | 392,910 | 0.1% |
+| Depthwise conv with its input ReLU (`c7x_int8_dwconv1d_relu`) | 61 | 112,980,685 | 59.5% |
+| Pointwise conv and CTC head (MMALIB) | 94 | 29,487,860 | 15.5% |
+| Depthwise conv (`c7x_int8_dwconv1d`) | 16 | 27,060,825 | 14.3% |
+| log_softmax | 1 | 4,854,284 | 2.6% |
+| Residual add | 15 | 4,221,684 | 2.2% |
+| ReLU (`c7x_int8_relu`) | 17 | 4,128,628 | 2.2% |
+| Requantize | 1 | 3,984,436 | 2.1% |
+| Input quantize | 1 | 2,668,507 | 1.4% |
+| Output dequantize | 1 | 385,659 | 0.2% |
 
-The depthwise convs take 80% of the run with about 9% of the MACs; the
-pointwise convs, with about 89% of the MACs, run on MMALIB in 10% of it. By
+The depthwise convs take 74% of the run with about 9% of the MACs; the
+pointwise convs, with about 89% of the MACs, run on MMALIB in 16% of it. By
 shape (C channels, 512 output frames):
 
 | C | Kernel | Stride | Dilation | Layers | Cycles per layer | Total | MACs per cycle |
 |---|--------|--------|----------|--------|------------------|-------|----------------|
-| 64 | 1x33 | 2 | 1 | 1 | 1.53 M | 1.5 M | 0.7 |
-| 256 | 1x33 | 1 | 1 | 15 | 1.59 M | 23.8 M | 2.7 |
-| 256 | 1x39 | 1 | 1 | 15 | 1.72 M | 25.8 M | 3.0 |
-| 256 | 1x51 | 1 | 1 | 1 | 1.94 M | 1.9 M | 3.4 |
-| 512 | 1x51 | 1 | 1 | 14 | 3.89 M | 54.5 M | 3.4 |
-| 512 | 1x63 | 1 | 1 | 15 | 4.25 M | 63.7 M | 3.9 |
-| 512 | 1x75 | 1 | 1 | 15 | 4.70 M | 70.5 M | 4.2 |
-| 512 | 1x87 | 1 | 2 | 1 | 4.93 M | 4.9 M | 4.6 |
+| 64 | 1x33 | 2 | 1 | 1 | 1.05 M | 1.0 M | 1.0 |
+| 256 | 1x33 | 1 | 1 | 15 | 0.78 M | 11.7 M | 5.5 |
+| 256 | 1x39 | 1 | 1 | 15 | 0.88 M | 13.2 M | 5.8 |
+| 256 | 1x51 | 1 | 1 | 1 | 1.03 M | 1.0 M | 6.5 |
+| 512 | 1x51 | 1 | 1 | 14 | 2.08 M | 29.1 M | 6.4 |
+| 512 | 1x63 | 1 | 1 | 15 | 2.50 M | 37.5 M | 6.6 |
+| 512 | 1x75 | 1 | 1 | 15 | 2.90 M | 43.4 M | 6.8 |
+| 512 | 1x87 | 1 | 2 | 1 | 3.07 M | 3.1 M | 7.4 |
 
 MMALIB's depthwise kernel takes 3x3, 5x5 and 7x7 only, so these run on
 `c7x_int8_dwconv1d` (`src/runtime/ti_dsp/kernels/c7x_dwconv1d.cpp`, through
-`FuseQDQToC7xDwConv1d`). Its inner loop does about 14 MACs a cycle; it
-averages 3 to 4.6 because each block of 32 outputs also pays the tap loop's
-pipeline start-up and the requantize, which is why longer kernels get closer.
-The ReLUs follow MMALIB convs and could be fused into them, and log_softmax
-isn't needed for greedy decoding; together they are 7% of the run.
+`FuseQDQToC7xDwConv1d`). It computes 128 outputs at a time in sixteen vector
+accumulators (its tap loop does about 14 MACs a cycle) and prefetches each
+channel's input while the previous channel computes; what separates the 5.5
+to 7.4 MACs a cycle it averages from 14 is mostly the requantize and the
+copy into its line buffer. The 61 depthwise convs whose input is a ReLU with
+no other reader apply that ReLU while copying their input
+(`c7x_int8_dwconv1d_relu`), so the ReLU makes no pass of its own; the 17
+ReLUs left have other readers. log_softmax isn't needed for greedy decoding.
 
 ### Accuracy: float32 vs int8
 

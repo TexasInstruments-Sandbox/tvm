@@ -38,6 +38,12 @@ legality decision (zero points, per-channel input scales) to that pass, and
 the kernel computes exactly the arithmetic its chain does, so outputs don't
 change.
 
+When x is a c7x_int8_relu with zero point 0 (FuseQDQToC7xRelu's lowering of
+a transparent ReLU) and the conv is its only reader, the conv reads the
+ReLU's input through c7x_int8_dwconv1d_relu instead, which applies the ReLU
+while it copies the input, and the ReLU's pass over the tensor goes away. In
+QuartzNet every depthwise conv but the first block's reads such a ReLU.
+
 The scale is the constant expression FuseQDQToInt8Conv2D builds,
 (d_scale * w_scale) / o_scale with reshapes; it is evaluated here in float32,
 as constant folding would evaluate it.
@@ -48,6 +54,7 @@ Kernel: src/runtime/ti_dsp/kernels/c7x_dwconv1d.cpp
 import logging
 
 import numpy as np
+import tvm_ffi
 
 import tvm
 from tvm import relax, te, tirx
@@ -66,7 +73,7 @@ _COMPOSITE = "c7x_dwconv1d.int8"
 # Must match c7x_dwconv1d.h.
 _MAX_LINE = 16384
 _MAX_TAPS = 1024
-_BLOCK = 32
+_BLOCK = 128
 
 
 def _line_bytes(t_out: int, k: int, stride: int, dilation: int) -> int:
@@ -173,14 +180,58 @@ class _Matcher:
         return np.ascontiguousarray(np.broadcast_to(scale.reshape(-1), [c]))
 
 
+def _use_counts(func: relax.Function) -> dict:
+    """How many binding values (and the function's result) read each Var."""
+    counts: dict = {}
+    exprs = [b.value for block in func.body.blocks for b in block.bindings] + [func.body.body]
+    for expr in exprs:
+        for var in relax.analysis.free_vars(expr):
+            counts[var] = counts.get(var, 0) + 1
+    return counts
+
+
+def _relu_input(x, var2val: dict, mod: IRModule):
+    """If x is bound to a call_tir of a c7x_int8_relu with zero point 0, the
+    ReLU's input; else None."""
+    call = var2val.get(x) if isinstance(x, relax.Var) else None
+    if not isinstance(call, relax.Call) or getattr(call.op, "name", "") != "relax.call_tir":
+        return None
+    prim = mod[call.args[0]] if isinstance(call.args[0], relax.GlobalVar) else None
+    if not isinstance(prim, tirx.PrimFunc):
+        return None
+    externs = []
+
+    def visit(node):
+        if node.op.same_as(tvm.ir.Op.get("tirx.call_extern")):
+            externs.append(node)
+
+    tvm_ffi.structural_walk(prim.body, (tvm.ir.Call, visit), order="post")
+    if len(externs) != 1 or externs[0].args[0].value != "c7x_int8_relu":
+        return None
+    clip_lo = externs[0].args[-1]
+    if not isinstance(clip_lo, tirx.IntImm) or int(clip_lo.value) != 0:
+        return None
+    args = call.args[1]
+    return args.fields[0] if isinstance(args, relax.Tuple) and len(args.fields) == 1 else None
+
+
 @mutator
 class _Lowerer(PyExprMutator):
     """Lower c7x_dwconv1d composites to call_extern."""
 
     def __init__(self, mod: IRModule, matcher: _Matcher):
         super().__init__(mod)
+        self.mod = mod
         self.matcher = matcher
         self.count = 0
+        self.relu_count = 0
+        self.uses: dict = {}
+        self.var2val: dict = {}
+
+    def lower(self, func: relax.Function) -> relax.Function:
+        self.uses = _use_counts(func)
+        self.var2val = relax.analysis.get_var2val(func)
+        return self.visit_expr(func)
 
     def visit_call_(self, call):
         if not isinstance(call.op, relax.GlobalVar):
@@ -221,6 +272,11 @@ class _Lowerer(PyExprMutator):
             int(attrs.dilation[1]),
             int(attrs.padding[1]),
         )
+        extern = "c7x_int8_dwconv1d"
+        relu_in = _relu_input(x, self.var2val, self.mod) if self.uses.get(x, 0) == 1 else None
+        if relu_in is not None:
+            x, extern = relu_in, "c7x_int8_dwconv1d_relu"
+            self.relu_count += 1
         w_const = ti_tensor_const(np.ascontiguousarray(weight.reshape(c, k).astype(np.int8)))
         s_const = ti_tensor_const(scale.astype(np.float32))
 
@@ -230,7 +286,7 @@ class _Lowerer(PyExprMutator):
             def fcompute(ins, outs):
                 return tirx.call_extern(
                     "int32",
-                    "c7x_int8_dwconv1d",
+                    extern,
                     ins[0].data,
                     ins[1].data,
                     ins[2].data,
@@ -242,12 +298,11 @@ class _Lowerer(PyExprMutator):
                 [1, c, 1, t_out], [x_t, w_t, s_t], fcompute, name="c7x_dwconv1d_out", dtype="int8"
             )
 
-        result = self.builder_.call_te(
-            te_dwconv1d, x, w_const, s_const, primfunc_name_hint="c7x_int8_dwconv1d"
-        )
+        result = self.builder_.call_te(te_dwconv1d, x, w_const, s_const, primfunc_name_hint=extern)
         self.count += 1
         logger.debug(
-            "c7x_int8_dwconv1d: C=%d T_in=%d T_out=%d K=%d stride=%d dilation=%d pad=%d",
+            "%s: C=%d T_in=%d T_out=%d K=%d stride=%d dilation=%d pad=%d",
+            extern,
             c,
             t_in,
             t_out,
@@ -276,9 +331,13 @@ class FuseQDQToC7xDwConv1d:
         lowerer = _Lowerer(mod, matcher)
         for gv, func in mod.functions_items():
             if isinstance(func, relax.Function) and "Composite" not in (func.attrs or {}):
-                lowerer.builder_.update_func(gv, lowerer.visit_expr(func))
+                lowerer.builder_.update_func(gv, lowerer.lower(func))
         mod = lowerer.builder_.get()
         if lowerer.count:
-            logger.info("FuseQDQToC7xDwConv1d: lowered %d depthwise convs", lowerer.count)
+            logger.info(
+                "FuseQDQToC7xDwConv1d: lowered %d depthwise convs, %d with their input ReLU",
+                lowerer.count,
+                lowerer.relu_count,
+            )
             mod = relax.transform.DeadCodeElimination()(mod)
         return mod

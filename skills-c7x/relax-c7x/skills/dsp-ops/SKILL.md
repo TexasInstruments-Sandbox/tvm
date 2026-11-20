@@ -17,7 +17,7 @@ Custom C7x implementations called via `call_extern` from TIR:
 |--------|------|-------------|
 | `c7x_dequantize_vecmatmul` | `src/runtime/ti_dsp/kernels/c7x_dequantize_vecmatmul.cpp` | SE + PROMOTE_4X int8→fp32 dequant fused with vector matmul |
 | `c7x_sdpa_decode` | `src/runtime/ti_dsp/kernels/c7x_sdpa_decode.cpp` | Scaled dot-product attention for decode (seq_len=1) |
-| `c7x_int8_dwconv1d` | `src/runtime/ti_dsp/kernels/c7x_dwconv1d.cpp` | int8 1xK depthwise conv + per-channel requantize (QuartzNet); 32 outputs per block in 4 register accumulators |
+| `c7x_int8_dwconv1d`, `c7x_int8_dwconv1d_relu` | `src/runtime/ti_dsp/kernels/c7x_dwconv1d.cpp` | int8 1xK depthwise conv + per-channel requantize (QuartzNet), the `_relu` variant reading relu(x); 128 outputs per block in 16 register accumulators, next channel's input prefetched |
 
 All hand-written kernels use the `c7x_` prefix (the older `tvm_`-prefixed,
 `_wrappers`-suffixed names were standardized away); see

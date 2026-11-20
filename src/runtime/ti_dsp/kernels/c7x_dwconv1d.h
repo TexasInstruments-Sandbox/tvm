@@ -42,8 +42,8 @@
 #include <stdint.h>
 
 /** Longest zero-padded input line (bytes) one channel may need. A channel
- *  needs ceil(T_out / 32) * 32 + (K - 1) * dilation bytes at stride 1, and
- *  2 * (ceil(T_out / 32) * 32 + (K - 1) * dilation / 2 + 1) at stride 2
+ *  needs ceil(T_out / 128) * 128 + (K - 1) * dilation bytes at stride 1, and
+ *  2 * (ceil(T_out / 128) * 128 + (K - 1) * dilation / 2 + 1) at stride 2
  *  (line_bytes in c7x_dwconv1d.cpp; FuseQDQToC7xDwConv1d checks the same). */
 #define C7X_DWCONV1D_MAX_LINE 16384
 /** Most taps a kernel may have. */
@@ -72,6 +72,17 @@ extern "C" {
 int32_t c7x_int8_dwconv1d(const void* x, const void* w, const void* scale, void* y, int32_t C,
                           int32_t T_in, int32_t T_out, int32_t K, int32_t stride,
                           int32_t dilation, int32_t pad_left);
+
+/**
+ * @brief c7x_int8_dwconv1d of relu(x): the input's negative values read as 0.
+ *
+ * For a depthwise conv whose input is a ReLU with zero point 0 and no other
+ * reader: the ReLU is applied while the input is copied, instead of as its
+ * own pass over the tensor.
+ */
+int32_t c7x_int8_dwconv1d_relu(const void* x, const void* w, const void* scale, void* y,
+                               int32_t C, int32_t T_in, int32_t T_out, int32_t K, int32_t stride,
+                               int32_t dilation, int32_t pad_left);
 
 #ifdef __cplusplus
 }

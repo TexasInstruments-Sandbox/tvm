@@ -45,7 +45,7 @@ te.extern(
 | `ti_residual_add.py` | ~459 | `c7x_int8_residual_add_relu` | `[x, skip, params]` | int8 |
 | `fuse_dequantize_matmul.py` | ~343 | `c7x_dequantize_vecmatmul` | `[act, w, scale]` | float32 |
 | `ti_fuse_sdpa_decode.py` | ~248 | `c7x_sdpa_decode` | `[q, k, v, mask]` | float32 |
-| `ti_fuse_qdq_c7x_dwconv1d.py` | ~233 | `c7x_int8_dwconv1d` | `[x, weight, scale]` | int8 |
+| `ti_fuse_qdq_c7x_dwconv1d.py` | ~233 | `c7x_int8_dwconv1d` or `c7x_int8_dwconv1d_relu` | `[x, weight, scale]` | int8 |
 
 All files are under `python/tvm/relax/transform/`.
 
