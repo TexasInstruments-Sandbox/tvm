@@ -1670,37 +1670,53 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             relax.op.dequantize(data, scale, zero_point, axis=0, out_dtype="float32")
         )
 
+    def _per_channel_zero_point(self, zero_point) -> relax.Expr:
+        """A per-channel zero point as int8, which relax.quantize/dequantize require.
+
+        PT2E stores it as an int64 buffer, which reaches the converter as a var bound
+        to its value only after import. A known value is converted to an int8
+        constant, so a nonzero zero point survives and the QDQ passes still see a
+        constant; one that doesn't fit int8 is an error rather than a wrap.
+        """
+        import numpy as np
+
+        values = None
+        if isinstance(zero_point, tvm.ir.GenericConst):
+            values = zero_point.value.numpy()
+        elif zero_point in getattr(self, "_lifted_values", {}):
+            values = self._lifted_values[zero_point].detach().cpu().numpy()
+        if values is not None:
+            if values.dtype == np.int8:
+                return relax.const(values, "int8")
+            if values.size and (values.min() < -128 or values.max() > 127):
+                raise ValueError(
+                    f"per-channel zero point outside int8: [{values.min()}, {values.max()}]"
+                )
+            return relax.const(values.astype(np.int8), "int8")
+        if str(zero_point.ty.dtype) == "int8":
+            return zero_point
+        return self.block_builder.emit(relax.op.astype(zero_point, "int8"))
+
     def _quantize_per_channel(self, node: fx.Node) -> relax.Var:
         # args: (data, scale_1d, zp_1d, axis, quant_min, quant_max, dtype). Weights'
         # quantize is folded into constants by convert_pt2e, so this is an
         # activation with per-channel scales.
-        import numpy as np
-
         args = self.retrieve_args(node)
-        data, scale, zero_point = args[0], args[1], args[2]
+        data, scale = args[0], args[1]
+        zero_point = self._per_channel_zero_point(args[2])
         axis = int(args[3])
         out_dtype = BaseFXGraphImporter._convert_data_type(args[6])
-        n_channels = int(zero_point.ty.shape[0])
-        if not (hasattr(zero_point, "ty") and zero_point.ty.dtype == "int8"):
-            zero_point = relax.const(np.zeros(n_channels, dtype=np.int8), "int8")
         return self.block_builder.emit(
             relax.op.quantize(data, scale, zero_point, axis=axis, out_dtype=out_dtype)
         )
 
     def _dequantize_per_channel(self, node: fx.Node) -> relax.Var:
         # args: (data, scale_1d, zp_1d, axis, quant_min, quant_max, dtype)
-        import numpy as np
-
         args = self.retrieve_args(node)
         data = args[0]
         scale = args[1]
-        zero_point = args[2]
+        zero_point = self._per_channel_zero_point(args[2])
         axis = int(args[3])
-        n_channels = int(zero_point.ty.shape[0])
-        # relax.dequantize requires int8 zero_point. Per-channel zp from PT2E
-        # may arrive as int64; always rebuild as int8 (values fit by construction).
-        if not (hasattr(zero_point, "ty") and zero_point.ty.dtype == "int8"):
-            zero_point = relax.const(np.zeros(n_channels, dtype=np.int8), "int8")
         return self.block_builder.emit(
             relax.op.dequantize(data, scale, zero_point, axis=axis, out_dtype="float32")
         )
@@ -2149,6 +2165,9 @@ class ExportedProgramImporter(BaseFXGraphImporter):
         parameters_buffers_constants = OrderedDict()
         user_inputs = OrderedDict()
         torch_symbol_to_relax_var: dict[str, tvm.tirx.Var] = {}
+        # The tensor behind each parameter, buffer and constant var, for converters
+        # that need a value before the vars are bound (_per_channel_zero_point).
+        self._lifted_values: dict[relax.Var, torch.Tensor] = {}
         range_constraints = {}
 
         if hasattr(exported_program, "range_constraints"):
@@ -2177,9 +2196,11 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             name_hint = spec.arg.name
             torch_shape = None
             torch_dtype = None
+            value = None
             if spec.kind is torch.export.graph_signature.InputKind.CONSTANT_TENSOR:
-                torch_shape = exported_program.tensor_constants[spec.target].shape
-                torch_dtype = exported_program.tensor_constants[spec.target].dtype
+                value = exported_program.tensor_constants[spec.target]
+                torch_shape = value.shape
+                torch_dtype = value.dtype
             elif spec.kind is torch.export.graph_signature.InputKind.USER_INPUT:
                 for node in exported_program.graph.find_nodes(op="placeholder", target=spec.target):
                     tensor_meta = node.meta.get("tensor_meta", node.meta.get("val"))
@@ -2188,11 +2209,13 @@ class ExportedProgramImporter(BaseFXGraphImporter):
                         torch_dtype = tensor_meta.dtype
                         break
             elif spec.kind is torch.export.graph_signature.InputKind.BUFFER:
-                torch_shape = named_buffers[spec.target].shape
-                torch_dtype = named_buffers[spec.target].dtype
+                value = named_buffers[spec.target]
+                torch_shape = value.shape
+                torch_dtype = value.dtype
             elif spec.kind is torch.export.graph_signature.InputKind.PARAMETER:
-                torch_shape = exported_program.state_dict[spec.target].shape
-                torch_dtype = exported_program.state_dict[spec.target].dtype
+                value = exported_program.state_dict[spec.target]
+                torch_shape = value.shape
+                torch_dtype = value.dtype
             else:
                 raise ValueError(f"Unsupported input kind: {spec.kind}")
             if torch_shape is None or torch_dtype is None:
@@ -2221,6 +2244,7 @@ class ExportedProgramImporter(BaseFXGraphImporter):
                 user_inputs[name_hint] = relax_var
             else:
                 parameters_buffers_constants[name_hint] = relax_var
+                self._lifted_values[relax_var] = value
 
         return parameters_buffers_constants, user_inputs, range_constraints
 

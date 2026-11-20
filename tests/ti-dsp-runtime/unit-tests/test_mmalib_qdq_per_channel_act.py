@@ -227,6 +227,60 @@ def test_import_keeps_per_channel_activation_quantize():
     assert len(re.findall(r"R\.quantize\([^\n]*axis=1", text)) == 2
 
 
+class _PerChannelQDQ(nn.Module):
+    """quantize_per_channel -> dequantize_per_channel with int64 zero points, as PT2E
+    stores them."""
+
+    def __init__(self, zero_points):
+        super().__init__()
+        self.register_buffer("scale", torch.tensor([0.1, 0.2, 0.05]))
+        self.register_buffer("zp", torch.tensor(zero_points, dtype=torch.int64))
+
+    def forward(self, x):
+        import torchao.quantization.pt2e  # noqa: F401  (registers quantized_decomposed)
+
+        ops = torch.ops.quantized_decomposed
+        q = ops.quantize_per_channel.default(x, self.scale, self.zp, 1, -128, 127, torch.int8)
+        return ops.dequantize_per_channel.default(q, self.scale, self.zp, 1, -128, 127, torch.int8)
+
+
+def test_import_keeps_per_channel_zero_points():
+    """Nonzero per-channel zero points survive the import and the int8 conversion."""
+    from tvm.relax.frontend.torch import from_exported_program
+
+    model = _PerChannelQDQ([3, -5, 0]).eval()
+    x = torch.randn(1, 3, 4, 4) * 4
+    mod = from_exported_program(torch.export.export(model, (x,)))
+    zps = []
+
+    def visit(e):
+        if isinstance(e, relax.Call) and getattr(e.op, "name", "") in (
+            "relax.quantize",
+            "relax.dequantize",
+        ):
+            zps.append(e.args[2].value.numpy())
+
+    relax.analysis.post_order_visit(mod["main"].body, visit)
+    assert len(zps) == 2
+    for zp in zps:
+        assert zp.dtype == np.int8 and zp.tolist() == [3, -5, 0]
+
+    ex = relax.build(mod, target="llvm")
+    vm = relax.VirtualMachine(ex, tvm.cpu())
+    out = vm["main"](tvm.runtime.tensor(x.numpy()))[0].numpy()
+    with torch.no_grad():
+        np.testing.assert_allclose(out, model(x).numpy(), rtol=0, atol=1e-6)
+
+
+def test_import_rejects_per_channel_zero_point_outside_int8():
+    from tvm.relax.frontend.torch import from_exported_program
+
+    x = torch.randn(1, 3, 4, 4)
+    ep = torch.export.export(_PerChannelQDQ([3, 200, 0]).eval(), (x,))
+    with pytest.raises(ValueError, match="outside int8"):
+        from_exported_program(ep)
+
+
 def test_per_channel_stem_on_dsp_matches_pytorch(dsp_mode):
     if dsp_mode not in ("c7x_host", "c7x_dload"):
         pytest.skip("requires c7x_host or c7x_dload")
