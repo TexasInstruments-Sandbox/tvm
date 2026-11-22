@@ -330,7 +330,7 @@ post-fusion) shows:
 **Per-layer overhead in `__vmtir__main`:**
 1. `AllocTensor` call — constructs a DLTensor (shape, strides, data
    pointer) via DLOAD-resolved firmware call. **47 calls total.**
-2. Stack argument setup — `SetFromUnchecked`, `SetNone`, `MoveFrom`
+2. Stack argument setup — `Borrow`, `Clear`, `MoveFrom`
    to marshal TVMFFIAny arguments for each kernel call.
 3. Kernel function call boundary — each kernel re-extracts `float*`
    from the DLTensor that was just constructed above:

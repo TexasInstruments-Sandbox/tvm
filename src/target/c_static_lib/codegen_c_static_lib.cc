@@ -1319,7 +1319,7 @@ bool CodeGenCStaticLib::TryEmitMergedStructSet(const ffi::Array<Stmt>& seq, size
       if (buffer_name == "stack_ffi_any" && info1.index.as<IntImmNode>()) {
         int idx = static_cast<int>(static_cast<int64_t>(info1.index.as<IntImmNode>()->value));
         this->PrintIndent();
-        this->stream << "_stack.SetNone(" << idx << ");\n";
+        this->stream << "_stack.Clear(" << idx << ");\n";
         *next_index = index + 2;  // Skip both statements
         return true;
       }
@@ -1769,7 +1769,7 @@ void CodeGenCStaticLib::Dispatch_(const EvaluateNode* op) {
   // Emit AnyArray declarations on first use (after r, c variables are defined)
   if (use_cpp_api_ && call) {
     // TVMBackendAnyListSetPackedArg(src_array, src_idx, stack, stack_idx)
-    // -> _stack.SetFrom(_src_array, stack_idx, src_idx)
+    // -> _stack.Borrow(_src_array, stack_idx, src_idx)
     static const Op& set_packed_arg_op = Op::Get("tirx.TVMBackendAnyListSetPackedArg");
     if (call->op.same_as(set_packed_arg_op) && call->args.size() >= 4) {
       // Use direct AST inspection instead of PrintExpr to avoid SSA side effects
@@ -1809,8 +1809,8 @@ void CodeGenCStaticLib::Dispatch_(const EvaluateNode* op) {
         // Map source array name to wrapper name
         std::string src_wrapper = (src_array == kRegisterFileIdentifier) ? "_r" : "_c";
         this->PrintIndent();
-        // Use SetFromUnchecked for stack - slots are zero-initialized or cleared by MoveFrom
-        this->stream << "_stack.SetFromUnchecked(" << src_wrapper << ", "
+        // Arguments are borrowed for the call, as TVMBackendAnyListSetPackedArg does
+        this->stream << "_stack.Borrow(" << src_wrapper << ", "
                      << static_cast<int64_t>(stack_idx->value) << ", "
                      << static_cast<int64_t>(src_idx->value) << ");\n";
         return;

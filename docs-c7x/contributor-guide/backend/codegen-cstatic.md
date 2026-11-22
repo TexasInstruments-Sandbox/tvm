@@ -198,6 +198,18 @@ _r.SetNDArray(3, vm::AllocTensor(_r.GetStorage(2), 0, _c.GetShape(5), _c.GetDTyp
 
 ~12% cycle reduction, ~22% code size reduction on C66x.
 
+### Reference Ownership
+
+The register file owns a reference to every object in it: the `_r.Set*`
+calls release the old value before storing a new one, and `vm.builtin.null_value`
+becomes `_r.SetNone`, which frees the object when its count reaches zero. The
+call stack (`_stack`) owns nothing. `_stack.Borrow` copies a kernel argument
+without a reference, as `TVMBackendAnyListSetPackedArg` does in FFI mode,
+`_stack.Clear` resets a slot without a release, and `MoveFrom` takes a return
+value's reference off the stack. A stack that took references would need a
+release after every call; missing one keeps every activation alive and leaks
+it from the DDR pool on each inference.
+
 ## WrapperGenerator
 
 Generates `cg_main_dsp` entry point and I/O marshalling.

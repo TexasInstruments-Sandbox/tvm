@@ -308,25 +308,31 @@ class AnyArray {
   }
 
   /*!
-   * \brief Copy value from another AnyArray without DecRef (for uninitialized slots)
-   * \param dst_idx Destination index in this array
+   * \brief Borrow a value from another AnyArray as a packed-call argument
+   * \param dst_idx Destination index in this array (a call stack slot)
    * \param src Source array
    * \param src_idx Source index in src array
    *
-   * Same as SetFrom but skips DecRefOld. Use ONLY when the destination slot
-   * is known to be empty (None or zero-initialized). This is the case for:
-   * - Stack arrays that are zero-initialized with `= {}`
-   * - Slots that have just been cleared with SetNone
-   *
-   * Using this on a slot containing a live object will leak memory!
+   * Copies the value without a reference count change, as
+   * TVMBackendAnyListSetPackedArg does: the source keeps the reference and
+   * outlives the call. The slot is later overwritten or cleared with Clear,
+   * neither of which releases it.
    */
-  void SetFromUnchecked(const AnyArray& src, int dst_idx, int src_idx) {
+  void Borrow(const AnyArray& src, int dst_idx, int src_idx) {
     data_[dst_idx] = src.data_[src_idx];
-    // IncRef for object types
-    if (data_[dst_idx].type_index >= kTVMFFIStaticObjectBegin &&
-        data_[dst_idx].v_obj != nullptr) {
-      data_[dst_idx].v_obj->ref_counter++;
-    }
+  }
+
+  /*!
+   * \brief Set a call stack slot to None without releasing its value
+   * \param idx Array index
+   *
+   * A stack slot holds either a borrowed argument or a return value that
+   * MoveFrom has already taken, so it owns nothing to release.
+   */
+  void Clear(int idx) {
+    data_[idx].type_index = kTVMFFINone;
+    data_[idx].zero_padding = 0;
+    data_[idx].v_obj = nullptr;
   }
 
   /*!
