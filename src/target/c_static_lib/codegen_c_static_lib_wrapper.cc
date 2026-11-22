@@ -247,6 +247,17 @@ void WrapperGenerator::EmitDSPWrappers(
     // Static register file
     os << "  // Static register file (avoids heap allocation)\n";
     os << "  static TVMFFIAny reg_file[" << reg_file_size << "];\n";
+    // The previous call left its output here, and after a failure its
+    // temporaries too; clearing them without a release leaks them from the pool
+    // on every inference. The caller has copied that output out by now. Inputs
+    // are stored without a reference, so they are only cleared.
+    os << "  // Release what the previous call left in the registers\n";
+    os << "  {\n";
+    os << "    tvm::dsp::vm::AnyArray prev(reg_file);\n";
+    os << "    for (int i = " << func_info.num_args << "; i < " << reg_file_size << "; ++i) {\n";
+    os << "      prev.SetNone(i);\n";
+    os << "    }\n";
+    os << "  }\n";
     os << "  memset(reg_file, 0, sizeof(reg_file));\n";
     os << "  TVMDSPRegFileInit(reg_file, " << reg_file_size << ");\n\n";
 

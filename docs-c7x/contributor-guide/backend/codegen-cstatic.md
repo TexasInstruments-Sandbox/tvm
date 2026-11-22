@@ -210,6 +210,12 @@ value's reference off the stack. A stack that took references would need a
 release after every call; missing one keeps every activation alive and leaks
 it from the DDR pool on each inference.
 
+`cg_main_dsp` keeps its register file in static storage. On entry it releases
+what the previous call left there, its output and, after a failed call, any
+temporaries, so a module that runs many inferences in one session holds only
+one inference's memory. Each output therefore stays valid only until the
+next call; the firmware copies it to the result buffer before replying.
+
 ## WrapperGenerator
 
 Generates `cg_main_dsp` entry point and I/O marshalling.
