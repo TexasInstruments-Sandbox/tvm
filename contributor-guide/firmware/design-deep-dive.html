@@ -628,6 +628,34 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="../agentic-development.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
     
     
     
@@ -645,10 +673,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
         
           
-          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
             
   
   
@@ -666,8 +694,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_2">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -932,10 +960,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
         
           
-          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
             
   
   
@@ -953,8 +981,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_3">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1025,10 +1053,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
             
   
   
@@ -1046,8 +1074,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3_4">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1902,10 +1930,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
         
           
-          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
             
   
   
@@ -1923,8 +1951,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_5">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -3182,7 +3210,7 @@ the RPMessage IPC boundary, across to the C7x DSP firmware, and back.</p>
 <li>
 <p><strong>Protocol version handshake</strong> via a PING round-trip, comparing the
    firmware's major version against <code>C7X_SERVICE_VERSION</code> (currently
-   v4.2.0; see the version table in the firmware skill). A major mismatch aborts
+   v5.2.0; see the version table in the firmware skill). A major mismatch aborts
    <code>open()</code> with an explicit message instead of failing later, deeper,
    with something that reads like an unrelated bug.</p>
 </li>
@@ -3808,6 +3836,14 @@ Outer Shareable for hardware cache coherency between ARM and DSP. The host
 still performs explicit DMA_BUF_SYNC ioctls:
 - Before DSP reads: <code>DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE</code> (flush ARM cache)
 - Before host reads: <code>DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ</code> (invalidate ARM cache)</p>
+<p>On the DSP side, the C7x L1D runs write-through on every board. The SDK's
+<code>CacheP_Module_startup</code> leaves it write-back on J722S, so <code>main()</code> writes it back
+and switches it; on AM62D, <code>MmuP_setConfig</code> does the same and also turns off EL2
+snoop for a silicon bug. With a write-back L1D, data one kernel stores can stay in
+L1D while the next kernel reads the same buffer through the streaming engine,
+which reads from L2 and gets the old values. Host emulation has no such cache, so
+this shows up only on hardware, as output that varies from run to run. Write-through
+costs cycles, most in kernels that store a lot.</p>
 <h3 id="mmu-configuration">MMU Configuration</h3>
 <p>Defined in <code>dsp/configs/c75ss0.syscfg</code> (16 regions). Key MAIR attribute indices:</p>
 <table>
@@ -4169,7 +4205,7 @@ and SysConfig tool. The linker script (<code>configs/linker_c75_freertos.cmd</co
 all memory sections including the DLOAD code/data placement.</p>
 <p>SDK Dependencies:
 - TI MCU+ SDK 11_00_00_06
-- TI CGT C7000 5.0.1 LTS
+- TI CGT C7000 (see Getting Started for the supported version)
 - TI SysConfig 1.26.0</p>
 <p>Output: <code>dsp/build/c7x_compute.out</code> (~6.9 MB)</p>
 <h3 id="host-application">Host Application</h3>

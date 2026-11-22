@@ -626,6 +626,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../agentic-development.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -647,10 +675,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
             
   
   
@@ -668,8 +696,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3_2">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1197,10 +1225,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
         
           
-          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
             
   
   
@@ -1218,8 +1246,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_3">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1288,10 +1316,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
         
           
-          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
             
   
   
@@ -1309,8 +1337,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_4">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1407,10 +1435,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
         
           
-          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
             
   
   
@@ -1428,8 +1456,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_5">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1953,6 +1981,13 @@ handles the inner compute (MMA coprocessor programming) for each tile.</p>
 <td><code>[q, k, v, mask]</code></td>
 <td>float32</td>
 </tr>
+<tr>
+<td><code>ti_fuse_qdq_c7x_dwconv1d.py</code></td>
+<td>~233</td>
+<td><code>c7x_int8_dwconv1d</code> or <code>c7x_int8_dwconv1d_relu</code></td>
+<td><code>[x, weight, scale]</code></td>
+<td>int8</td>
+</tr>
 </tbody>
 </table>
 <p>All files are under <code>python/tvm/relax/transform/</code>.</p>
@@ -2144,11 +2179,16 @@ weight_bytes = N * K bytes   (weights)
 <div class="highlight"><pre><span></span><code>Allocate l2_guard[int8, guard_bytes]        # SE backward-prefetch guard
   Allocate l2_input[int8, input_bytes]
     Allocate l2_weight[int8, weight_bytes]  # omitted if weights don't fit
-      Evaluate(tvm_dsp_dma_copy(0, l2_input,  ddr_input,  input_bytes,  0))
-      Evaluate(tvm_dsp_dma_copy(0, l2_weight, ddr_weight, weight_bytes, 0))
-      Evaluate(tvm_dsp_dma_wait(0, 0))      # block until complete
-      Evaluate(mmalib_matmul_bias_i8(l2_input, l2_weight, bias, scale, shift, ...))
+      checked(tvm_dsp_dma_copy(0, l2_input,  ddr_input,  input_bytes,  0))
+      checked(tvm_dsp_dma_copy(0, l2_weight, ddr_weight, weight_bytes, 0))
+      checked(tvm_dsp_dma_wait(0, 0))      # block until complete
+      checked(mmalib_matmul_bias_i8(l2_input, l2_weight, bias, scale, shift, ...))
 </code></pre></div>
+<p><code>checked(...)</code> is the <code>_call_extern_checked</code> form (a <code>Bind</code> of the status
+followed by an <code>IfThenElse</code>): a non-zero status calls
+<code>tvm_dsp_report_error</code> and returns <code>-1</code> from the PrimFunc. The DMA calls
+are checked like the kernel call, because a rejected copy would otherwise
+leave the L2 buffer holding stale data for the kernel to compute on.</p>
 <p>The guard allocation (<code>pad_top * w_in * elem_bytes</code>, min 128 bytes)
 bumps the L2 bump pointer so the input buffer does not start at address 0
 of L2, preventing streaming-engine backward-prefetch underflow.</p>

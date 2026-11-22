@@ -626,6 +626,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../agentic-development.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -647,10 +675,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
             
   
   
@@ -668,8 +696,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3_2">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1224,17 +1252,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#histogramobserver-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        HistogramObserver (Optional)
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -1330,10 +1347,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
         
           
-          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
             
   
   
@@ -1351,8 +1368,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_3">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1421,10 +1438,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
         
           
-          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
             
   
   
@@ -1442,8 +1459,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_4">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1540,10 +1557,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
         
           
-          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="">
             
   
   
@@ -1561,8 +1578,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_5">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2064,17 +2081,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#histogramobserver-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        HistogramObserver (Optional)
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -2209,7 +2215,53 @@ float32 conversions at runtime.</p>
 </tbody>
 </table>
 <p>Observers used:
-- Activations: <code>torchao.quantization.pt2e.MinMaxObserver</code>
+- Activations: <code>torchao.quantization.pt2e.MinMaxObserver</code> by default, or
+  <code>HistogramObserver</code> with <code>activation_observer="histogram"</code>. With int8, the
+  tensors around SiLU, hardswish and hardsigmoid instead use <code>_PercentileObserver</code>,
+  which clips <code>smooth_activation_percentile</code> percent (default 0.1) of the values
+  from each tail of a <code>HistogramObserver</code> histogram. The approach follows
+  <code>AdaptiveRangeShrinkObserver</code> in TI's edgeai-torchmodelopt (BSD-3-Clause). The
+  choice is per tensor: its output spec and every input edge reading it switch
+  together, since an edge whose spec differed from its producer's would get a
+  second observer and a requantize between them. For the same reason a
+  transparent op after an unannotated producer (YOLO's max pools after an
+  in-place <code>silu_</code>), whose output would keep an observer of its own, follows
+  its clipped input edge. Two kinds of tensor in depthwise blocks get the same
+  observer at <code>depthwise_block_percentile</code> (default 0.01): a conv output read
+  only by ReLUs next to a depthwise conv (BN is folded into the conv by the
+  time <code>annotate</code> runs), and a squeeze-excite output, a SiLU or hardswish
+  output times a sigmoid or hardsigmoid gate. No op annotates the multiply, so
+  its percentile goes on the edges that read it. A tensor a <code>cat</code> reads where a
+  <code>batch_norm</code> reads the <code>cat</code> gets it at <code>concat_batch_norm_percentile</code>
+  (default 0.1): <code>_feeds_normalized_concat</code> follows readers through the
+  transparent ops, so a conv, its ReLU and its max pool, which share one
+  observer, all qualify together, as DenseNet's stem does. Neither op is
+  annotated. Of the torchvision sweep's models, only the four DenseNets have a
+  <code>batch_norm</code> reading a <code>cat</code>.
+- Depthwise inputs, per channel (<code>depthwise_input_headroom</code>, default 2.0):
+  <code>_depthwise_input_chains</code> finds conv -&gt; SiLU/hardswish/ReLU -&gt; depthwise conv,
+  and the conv output and the activation output (for ReLU, the one tensor they
+  share) get <code>per_channel_symmetric</code> on axis 1 with <code>_CappedPerChannelObserver</code>:
+  each channel's peak times the headroom, capped at the scale the tensor's
+  per-tensor spec would give. Only the readers <code>_reads_per_channel</code> names (the
+  chain's activation, the depthwise conv) share that spec; any other reader, such
+  as a residual add, keeps the per-tensor spec, so PT2E gives it its own observer.
+  The backend folds the scales into the MMALIB conv's and depthwise conv's
+  per-channel requantize and runs <code>c7x_int8_{silu,hardswish}_per_channel</code> between.
+- LayerNorm residual streams stay float (<code>float_layernorm_residuals</code>, default on,
+  int8 only): <code>_is_layernorm_residual_add</code> finds add(skip, branch) where the branch
+  is computed from skip through a <code>layer_norm</code> (pre-norm transformer blocks,
+  ConvNeXt blocks); an add inside the branch, such as Swin's attention bias,
+  doesn't qualify. Those adds and any add a <code>layer_norm</code> or such an add reads (a
+  ViT's position embedding add) lose their annotations, and so do the edges a
+  <code>layer_norm</code> or another of these adds reads them on, looking through dropout,
+  view, permute and the like. Any other reader keeps its input spec, so PT2E
+  quantizes the stream for it alone: a ConvNeXt depthwise conv still reads int8.
+  A <code>layer_norm</code> normalizes each token by its own statistics, so a per-tensor
+  scale on its input turns a small token's rounding into the token's whole
+  content; ViT-B/32's class token got about 4 codes and the model collapsed. The
+  adds then run as generic float code, outside <code>FuseInt8ResidualAdd</code>, and the
+  <code>layer_norm</code> reads float, outside <code>FuseQDQToC7xLayerNorm</code>.
 - Weights: <code>torchao.quantization.pt2e.PerChannelMinMaxObserver</code></p>
 <p><strong>Note:</strong> The <code>torch.ao</code> observer hierarchy is incompatible — <code>convert_pt2e</code> would
 silently leave observers unreplaced as <code>call_module</code> nodes.</p>
@@ -2249,6 +2301,14 @@ TVM fuses the resulting Q/DQ pattern with an MMALIB kernel call.</p>
 <ul>
 <li><code>aten.conv2d.default</code> covers both regular and depthwise; TVM distinguishes by <code>groups</code>.</li>
 <li>¹ int16 depthwise only supports <strong>3×3 kernels</strong> (MMALIB-882 blocks 5×5/7×7); 5×5 layers are rejected and fall through to float32.</li>
+<li>When the op's only user is <code>aten.hardtanh</code> / <code>hardtanh_</code> (ReLU6 is
+  <code>hardtanh(0, 6)</code>), its output gets a <code>FixedQParamsQuantizationSpec</code> covering
+  <code>[-max(|min_val|, |max_val|), +max(|min_val|, |max_val|)]</code> instead of a calibrated range, with symmetric
+  activations only. The clamp discards everything beyond that, and a calibrated
+  range would cover the pre-clamp extremes. hardtanh itself isn't annotated: its
+  output is observed by its consumer's input spec, which for a saturating ReLU6
+  under min/max is the same scale, so <code>FuseQDQToC7xRelu</code> lowers it as a
+  transparent <code>c7x_int8_clamp</code>.</li>
 </ul>
 <h3 id="group-2-activation-only-compute-ops-_act_only_ops">Group 2 — Activation-Only Compute Ops (<code>_ACT_ONLY_OPS</code>)</h3>
 <p>Both inputs are activation tensors; no weight with per-channel spec.
@@ -2285,6 +2345,8 @@ Bias (<code>args[0]</code> of <code>addmm</code>) stays float32.</p>
 </table>
 <ul>
 <li><code>add.Tensor</code> only annotated when both arguments are tensors (scalar args skipped).</li>
+<li>With int8, the residual adds of LayerNorm blocks are left float; see
+  <code>float_layernorm_residuals</code> under Quantization Constraints.</li>
 <li>int16 activations always symmetric; <code>UserWarning</code> emitted if <code>symmetric_activations=False</code>.</li>
 </ul>
 <h3 id="group-3-c7x-activation-ops-_tidl_act_ops">Group 3 — C7x Activation Ops (<code>_TIDL_ACT_OPS</code>)</h3>
@@ -2317,6 +2379,23 @@ call — despite the internal <code>_TIDL_ACT_OPS</code> set name).</p>
 </tr>
 </tbody>
 </table>
+<p>An activation's float output can also feed an op the quantizer leaves in
+float: a concat (YOLOv5, YOLOv8) or a squeeze-excite multiply by a
+<code>[1,C,1,1]</code> gate (EfficientNet, MobileNetV3). PyTorch's quantized graph gives
+that reader the float activation, rounded once at the reader's own output
+scale. Reading the activation's int8 output back through a dequantize instead
+would round a second time, and clip wherever the activation's own output scale
+is narrower than the reader's range. So before matching, the pass gives each
+such reader its own copy of the activation chain:</p>
+<ul>
+<li>A concat whose only user is a per-tensor quantize reads a second
+  <code>c7x_int8_&lt;act&gt;</code> call at the concat's output scale.</li>
+<li><code>quantize(act(dequantize(x)) * gate)</code> lowers to <code>c7x_int8_silu_gate_multiply</code>
+  or <code>c7x_int8_hardswish_gate_multiply</code>, which apply the gate before the one
+  requantize.</li>
+</ul>
+<p>A float reader of any other kind keeps the dequantized int8 output, and the pass
+logs it at INFO.</p>
 <h3 id="group-4-average-pooling-ops-_avg_pool_ops">Group 4 — Average Pooling Ops (<code>_AVG_POOL_OPS</code>)</h3>
 <p>Single activation input; output gets independent quantization.
 Unlike max pooling, averaging changes numerical range so Q/DQ wrappers
@@ -2362,6 +2441,11 @@ fused into a native C7x kernel.</p>
 <p>Single activation input. Output forced to share <strong>same</strong> scale as input via
 <code>SharedQuantizationSpec</code>. <code>EliminateQDQTransparent</code> then removes Q/DQ wrappers
 entirely, leaving the op to receive and produce raw int8 data.</p>
+<p>The sharing needs an annotated producer. After one that isn't annotated (a
+<code>cat</code>, an in-place <code>silu_</code>), the output gets an observer of its own, which can
+calibrate to a different scale than the input edge. Both <code>EliminateQDQTransparent</code>
+and <code>FuseQDQToTIDLMaxPool</code> check that the scales match, and leave such an op as
+float <code>dequantize -&gt; op -&gt; quantize</code> otherwise.</p>
 <table>
 <thead>
 <tr>
@@ -2476,7 +2560,7 @@ weight zero_point=0, int16 symmetric forcing, no-double-annotation guard,
 </table>
 <h3 id="end-to-end-tests-c7x_host-c7x_dload">End-to-End Tests (c7x_host / c7x_dload)</h3>
 <div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>tests/ti-dsp-runtime
-<span class="nb">export</span><span class="w"> </span><span class="nv">TI_CGT_C7000_PATH</span><span class="o">=</span>/opt/ti/c7x/ti-cgt-c7000_5.0.1.LTS
+<span class="nb">export</span><span class="w"> </span><span class="nv">TI_CGT_C7000_PATH</span><span class="o">=</span>&lt;path<span class="w"> </span>to<span class="w"> </span>TI<span class="w"> </span>C7000<span class="w"> </span>CGT&gt;
 
 <span class="c1"># Host emulation (no board)</span>
 pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w"> </span>pt2e-tests/<span class="w"> </span>-m<span class="w"> </span>quick<span class="w"> </span>--dsp-mode<span class="o">=</span>c7x_host<span class="w"> </span>-v
@@ -2576,10 +2660,10 @@ pytest<span class="w"> </span>--rootdir<span class="o">=</span>.<span class="w">
 <h4 id="classification-model-test-test_mobilenet_v2_pt2e_dsppy">Classification model test — <code>test_mobilenet_v2_pt2e_dsp.py</code></h4>
 <p>MobileNetV2 exercises all four int8 MMALIB kernels together. Input: <code>dog.jpg</code>
 from <code>tests/cstatic/test_images/</code>, loaded via <code>cl_torchvision.load_model_with_preprocessing</code>.
-10 calibration batches (same count as <code>quantized/model_utils.py</code>).</p>
+Calibrated with 10 passes over that same image.</p>
 <p>Two assertions:
 1. <strong>No-MMALIB, top-1 match</strong> — validates C7xMMAQuantizer + TVM import pipeline
-2. <strong>MMALIB, <code>max_diff ≤ 20.0</code></strong> — validates all four MMALIB kernels compile and execute. Top-1 not asserted: MMALIB integer arithmetic diverges from float-simulated int8 across 17+ bottleneck blocks. Consistent with <code>quantized/test_quantized_mobilenet_v2.py</code> using <code>atol=25.0</code> for MMALIB with XNNPACKQuantizer — the gap is inherent to actual int8 arithmetic vs float simulation.</p>
+2. <strong>MMALIB, <code>max_diff ≤ 1.25</code></strong> — validates all four MMALIB kernels against the fake-quant reference. 1.25 is twice the 0.555 measured on <code>c7x_host</code> and BeagleY-AI (identical outputs), rounded up to a multiple of 0.25; the per-model tests in <code>quantized/</code> set their tolerances the same way.</p>
 <h2 id="adding-a-new-operator">Adding a New Operator</h2>
 <p>To add a new op to <code>C7xMMAQuantizer</code>:</p>
 <h3 id="1-determine-the-group">1. Determine the Group</h3>
@@ -2679,11 +2763,6 @@ handles only layer norm). Options:</p>
 </ul>
 <p>Until a kernel exists, <code>group_norm</code> should remain unannotated so it stays
 float32 without QDQ overhead.</p>
-<h3 id="histogramobserver-optional">HistogramObserver (Optional)</h3>
-<p><code>C7xMMAQuantizer</code> uses <code>MinMaxObserver</code> for activations. With large calibration
-datasets, <code>HistogramObserver</code> produces tighter scales (clips outliers) at
-higher memory cost. With current 10-batch calibration, difference is negligible.
-To switch, replace <code>MinMaxObserver</code> in <code>_act_spec()</code> in <code>c7x_mma_quantizer.py</code>.</p>
 <h2 id="known-constraints">Known Constraints</h2>
 <ul>
 <li><strong>Int16 activation quantization is symmetric only.</strong> Input zero-point (<code>d_zp</code>)
