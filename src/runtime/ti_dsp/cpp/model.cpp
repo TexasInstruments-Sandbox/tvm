@@ -209,7 +209,6 @@ ModelError Model::InferInternal(NDArray* inputs, int num_inputs,
     input_anys[i].type_index = kTVMFFITensor;
     input_anys[i].zero_padding = 0;
     input_anys[i].v_obj = reinterpret_cast<TVMFFIObject*>(input_arr);
-    input_arr->ref_counter++;
   }
 
   /* Clear output */
@@ -221,6 +220,12 @@ ModelError Model::InferInternal(NDArray* inputs, int num_inputs,
 
   /* Call generated wrapper */
   int ret = cg_main_dsp(input_anys, num_inputs, constants_, output_any);
+
+  /* The wrappers only view the caller's data, and cg_main_dsp holds no
+   * reference to its inputs after it returns. */
+  for (int i = 0; i < num_inputs; i++) {
+    TVMFFIObjectDecRef(input_anys[i].v_obj);
+  }
 
   uint64_t cycles_end = TVMDSPCycleCounter_getCount64();
   last_cycles_ = TVMDSPCycleCounter_elapsed(cycles_start, cycles_end);
