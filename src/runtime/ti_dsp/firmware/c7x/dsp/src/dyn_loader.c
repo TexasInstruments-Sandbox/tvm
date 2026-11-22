@@ -866,6 +866,15 @@ BOOL DLIF_copy(void *client_handle, struct DLOAD_MEMORY_REQUEST *req)
         }
     }
 
+    /* Zero what the file doesn't supply, such as .bss. The segment comes from
+     * the DDR pool, which holds whatever its last user left there, and a
+     * module's zero-initialized statics (the register file among them) must
+     * start at zero. */
+    if (obj_desc->memsz_in_bytes > obj_desc->objsz_in_bytes) {
+        memset((uint8_t *)(uintptr_t)obj_desc->target_address + obj_desc->objsz_in_bytes, 0,
+               obj_desc->memsz_in_bytes - obj_desc->objsz_in_bytes);
+    }
+
     req->host_address = buf;
     return TRUE;
 }
