@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from pt2e_utils import quantize_pt2e  # noqa: E402
 
 from tvm.relax.frontend.torch import C7xMMAQuantizer
@@ -966,3 +967,50 @@ def test_transparent_ops_produce_qdq():
     targets = _call_function_targets(q)
     assert _has_quantize(targets), "no quantize nodes after convert_pt2e"
     assert _has_dequantize(targets), "no dequantize nodes after convert_pt2e"
+
+
+class ClassifierHead(nn.Module):
+    """conv -> global pool -> linear, the linear's output the model's output; with
+    also_relu, the logits are read by a ReLU too."""
+
+    def __init__(self, also_relu=False):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 8, 3, padding=1)
+        self.fc = nn.Linear(8, 10)
+        self.also_relu = also_relu
+
+    def forward(self, x):
+        logits = self.fc(torch.flatten(F.adaptive_avg_pool2d(torch.relu(self.conv(x)), 1), 1))
+        return (logits, torch.relu(logits)) if self.also_relu else logits
+
+
+_LINEAR = torch.ops.aten.linear.default
+_HEAD_INPUT = (torch.randn(1, 3, 8, 8),)
+
+
+@pytest.mark.quick
+def test_logits_stay_float():
+    q = _quantized(ClassifierHead(), _HEAD_INPUT, C7xMMAQuantizer("int8"))
+    (fc,) = _nodes(q, _LINEAR)
+    assert not _requantized(fc)
+    assert _is_dq(fc.args[0]), "the linear still reads int8 activations"
+    assert _is_dq(fc.args[1]), "and int8 weights"
+
+
+@pytest.mark.quick
+@pytest.mark.parametrize(
+    "quantizer",
+    [C7xMMAQuantizer("int8", float_logits=False), C7xMMAQuantizer("int16")],
+    ids=["off", "int16"],
+)
+def test_logits_quantized(quantizer):
+    q = _quantized(ClassifierHead(), _HEAD_INPUT, quantizer)
+    (fc,) = _nodes(q, _LINEAR)
+    assert _requantized(fc)
+
+
+@pytest.mark.quick
+def test_logits_read_by_another_op_stay_quantized():
+    q = _quantized(ClassifierHead(also_relu=True), _HEAD_INPUT, C7xMMAQuantizer("int8"))
+    (fc,) = _nodes(q, _LINEAR)
+    assert _requantized(fc)

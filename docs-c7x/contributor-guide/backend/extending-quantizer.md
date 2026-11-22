@@ -108,6 +108,13 @@ Observers used:
   content; ViT-B/32's class token got about 4 codes and the model collapsed. The
   adds then run as generic float code, outside `FuseInt8ResidualAdd`, and the
   `layer_norm` reads float, outside `FuseQDQToC7xLayerNorm`.
+- Logits stay float (`float_logits`, default on, int8 only): `_float_logits` drops
+  the output spec of an `aten.linear` whose only users are the graph output. Its
+  input specs stay, so it still reads int8 activations and weights. The logits'
+  range comes from calibration, and an eval image whose largest logits exceed it
+  gets them clipped to one code, so several classes tie and the lowest class
+  index wins: VGG19's top logit exceeded its calibrated range on 18% of
+  ImageNetV2 images. A linear whose output another op also reads keeps its spec.
 - Weights: `torchao.quantization.pt2e.PerChannelMinMaxObserver`
 
 **Note:** The `torch.ao` observer hierarchy is incompatible — `convert_pt2e` would

@@ -101,6 +101,7 @@ int16 has the resolution to spare:
 | A tensor a concat reads where a BatchNorm reads the concat, through ReLU or max pool if any (DenseNet: the stem output, each dense layer's new features, each transition's output) | 0.1% clipped from each tail | `concat_batch_norm_percentile=None` |
 | A depthwise conv's input and, when it comes through a SiLU, hardswish or ReLU, the conv output before it | one scale per channel: the channel's calibrated peak times 2, never coarser than the per-tensor scale; any other reader (a residual add) still reads it per tensor | `depthwise_input_headroom=None` (symmetric activations only) |
 | The residual stream of LayerNorm blocks (ViT, Swin, ConvNeXt): the residual adds, and an add a LayerNorm reads, such as a ViT's position embedding add | not quantized: the adds run in float and the LayerNorms read float; any other reader (a conv) still reads it in int8 | `float_layernorm_residuals=False` |
+| A classifier's logits: the output of a linear that is the model's output and that nothing else reads | not quantized: the linear still reads int8 activations and weights; a calibrated range clips the largest logits of images that score higher than any calibration image did, so classes tie | `float_logits=False` |
 
 A network with none of these tensors, such as a ResNet, quantizes with the observer
 alone. The rules are kept to these tensors on purpose: clipping a ResNet's ReLU
@@ -185,7 +186,8 @@ In order:
 3. If your model isn't one of the families above, measure with each range rule
    turned off as well (`smooth_activation_percentile=None`,
    `depthwise_block_percentile=None`, `concat_batch_norm_percentile=None`,
-   `depthwise_input_headroom=None`, `float_layernorm_residuals=False`). The rules
+   `depthwise_input_headroom=None`, `float_layernorm_residuals=False`,
+   `float_logits=False`). The rules
    were measured on those families.
 4. Use `dtype="int16"`. It costs speed and narrows MMALIB coverage (see the
    table above), and is the fallback when int8 can't represent the model.

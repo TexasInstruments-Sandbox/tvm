@@ -586,6 +586,15 @@ class C7xMMAQuantizer(Quantizer):
             small next to the tensor's range: ViT-B/32's class token got about 4
             int8 codes after the position embedding add. False quantizes these adds
             like any other. int8 only. Networks without layer_norm are unaffected.
+        float_logits: Leave the output of a linear that is the model's output in
+            float: a classifier's logits. Its range comes from calibration, and a
+            calibration set whose largest logits fall short of the eval data's clips
+            the top logits to one code, so several classes tie and the lowest class
+            index wins: on ImageNetV2, VGG19's top logit exceeded its calibrated
+            range on 18% of images. The C7x backend already runs a 1000-class head
+            as a float vector-matrix product and quantizes its result, so leaving it
+            float only drops that quantize. False quantizes it like any other output.
+            int8 only.
 
     A conv or linear whose only consumer is a hardtanh, such as ReLU6, gets the
     clamp's range for its output instead of a calibrated one (symmetric
@@ -604,6 +613,7 @@ class C7xMMAQuantizer(Quantizer):
         concat_batch_norm_percentile: float | None = 0.1,
         depthwise_input_headroom: float | None = 2.0,
         float_layernorm_residuals: bool = True,
+        float_logits: bool = True,
     ):
         super().__init__()
         if dtype not in ("int8", "int16"):
@@ -626,6 +636,7 @@ class C7xMMAQuantizer(Quantizer):
             )
         self.depthwise_input_headroom = depthwise_input_headroom
         self.float_layernorm_residuals = float_layernorm_residuals
+        self.float_logits = float_logits
         self.dtype = dtype
         self.activation_observer = activation_observer
         self.smooth_activation_percentile = smooth_activation_percentile
@@ -823,7 +834,21 @@ class C7xMMAQuantizer(Quantizer):
                 self._per_channel_depthwise_inputs(model)
             if self.float_layernorm_residuals:
                 self._float_layernorm_residuals(annotated)
+            if self.float_logits:
+                self._float_logits(annotated)
         return model
+
+    def _float_logits(self, annotated: list[Node]) -> None:
+        """Drop the output spec of a linear read only by the graph output.
+
+        Nothing else reads the linear's output, so no other spec shares it; its
+        inputs keep their specs, so it still reads int8 activations and weights.
+        """
+        for node in annotated:
+            if node.target != torch.ops.aten.linear.default or not node.users:
+                continue
+            if all(user.op == "output" for user in node.users):
+                node.meta["quantization_annotation"].output_qspec = None
 
     def _float_layernorm_residuals(self, annotated: list[Node]) -> None:
         """Drop the annotations that quantize the residual stream of LayerNorm blocks.
