@@ -234,6 +234,24 @@ ImageNet's.
 - `--recipe` picks a named `QuantRecipe`. `--calibrate-on-dataset N` calibrates
   on N held-out dataset images instead, as an analysis, not a recipe.
 
+`accuracy/evaluate_board.py` measures the same on the board. It quantizes as
+`evaluate.py` does, compiles as the sweep does, and runs the model on the first
+`--n` images of the same split in one `C7xVirtualMachine` session, so the module
+loads once:
+
+```bash
+cd tests/ti-dsp-runtime
+C7X_DATASETS_DIR=~/datasets python accuracy/evaluate_board.py resnet18 \
+    --board beagley-ai --n 200 --work /tmp/acc --out board.json
+```
+
+The report's `quant` and `board` hold `evaluate.py`'s metrics for the Q/DQ graph
+and for the board, each against float, and `board_vs_quant` how closely the
+board follows the Q/DQ graph. `--stage prepare` compiles and saves the inputs and
+host logits under `--work`, and `--stage run` uses the board, so one model can
+compile while the board runs another. Never run two `--stage run` at once on
+one board.
+
 Per-layer error and MMALIB coverage aren't measured yet. Its unit tests
 (`accuracy/test_accuracy_harness.py`) need no dataset and aren't in a CI stage yet.
 

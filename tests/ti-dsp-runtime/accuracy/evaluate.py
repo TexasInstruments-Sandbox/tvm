@@ -66,6 +66,23 @@ _LOAD_CHUNK = 32
 _LOAD_THREADS = 4
 
 
+def image_loader(preprocess: Callable) -> Callable[[Path], torch.Tensor]:
+    """Return a function that loads one image as the model's [1, C, H, W] input."""
+
+    def load(path: Path) -> torch.Tensor:
+        image = load_image(str(path))
+        if image is None:
+            raise FileNotFoundError(path)
+        tensor = preprocess(image)
+        assert isinstance(tensor, torch.Tensor)
+        # The transform returns a channels-last view, and the Q/DQ graph's output
+        # depends on input layout (the float model's doesn't). NCHW is what the
+        # DSP is given, so measure that.
+        return tensor.unsqueeze(0).contiguous()
+
+    return load
+
+
 def _quantize(
     model: torch.nn.Module,
     load: Callable[[Path], torch.Tensor],
@@ -152,18 +169,7 @@ def evaluate(
     split = imagenetv2_split(datasets_dir(), n_eval, calibrate_on_dataset, seed)
     model, preprocess, weights = load_model_with_preprocessing(model_name)
     model = model.eval()
-
-    def load(path: Path) -> torch.Tensor:
-        image = load_image(str(path))
-        if image is None:
-            raise FileNotFoundError(path)
-        tensor = preprocess(image)
-        assert isinstance(tensor, torch.Tensor)
-        # The transform returns a channels-last view, and the Q/DQ graph's output
-        # depends on input layout (the float model's doesn't). NCHW is what the
-        # DSP is given, so measure that.
-        return tensor.unsqueeze(0).contiguous()
-
+    load = image_loader(preprocess)
     quantized = _quantize(model, load, recipe, split.calibration_paths)
 
     float_logits, quant_logits = [], []

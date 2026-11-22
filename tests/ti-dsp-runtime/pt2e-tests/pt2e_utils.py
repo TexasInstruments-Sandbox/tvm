@@ -1,9 +1,10 @@
 """Shared helpers for PT2E quantizer end-to-end DSP tests.
 
-Three public functions covering the full quantization and compilation pipeline:
+Four public functions covering the full quantization and compilation pipeline:
 
   quantize_pt2e            –  float PyTorch model → calibrated Q/DQ GraphModule
-  e2e_quantize_and_import  –  Q/DQ GraphModule → Relax IRModule with weights bound
+  e2e_quantize_and_import  –  float PyTorch model → Relax IRModule with weights bound
+  import_quantized         –  Q/DQ GraphModule → Relax IRModule with weights bound
   run_and_check            –  Relax IRModule → compile → run on DSP
                                → assert correctness vs. PyTorch reference
 
@@ -84,6 +85,13 @@ def e2e_quantize_and_import(
         # as the correctness reference for the DSP result.
         ref_np = quantized_pt(*example_inputs).numpy()
 
+    mod = import_quantized(quantized_pt, example_inputs)
+    input_np = example_inputs[0].numpy()
+    return mod, input_np, ref_np
+
+
+def import_quantized(quantized_pt: GraphModule, example_inputs: tuple) -> tvm.IRModule:
+    """Import convert_pt2e's GraphModule into a Relax IRModule with params bound."""
     # convert_pt2e returns a GraphModule, not an ExportedProgram.
     # Re-export to get the ExportedProgram that from_exported_program requires.
     quantized_ep = torch.export.export(quantized_pt, example_inputs)
@@ -99,10 +107,7 @@ def e2e_quantize_and_import(
 
     # params[0] of "main" is the runtime input tensor; [1:] are the weight/bias params.
     func_params_dict = dict(zip(mod["main"].params[1:], params["main"]))
-    mod = relax.transform.BindParams(func_name="main", params=func_params_dict)(mod)  # pyright: ignore[reportArgumentType]
-
-    input_np = example_inputs[0].numpy()
-    return mod, input_np, ref_np
+    return relax.transform.BindParams(func_name="main", params=func_params_dict)(mod)  # pyright: ignore[reportArgumentType]
 
 
 def run_and_check(
