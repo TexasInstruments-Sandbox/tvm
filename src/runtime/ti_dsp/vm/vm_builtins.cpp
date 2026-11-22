@@ -65,12 +65,13 @@ int32_t g_reg_file_size = 0;
 /*!
  * \brief Deleter for reshape view NDArrays
  *
- * Reshape creates a view that shares data with the source array.
- * This deleter just frees the NDArray struct itself - it does NOT
- * free the data buffer (owned by the source array).
+ * Reshape creates a view that shares data with the source array and holds a
+ * reference to it in storage_ref, so the source's memory outlives the view.
+ * This frees the view's struct and releases that reference.
  */
 void ReshapeViewDeleter(TVMFFIObject* obj) {
-  /* Just free the NDArray struct - data is shared with source */
+  auto* view = reinterpret_cast<TVMDSPNDArray*>(obj);
+  TVMFFIObjectDecRef(static_cast<TVMFFIObject*>(view->storage_ref));
   tvm_dsp_free(obj);
 }
 
@@ -735,6 +736,10 @@ int TVMDSPBuiltinReshapePacked(const TVMFFIAny* args, int32_t num_args,
   result->ndim = new_ndim;
   result->byte_offset = arr->byte_offset;
   result->strides = nullptr;
+  result->flags = 0;
+  /* The view has no claim on the source's memory, so hold the source. */
+  result->storage_ref = arr.get();
+  arr->ref_counter++;
 
   /* Copy new shape - stored inline after the struct */
   result->shape = reinterpret_cast<int64_t*>(result.get() + 1);
@@ -793,6 +798,10 @@ TVMDSPNDArray* TVMDSPBuiltinReshapeDirect(TVMDSPNDArray* arr,
   result->ndim = shape_size;
   result->byte_offset = arr->byte_offset;
   result->strides = nullptr;
+  result->flags = 0;
+  /* The view has no claim on the source's memory, so hold the source. */
+  result->storage_ref = arr;
+  arr->ref_counter++;
 
   /* Copy new shape - stored inline after the struct */
   result->shape = reinterpret_cast<int64_t*>(result.get() + 1);
