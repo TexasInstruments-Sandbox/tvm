@@ -1582,18 +1582,14 @@ bool CodeGenCStaticLib::EmitDirectVMBuiltinCallClean(const FFICallPattern& patte
         this->PrintIndent();
         this->stream << "TVMFFIAny _tuple_args[" << pattern.num_args << "];\n";
 
-        // Copy each argument to temp array (with IncRef for objects)
+        // Copy each argument to temp array. MakeTupleArray takes its own
+        // reference to each element, which the tuple's deleter releases.
         for (int i = 0; i < pattern.num_args; i++) {
           const PackedArgInfo& arg = pattern.args[i];
           if (arg.type == PackedArgInfo::kArray) {
             this->PrintIndent();
             this->stream << "_tuple_args[" << i << "] = _" << arg.source_array
                          << ".GetAny(" << arg.source_index << ");\n";
-            // IncRef for object types
-            this->PrintIndent();
-            this->stream << "if (_tuple_args[" << i << "].type_index >= kTVMFFIStaticObjectBegin && "
-                         << "_tuple_args[" << i << "].v_obj != nullptr) "
-                         << "_tuple_args[" << i << "].v_obj->ref_counter++;\n";
           }
         }
 
