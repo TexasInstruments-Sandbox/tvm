@@ -122,39 +122,56 @@ void* tvm_dsp_memory_pool_alloc(TVMDSPMemoryPoolDesc* pool, size_t size, size_t 
   size_t header_size = sizeof(TVMDSPAllocHeader);
   size_t total_size = header_size + align_up(size, alignment);
 
-  /* First, try to find a suitable block in the free list */
+  /* First, reuse the smallest free block that fits. Blocks are never split,
+   * so taking the first fit would let a small request take a large block and
+   * send the next large request to the bump allocator: a model run many times
+   * in one session would grow the pool on each inference. With the smallest
+   * fit, a repeat of the same allocations reuses the blocks it freed. */
+  TVMDSPAllocHeader** best_prev = NULL;
+  size_t best_size = 0;
+  void* best_ptr = NULL;
   TVMDSPAllocHeader** prev_ptr = (TVMDSPAllocHeader**)&pool->free_list;
   TVMDSPAllocHeader* curr = (TVMDSPAllocHeader*)pool->free_list;
 
   while (curr != NULL) {
     /* Check if this block is large enough */
     size_t block_size = curr->size + header_size;
-    if (block_size >= total_size) {
+    if (block_size >= total_size && (best_prev == NULL || block_size < best_size)) {
       /* Check alignment */
       void* user_ptr = (void*)((uint8_t*)curr + header_size);
       void* aligned_ptr = ptr_align_up(user_ptr, alignment);
       size_t padding = (uint8_t*)aligned_ptr - (uint8_t*)user_ptr;
 
       if (block_size >= total_size + padding) {
-        /* Remove from free list and return */
-        *prev_ptr = curr->next;
-
-        /* Reinitialize header */
-        curr->magic = TVM_DSP_ALLOC_MAGIC;
-        curr->next = NULL;
-
-        pool->allocated += block_size;
-        if (pool->allocated > pool->peak) {
-          pool->peak = pool->allocated;
+        best_prev = prev_ptr;
+        best_size = block_size;
+        best_ptr = aligned_ptr;
+        if (block_size == total_size) {
+          break; /* Exact fit: nothing smaller can fit */
         }
-        pool->num_allocs++;
-
-        /* Return aligned pointer */
-        return aligned_ptr;
       }
     }
     prev_ptr = &curr->next;
     curr = curr->next;
+  }
+
+  if (best_prev != NULL) {
+    /* Remove from free list and return */
+    TVMDSPAllocHeader* best = *best_prev;
+    *best_prev = best->next;
+
+    /* Reinitialize header */
+    best->magic = TVM_DSP_ALLOC_MAGIC;
+    best->next = NULL;
+
+    pool->allocated += best_size;
+    if (pool->allocated > pool->peak) {
+      pool->peak = pool->allocated;
+    }
+    pool->num_allocs++;
+
+    /* Return aligned pointer */
+    return best_ptr;
   }
 
   /* No suitable block in free list, use bump allocator */
