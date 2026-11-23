@@ -128,8 +128,9 @@ zero bias -- fixed via `_resolve_constant_tensor` in
 | TVM pass bug hit after quantization, not root-caused | 1 | `_EXCLUDED_QUANT_BUG` |
 
 All of the remaining 67 pass on `c7x_dload` with MMALIB on BeagleY-AI (full
-sweep 2026-11-20, firmware service 5.2.0, firmware and modules built with cl7x
-6.2.1.LTS, 8-bit MMALIB conv requant multipliers).
+sweep 2026-11-23, firmware service 5.2.0, firmware and modules built with cl7x
+6.2.1.LTS at commit 4ea4a66fb6, 8-bit MMALIB conv requant multipliers). Their
+accuracy and cycles are in [Results on BeagleY-AI](#results-on-beagley-ai).
 
 Each model must give the reference's top-1 class, or a class the reference
 scores within `_TOP1_TIE` (0.25) of it, and, with MMALIB, stay within
@@ -254,6 +255,130 @@ one board.
 
 Per-layer error and MMALIB coverage aren't measured yet. Its unit tests
 (`accuracy/test_accuracy_harness.py`) need no dataset and aren't in a CI stage yet.
+
+## Results on BeagleY-AI
+
+Measured 2026-11-22 and 23 with firmware and modules built at commit 4ea4a66fb6
+(cl7x 6.2.1.LTS, MMALIB, `--board beagley-ai`). Each model is quantized with
+the `baseline-calib-images` recipe, as in the per-model tests, and measured on
+ImageNetV2 MatchedFrequency. Read the changes against float, not the absolute
+accuracies (see [Measuring accuracy](#measuring-accuracy)).
+
+| Column | Meaning |
+|---|---|
+| Mcycles | Median DSP cycles per inference over the 200 board images, from `evaluate_board.py`. A single sweep run's `cycles.csv` agrees within 1% for the median model and differs by up to 12% for a few small ones, such as regnet_x_3_2gf and mnasnet0_75 |
+| Float top-1 % | The float model in PyTorch on 5,000 images, or 2,000 where Δtop-1 is marked † |
+| Δtop-1, Δtop-5 | Fake-quant minus float on the same images, in percentage points, from `evaluate.py`. ± is the standard error of Δtop-1 |
+| Board Δtop-1 | The board minus float on the first 200 of those images, from `evaluate_board.py`, and in parentheses fake-quant on the same 200. One image is 0.5 pp and the standard error about 1 pp, so compare the board with the value in parentheses, not with the Δtop-1 column |
+| Board = fake-quant top-1 % | How often the board and the Q/DQ graph pick the same top-1 class on those 200 images |
+| `dog.jpg` cosine | The sweep's check: the cosine of the DSP and fake-quant logits on `dog.jpg`. The sweep calibrates on `dog.jpg` itself, not on `calib_images/` |
+
+Top-1 is the measure to read. Top-5 changes by no more than top-1 for 45 of
+the 67 models and by more than 0.5 pp beyond it for 4 (densenet121,
+regnet_y_1_6gf, vit_b_16 and wide_resnet50_2), so it rarely changes the
+picture.
+
+| Model | Mcycles | Float top-1 % | Δtop-1 pp | Δtop-5 pp | Board Δtop-1 pp (fake-quant) | Board = fake-quant top-1 % | `dog.jpg` cosine |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| alexnet | 369 | 42.8 | −0.4 ± 0.2 | +0.1 | −0.5 (−1.0) | 94.5 | 0.9999 |
+| convnext_small | 14,872 | 73.3 | −2.1 ± 0.5 † | −0.9 | −3.0 (−2.5) | 98.0 | 0.9972 |
+| convnext_tiny | 8,174 | 70.7 | −0.5 ± 0.3 | −0.4 | +0.5 (+0.5) | 96.0 | 0.9941 |
+| densenet121 | 1,715 | 60.6 | −0.3 ± 0.3 | −0.9 | +0.5 (+0.0) | 96.0 | 0.9983 |
+| densenet161 | 3,592 | 64.2 | −0.4 ± 0.3 | −0.2 | −0.5 (+0.5) | 96.5 | 0.9977 |
+| densenet169 | 2,187 | 62.2 | −0.5 ± 0.3 | −0.8 | −1.0 (−1.5) | 92.5 | 0.9979 |
+| densenet201 | 3,210 | 63.9 | −0.9 ± 0.3 | −0.8 | −3.5 (−2.0) | 93.0 | 0.9984 |
+| efficientnet_b0 | 204 | 64.7 | −3.0 ± 0.4 | −2.0 | −1.0 (−3.0) | 92.0 | 0.9977 |
+| efficientnet_b1 | 315 | 67.4 | −3.6 ± 0.4 | −2.8 | −4.5 (−4.0) | 86.0 | 0.9940 |
+| efficientnet_b2 | 435 | 68.3 | −2.1 ± 0.3 | −1.1 | −3.5 (−3.5) | 97.0 | 0.9984 |
+| efficientnet_b3 | 751 | 70.2 | −1.4 ± 0.3 | −1.2 | +0.0 (−1.0) | 97.0 | 0.9993 |
+| efficientnet_b4 | 1,445 | 72.6 | −3.4 ± 0.4 | −1.4 | −5.0 (−4.5) | 96.5 | 0.9969 |
+| efficientnet_b5 | 2,306 | 72.5 | −4.4 ± 0.6 † | −2.9 | −3.0 (−3.5) | 97.5 | 0.9994 |
+| efficientnet_v2_l | 6,435 | 75.5 | −3.8 ± 0.6 † | −2.5 | −3.5 (−3.5) | 99.5 | 0.9987 |
+| efficientnet_v2_m | 2,241 | 74.0 | −1.7 ± 0.5 † | −1.3 | −3.0 (−2.0) | 97.0 | 0.9977 |
+| efficientnet_v2_s | 779 | 73.0 | −1.9 ± 0.5 † | −0.6 | −2.5 (−2.0) | 95.5 | 0.9981 |
+| googlenet | 174 | 56.7 | −0.3 ± 0.2 | −0.5 | −0.5 (−0.5) | 93.5 | 0.9983 |
+| inception_v3 | 2,203 | 64.8 | +0.0 ± 0.3 | −0.1 | −1.5 (−0.5) | 95.5 | 0.9969 |
+| mnasnet0_5 | 37 | 53.1 | −1.6 ± 0.4 | −1.8 | +0.5 (−2.0) | 89.0 | 0.9893 |
+| mnasnet0_75 | 54 | 57.5 | −0.4 ± 0.3 | −0.9 | +0.5 (−0.5) | 92.5 | 0.9950 |
+| mnasnet1_0 | 193 | 59.8 | −1.2 ± 0.3 | −0.7 | +0.5 (+1.0) | 94.0 | 0.9986 |
+| mnasnet1_3 | 92 | 63.6 | −1.1 ± 0.3 | −0.5 | −1.0 (−2.0) | 94.0 | 0.9961 |
+| mobilenet_v2 | 50 | 59.0 | −0.4 ± 0.3 | −0.1 | −0.5 (−1.5) | 95.5 | 0.9989 |
+| mobilenet_v3_large | 61 | 60.8 | −3.8 ± 0.4 | −2.6 | −3.0 (−2.5) | 93.5 | 0.9927 |
+| mobilenet_v3_small | 52 | 53.8 | −6.1 ± 0.5 | −5.4 | −5.5 (−8.5) | 79.5 | 0.9956 |
+| regnet_x_16gf | 274 | 71.9 | +0.1 ± 0.3 † | +0.1 | +1.5 (+0.0) | 96.5 | 0.9956 |
+| regnet_x_1_6gf | 81 | 66.8 | −0.0 ± 0.3 | −0.4 | −2.5 (−1.5) | 92.5 | 0.9952 |
+| regnet_x_32gf | 509 | 71.7 | −0.5 ± 0.4 † | +0.2 | −0.5 (+0.0) | 98.0 | 0.9986 |
+| regnet_x_3_2gf | 64 | 68.7 | −0.5 ± 0.3 | −0.1 | +0.0 (−0.5) | 93.0 | 0.9923 |
+| regnet_x_400mf | 17 | 61.3 | −1.0 ± 0.4 | −1.2 | −3.5 (−3.0) | 93.5 | 0.9903 |
+| regnet_x_800mf | 24 | 64.6 | −0.1 ± 0.3 | −0.1 | −0.5 (+0.5) | 90.0 | 0.9927 |
+| regnet_x_8gf | 124 | 70.0 | −0.1 ± 0.4 † | −0.2 | +1.5 (+1.0) | 95.0 | 0.9949 |
+| regnet_y_16gf | 517 | 71.5 | −4.4 ± 0.8 † | −3.2 | −8.0 (−8.0) | 88.0 | 0.9968 |
+| regnet_y_1_6gf | 173 | 68.7 | +0.1 ± 0.3 | −0.5 | +2.0 (+1.5) | 93.0 | 0.9939 |
+| regnet_y_32gf | 959 | 72.2 | +0.1 ± 0.4 † | −0.0 | −1.5 (−1.0) | 95.5 | 0.9983 |
+| regnet_y_3_2gf | 193 | 70.5 | −1.5 ± 0.3 | −0.4 | +0.0 (+0.5) | 94.5 | 0.9966 |
+| regnet_y_400mf | 79 | 62.7 | −1.6 ± 0.3 | −1.2 | −3.0 (−2.5) | 86.5 | 0.9939 |
+| regnet_y_800mf | 79 | 66.0 | −1.0 ± 0.3 | −0.8 | +0.0 (+2.0) | 90.5 | 0.9907 |
+| regnet_y_8gf | 353 | 72.5 | −1.3 ± 0.5 † | −0.4 | −3.0 (−3.5) | 94.0 | 0.9942 |
+| resnet101 | 97 | 69.3 | −0.4 ± 0.3 | −0.5 | +2.0 (+0.0) | 94.5 | 0.9971 |
+| resnet152 | 131 | 71.5 | −0.5 ± 0.4 † | −0.3 | −2.0 (−1.0) | 94.5 | 0.9934 |
+| resnet18 | 18 | 55.6 | +0.0 ± 0.2 | +0.0 | −0.5 (−0.5) | 95.5 | 0.9993 |
+| resnet34 | 28 | 59.8 | −0.5 ± 0.3 | +0.1 | +0.0 (−2.0) | 94.0 | 0.9988 |
+| resnet50 | 66 | 69.1 | −0.7 ± 0.3 | −0.5 | +0.5 (+0.5) | 95.0 | 0.9966 |
+| resnext101_32x8d | 233 | 72.0 | +0.3 ± 0.3 † | +0.3 | +1.0 (+1.0) | 96.0 | 0.9956 |
+| resnext101_64x4d | 222 | 72.4 | −0.3 ± 0.4 † | −0.1 | +3.0 (+1.5) | 97.0 | 0.9968 |
+| resnext50_32x4d | 91 | 68.4 | −0.2 ± 0.3 | −0.2 | −0.5 (+0.0) | 95.5 | 0.9975 |
+| shufflenet_v2_x0_5 | 37 | 46.8 | −1.1 ± 0.3 | −0.8 | −1.0 (−2.0) | 82.5 | 0.9938 |
+| shufflenet_v2_x1_0 | 155 | 55.0 | −0.8 ± 0.3 | −0.6 | −1.0 (−0.5) | 93.0 | 0.9952 |
+| shufflenet_v2_x1_5 | 139 | 58.9 | −1.2 ± 0.4 | −0.8 | −2.5 (−3.0) | 95.0 | 0.9954 |
+| shufflenet_v2_x2_0 | 236 | 63.1 | −1.4 ± 0.4 | −0.7 | −2.0 (−1.0) | 92.5 | 0.9948 |
+| squeezenet1_0 | 80 | 43.8 | −0.6 ± 0.3 | −0.4 | −2.0 (−1.5) | 91.5 | 0.9999 |
+| squeezenet1_1 | 50 | 44.5 | −0.9 ± 0.3 | +0.2 | −2.0 (−2.0) | 93.0 | 0.9999 |
+| swin_s | 13,966 | 70.6 | −1.4 ± 0.5 † | −1.7 | −3.5 (−2.5) | 93.0 | 0.9841 |
+| swin_t | 7,643 | 68.8 | −2.2 ± 0.4 | −1.7 | −5.0 (−4.5) | 90.5 | 0.9741 |
+| vgg11 | 180 | 54.6 | −0.1 ± 0.2 | −0.1 | −1.5 (+0.0) | 96.0 | 0.9999 |
+| vgg11_bn | 180 | 56.0 | −0.6 ± 0.3 | −0.5 | +1.0 (+1.0) | 92.5 | 0.9997 |
+| vgg13 | 248 | 56.0 | +0.1 ± 0.3 † | +0.3 | −0.5 (+0.5) | 95.5 | 0.9999 |
+| vgg13_bn | 248 | 57.6 | +0.1 ± 0.3 † | −0.4 | +2.5 (+1.0) | 96.0 | 0.9998 |
+| vgg16 | 312 | 57.7 | −0.5 ± 0.3 † | +0.0 | −1.0 (−1.5) | 98.0 | 0.9998 |
+| vgg16_bn | 312 | 58.7 | −0.4 ± 0.3 † | +0.1 | −1.0 (−0.5) | 96.5 | 0.9997 |
+| vgg19 | 373 | 58.4 | +0.2 ± 0.3 † | +0.2 | −0.5 (−0.5) | 97.5 | 0.9999 |
+| vgg19_bn | 372 | 61.4 | −0.9 ± 0.3 † | −0.3 | −0.5 (−0.5) | 99.0 | 0.9997 |
+| vit_b_16 | 14,806 | 69.0 | −1.9 ± 0.6 † | −2.9 | +0.5 (−2.0) | 92.0 | 0.9886 |
+| vit_b_32 | 3,345 | 62.6 | −0.6 ± 0.3 | −0.1 | −0.5 (−1.0) | 89.0 | 0.9831 |
+| wide_resnet101_2 | 246 | 71.5 | −1.5 ± 0.5 † | −0.7 | −1.5 (−0.5) | 96.5 | 0.9976 |
+| wide_resnet50_2 | 182 | 69.3 | −0.5 ± 0.5 † | −1.1 | −1.5 (−0.5) | 95.5 | 0.9973 |
+
+Of the 67, 40 lose at most 1 pp of top-1, and 7 lose 3 pp or more:
+mobilenet_v3_small (6.1), efficientnet_b5 and regnet_y_16gf (4.4),
+mobilenet_v3_large and efficientnet_v2_l (3.8), efficientnet_b1 (3.6) and
+efficientnet_b4 (3.4). Those losses are in the fake-quant graph on the host, so
+they come from quantization, not from the board. On the same 200 images the
+board's change is within 3 pp of fake-quant's for every model and within 1.5 pp
+for all but 7. Its top-1 agrees with fake-quant's on 79.5-99.5% of the images,
+94.5% for the median model; the lowest are mobilenet_v3_small (79.5%),
+shufflenet_v2_x0_5 (82.5%) and efficientnet_b1 (86.0%).
+
+mnasnet1_0 takes twice mnasnet1_3's cycles, though it is the smaller model.
+That hasn't been explained.
+
+The per-model tests ran in the same queue. Their cycles are single runs from
+`cycles.csv`, beside the sweep's single run of the same TorchVision model; the
+classifiers' accuracy is in the table above. YOLO accuracy isn't measured.
+
+| Test | Mcycles | Same model in the sweep |
+|---|--:|--:|
+| `test_quantized_resnet.py` | 18 | 18 |
+| `test_quantized_resnext101.py` | 233 | 233 |
+| `test_quantized_googlenet.py` | 173 | 175 |
+| `test_quantized_inception_v3.py` | 2,196 | 2,198 |
+| `test_quantized_mobilenet_v2.py` | 52 | 50 |
+| `test_quantized_mobilenet_v3.py` | 59 | 59 |
+| `test_quantized_shufflenet_v2.py` | 37 | 37 |
+| `test_quantized_yolo.py[yolov5n]` | 324 | — |
+| `test_quantized_yolo.py[yolov5s]` | 457 | — |
+| `test_quantized_yolo.py[yolov8n]` | 259 | — |
+| `test_quantized_yolo.py[yolov8s]` | 452 | — |
+| `test_quantized_yolo.py[yolo26n]` | 279 | — |
 
 ## Prerequisites
 
