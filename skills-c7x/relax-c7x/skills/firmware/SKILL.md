@@ -159,6 +159,7 @@ visible in `c7x_compute status`. Bump the major for any incompatible wire or exp
 | 5.0.0 | TVM 0.27 | Built with cl7x 6.2.1.LTS instead of 5.0.1.LTS. No wire change: the major bump keeps this tree's client off firmware built with the old compiler, so firmware and DLOAD modules come from one compiler |
 | 5.1.0 | TVM 0.27 | Exports `c7x_int8_dwconv1d`; modules with an int8 1xK depthwise conv (QuartzNet) import it and fail to load on older firmware |
 | 5.2.0 | TVM 0.27 | Exports `c7x_int8_dwconv1d_relu` (the depthwise conv reading a ReLU's input); modules that fold a ReLU into it fail to load on older firmware |
+| 5.2.1 | TVM 0.27 | DLOAD zero-fills the part of a segment the file doesn't supply (`.bss`). Older firmware leaves it as the block's last user wrote it, so a module loaded where another module ran can start with stale pointers in its statics |
 
 A board flashed from the 0.23 tree reports 3.x; rebuild **and** redeploy firmware and client from
 the same tree, then reboot.
